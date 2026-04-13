@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "62dd7936101f282be04c1066c128c4433e132ca0ff810043abd601e059f9e7d2",
+    marf_hash: "2ba02fe414c647bf9c24ce717cc1a2c92a8dd3627e21c99344ece5a406f229a5",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1b55bdac1fada046b1676cc32fd208854ee5a0b823bc7d5c3d25675c99efce59",
+    marf_hash: "6265ef4f4262d84d5ecfadd3a49b35b748431810f1e76ca14d21a783fccc9324",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9a35cef10be5f092f16481bf476b00f2d40894e0b74b9c566d04ed2e6b792b6e",
+    marf_hash: "4b16baf98a0c46e08b26450d3394ba454af76a6c913a7e4d8220752700e315a5",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "58ea327ff4d41a95c835550e38b85021f96ee27af8607f0f17898dfd005defd5",
+    marf_hash: "ec5774ce062502975f3789388d2c315f36d2ca96b451f66bac14470fa5bd3123",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c3038b8b28a77a1bac36de441e4528f91d740f7bd483411a2cb1833785ecbdf3",
+    marf_hash: "9cf7aff3cb5f9c869e59eeef65642f02d30f740f08f9e82a8fbb96ea2fc63a57",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a399f0f141c77b72413d3cb04b9f7d3b1925f9d3c077fd0f07bcb9785ebf351e",
+    marf_hash: "130a85b7b8cf2324ecbdf2fd865be461cea5e79b6111fa87aeade0784c0a2fd3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dc2145404170db10be3aa126f27ebbfdb11716b32a4cfc005eb39d3082b7c739",
+    marf_hash: "c494726d80551c56e73d8d180cc455eb4bd36257ec61c0ef911f50e6d078829c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b793e87828247301fa52fb2b49025ea50c11d41d7d9bbffe4f134fb61dd6bab1",
+    marf_hash: "f3b2dc6fe2f7e02a7fc6799b3b23ab5d208675ba6e158417c9a198d18527fad6",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "41b8876eae57ca5b4e09e2508df86cc5b83ca71eaf2865ab6f288219dc9deb7e",
+    marf_hash: "ef2115c4acccd00e9f219465dc9709de40ed22946d9f5efa27d4f119b5217459",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: invalid-type-desc-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8158639d783f9870b229e9e478a654f9161b1d84b62ef4085643f6bd4104ff8a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1f1418906975d143dcb4b1f8a7665aea8aa52680c8b99b7d16d498984530c154",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a6069003c8f1958ef8bc3a5627f2399474ce2da6b7e14b6f9f7fc4aee5ab94f3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "849316d886f2c43e1508f5486fb1b0a184dfd305a29f17cb8806dda293f72ea5",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a7c5e610ddb165a54dce4c7a1f092ed6142f4dce21fee73ac7a74fce20fe59de",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "926505903bec9c13a8966cc5bf55f9af8ea1fb10e943426be57b673f26831535",
+    marf_hash: "8f74b238d061aea2b6562c247b2e5d5625c7af0f08e8819ae4e937d0fb7c1f6e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2bdff7b79e6d09ede8f9113a6590eda64b6a2843aed815f46ed8e88337c24bd5",
+    marf_hash: "0ef330c6eeed5f0f71108b1ecd1a673440c2eecef83224fed765fdf7d434dc36",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c85c9399fd121df1a6f4c092b77a14b2a8b8a0f45c4dbc0bc0d58cbce07bbd37",
+    marf_hash: "bc528dce70f2688453429a7db3cb7c0f573dab023411ba2d61320b4ca69892a6",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "29dc8e3901ec58824d21f3728eac569ffa21e0a2c169e28da2cdf3c4ee3420e1",
+    marf_hash: "240cccd0671fd7fb6128220cca101d2fa31310c68f9039f516bbdfb14eb91f6e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "00a432c62917da490670775cd459430e47db25103c1db93d4b731fbbb434e109",
+    marf_hash: "cabd716bdd9bcf18fb519e01ef53060737638d0fc4ee1bdbd5e72daaa8cc2d5e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bdd523a093000a8b6705aabfa36972000a7c1e7f52dd18ebbc937ed1bff1f34c",
+    marf_hash: "fe12c3689858439a7c0493dca7bf16d03620b6bfa2f5c09a2697d9b25651c370",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "956c887f6470393ececeaa0f3ea135abdcd69e30f57800955727a2f75be1c766",
+    marf_hash: "6d75710ce5ea271d5b97c8099a95e5f85773216b3ae5d589322b1ea4e0dbcf58",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "22334793334d7df2a35ab90d38a1d9b5dc3ed4add385ad4f4ddc6cb55a7d0424",
+    marf_hash: "a19fe6077dc191cc83677b7db37cc444ee680ce2aada2210c7bd15c50af00708",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e7eb2b603030e9a965c070de56b232774191dc77fbfe2e82945478deb8488ed2",
+    marf_hash: "109f00e6294d0e446c217bc89b78735f303bab03c63c4fbab3e8ed169c32f283",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8c0d8f0fbc8a3e46885eef68f83b21fbb70892e3515f03a5a9402c0e772cb677",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "953e5c08fdd4d94835090eaeec35bdfe0a1350363d168847f01bc2ff9b2ad1c8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ebed198bf9e57e8de0ea409d6f6a6cf7835395678661e9fbef722521e9c07c8f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e49f5314b9d0e9c839af12bc53f8af4db524fa22502a333d5bfffd1c777619f4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d1538df50006166d44b56eb04f66db1261842c4303f1bcf5dcc8102085e738d8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

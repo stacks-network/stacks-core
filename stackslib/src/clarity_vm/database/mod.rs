@@ -22,7 +22,8 @@ use stacks_common::types::Address;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
+    get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleOwned,
+    SortitionHandleTx,
 };
 use crate::chainstate::nakamoto::{keys as nakamoto_keys, StacksDBIndexed};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
@@ -839,6 +840,11 @@ pub trait SortitionDBRef: BurnStateDB {
         cycle_index: u64,
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError>;
 
+    /// Reopen this DB reference to a new SortitionHandleOwned.
+    /// **NOTE** if a SortitionTx has pending _writes_ they will not appear
+    /// in the reopoened handle.
+    fn reopen_handle(&self) -> SortitionHandleOwned;
+
     /// Return an upcasted dynamic reference for the sortition DB
     fn as_burn_state_db(&self) -> &dyn BurnStateDB;
 
@@ -847,7 +853,7 @@ pub trait SortitionDBRef: BurnStateDB {
     fn sqlite_conn(&self) -> &Connection;
 }
 
-fn get_pox_start_cycle_info(
+pub fn get_pox_start_cycle_info(
     handle: &mut SortitionHandleConn,
     parent_stacks_block_burn_ht: u64,
     cycle_index: u64,
@@ -887,6 +893,15 @@ impl SortitionDBRef for SortitionHandleTx<'_> {
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
     }
 
+    fn reopen_handle(&self) -> SortitionHandleOwned {
+        let marf = self
+            .index()
+            .reopen_readonly()
+            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
+        let context = self.context.clone();
+        SortitionHandleOwned { marf, context }
+    }
+
     fn as_burn_state_db(&self) -> &dyn BurnStateDB {
         self
     }
@@ -909,6 +924,15 @@ impl SortitionDBRef for SortitionHandleConn<'_> {
         let mut handle = SortitionHandleConn::new(&readonly_marf, context);
 
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
+    }
+
+    fn reopen_handle(&self) -> SortitionHandleOwned {
+        let marf = self
+            .index
+            .reopen_readonly()
+            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
+        let context = self.context.clone();
+        SortitionHandleOwned { marf, context }
     }
 
     fn as_burn_state_db(&self) -> &dyn BurnStateDB {
@@ -992,6 +1016,10 @@ impl BurnStateDB for SortitionHandleTx<'_> {
 
     fn get_pox_4_activation_height(&self) -> u32 {
         self.context.pox_constants.pox_4_activation_height
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_5_activation_height
     }
 
     fn get_pox_prepare_length(&self) -> u32 {
@@ -1130,6 +1158,10 @@ impl BurnStateDB for SortitionHandleConn<'_> {
 
     fn get_pox_4_activation_height(&self) -> u32 {
         self.context.pox_constants.pox_4_activation_height
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_5_activation_height
     }
 
     fn get_pox_prepare_length(&self) -> u32 {

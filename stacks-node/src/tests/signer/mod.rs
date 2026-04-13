@@ -77,7 +77,7 @@ use crate::nakamoto_node::miner::TEST_MINE_SKIP;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    naka_neon_integration_conf, next_block_and_wait_for_commits, POX_4_DEFAULT_STACKER_BALANCE,
+    naka_neon_integration_conf, next_block_and_wait_for_commits, POX_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
@@ -1809,7 +1809,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     for key in signer_stacks_private_keys {
         initial_balances.push(InitialBalance {
             address: to_addr(key).into(),
-            amount: POX_4_DEFAULT_STACKER_BALANCE,
+            amount: POX_DEFAULT_STACKER_BALANCE,
         });
     }
     naka_conf.initial_balances.append(&mut initial_balances);

@@ -1112,6 +1112,8 @@ impl Burnchain {
             block,
             cur_epoch.epoch_id,
         )?;
+        let p2wsh_outputs =
+            BurnchainDB::get_watched_outputs_at_block(burnchain_db.conn(), &header.block_hash)?;
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
@@ -1123,6 +1125,7 @@ impl Burnchain {
             false,
             &header,
             blockstack_txs,
+            p2wsh_outputs,
             burnchain,
             &sortition_tip,
             None,
@@ -1302,7 +1305,7 @@ impl Burnchain {
                             });
 
                     let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
+                    let burnchain_block = parser.parse(ipc_block, cur_epoch.epoch_id)?;
                     let parse_end = get_epoch_time_ms();
 
                     debug!(
@@ -1682,7 +1685,7 @@ impl Burnchain {
                             });
 
                     let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
+                    let burnchain_block = parser.parse(ipc_block, cur_epoch.epoch_id)?;
                     let parse_end = get_epoch_time_ms();
 
                     debug!(

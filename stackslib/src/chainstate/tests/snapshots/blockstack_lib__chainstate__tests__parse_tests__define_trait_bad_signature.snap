@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/parse_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "6fda82bc36980231cb64a6a881bae875a1d218491c7f00bbdf46320d61ab65d2",
+    marf_hash: "6aa21e797e8b90ba80dd2db2461273036d062de832735fd98c93a6ba8eb13a4e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0f371b59f9b69c81271e7ecd61013d60fc0a1f6fd581582c8f2c2879d9ac3174",
+    marf_hash: "845f80c56e936c0a0bfc3a4fa46182f11ce6b214fdf655b6b44a1725fc4cdf2f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "386359ff553ca81bf1bb578067feb2ff084cb324900fd8d7f840a3d697a2f389",
+    marf_hash: "f1e2cff5b8ec5b8dec12940f6dae931fd75c5096d27cabcde5de261d4d59e0cd",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2aa588ddd762f75a7beede83f93906d10817c01c0195ce886fbf56390632f2f3",
+    marf_hash: "dd9d2e3a3fcc8b99641475fc15e2f44f7331a9b98edebcf427c62727a4065ec5",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b17e9b3d6903b22568607dadeca2f9bdfe2563af6621ff7997620268c76889e2",
+    marf_hash: "758d3e76b3b55fd35fde84981f0981c599266196883ea0165da9c71c11e7ff06",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8462008e411f9612741cb833f572fb1ef578e22be1ee52980e613490191b9b08",
+    marf_hash: "c96dd1be9f7ced188e5f6caef322d7a666085469cb1acc8743b33db7d74b8e4a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c5355e48886d9768ab1b6b8da5acae1de1fd416bb2ef8f3d397ae3d30bea2680",
+    marf_hash: "17521abaf3298dfee4492d2b19438add651e1f174ea333e2230fba6ffc62bfaa",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "697fe15a015bced67c60fa447480f45d525c0d6269ee07c7c924f62942efea92",
+    marf_hash: "bb75d91dd7f6fe6e669be433d63527bbd218a8be5f412c4c433516d045b673f9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0d9224f3479fcad8f0450ce017489cdd39f9f8f1a9979810c4bb7808345af6dd",
+    marf_hash: "ee7d68a57e57966be1d9e1bbf5c89283c15d2b496a555afa3220cafa57e60364",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some((define-trait ...) expects a trait name and a trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 531,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 531,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "93eb4e21758e649d3e71333e837305f046a0494def896b857738a5003eb60661",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some((define-trait ...) expects a trait name and a trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 531,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 531,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "04a4435c3063de0abb90c5043886a5bd9dc726f626b1aaf3fc51271be5a7db6f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some((define-trait ...) expects a trait name and a trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 531,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 531,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bddb920268fdfb3bec59e0cf02ad371be8f8fab5fc5c2c7b36e17bf7eaeb3158",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some((define-trait ...) expects a trait name and a trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 531,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 531,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "36e7897d46373104986a5f9fd7b22c2aac107464e363d297bc70f527da7fd504",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some((define-trait ...) expects a trait name and a trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 531,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 531,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "20c2991f241e177e7d38fe5179d8e3dd0a2564420b93a80e96669678b4a54eaf",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some((define-trait ...) expects a trait name and a trait definition) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

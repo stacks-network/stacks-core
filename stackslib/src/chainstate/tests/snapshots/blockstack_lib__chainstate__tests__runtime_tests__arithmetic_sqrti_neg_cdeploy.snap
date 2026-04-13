@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "ad7b35bd5f4d466320e32b1d4deec893bd88df67602d5c130420cbc5cdc3d678",
+    marf_hash: "5928486ebeba238a13d97125e06985779c4b72c10685258ceb24fdfd85597e44",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4c84c8ee9d1e7de9c93995cb428b0f248be0f8efbdd73bc5334bbd490946f0b1",
+    marf_hash: "b124d7668d53fd4c08bc83301068eb75f7e5f45cd5b3718bc659b37c87bc00af",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8ae264018232906e3685838ed399099e101d4abe82548c2370626d5a25fb3b9c",
+    marf_hash: "1b80c1c0711cfa701496e3ffdace29d26d84f890633bee4013ea58e15e16f2d3",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "173832469c5357cccf8b7670a2a5481e4983abf4e7df8414e15febc63cb86f67",
+    marf_hash: "cf7d3a2b2732cc96196edf50140484e25a552e71282818b5c8c3f621c345a3b8",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a985d240c6f451a6c82b2a59f6930c528e76d94f1cec630d82f6e6c397e16860",
+    marf_hash: "4f4059a6a821de3d6dc40a17450616acce11989af10768d75dd4b7ecf5dcf1b2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "34807a012de049c8ce0119ea0dc97f38212fa3871ccdae973968ed9148ff04f1",
+    marf_hash: "74772e53a60380548cbdae58658beaa34c54a2cc279e0ac659c4036398947fb9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7e176b7aeadb41714fad32b7dfc90b852bfbc41a827aeabbababa9716da4e18c",
+    marf_hash: "3e4bfecee2c0e6fac69e72588f168842967a747481d1ef3a9c2fcaa7729666db",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f16bcedf3c341c5220c80609150e4500a43096295c44525ae77efd734da4f04e",
+    marf_hash: "c528c344dc4cc2d9b8923cb9b2209d0d930045759586341b4133b0bf21a1d05d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4587ea7d4a9c39f77c919fe936fd09d014150cd223817a7917c6dc2b5182cec5",
+    marf_hash: "095a8d30d13cb2c75d792a174cfc86bfc00b08347b8baaeb4069afef58b5e2fa",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: sqrti-neg-deploy-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9184,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9184,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0654c31f3b145c39f3d9d6d673d1e13bba973d2add6e2ce15ae5165a593d56a9",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9184,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9184,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3953ecebff71767bfae4a846faeaaa559970ed2a2a00b681cb19fbcf22a2e15d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9184,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9184,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "520628d51fc31e0b240d298474fb25f21074ed6977f5e033cf6df20af690b25d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9184,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9184,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5b594df76279125da1a69d686c216beb71c461843719227c3041ea277f41ab12",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9184,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9184,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "85aaf5de49364ac43000da3986773c0c7097863b4d81f1f60d1e633480a0eafb",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

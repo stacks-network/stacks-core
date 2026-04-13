@@ -65,6 +65,7 @@ pub const POX_1_NAME: &str = "pox";
 pub const POX_2_NAME: &str = "pox-2";
 pub const POX_3_NAME: &str = "pox-3";
 pub const POX_4_NAME: &str = "pox-4";
+pub const POX_5_NAME: &str = "pox-5";
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -72,12 +73,19 @@ pub const SIP_031_NAME: &str = "sip-031";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &str = "last-set-cycle";
+/// This is the name of an internal variable in the `.signers` contract which tracks the BTC height
+/// when the most recent reward cycle was updated
+pub const SIGNERS_LAST_UPDATED_BTC_HEIGHT: &str = "last-set-cycle-btc-height";
+/// This is the name of an internal variable in the `.signers` contract which tracks the last 4
+/// (or fewer) percentile ratios for STX/BTC stakes
+pub const SIGNERS_LAST_RATIO_PERCENTILES: &str = "last-cycle-ratio-percentiles";
 pub const SIGNERS_MAX_LIST_SIZE: usize = 4000;
 pub const SIGNERS_PK_LEN: usize = 33;
 
 const POX_2_BODY: &str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &str = std::include_str!("pox-4.clar");
+const POX_5_BODY: &str = std::include_str!("pox-5.clar");
 pub const SIGNERS_BODY: &str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &str = std::include_str!("signers-1-xxx.clar");
@@ -127,6 +135,7 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{POX_3_BODY}");
     pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
+    pub static ref POX_5_CODE: String = POX_5_BODY.to_string();
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -221,6 +230,7 @@ define_named_enum!(PoxVersions {
     Pox2("pox-2"),
     Pox3("pox-3"),
     Pox4("pox-4"),
+    Pox5("pox-5"),
 });
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -291,6 +301,19 @@ impl PoxStartCycleInfo {
 
     pub fn is_empty(&self) -> bool {
         self.missed_reward_slots.is_empty()
+    }
+}
+
+impl PoxVersions {
+    /// Does this PoX version need to perform BTC lookbacks to check the validity
+    /// of its lockups?
+    ///
+    /// This determines whether or not the lookback window needs to be set and read.
+    pub fn performs_btc_lookback(&self) -> bool {
+        match *self {
+            Self::Pox1 | Self::Pox2 | Self::Pox3 | Self::Pox4 => false,
+            Self::Pox5 => true,
+        }
     }
 }
 
@@ -1526,6 +1549,7 @@ pub mod test {
             u32::MAX,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         );
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
@@ -2003,6 +2027,44 @@ pub mod test {
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
                 Value::UInt(max_amount),
                 Value::UInt(auth_id),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_5_lockup(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr: &PoxAddress,
+        lock_period: u128,
+        signer_key: &StacksPublicKey,
+        burn_ht: u64,
+        signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let signature = match signature_opt {
+            Some(sig) => Value::some(Value::buff_from(sig).unwrap()).unwrap(),
+            None => Value::none(),
+        };
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            "pox-5",
+            "stake",
+            vec![
+                Value::UInt(amount),
+                addr_tuple,
+                Value::UInt(burn_ht as u128),
+                signature,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
+                Value::UInt(lock_period),
+                Value::buff_from(vec![]).unwrap(),
             ],
         )
         .unwrap();

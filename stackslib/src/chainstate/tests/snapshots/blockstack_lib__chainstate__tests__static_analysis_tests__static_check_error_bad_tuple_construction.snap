@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "444c5a06a54fa2e685cec36a3840f3174aa69911dfb5ddde5f3d4ca212e87d92",
+    marf_hash: "47455658da47fdbbb4c6f15613c70feece3b4770eb704cb65bef58084f9e3af5",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "79d56b0379d5b39ef6ea44dc99ed32980498d23f9bef962d3bc14014a4d9eaba",
+    marf_hash: "abf0a15835cd36bf9814053e710f984b5fe45c1404f20cb09866a963bf500c14",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "00d816ecc85e66eb6d60d6abde6752d4b1c3ba181e0de8f36a46fa12329af954",
+    marf_hash: "b0d6b19c9c89142fb02e90c91597cb72cfa007fcd30901ac7c35f359d4cb334e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "20af5e87be4e5ece10ec421047b8fc9041a4d9bdf3232ddc49e878e5db530f83",
+    marf_hash: "f435409b1984f8b079632275018b93b6a719bbda50d90915d5ace72dc8bfd05d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "62d64acdd2d6cec1a7dc5fdcf897be51b0ae1d077c4d91881b74f6119f852538",
+    marf_hash: "ff9fab18e73516cdc0d3f0274aa33bd55e2b7c8edcc179129c6e4b24d045ad62",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7fb6bde55bad2086a497a96df147a7fbb05238f03fa1e583db304c88a5483a79",
+    marf_hash: "a669a42e1036ef706de97bc45410abc3bd18d43dcc460640735d34869a7b9863",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f3b648f9e71b367629a808bd628959e217b7ff8cc583b55592a4862326f0084f",
+    marf_hash: "e690fe8c4436722e1be3e5151e92072a169ce480383672f68198598900c5ed07",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "11d54d010b44921888b2afef08cf8dceb50193d42aa94bf54441376d449b844e",
+    marf_hash: "8dc9cc617f2db51bc2b79438cac155892f7b92ced6576167e216a8eb5bb447c1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "65a9ba4975b2b7f172b00d40b62b687d81951cf2d20da7b21f5bee033b16bff8",
+    marf_hash: "9459fac73bab67dd093890160a6e5ec69b32ddb6c0ba5da843b246cdb2303e1a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: bad-tuple-constr-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1030,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e442d7c2924173f48c81ff965f4369a2d5c71a74a06dc21f38efa391d01219c2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1030,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "eaa75d890a1c3ba4f8c34772c0767d3f9cdd0085c7d8655878827b5a5cc438fe",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1030,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d8d89f390a6156d56ed014558fea52c8898d8f4a0e63d0dd7e5527f9e26d6798",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1030,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e46ca141d49377e62bfcf5c63b109613f7701a39cf8235ea01219139aeff97b4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1030,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a0393166124a5764b8533c92aaece94c4e7172c24a7a7577d43e1b9218b358f8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

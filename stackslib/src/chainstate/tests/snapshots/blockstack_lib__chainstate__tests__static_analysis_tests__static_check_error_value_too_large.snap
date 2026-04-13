@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "211b42d624d00706d81266291359f7c670abcc0581947a6543341c3e4b38b2a9",
+    marf_hash: "c124b9ef27ccdc9315e312f4e76437b1cb648d74eb99700d465316f94f7bea03",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6a5062f45da136d95210cb24f24897e9091941a0c69caf6e163cbecf848485a8",
+    marf_hash: "18542d430ea5d9d936e860ad605d378c522fba451b69b29c1a06be707fbb1a9e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6e3b37c6a6f42eccecfad07d3bcb223b448bf4b1bf58942b72a20b5e48bec4a3",
+    marf_hash: "b49185c917d373cc3b39d64018d0681aa2a2a5686a65efdc25856be23f8cd9a3",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c7bbf2c1563507ba3504262592d7fe05b6bd7715f58444688b1e1d4da2dbcb9b",
+    marf_hash: "650e5fbfd6fa53f68d006138b05e8b0813e35b9eb5b0ab1da88daf88ca7c8391",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "69d34e833ef8bc5aa17c51f9ffde2a6670aebc5e6e75eb7c60fb7c3780bbcb14",
+    marf_hash: "4b69cd1d497e8c3c7f2fd7b7b1e7c910455b6aefc14cd70a65a08ab2ce3a26fa",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "19cfd56ab959c37affc62f2f34b40b1ca2838e6105a90693cf83039c9aa5e544",
+    marf_hash: "8195548308d9d62370bde218cc83f9da743451ee23aaf4460c631976bc4c9cda",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a85280d8c4430c453357963ad0a16842de2e286fab3050c2244b2fbf7dec2c4f",
+    marf_hash: "ed1bb4ad88741248b12c5daf1d240e7d43da88d741877f65c444e0fb97e4c4d9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cfc7638cd50dfe65c7eba4ae12dfaf6c9e8642edda50dec5b793b9d6854f3c64",
+    marf_hash: "db3a620859ff73d915820b1cc7ca9497fc378fd11d424758383b6d739bef4d82",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ba4de7fb3a48253bd2b2b259d0f1a07e12eba6622468d8f7661887ad4a870a0e",
+    marf_hash: "922913c2ad45017ea29b581662d82861223965044e9a3aa7e18f4287cdf6ccba",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: value-too-large-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1024,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1024,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2e5ecab67586ddd10031928b4d51865f6b21f7ff9039ff1fa5198c4d4b1b54f0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1024,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1024,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "393ee196690820be4572156fff7b90d0b5912e0667704d6412bc434b414343a5",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1024,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1024,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5a83c70a7ce22783aeae752181a9cca222a6b5f1007d981fc589d855beaac2c2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1024,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1024,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1250051a149fdc582820262c30773c235ef11dd4e0ccd1f08ff5f3539d3bbb96",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1024,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1024,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6d5ac95e10944119655754baeb1131c5c06398dab12b86876570818c98e5003e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

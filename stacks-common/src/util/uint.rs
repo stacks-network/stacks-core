@@ -159,6 +159,11 @@ macro_rules! construct_uint {
             /// padding is expected
             pub fn from_hex_le(hex: &str) -> Option<$name> {
                 let bytes = hex_bytes(hex).ok()?;
+                Self::from_bytes_le(bytes)
+            }
+
+            /// from little-endian byte string
+            pub fn from_bytes_le(bytes: Vec<u8>) -> Option<$name> {
                 if bytes.len() % 8 != 0 {
                     return None;
                 }
@@ -173,6 +178,10 @@ macro_rules! construct_uint {
                     ret[i] = next;
                 }
                 Some($name(ret))
+            }
+
+            pub fn to_bytes_le(&self) -> [u8; $n_words * 8] {
+                self.to_u8_slice()
             }
 
             /// to a little-endian hex string

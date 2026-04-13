@@ -563,6 +563,15 @@ impl Config {
                 burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
                 burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
             }
+
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch35) {
+                // Override pox_5_activation_height to the start_height of epoch3.5
+                debug!(
+                    "Override pox_5_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_5_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_5_activation_height = epoch.start_height as u32;
+            }
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
@@ -727,6 +736,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch33)
             } else if epoch_name == EPOCH_CONFIG_3_4_0 {
                 Ok(StacksEpochId::Epoch34)
+            } else if epoch_name == EPOCH_CONFIG_3_5_0 {
+                Ok(StacksEpochId::Epoch35)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -757,6 +768,7 @@ impl Config {
             StacksEpochId::Epoch32,
             StacksEpochId::Epoch33,
             StacksEpochId::Epoch34,
+            StacksEpochId::Epoch35,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -1721,6 +1733,7 @@ pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
+pub const EPOCH_CONFIG_3_5_0: &str = "3.5";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]

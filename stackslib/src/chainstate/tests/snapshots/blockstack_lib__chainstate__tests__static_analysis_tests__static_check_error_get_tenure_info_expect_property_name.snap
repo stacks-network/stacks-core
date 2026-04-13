@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d76122ea4fbf6e67574f074e164943e028f9db381085ef6603ec6f4c797e2086",
+    marf_hash: "2b3f360e9025c4d0b92fdc9280b4fb9f4eab9a048cb7082932716b2eb5abaf65",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fe1f5396a8eabd94bcc403c285fc86051862ea8f11c03bb7e7dbc3661489aa08",
+    marf_hash: "9ac85d5262cb3fb8479986304a22415e7d042d0e13d02caf1744cba35b239d43",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "69532c7c0dc1fe2ae40692067c613e710758ca5246c3cd4437b7709b3c686b71",
+    marf_hash: "f37ff1ac6e783c0935db69233e4c4921fe64412e753979ebc0f9359a7f1cd195",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "591d4a6675060acc5182ed09b9dab6d9df57fc55cf4d67a55dd70d396c314442",
+    marf_hash: "b10c1bd42ebc68dccedad15946279fb2500b2b58e35b9f2b4cf4d86b9ef7955e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,11 +124,101 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "aeb9d547c2221cbf6dc729a871ec9e2615b66a8483108a174df5056db9e3df90",
+    marf_hash: "eba8d9a5fd4dfce62f29e24e164f4104baec0fc771b177bc9f08eee2cad1ac46",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: tenure-exp-prop-name-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: missing property name for tenure info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 904,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 904,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "69819f2cf4f3993d96812eca5464091d5984cd5fe9cce487141c384d28ef728b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tenure-exp-prop-name-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: missing property name for tenure info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 904,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 904,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1788e88e73dbbbea492494a7cc708170e5b9ed569e24b677e2a356859d2aa811",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tenure-exp-prop-name-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: missing property name for tenure info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 904,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 904,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8ad4e98ccd1d7059fe65e7aa21a7bf2a35ac8e7852560fb23228d047b05e8812",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tenure-exp-prop-name-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: missing property name for tenure info introspection) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

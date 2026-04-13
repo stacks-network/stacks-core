@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "3152afee8664f7d2eb39f398d3838ac12a12a0ba5ec839eb7806d40ad9dd1fff",
+    marf_hash: "3a5e9308b189afc72bcbf0ba7dc699e733dbecf74a1f6cd2296fc429fb6c878a",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c3ab1a257799e0429559572005cf479d33cba19448152d59d7816d3b03d540f8",
+    marf_hash: "b6ef0fb8799fb3c6ceed77791365362e239d802b2788cccdce02a177fb54d9af",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "441eae403812ecc9f1628465431dd015224699b400890abbfb7b07ede40d4179",
+    marf_hash: "c72a359f15443acf2c707be7c7e1786a773e9ed5cfcb6c54fcec187492a2843d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c7d4cfc40a9e075c1a90dcbffc2361cdd8630b9caf4dcd1043797dd77635071b",
+    marf_hash: "a8a151269552d2312fa3db654e260f717d1e77541875dd68334058c98050be18",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d6160ec7e4d7cc23e955d66b89120bf684a66ded61f9d0e80893335895dbd0d9",
+    marf_hash: "a20f828b766a6fc9276ec3866d8e13e4fd5223a88ff6ddaf5b1bbe407a45319b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a297f61a91e4dc3e45ceba32e9d5001fc14428783ff47f3c9bc6625b5f03c9c1",
+    marf_hash: "96890e931a7968db18baa284b81eb4122696b53fdd0bb731fd5d97ba04a57016",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8eeb7253bf578f156d85565ef2a35ec802387cd6c5a8c797c286f2ac4689bffa",
+    marf_hash: "d6e3e9e4aaf3e5120ce23cedb5a77c2f8737eb21cd606b0add4604d98bd8ed77",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "47e34581055656b8a43f50d237ba96d5e0526b64737e31d68a8c297602b420b4",
+    marf_hash: "717dc96949e973aa4ebb8365b7e4bc1d2cf712606917f8f698cfefac985a54f6",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cec1df15d171b239ec85f22a85e4ed9bf74cfe18911d5b84ef747a4c4588c8b0",
+    marf_hash: "4fd3a00e095e51120cbec9a89e32bb41ffc35d0741fb47df5677668426317b0d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: to-uint-negative-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 48,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9291,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 48,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9291,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f8616fb98d78622188f7788771463066762897bf2987bc1d61413be6957ba00f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 48,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9291,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 48,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9291,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "03370412dfb581e0bb0c0d26df0b6f10b3b8ffab3535f29577ee1e42dbfb257d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 48,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9291,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 48,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9291,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "faefd88c481b83f69067c3497f6eabf3c8e40ff856fd0f7d27f8181076cd01a0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 48,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9291,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 48,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9291,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1ddf18a2aec8b8d3a3f90c4dd74b14338660f1b3de3f77343b5c8267396533e2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 48,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9291,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 48,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9291,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3c940a26693fce36fa7870fa6ff752f3a88b584dce7e2a28a7e119ea81e1084c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "926505903bec9c13a8966cc5bf55f9af8ea1fb10e943426be57b673f26831535",
+    marf_hash: "8f74b238d061aea2b6562c247b2e5d5625c7af0f08e8819ae4e937d0fb7c1f6e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cf26fdb2ed4826556759e0f42f971869cf2668af793322cff11af82169b92510",
+    marf_hash: "c8dc450d362d84a516551d0471f462404f7f01c9d2d9c2dd8e2943555a67d472",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "875087c05feeb898ae219542254c32a313206ae7a1cd1be82c112a54ae418ef0",
+    marf_hash: "34aeea406de10d71329cdffa646d4ae05adb0613389fb26dba5ee142e0bf657c",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "db121a05eb416eb289b729acb3f776038a489d01306c5a6b0575745779ca3b2c",
+    marf_hash: "d1852db6346a447a6439eb09e728fba3ac8f10dbc4383c5f7b31e85c2ef0cbb9",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0e368994d0a29ebd04ec4ff3e385200321548f741efed99702986ae353f39562",
+    marf_hash: "d5fe5fe583dd235d08ff7e4fe48b63430fbab8be467e73406f6721fe8ea5e6d7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7088fbd5f0e46286b328a36fdf77d422a82048faf182d5d65b0761a17fcca842",
+    marf_hash: "f8dcd392dd473e3f00f07099454c4d58a0c7f3182f6c435e0c0d9b2033a65dca",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1439ed989e52a1d42c421a6395328fc8688500466b5893b43d0532be2abf8185",
+    marf_hash: "be3420fb166cd92e0c0ce7a4a2a274e5612c874b41737d2dacac382c86fb1eb7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f4f30b7747ecee5ddafd043ec36940e3c6ee89ccb6a5d9d862422b47d6717328",
+    marf_hash: "5a9902d044690eb63f31c4c0de7da14c139dd5e7c0971c209b6c1b175d8e625d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e4908cd11b357b5f23e4b79a3dafead7b0d6a3aae14bd8154118424137a4d592",
+    marf_hash: "9ef9f5eba81366b79de7b47bbaad6175aa33f72ba71cb6b2dc515ccd890cbecd",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: no-such-pub-func-lit-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: contract \'ST000000000000000000002AMW42H.pox-4\' has no public function \'missing-func\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2038,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2038,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "838bc010f06150a3663065eebee8decde0e4b1f56a0d19e33abd64e9416ab7e7",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-pub-func-lit-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: contract \'ST000000000000000000002AMW42H.pox-4\' has no public function \'missing-func\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2038,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2038,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4efb2122c66d7668868d04846d2336a9f691f826251c6f274f63097cfae8dc5e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-pub-func-lit-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: contract \'ST000000000000000000002AMW42H.pox-4\' has no public function \'missing-func\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2038,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2038,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2213c130626eb94e07af536e9b170d79a713e5422efe8dd0efaf8f6ef4f28d2e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-pub-func-lit-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: contract \'ST000000000000000000002AMW42H.pox-4\' has no public function \'missing-func\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2038,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2038,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4ff361154d2ff510ba3839d38fdb982fb87084dd226935a5cc67aefc0cb22e5f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-pub-func-lit-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: contract \'ST000000000000000000002AMW42H.pox-4\' has no public function \'missing-func\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2038,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2038,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "61585a4dac4f5381abaaa37775d1f06ec2153b8401d0db06986a3e11a2d2ec4e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-pub-func-lit-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: contract \'ST000000000000000000002AMW42H.pox-4\' has no public function \'missing-func\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

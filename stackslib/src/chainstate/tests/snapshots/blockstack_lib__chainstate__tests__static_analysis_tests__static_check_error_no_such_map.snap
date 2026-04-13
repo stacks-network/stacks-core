@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "3152afee8664f7d2eb39f398d3838ac12a12a0ba5ec839eb7806d40ad9dd1fff",
+    marf_hash: "3a5e9308b189afc72bcbf0ba7dc699e733dbecf74a1f6cd2296fc429fb6c878a",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e1abc21cc6adec3b43dead851a3b3d8d496d4f375dab4b4bcd3c937adbab16cc",
+    marf_hash: "c8d2e8fc98148f74e252c2d45fc566deecd2285958f07a06140d6b07551ebfe3",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "417b50cdab0ed7db7eed3c229d1ef162bf6b22eb72ac297cc1433268cc1a10f7",
+    marf_hash: "4feeb00b4df59bb7d7713437c7fe4c2b732db5dbf2fb6bad9242b874922d3853",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "38a8ecb67d88552fd9733106e81df4fda2659b9c06b058783499ab7660513191",
+    marf_hash: "c1d9fc3d3c92b9d3c45e3d5a854799e890dd2770020aa1ec51ab79c8c5962e12",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b2dae772c66b00a15791448f3027001f74fa374435dc25f7ca211efee1c4bfe8",
+    marf_hash: "3417605af519d751f8de98696941d6762eb8f738ad4260af61c9498708ba73a9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "25587d1912c7ca145d1532c5a6ceec5eb1fd9118482b7a490e17c30aeb4280eb",
+    marf_hash: "51ded39bdcad2b6d290e68b165b87124a0f477b9a982e971aec2138fe49fd4e5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "33b46cb5f88d114d30877837233e954c10ab705b8985f85060d7f985e15e9320",
+    marf_hash: "0d5eec0d97195570f982d965b9cb802e51d0891d66ce3f1fe93731e6cca006cc",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d8b65efc7efd9ae09ce1be04b39031cc1f0c873986ef88a56c2b73794b4700a4",
+    marf_hash: "33f64de628bffa375a4937ad8eb1ed96dec69a7912c06fc38247145419a82795",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5ff39b705d1130dd86adaeba4efad461ee5c4ebe71544a2aa178ca44d6b4b9ec",
+    marf_hash: "35c1cda452407158b0a9521588e33d85c0e5c7c37822f103f76e291068f5cf9c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: no-such-map-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1406,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1406,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "72ae29d6b5e23ce19e286e5b1b5a864a437030b83f46d7bc734c7de5597cc7a0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1406,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1406,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2860da33ceac10a425bab7ac767523ad30f1d791462be8dc9ba3677ef72289ac",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1406,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1406,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "93ae1ea26ef1259be25c95219755aa42b39df88f14668d09db180d6dd2da87f2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1406,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1406,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b275651bf93a32b1e4fbc4b84742f36bb4190a3d290236d0c76cfabf675d8179",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1406,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1406,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c511c3d623a07f397bb49344cc336be83b3704aa754b9250e9160e6c2ab7fa90",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

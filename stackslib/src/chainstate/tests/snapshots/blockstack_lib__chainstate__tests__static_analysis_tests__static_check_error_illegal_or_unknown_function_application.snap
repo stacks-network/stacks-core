@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "444c5a06a54fa2e685cec36a3840f3174aa69911dfb5ddde5f3d4ca212e87d92",
+    marf_hash: "47455658da47fdbbb4c6f15613c70feece3b4770eb704cb65bef58084f9e3af5",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "62e0b7b41bcddc7448c806042acb535a15f5137fb5d52687bc5370bd7370251a",
+    marf_hash: "9c56570c0b70399676e052f27f537aeda2693ce42ba81580023bdca8771d9fd6",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4498e7c04d167bfae2bed64f325471ae078ccc32173aea5565cda341c8c24eaa",
+    marf_hash: "e089e47c6e6be0a174f82099ff5f1542edc99d328f2d3c37586d1c9b382f959d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a50eb794f9b6cfbc6f5f7de22e384860202cbaf89b728c58677ed97dd0ff04e6",
+    marf_hash: "8ca4612525b02a0bf101e76586694c856121429aab9ec814bd536f1df9ccab61",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7b7b002903d252ff0fe50969bb241cb1b8f00c6f30bb64aa819382185323f4eb",
+    marf_hash: "a6537e6c4b300c73d954c2639440354ff1a77ed34dad5cccf0bc6f59682ae58c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6b9690b70d333e90ecb272e408d9e44af31bca1a71d9c1f0d316320d91ceb34c",
+    marf_hash: "4d54c7960fb17170e1d01bcb29d14f1dd62d3dff4ddfee640f84d8781b5dcf8b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "458e29b44c971a4046e2535e201592d36bbfe20570aafd3f92ad7216a5bb2e3a",
+    marf_hash: "e132d4443eb31e17f5b911708c25d2b54abc8ad648e4edd99c60c0d73f1ad763",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ac77da15a39c94b79b5062935286ec2d07f6cc2749f6fa4d7a31c7fff10f8cd7",
+    marf_hash: "beed9cbbc3fb053816d445e5e3f623c3167e31047a654fd8e74ea232632c2b1d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9d266e3651fcbb807e0e0241711ced5be9b6d61e95ec3fe1b1f72d71a1fa3e96",
+    marf_hash: "ece33e1401fb5a981d59a50ac798b7fa98329a905208746b982ccde2aee32bb0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: illegal-or-unknown-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 961,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 961,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "df3d566d5ca044ac0c3253f543020c0e0897e99de68e00f85a3fdde17ce7d3fa",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: illegal-or-unknown-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 961,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 961,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2d7379ca18f14fa5b5a17ee3d4cb421d2525b617bb9df6679f4cca8fb7010df5",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: illegal-or-unknown-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 961,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 961,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1fccd0b4fd3c7b6f9fbba7f717ac31f33aae210fdaf0b2d219b7aa589ef0b5a0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: illegal-or-unknown-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 961,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 961,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d29f16a982b32a4348616488af4c963123e63ed3039debdabb80e6dd8e15f489",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: illegal-or-unknown-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 961,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 961,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "00dd6783e49ea611da46a633e17d8143f61edf9259baac1401e3ffa5d3ce16c4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: illegal-or-unknown-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

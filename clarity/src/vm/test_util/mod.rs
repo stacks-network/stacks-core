@@ -282,6 +282,10 @@ impl BurnStateDB for UnitTestBurnStateDB {
         u32::MAX
     }
 
+    fn get_pox_5_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
     fn get_pox_prepare_length(&self) -> u32 {
         1
     }

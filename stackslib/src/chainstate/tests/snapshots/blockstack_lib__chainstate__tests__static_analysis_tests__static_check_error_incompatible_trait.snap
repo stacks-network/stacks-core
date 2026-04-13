@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "390e8c2937630db579b064ca28b3bba2a7a633525f46a98d7e286a3ff689a021",
+    marf_hash: "8a9a300c502502dc7169db054d700f6bd6fe1c62a9b5123f740251af882ced44",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fb012058e47184671c694f0b5b1fa72a4da4aabac8a599b327af3d6773c4db53",
+    marf_hash: "72e69141ecf63be2154eca72a6c0cca7f2de4a01864e91fe4aa2bd05713c5e17",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c4f2d330a5a0b13b2730a7ed76cb1f6915ec9d9cbbc775aeb7d5941901fb71f1",
+    marf_hash: "d3d29a0fea9848d3629e10292c4afd5dc5f8ce419db4ec0c516d8e0c480a3880",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9bcea8c7fa8b872210346f469887c020494dbd7fd51dea7aee799d80f7c72b0e",
+    marf_hash: "0a5cb34bff9b67e9f58a3ef70ee3bdefd6e492e78c4925119be43d33e888216d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5cde58f5f113bb2d248d21dfc855670e9f292f919acd72c5624fb17000e3b3a6",
+    marf_hash: "ae339c98fbdb44eafb5896421098553dd68ca4c014c644e8db6e678897780871",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "26a157416e7d884011939178d985add5f29dfb8ed2e96de305ae744bcd774e27",
+    marf_hash: "845b3a366a03efa02968c918f5572992cc85ed156e2cc8970c472957685fedf6",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ca45af087849eaaca81ecdcc21bb28d940f28473af64dc44ffc966d28d6f8060",
+    marf_hash: "09134550420e3c0f36f8c70857cc77a754143dc1a444a81d8096654b46b78085",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "09d4ffb65a9895162551e481d7c0f71c22cbfaf071e50aac36d69120ba66eb61",
+    marf_hash: "68f38780266d75e70a1c024e79ced5e55d56831b7e2b833ed71d80a3c516c256",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,12 +244,162 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "465dec356bac2e5529a61249baffe8b654a98958fdd3dd7529a85b7d0a25a018",
+    marf_hash: "15eb80f134941593681b867105f1d9afe13c2e60d2ab6c2eabd3d7e7ba98f340",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: incompatible-trait-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: trait \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_4-Clarity5.trait-1\' is not a compatible with expected trait, \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_4-Clarity5.trait-2\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10716,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10716,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f316ac9691c3737db13a176b1fa1321a67740f51c56f4200456932d23b513924",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incompatible-trait-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: expecting expression of type \'<ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity1.trait-2>\', found \'<ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity1.trait-1>\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10728,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10728,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "31c3df676b47c3e3c16e83f7b7ddedd9daaeb2281fc68467e7a544f2ffc9c355",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incompatible-trait-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: trait \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity2.trait-1\' is not a compatible with expected trait, \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity2.trait-2\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10716,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10716,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0f3fb3637bd08a52859deff6003c39651d19cd1ddc12cf7789f8548cd60b2f00",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incompatible-trait-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: trait \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity3.trait-1\' is not a compatible with expected trait, \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity3.trait-2\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10716,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10716,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "36af422724fa4dfb38a67396792c0a80ab554f0fad9a94410be25d123364a4fd",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incompatible-trait-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: trait \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity4.trait-1\' is not a compatible with expected trait, \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity4.trait-2\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10716,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10716,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "61ba37fa0374a5c9902fe724335bcbb86817e36adc124db5c1735595d45cc76b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incompatible-trait-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: trait \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity5.trait-1\' is not a compatible with expected trait, \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.incompatible-trait-Epoch3_5-Clarity5.trait-2\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(

@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "b9b99dca26014666f8a8c3fb709f4208d60abedde33ebf5b8122efdf2ae9223c",
+    marf_hash: "b5790f5180f7f9f99e6973b6754a566c3ab2066ad72fa5390638c74b3ea5c4b7",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "382d6cd80d22d06406502ea652d095e7a4b1056878a3ab65980e41c40b1c3f11",
+    marf_hash: "c525b096d67ec87bf17a41a8111c1d45b36f49a530be35ff1af8ce67e949d660",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e9159586d418ce6b2511be91f58385c7c1edc6a6f023b07da6b30656ca289ee3",
+    marf_hash: "09ab44ca8ca39bb1a87e62029662c0640b8b22178922199bc72624c3240e71f7",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "54c720a54c0459d7156b5d6bc5f87d3518a356cfd54021496b81135b41a42709",
+    marf_hash: "8b1deb9767b0ba9126646dec3e3aee2b6d9f1377b19ed90f523c212ff762af62",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "225c604680bfd6cd5fc10681fe0378c99b600ebb3e33407c3f51fb1f87a3c724",
+    marf_hash: "6faa3e8952dbfa9390c1ef40c47b778fcb76143e42324e4ce4026db8ffd352c7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dcdb55bab71ac47bd4c401820673ed3e9a55ccb5661615e737f19a2c8a85b5cb",
+    marf_hash: "3b374f9dc286b4a4d395759fac6b7c7fd5a14523a75e7df1800085ae8aee7c4e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,11 +184,131 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "26367862190ec0141ccce25258c97ff251559e3fd0d92bbed8ecf692f7a0d2d1",
+    marf_hash: "40ab7b6a027f39bcd633830cce4b5834a0a3375392dad1e9e652785aed36dc5f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: serialization-type-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7759,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7759,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "62d3358cbaf70c2566a0b968fe96c3510ce9e80f67f29d938ea846c13c9e037b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7759,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7759,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e35506f8e514a9fcf4107d646ba33181e7b754344d24e6a9632128bd19672b75",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7759,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7759,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f5622bc58332a8ca5b19cbaac3d223806f80edd2bd71c96cdf50679b4456ab9e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7759,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7759,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a4eea80381dca0a84416cc4bf050b79769b1a8c2cb2af2753a40270ff7cdd7a3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

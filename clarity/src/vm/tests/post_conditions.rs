@@ -851,6 +851,9 @@ fn test_restrict_assets_with_stx_transfer_and_burn() {
   (try! (stx-transfer? u10 tx-sender 'SP000000000000000000002Q6VF78))
   (try! (stx-burn? u10 tx-sender))
 )"#;
+    let result_epoch_35 = execute_with_epoch(snippet, StacksEpochId::Epoch35);
+    let expected = Value::error(Value::UInt(0)).unwrap();
+    assert_eq!(expected, result_epoch_35.unwrap().unwrap());
     let result_epoch_34 = execute_with_epoch(snippet, StacksEpochId::Epoch34);
     let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, result_epoch_34.unwrap().unwrap());

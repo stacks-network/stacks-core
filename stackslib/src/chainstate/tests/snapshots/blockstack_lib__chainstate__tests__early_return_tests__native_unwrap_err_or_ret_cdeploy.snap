@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/early_return_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "15dd66288ca01906ba0ca664739933951bcdf032def4578bf42444e509b105ac",
+    marf_hash: "30c9dbca35663f70777dcc93d319e858122c0d64ad323d90ae04f2688b165611",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fd7d78a79e9d271b78a6cd521c2d26e7790eb94f1cbf43ec4a0142771b987584",
+    marf_hash: "286e00cb2be016dd627b8e3c6fd9763103947500363020e898cadc78f709d052",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4921ba42d428e679d895ab6f9e49c6548ace11bad078e44bbfc31dd833f0b1fb",
+    marf_hash: "6d0c860ab078b286172d878eec6e332b5de495a9f95dc4cb3a5c2677eba9736a",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "444b4205070c830e2081177c5e14522bd18d29e43474047b565d239f21f124c1",
+    marf_hash: "daeb6c2338fa39fc29e84c6c140a94a3b005f8058f23f31e343f5c91e4445488",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "54414401776cc62cf4af3b9bc87f1cce5aa0a7ee8c67884d6d1bf64f1d45fccc",
+    marf_hash: "ce06490d372a637583ca52b1bad0f8ab643d59bdd27161b672b9cbbdc7a800e9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4e4dcdb196febed1b47525b5140a823b16eddb3545f19ddaef08ca229e74e80f",
+    marf_hash: "31f4369492495b0887d041bdca0d3b247f1a45f800c2ad1d7d6d0e9a44d737fb",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6f30099f7dcd39eafaf27fe4519e19d15682001d00b09fd9bbdd853f11c803e5",
+    marf_hash: "f8e08d3504e4592f79b2b10644025a6d455221831c7ddebc9e83f31a6f6ed36f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d1ff1825bc54a5ef275d3205585228229618748893ad7e1da26209258290ea92",
+    marf_hash: "86e848e4df46ea5e8697a49f283c745eb776eb1f41f688825f8f4595eb5d017b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d002a4c02f437cc2c51bdf55c3a35affb3e0a9fc3476fbea7e5620a7bb033581",
+    marf_hash: "d5091d64a7ceaa16694ff9591e0319c4099b61a858ccf28b1e352372dd13e163",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: unwrap-err-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(9) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 75,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11503,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 75,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11503,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a26118895c44ed253debf48993a3800b30f4787e23b124757e6c798bc95b2da4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-err-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(9) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 75,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11504,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 75,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11504,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "91d7fea89d3c66d7ae6eff3f45954d3e4503950997a56c6d72455fac5f9b1eb6",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-err-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(9) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 75,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11503,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 75,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11503,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1c2e19d48beb0cacce8e330a35b089ba615ead663a005e39e9309dbf41a3369d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-err-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(9) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 75,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11503,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 75,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11503,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1e027f3ee42af439309dd1b23ebf674b791d15ba1853fa5f37e9c4c533e86d0e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-err-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(9) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 75,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11503,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 75,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11503,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ece696baa82359f9ec0ab99bfe8b9846768fa7a3ed8b47b1d476dd7043a435de",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-err-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(9) })))) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

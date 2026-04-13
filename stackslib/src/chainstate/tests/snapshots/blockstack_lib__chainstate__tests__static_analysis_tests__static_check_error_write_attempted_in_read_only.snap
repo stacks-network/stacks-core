@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "3cb5948637242786ddedd1b46fb4ae8658507bd0365fb7b15969dd9be0f822bf",
+    marf_hash: "ffc6f54c4a2b27a047ef017912b14de87a512a78a97e64824da8e852b6e8e861",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "22cf762714a589b4694b28f7840762379f78b868c40bcd8d1bb9d406587db220",
+    marf_hash: "8951ac068c973a957e83f2acea43b7979817f217eb562ad2fd7de9863203a91d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "abf3e81b8d9f5f47c4a15f6348d429660125fa6749467d21a02201d9a692b847",
+    marf_hash: "3b524efc3b5d8f8aeee3e8ce715c94eafbe33983c12cf1c8dd9f604219e1f8c0",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0728cb5597c19c735f4a7e74435b0659b7f4ca0e6a92351edd58494717118749",
+    marf_hash: "f3eff70ec31169433babdf70192f9549ec25cb430d3d2f2b67e9a403496f0e6f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a05fa1df79403ebc7ed2d7a82c6abc242c2fbc2e5f83aad89641e10ab4230026",
+    marf_hash: "8f02d82be03f913137b9a7d4852b5d1c8e63272808b15de700f829747cc251a2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "97c571b290e130ae1b55c2579ab191abcccf562a3d3fbd10f4b89e7385f3b587",
+    marf_hash: "06701ddccf6ba54fe4787bd6a702e374554d08753101d2dd779325b8293fca70",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "678009de68d1daeed32c37f05c2f851e2dbe0e906bc97afbd6b6d1ccf90388fc",
+    marf_hash: "1e8fb7896cf8e9254e468a62fbe2fca75a1b6128a2bc45fbdeda93eeaffb5b0e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "eb0b362ff0d66bdda05e11d8480a14e69f9039f02e704e8df2dd61494570df24",
+    marf_hash: "7f21fa873cac7424bf9f459cd28f424a9092cbf5061bc59333eb5e521377bcb8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "843d36962b4dee4d073935081d6a97387c6957687b7334f749cdb636f5202e59",
+    marf_hash: "d009de12ed01a53a23e43a00984e86b20d56c4e660916d9ff3065509ab6ac99a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: write-attempted-in-ro-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: expecting read-only statements, detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3075,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3075,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7fea278524103a7c34d5e464e02c5a3a44c7a22422e87389845827079b115979",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: write-attempted-in-ro-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: expecting read-only statements, detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3075,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3075,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5ca5c278054dee0d1262b8cbf0d3602abc550fe5384acf782f80c6f2d79984e2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: write-attempted-in-ro-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: expecting read-only statements, detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3075,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3075,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c155be1e82b8ad95a415a469c3fb1410786079982fad8445f8c411d507daa858",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: write-attempted-in-ro-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: expecting read-only statements, detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3075,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3075,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "62a1e37d6d1025eaf4edf60bb3598ff4093b92aca94a9012f08d413689f86e6c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: write-attempted-in-ro-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: expecting read-only statements, detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3075,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3075,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "040418220f33e034a24ac138b6eafd302673fabee6ab9282fabacb69fef1f338",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: write-attempted-in-ro-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expecting read-only statements, detected a writing operation) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

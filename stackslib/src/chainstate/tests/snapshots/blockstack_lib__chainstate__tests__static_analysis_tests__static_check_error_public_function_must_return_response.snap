@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "2f002f7b10b5cee601a482cfffa96e3f6bfc5b6a2a2fb59fb0412f85d8f70358",
+    marf_hash: "dea35788a7ca65b54deaae34d4b71112e35af5245c39c74b4f4b788adf642c6d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "297bfbc13a616d7de490cd22d8d092c877d8794233c863e943c5927a0dc983ec",
+    marf_hash: "2ee6fbffa1a9b1126990476bda899606ad72cd6350a52eba289ddefd0ef70327",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b1fe12cdca1b68d7162b4b99b78e7a24e0444b295b3c96f24bcc6efbefd6c394",
+    marf_hash: "701c0b7b7773549fa1aeb635067c0f3b22f00b0842865127e272b65554bf3050",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "639b14f6762782cbf4a53d993580cce2aec06142d5d26b5ad331a5a3b56dd507",
+    marf_hash: "ff28a8def78fb680175020c88e71c30d6aff8551a8a2e9968b826437ae757a95",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8bb02c525e4cec3c4446f445228990331d3dc14515bc191a5d45c4fd95e7d841",
+    marf_hash: "daff839d07a613c0350f764e51c4de054804078ed079f3620d66c7be074473bb",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "594a56c131ce30e19d0afef66724d860a33d5116cd73fff9ee1494a262fe9cb1",
+    marf_hash: "66f810da2137a561ac7100fbf82671e2884da17fe5cb3179e9fa47160fa74574",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ab5271c72e5401607f4e08787611594e0fde6756122db2d08654dee65688cb83",
+    marf_hash: "a955595365325974b41854ea18c953ac1dbfec40d6e9b15bc8c859656a66d231",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6f7720e1804c69d13633106643ba12b4d3a7467454fcdb5f547950b4a873c668",
+    marf_hash: "20b0c92c95d4a7f1c5979b7dd855cd79a3bf1b678f16e3e6dc6dceb295b0b5d2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7b736e0f7289a390e32d992f50aaf34bf687290f889d123338207a0bca7ac2c5",
+    marf_hash: "d0e2f03a0ecbf8f464fb7539832c4ab7aefb75eb133578d551c8fddf27693687",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: non-response-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: public functions must return an expression of type \'response\', found \'bool\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1288,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1288,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fb13e4ac00cf150f82dcc4e83472692c0707f61a849b610d66db19f750efde61",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: non-response-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: public functions must return an expression of type \'response\', found \'bool\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1288,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1288,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e651276cc440922d9e9b2efb87aac7645edb1caf77a39a16d8c4bdfd250d5e80",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: non-response-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: public functions must return an expression of type \'response\', found \'bool\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1288,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1288,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6462088246cb37a43981aae134b1d12f0963ded9f5fdd8363195fcde66abf860",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: non-response-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: public functions must return an expression of type \'response\', found \'bool\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1288,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1288,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "69ff1f30944205035ec80e952c17a9068262675b7b07d710c35faa9931d73d4a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: non-response-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: public functions must return an expression of type \'response\', found \'bool\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1288,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1288,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1cedf9366fa68bef79d746b928e290e8038273ab00073f3f30469630667aa896",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: non-response-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: public functions must return an expression of type \'response\', found \'bool\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

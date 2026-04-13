@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "926505903bec9c13a8966cc5bf55f9af8ea1fb10e943426be57b673f26831535",
+    marf_hash: "8f74b238d061aea2b6562c247b2e5d5625c7af0f08e8819ae4e937d0fb7c1f6e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6fba8c61913a90efa47bf23f509b9b4360112a094c55930ad38e428c7eb9b283",
+    marf_hash: "438a96f61f86b28d63a74f87f9795244d266ad9ca47ef58e24242a625fa929ad",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d17efc293882897e16b1d141d801a29845dda280296189bc20054e46f6a260a6",
+    marf_hash: "80a11cfa481676db7c26b70bf8dd5af1403e23cb82c0f99ba80ac0262f8cba1b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a55b3030611fce13e0e601300272420b3c735d5952d71a8c045c31cdbc650c82",
+    marf_hash: "87d7a34ac12139acf805dc17a059c3a5597ed6b9477c806e693d0ef87b321314",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4dee23b61716cd3916adf66e4f39e1f4552d2b2c071e280713fc1e368e7cdbcb",
+    marf_hash: "0f23fca19f10468b197adf2c6d830215f48f1872cfe36fec4ec4b180db426be2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "182b4a97610475c33382ad265ea5c2a40700ce5068b4da47ee5ee4ef7f4238f5",
+    marf_hash: "02ac044fc18b51016151e41223906736857d8cfa255af902105481929897ae82",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6869562946fd404ef24798db7efecc7780240bfe452093e4eaf59aead2727336",
+    marf_hash: "056b29660f83c5d58221e700d702135890c6409751ed0810bbdf19af50e0553f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "abb2f5a9ff47483346c76f393117beb5ece9c213a514ceb85ccb4eb19cbb8e4e",
+    marf_hash: "cf4f2aa959dbb84fa5b734e79dd90d22427f33f69da7220ba64ccaef589c8c40",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "699f27d01dfa06fe5e5779ca50a6e3772b3ebba6ccee4925f5851a56e954438c",
+    marf_hash: "ed2ede4b53a0fd18c3bdf6aecf6a52768c7d1f5b283f1d181dd5c2957cb21f93",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: value-out-of-bounds-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: created a type which value size was out of defined bounds) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 16,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 16,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d99dd75df6d97aff5a93a8288fdf615f1c92585b2538b7986c3277ea2e497006",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-out-of-bounds-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: created a type which value size was out of defined bounds) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 16,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 16,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "51591515f5d11bc9b1a1cf161a0084cebe1cdda8f22d908b101b5c93a6915401",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-out-of-bounds-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: created a type which value size was out of defined bounds) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 16,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 16,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "20aabf1e632263a98d69fd500aab74b3de311b799d973fb3632a3c52cd2b4df9",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-out-of-bounds-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: created a type which value size was out of defined bounds) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 16,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 16,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "866861d532b420b87a47cbc94d93e84ab0fedfd0adfb3f2d678c8d04de87561c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-out-of-bounds-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: created a type which value size was out of defined bounds) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 16,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 16,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b74efeefa2a26d089c7b2591926ac996a20cfd7d73801442d9ff3bdc033e9f52",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: value-out-of-bounds-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: created a type which value size was out of defined bounds) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d11b76da561192f3678940896c84258dc8a80e14a2645f17418130ce11334e95",
+    marf_hash: "a7e98560c6d2b791a679bed6db6abab3975ea478558ac462651806f073c67ade",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "eadcc85f2f2e9d1750f81e86ec20bd8a11a0b0afa722c323dcbd9b2c21f86c7a",
+    marf_hash: "47361cd661c0e83b55df8f42230b5b344f210e7491c2ba8ab1129dd2b2bb9173",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e6263a9d3f1855b3f49ae7f606dadede9cf2482c54885c94f9ae8774965ea3c2",
+    marf_hash: "a570ffcc41332403f36b2b8a90499fdda52398f67900bcb358ed37764e931c3f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "70eaac9676844aca4b12754fa2cb46ae3bd44b0f7e5bdfe4c6a9fd24cf479a65",
+    marf_hash: "14bfa61ac02f01e23c8d2faced553de7f55ea6bd503eb346fec2277fd8017b05",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b79afd535d805e573bf2b3b89b5b1a26a302304cabd3e54a067ebcc825558deb",
+    marf_hash: "abff418ff5feddec6c276ab88f0a74391c25d3104a4eca4cdb6c4f4d3b8946ef",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c567e6b9b28ec0d66a91876a74fb12cea436ccc5dfafe17bf340b7b9b30db5e2",
+    marf_hash: "fd5baa92802e80a3a37de41ae0f801d46f18b43b184fe66861d0294db93dbdf4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0b2fde06ef61f012023edd230e4cc895ee03d8bd55436610cf4d02825b08fa0a",
+    marf_hash: "f3e45da1f6f8b3144bfde5a4225a277976aef0ffdc7ac5e325126c35e078e964",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "adec2c71ff3ce4236dacccdb5be245d864853d9c65292dd8c33077cbc00c36a1",
+    marf_hash: "74035e8eef5b4d9796df98164a23f1dfb5a0f89256706d9e14dde9660c16ecb9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "65cdcb599259e200b1c384024b01a34318436cf726793f3dfb1067c2b27e29e4",
+    marf_hash: "6e86670eb2c87caad8e4f2d013f0d0c227059089fd4953fdd9cf74a317b04ed9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: no-such-nft-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: tried to use asset function with a undefined asset (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1093,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1093,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c40dee21e5dc0f4afce61e55e1398c7c2b435a811b1853196cdcb77a14103f18",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-nft-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: tried to use asset function with a undefined asset (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1093,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1093,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "75dfc888a27eff9ae9895bb232398ff5b04a650fe8635ee80f834b9b2857430d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-nft-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: tried to use asset function with a undefined asset (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1093,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1093,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e5f28ef54cf1180c235602410fe41bb2f6899f47a9e74c5d0011f95e11d6a699",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-nft-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: tried to use asset function with a undefined asset (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1093,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1093,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f9721d66f9af9f61abc8bb172101102765a8133c03beaa3c4596e34a6a53db77",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-nft-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: tried to use asset function with a undefined asset (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1093,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1093,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "064daa5a422e18f938dd06f5f5f9a30c6636538bc3b4494598c23a0baa0c31a3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-nft-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: tried to use asset function with a undefined asset (\'stackoos\')) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

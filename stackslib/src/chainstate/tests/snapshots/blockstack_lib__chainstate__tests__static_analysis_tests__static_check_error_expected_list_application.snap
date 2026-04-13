@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "5c2e749281444e82d273b9778c521168ddad37fadab48f05623b47b0336c07c0",
+    marf_hash: "6a06df3eead3c43dbe3a51cb88f1d86d1e26e2ba0215e5cb549c67c776e7aab4",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cb5f177894d4aef710513276f9ee75dc139dd0b91c7067c9675938ec9d7cec72",
+    marf_hash: "c8c241b5fc968b82689a289e8bc42f45867e2325a09d0b2e007e2e40a7653d95",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3e68db4a8ab8ff139da52ac4f1e392f572641376cd8b35ac4763bf9d7fd163c8",
+    marf_hash: "d961184e5e2bffdf5363db3276f2433232d5b5d40d00ba6a08272b863c0b196b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c8389fcc6fac94ab3c14d1522a676827202dbb1e2193946cdda2d15cecc1f329",
+    marf_hash: "fb59444e36296c1eea60b395c50bb0ff0fdaab1cdfbc0bf4ae36b95df6a687cf",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c9715ce2bd1e81e526bffa90fb2aeb36cb87219a6086af0c4569d27666533412",
+    marf_hash: "c613fb4db4f9307a18d1c0bd89731927512b330f80c0b2ae7e4d46033420c841",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ede6dd43b335a569cc14744a2d2669eb0ed9b6f8370c789fb2f2538b2ee6e272",
+    marf_hash: "a149d0973dd9bd1dd8613f6118257458106a8ba656ddde9fd1a39e063ab36509",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9670c66baddd4a23de7d2f09f99a252e0ef321c9812c7da9d4613fa17f83e949",
+    marf_hash: "c119bf316d02e9ca606db0bd5369db3246a292746a196cd0f9470f906d977a51",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a2a56d041dcce746171574e1fa6ddefca729492de86b8fb88310e400ce5f41c8",
+    marf_hash: "06a02ea90ef1db0eca74ad5b5c5e5450485e990d3e288dd425c0134b366905b4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "03a7190b9789b7c3af5995f6d49e63547142abb6a3d2febd153d4e9a4bf0c854",
+    marf_hash: "bd236f782c979319cbc926908bce97cba6df81542e14aeeaa3cec0ade4d1157f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: expected-list-appl-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2f6be46229f58148f692f53c3e314cd89718598f8788b00e388cbe8b43d3f15a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a0ad467599b2aae0b1aafa5de68208dce835a41d3a393e49b9c97245212ba45c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "81db0a1ad59cadc15a2046a4bdea665842d32d95a75d5778f9764acab2191a2c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0f383c84e85e4734aaf08fc4204c0c43c18012f505dec9a11e97915be2fbbbe3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cf93f2a0de091c4756ca5d4db04e48b7001cc3f0fb24a4903786056cdb03f1e3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

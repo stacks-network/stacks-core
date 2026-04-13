@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "ecd6fc32e8f69d1329b0e93bcc8d895e6c3206433e394669ddac87803ff8ab96",
+    marf_hash: "d90df936e9dbf48761d3f4e2254ae2664567a08a8a2d8ae88156c2bce5c290a8",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "99f13383cac6739f5d6ec2602c308e0ee3063a3c36a87921018105ce8df58242",
+    marf_hash: "f7eb3b6ceb0d6d507d8445ee3b9ff73230c0c3fcec35c3a250d2f5d7b34ad3f9",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a33d0dcc6a30356e8c7e67bb444daff06a8ff3a97a2cf07c0077735e7f3fe483",
+    marf_hash: "144cca95fdee5bac3d05bfecf0b3f470452d93c678d0c7b057d84aecb7954290",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cfa95c9b6e7a680f125e6ba0d0eb26aa917a8c251782f3df50302cc302c9e640",
+    marf_hash: "b0c59c8caff192ab801f5d375b02527387e18e0b5ea2d010f5a818c7cc03f9bd",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d65b26fe48f84144c2cfa9d8cbfd12a5b7176324dba78896d2af1e4edf07bebd",
+    marf_hash: "d00ffcbd52b7998a0e153187a50119b011e1dd13b6d605054003506a511e3024",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "262dc67d71105d25c657657f6e6bc7fc6d25bfa6384b69ce9b8a5bac9b38ffe6",
+    marf_hash: "9550e04e9dc7c98b230d2fb7d2d8fe7e645cb762a97c3df40333525968956891",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e1bdf733c9ebcfc9133d0b859202ae56585de57bdd04058f08e1bd15134fd7ed",
+    marf_hash: "3833aa3efac8d73e6e327e771d379a6ed4a43f779a88e5aea3d0274f584bdc0d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7591eb9126436acf2fa6a3295e700636bc7861789b5b1a742da7fdd30db070bd",
+    marf_hash: "a4120cd55bfed90022a80b7e8774adb983547cab5f7066f6bc4cbf6581ec95d5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b27017bc5ff4126355eacae3179130d4d9b16582716212d2a35c87c2e53be64a",
+    marf_hash: "1fa8ec8c3748469a8274a8559c786693c9660d9f949daab91c5a9c5b53538229",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: too-many-params-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: too many function parameters specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 269,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 36990,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 269,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 36990,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "238792b2b33276a8372ab28d74fccaad6843b91716a78717e6dd7144aed32e65",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-params-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: too many function parameters specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 269,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 36990,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 269,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 36990,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1cfc8012b5e07d0882ef1ebd330842c120e9ff9016fbf6d15c847d5adea2b354",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-params-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: too many function parameters specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 269,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 36990,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 269,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 36990,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "11adee11079ac2d59ebf94100df54e26456bbe5499c3bfe542aa808cd2b505f4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-params-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: too many function parameters specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 269,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 36990,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 269,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 36990,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d96053ce18b596cc143728b8c85c4986a4fe8d21f43f3597826a963578b7f836",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-params-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: too many function parameters specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 269,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 36990,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 269,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 36990,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "afddab32bc17512241cfe5324f8a656b887651a23e897eb8290b49b64e8af46a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-params-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: too many function parameters specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

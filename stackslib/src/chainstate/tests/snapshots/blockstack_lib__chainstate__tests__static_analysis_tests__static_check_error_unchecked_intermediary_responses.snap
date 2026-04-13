@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d9e73e9309f1d6965cbdb87894ef17b73068d330d250594a71bd890d25186b25",
+    marf_hash: "b539e0f51ed7c8f9bb375c3d89723525fe64a3344fc2eb303327f43439ab5b16",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fa70cb5c2c42912887495b19bde45b108d8935f68bbcb6bc7e2a39d247e6858a",
+    marf_hash: "cff32e185655683bd7c3cfc8e2efbbfc8935a108246af4019bd7460593c7722a",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3263f889f84d7c79db8d7daf6519c4a61f4530ba9cd56c8779df1dff55daff65",
+    marf_hash: "4fcebd42a2705c207b19f48d1954551c37f29e00516b00e2b37dc6e101154b28",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f2e2bf4291c3962e555542d01062c9a552b993b213481b4a2e7ee98eba9da6e0",
+    marf_hash: "88f5276eb6e5165c0487cb7f3f468f06a850f6a17ab164c4df82f57217f87437",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7262e3d7b1b6114d9fd36ffe2add6a26e8a40fc963e779fabe6e562dbdd50ec6",
+    marf_hash: "8ad8943e466b0d433c3aec579df7f55e37783c39fab688c349e8b1f0cbc9224a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e4c26ef2515e1f246088203f2021a252554c135fb5e86ecc0e98e659f81f9fc5",
+    marf_hash: "9dc63332e99dc2390033b09e0741eafff6923f74baf2db71016896b9086574e7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6ccfa1bf3d321c6510589a7c92d1658fd4d10474d9a970f64f1f35d0b20368a7",
+    marf_hash: "d9d3d2f40c82639dcb2ca9f3f2b4cabd07db1b01fc4cf6b677eda09d58b3cd9b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "03300818c04b6f4ee8b3cd63c5056569214ac3ef0a29d78efee22aafee952d39",
+    marf_hash: "861d41ab37300c0e34b5f91c59562a00707384f641c6a00e20c29cef5fa46b6a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "afbaa5323a59d18c65f3436c1ef0032ec63f06b27a7c2b2fb1e5527745e759b0",
+    marf_hash: "662eabf61f37452910bd66b9dc26c7c6d8d946d4b30602a3cb142f3d765b37d0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: unchecked-resp-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "43c32cb35b25400d3ec0e4d7c78c740875651dedec03a3048af74279d53cb977",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e151d338003d76c82fccc8c3431e6ddfbc41d3162e784c73b18f1f99a31935ce",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e80093d60bfff6b6170467237fd5a5393db3e50a68c75e1d0699262f54065775",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c1347b155bb120a7f8a76b625bb642fe3304f5d28ddd9866ec5b3f5373f92a9f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0c1fade2da8e6158de95102db1e1ec305b072d3b13cc44e903b3450bf3ac9387",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
