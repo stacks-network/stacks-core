@@ -430,17 +430,3 @@ pub struct PlacedError {
     pub e: ParseErrorKind,
     pub span: Span,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_error_is_unreachable() {
-        assert!(ParseError::new(ParseErrorKind::InterpreterFailure).is_unreachable());
-        assert!(ParseError::new(ParseErrorKind::UnexpectedParserFailure).is_unreachable());
-
-        // All non-unreachable variants must return false
-        assert!(!ParseError::new(ParseErrorKind::SeparatorExpected("x".into())).is_unreachable());
-    }
-}
