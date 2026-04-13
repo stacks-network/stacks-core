@@ -263,7 +263,7 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
     /// Returns None if overflowed
     pub fn pow(&self, exp: u32) -> Option<Self> {
         if exp == 0 {
-            return Some(Self::MINIMAL);
+            return Some(Self::from_u64(1));
         }
         let mut output = self.clone();
         for _ in 1..exp {
