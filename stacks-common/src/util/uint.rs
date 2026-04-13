@@ -345,6 +345,38 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
         Some(result)
     }
 
+    /// Compute the weighted geometric average using logarithms.
+    ///
+    /// Same semantics as [`weighted_geometric_average`] but implemented
+    /// via [`log2_biased`](Self::log2_biased) / [`exp2_biased`](Self::exp2_biased)
+    /// instead of root-then-pow.
+    ///
+    /// Returns `None` if any input is zero, on overflow, or if
+    /// `priors.len() > 4`.
+    pub fn weighted_geometric_average_log(current: &Self, priors: &[Self]) -> Option<Self> {
+        if priors.len() > 4 {
+            return None;
+        }
+        let max_weight: u32 = 5;
+        let total_weight: u32 = (max_weight - priors.len() as u32..=max_weight).sum();
+
+        // Accumulate weighted sum of biased logarithms
+        let mut sum = current.log2_biased()?.mul_u64(max_weight as u64)?;
+
+        for (index, prior) in priors.iter().enumerate() {
+            let weight = max_weight - 1 - index as u32;
+            let log_val = prior.log2_biased()?;
+            let weighted = log_val.mul_u64(weight as u64)?;
+            sum = sum.add(&weighted)?;
+        }
+
+        // Divide by total weight to get average
+        let avg = sum.div(Uint256::from_u64(total_weight as u64))?;
+
+        // Convert back from log-space
+        Self::exp2_biased(&avg)
+    }
+
     /// Compute the sigmoid function `s(r) = r^2 / (r^2 + (1 - r)^2)`.
     ///
     /// Input `r` must be in `[0, 1]` (i.e., raw value at most `1 << SCALE`).
@@ -361,6 +393,107 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
         let one_minus_r_sq = one_minus_r.pow(2)?;
         let denom = r_sq.clone().add(&one_minus_r_sq)?;
         r_sq.div_and_scale(&denom)
+    }
+
+    /// Compute `log2(self.value)` — the base-2 logarithm of the underlying
+    /// raw integer — returning the result as a `FixedPointU256<SCALE>` with
+    /// full fractional precision.
+    ///
+    /// This equals `log2(self) + SCALE`, which is always non-negative for
+    /// nonzero inputs, sidestepping the need for signed arithmetic.
+    ///
+    /// Returns `None` if `self` is zero (log of zero is undefined).
+    ///
+    /// # Use in weighted geometric mean
+    ///
+    /// The bias cancels out: `log2_biased(geo_mean) = weighted_avg(log2_biased(x_i))`.
+    pub fn log2_biased(&self) -> Option<Self> {
+        if self.value == Uint256::zero() {
+            return None;
+        }
+
+        let n = self.value.bits() - 1; // integer part of log2(raw)
+
+        // Normalize: shift so y represents (raw / 2^n) in [1.0, 2.0)
+        // with SCALE fractional bits. y_raw ∈ [1<<SCALE, 1<<(SCALE+1))
+        let scale = SCALE as usize;
+        let y_raw = if n <= scale {
+            self.value << (scale - n)
+        } else {
+            self.value >> (n - scale)
+        };
+
+        let two_fp = Uint256::from_u64(1) << (scale + 1); // 2.0 in fixed-point
+
+        // Extract SCALE fractional bits by repeated squaring
+        let mut y = y_raw;
+        let mut frac = Uint256::zero();
+        for i in (0..scale).rev() {
+            // Square y using Uint512 to avoid overflow
+            let y_wide = Uint512::from_uint256(&y);
+            let sq = y_wide * y_wide;
+            y = (sq >> scale).to_uint256();
+
+            if y >= two_fp {
+                frac = frac | (Uint256::from_u64(1) << i);
+                y = y >> 1usize;
+            }
+        }
+
+        // Result = (n << SCALE) | frac
+        let int_part = Uint256::from_u64(n as u64) << scale;
+        Some(Self::construct_raw(int_part | frac))
+    }
+
+    /// Compute `2^target` where `target` was produced by [`log2_biased`](Self::log2_biased).
+    ///
+    /// This is the inverse of `log2_biased`: if `y = x.log2_biased()`,
+    /// then `exp2_biased(&y) ≈ x` (up to rounding).
+    ///
+    /// Returns `None` on overflow or arithmetic error.
+    pub fn exp2_biased(target: &Self) -> Option<Self> {
+        let scale = SCALE as usize;
+
+        // The integer part `n` is used as a shift amount, so it must fit in `usize`.
+        // For any `target` produced by `log2_biased` on a `Uint256`, `n` is at most
+        // `256 + SCALE` (≤ 383 with SCALE < 128), which trivially fits. Guard against
+        // a malformed `target` whose integer part exceeds 64 bits — without this
+        // check, `low_u64()` would silently truncate and the overflow check below
+        // could pass with a wrong result instead of returning `None`.
+        let int_part = target.value >> scale;
+        if int_part.bits() > 64 {
+            return None;
+        }
+        let n = int_part.low_u64() as usize;
+
+        // Compute 2^f using successive square roots (MSB to LSB).
+        // s_k = 2^(1/2^k), starting with s_1 = sqrt(2).
+        // result = product of s_k for each set bit k in the fractional part of target.
+        // Bits at or above `scale` are the integer part `n` and are intentionally ignored here.
+        let mut result = Self::from_u64(1);
+        let mut s = Self::from_u64(2).find_root_floor(2)?;
+
+        for i in (0..scale).rev() {
+            if target.value.bit(i) {
+                result = result.mul(&s)?;
+            }
+            if i > 0 {
+                s = s.find_root_floor(2)?;
+            }
+        }
+
+        // result.value = 2^f * 2^SCALE (fixed-point representation of 2^f).
+        // We want output.value = 2^(n + f), so shift by (n - SCALE).
+        if n >= scale {
+            let shift = n - scale;
+            if shift > 0 && shift + result.value.bits() > 256 {
+                return None; // overflow
+            }
+            Some(Self::construct_raw(result.value << shift))
+        } else {
+            let shift = scale - n;
+            Some(Self::construct_raw(result.value >> shift))
+        }
     }
 }
 
@@ -2320,14 +2453,14 @@ mod tests {
             prop_assert_eq!(result, a);
         }
 
-        /// pow(0) == MINIMAL for any non-zero value
+        /// pow(0) == 1 for any non-zero value
         #[test]
-        fn pow_zero_is_minimal(
+        fn pow_zero_is_one(
             val in 1u64..u64::MAX,
         ) {
             let a = FP::from_u64(val);
             let result = a.pow(0).expect("pow(0) should not fail");
-            prop_assert_eq!(result, FP::MINIMAL);
+            prop_assert_eq!(result, FP::from_u64(1));
         }
 
         /// root/pow inverse: find_root_floor(a^n, n) ≈ a
@@ -2559,5 +2692,208 @@ mod tests {
 
         let s_half = half.sigmoid().expect("sigmoid(0.5) should succeed");
         assert_fp_approx_eq(&s_half, &half, 1, 1000).unwrap();
+    }
+
+    // log2_biased tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn log2_biased_zero() {
+        assert_eq!(FP::ZERO.log2_biased(), None);
+    }
+
+    #[test]
+    fn log2_biased_minimal() {
+        // MINIMAL has raw value 1, log2(1) = 0
+        assert_eq!(FP::MINIMAL.log2_biased(), Some(FP::ZERO));
+    }
+
+    #[test]
+    fn log2_biased_one() {
+        // from_u64(1) has raw = 1 << 64, log2(1<<64) = 64
+        assert_eq!(FP::from_u64(1).log2_biased(), Some(FP::from_u64(64)));
+    }
+
+    #[test]
+    fn log2_biased_powers_of_two() {
+        for k in 0u32..63 {
+            let val = FP::from_u64(1u64 << k);
+            let expected = FP::from_u64(64 + k as u64);
+            assert_eq!(val.log2_biased(), Some(expected), "failed for 2^{k}");
+        }
+    }
+
+    #[test]
+    fn log2_biased_sub_one() {
+        // 0.5 has raw = 1 << 63, log2(1<<63) = 63
+        let half = FP::from_u64(1).div(Uint256::from_u64(2)).unwrap();
+        assert_eq!(half.log2_biased(), Some(FP::from_u64(63)));
+        // 0.25 has raw = 1 << 62, log2(1<<62) = 62
+        let quarter = FP::from_u64(1).div(Uint256::from_u64(4)).unwrap();
+        assert_eq!(quarter.log2_biased(), Some(FP::from_u64(62)));
+    }
+
+    #[test]
+    fn log2_biased_non_power_precision() {
+        // log2(3) ≈ 1.584962500721156
+        // biased result = 64 + log2(3) ≈ 65.585
+        // As fixed-point: 65.585 * 2^64 ≈ 0x41_95C0_1A39_FBD6_88 (approx)
+        let result = FP::from_u64(3).log2_biased().unwrap();
+        // Cross-check: integer part should be 65 (= 64 + 1, since 2 <= 3 < 4)
+        let int_part = result.value >> 64;
+        assert_eq!(int_part, Uint256::from_u64(65));
+        // Check against f64: log2(3) fractional part ≈ 0.584962500721156
+        let frac_f64 = 3.0_f64.log2().fract();
+        let frac_raw = result.value & ((Uint256::from_u64(1) << 64usize) - Uint256::from_u64(1));
+        let frac_as_f64 = frac_raw.low_u64() as f64 / (1u128 << 64) as f64;
+        // Allow ~1e-9 tolerance (f64 has ~15 digits, we compare at that level)
+        assert!(
+            (frac_as_f64 - frac_f64).abs() < 1e-9,
+            "fractional part mismatch: got {frac_as_f64}, expected {frac_f64}"
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn log2_biased_powers_of_two_exact(k in 0u32..63) {
+            let val = FP::from_u64(1u64 << k);
+            let result = val.log2_biased().expect("should not be None");
+            // Powers of 2 should have zero fractional bits
+            let frac_mask = (Uint256::from_u64(1) << 64usize) - Uint256::from_u64(1);
+            prop_assert_eq!(result.value & frac_mask, Uint256::zero());
+        }
+
+        #[test]
+        fn log2_biased_monotonic(
+            a in 1u64..u64::MAX,
+            b in 1u64..u64::MAX,
+        ) {
+            let fa = FP::from_u64(a);
+            let fb = FP::from_u64(b);
+            let la = fa.log2_biased().unwrap();
+            let lb = fb.log2_biased().unwrap();
+            if a < b {
+                prop_assert!(la < lb, "log2 not monotonic: log2({a}) >= log2({b})");
+            } else if a == b {
+                prop_assert_eq!(la, lb);
+            } else {
+                prop_assert!(la > lb, "log2 not monotonic: log2({a}) <= log2({b})");
+            }
+        }
+    }
+
+    // exp2_biased tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn exp2_biased_zero() {
+        // 2^0 = 1 as raw Uint256, i.e. MINIMAL
+        let result = FP::exp2_biased(&FP::ZERO).unwrap();
+        assert_eq!(result, FP::MINIMAL);
+    }
+
+    #[test]
+    fn exp2_biased_scale() {
+        // 2^64 = 1.0 in fixed-point (raw = 1 << 64)
+        let result = FP::exp2_biased(&FP::from_u64(64)).unwrap();
+        assert_eq!(result, FP::from_u64(1));
+    }
+
+    #[test]
+    fn exp2_biased_powers() {
+        for k in 0u32..62 {
+            let target = FP::from_u64(64 + k as u64);
+            let result = FP::exp2_biased(&target).unwrap();
+            assert_eq!(
+                result,
+                FP::from_u64(1u64 << k),
+                "exp2_biased(64 + {k}) should be 2^{k}"
+            );
+        }
+    }
+
+    #[test]
+    fn exp2_roundtrip_known_values() {
+        for val in [1u64, 2, 3, 5, 7, 100, 1000, u64::MAX / 2] {
+            let fp = FP::from_u64(val);
+            let log = fp.log2_biased().unwrap();
+            let back = FP::exp2_biased(&log).unwrap();
+            // Allow 0.1% relative error from find_root_floor rounding
+            assert_fp_approx_eq(&back, &fp, 1, 1000).unwrap();
+        }
+    }
+
+    // weighted_geometric_average_log tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn geo_avg_log_no_priors_identity() {
+        let current = FP::from_u64(42);
+        let result = FP::weighted_geometric_average_log(&current, &[]).unwrap();
+        assert_fp_approx_eq(&result, &current, 1, 1000).unwrap();
+    }
+
+    #[test]
+    fn geo_avg_log_all_equal() {
+        let v = FP::from_u64(100);
+        let priors = vec![v.clone(); 3];
+        let result = FP::weighted_geometric_average_log(&v, &priors).unwrap();
+        assert_fp_approx_eq(&result, &v, 1, 1000).unwrap();
+    }
+
+    #[test]
+    fn geo_avg_log_rejects_too_many_priors() {
+        let v = FP::from_u64(10);
+        let priors = vec![v.clone(); 5];
+        assert!(FP::weighted_geometric_average_log(&v, &priors).is_none());
+    }
+
+    proptest! {
+        /// Compare log-based and root-based geometric averages: no priors
+        #[test]
+        fn geo_avg_log_vs_original_no_priors(
+            val in 1u64..1_000_000u64,
+        ) {
+            let current = FP::from_u64(val);
+            let root_result = FP::weighted_geometric_average(&current, &[])
+                .expect("root-based should succeed");
+            let log_result = FP::weighted_geometric_average_log(&current, &[])
+                .expect("log-based should succeed");
+            assert_fp_approx_eq(&root_result, &log_result, 1, 100)?;
+        }
+
+        /// Compare log-based and root-based: all equal values
+        #[test]
+        fn geo_avg_log_vs_original_equal(
+            val in 1u64..1_000_000u64,
+            num_priors in 1usize..4,
+        ) {
+            let v = FP::from_u64(val);
+            let priors: Vec<FP> = vec![v.clone(); num_priors];
+            let root_result = FP::weighted_geometric_average(&v, &priors)
+                .expect("root-based should succeed");
+            let log_result = FP::weighted_geometric_average_log(&v, &priors)
+                .expect("log-based should succeed");
+            assert_fp_approx_eq(&root_result, &log_result, 1, 100)?;
+        }
+
+        /// Compare log-based and root-based: mixed values
+        #[test]
+        fn geo_avg_log_vs_original_mixed(
+            current_val in 1_000u64..1_000_000u64,
+            prior_val in 1u64..999u64,
+            num_priors in 1usize..4,
+        ) {
+            prop_assume!(current_val > prior_val);
+            let current = FP::from_u64(current_val);
+            let prior = FP::from_u64(prior_val);
+            let priors: Vec<FP> = vec![prior; num_priors];
+            let root_result = FP::weighted_geometric_average(&current, &priors)
+                .expect("root-based should succeed");
+            let log_result = FP::weighted_geometric_average_log(&current, &priors)
+                .expect("log-based should succeed");
+            // 1% tolerance to accommodate different rounding paths
+            assert_fp_approx_eq(&root_result, &log_result, 1, 100)?;
+        }
     }
 }
