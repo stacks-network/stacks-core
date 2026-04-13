@@ -22,10 +22,9 @@ use clarity::vm::types::{
     BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     Value,
 };
-use clarity::vm::ClarityVersion;
 use clarity::vm::Value::Sequence;
+use clarity::vm::{ClarityName, ClarityVersion};
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::boot::contract_tests::{test_sim_height_to_hash, ClarityTestSim};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
@@ -961,17 +960,17 @@ fn test_block_heights() {
         let mut tx = conn.start_transaction_processing();
         assert_eq!(
             Value::Tuple(TupleData::from_data(vec![
-                ("burn-block-height".must_into(), Value::UInt(burn_block_height + 1)),
-                ("block-height".must_into(), Value::UInt(tenure_height + 1))
+                (ClarityName::from_literal("burn-block-height"), Value::UInt(burn_block_height + 1)),
+                (ClarityName::from_literal("block-height"), Value::UInt(tenure_height + 1))
             ]).unwrap()),
             tx.eval_read_only(&contract_identifier1, "(test-func)")
                 .unwrap()
         );
         assert_eq!(
             Value::Tuple(TupleData::from_data(vec![
-                ("burn-block-height".must_into(), Value::UInt(burn_block_height + 1)),
-                ("stacks-block-height".must_into(), Value::UInt(block_height + 1)),
-                ("tenure-height".must_into(), Value::UInt(tenure_height + 1))
+                (ClarityName::from_literal("burn-block-height"), Value::UInt(burn_block_height + 1)),
+                (ClarityName::from_literal("stacks-block-height"), Value::UInt(block_height + 1)),
+                (ClarityName::from_literal("tenure-height"), Value::UInt(tenure_height + 1))
             ]).unwrap()),
             tx.eval_read_only(&contract_identifier2, "(test-func)")
                 .unwrap()
@@ -988,10 +987,13 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".must_into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height + 1)
                     ),
-                    ("block-height".must_into(), Value::UInt(tenure_height + 1)),
+                    (
+                        ClarityName::from_literal("block-height"),
+                        Value::UInt(tenure_height + 1)
+                    ),
                 ])
                 .unwrap()
             ),
@@ -1002,14 +1004,17 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".must_into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height + 1)
                     ),
                     (
-                        "stacks-block-height".must_into(),
+                        ClarityName::from_literal("stacks-block-height"),
                         Value::UInt(block_height + 1)
                     ),
-                    ("tenure-height".must_into(), Value::UInt(tenure_height + 1))
+                    (
+                        ClarityName::from_literal("tenure-height"),
+                        Value::UInt(tenure_height + 1)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1028,10 +1033,13 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".must_into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height)
                     ),
-                    ("block-height".must_into(), Value::UInt(tenure_height))
+                    (
+                        ClarityName::from_literal("block-height"),
+                        Value::UInt(tenure_height)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1042,14 +1050,17 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".must_into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height)
                     ),
                     (
-                        "stacks-block-height".must_into(),
+                        ClarityName::from_literal("stacks-block-height"),
                         Value::UInt(block_height + 1)
                     ),
-                    ("tenure-height".must_into(), Value::UInt(tenure_height))
+                    (
+                        ClarityName::from_literal("tenure-height"),
+                        Value::UInt(tenure_height)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1068,10 +1079,13 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".must_into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height)
                     ),
-                    ("block-height".must_into(), Value::UInt(tenure_height))
+                    (
+                        ClarityName::from_literal("block-height"),
+                        Value::UInt(tenure_height)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1082,14 +1096,17 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".must_into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height)
                     ),
                     (
-                        "stacks-block-height".must_into(),
+                        ClarityName::from_literal("stacks-block-height"),
                         Value::UInt(block_height + 1)
                     ),
-                    ("tenure-height".must_into(), Value::UInt(tenure_height))
+                    (
+                        ClarityName::from_literal("tenure-height"),
+                        Value::UInt(tenure_height)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1108,10 +1125,13 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".must_into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height + 1)
                     ),
-                    ("block-height".must_into(), Value::UInt(tenure_height + 1))
+                    (
+                        ClarityName::from_literal("block-height"),
+                        Value::UInt(tenure_height + 1)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1122,14 +1142,17 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".must_into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height + 1)
                     ),
                     (
-                        "stacks-block-height".must_into(),
+                        ClarityName::from_literal("stacks-block-height"),
                         Value::UInt(block_height + 1)
                     ),
-                    ("tenure-height".must_into(), Value::UInt(tenure_height + 1))
+                    (
+                        ClarityName::from_literal("tenure-height"),
+                        Value::UInt(tenure_height + 1)
+                    )
                 ])
                 .unwrap()
             ),

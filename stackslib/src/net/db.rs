@@ -1889,10 +1889,11 @@ impl PeerDB {
 mod test {
     #[allow(unused)]
     use clarity::vm::types::StandardPrincipalData;
-    use stacks_common::types::net::PeerAddress;
     #[allow(unused)]
-    use stacks_common::util::MustInto;
+    use clarity::vm::ContractName;
+    use stacks_common::types::net::PeerAddress;
 
+    #[allow(unused)]
     use super::*;
     #[allow(unused)]
     use crate::core::{
@@ -1918,9 +1919,15 @@ mod test {
     /// Test storage, retrieval, and mutation of LocalPeer, including its stacker DB contract IDs
     #[test]
     fn test_local_peer() {
-        let mut db =
-            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".must_into(), &[], &[])
-                .unwrap();
+        let mut db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            UrlString::from_literal("http://foo.com"),
+            &[],
+            &[],
+        )
+        .unwrap();
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
 
         assert_eq!(local_peer.network_id, 0x9abcdef0);
@@ -1943,11 +1950,11 @@ mod test {
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
-                "db-1".must_into(),
+                ContractName::from_literal("db-1"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
-                "db-2".must_into(),
+                ContractName::from_literal("db-2"),
             ),
         ];
         stackerdbs.sort();
@@ -2000,9 +2007,15 @@ mod test {
             out_degree: 1,
         };
 
-        let mut db =
-            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".must_into(), &[], &[])
-                .unwrap();
+        let mut db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            UrlString::from_literal("http://foo.com"),
+            &[],
+            &[],
+        )
+        .unwrap();
 
         let neighbor_before_opt = PeerDB::get_peer(
             db.conn(),
@@ -2054,9 +2067,15 @@ mod test {
     /// IDs. New peers' contract IDs get added, and dropped peers' contract IDs get removed.
     #[test]
     fn test_insert_or_replace_stacker_dbs() {
-        let mut db =
-            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".must_into(), &[], &[])
-                .unwrap();
+        let mut db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            UrlString::from_literal("http://foo.com"),
+            &[],
+            &[],
+        )
+        .unwrap();
 
         // the neighbors to whom this DB corresponds
         let neighbor_1 = Neighbor {
@@ -2116,11 +2135,11 @@ mod test {
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
-                "db-1".must_into(),
+                ContractName::from_literal("db-1"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
-                "db-2".must_into(),
+                ContractName::from_literal("db-2"),
             ),
         ];
         stackerdbs.sort();
@@ -2146,11 +2165,11 @@ mod test {
         let mut new_stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
-                "db-3".must_into(),
+                ContractName::from_literal("db-3"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x04, [0x05; 20]).unwrap(),
-                "db-5".must_into(),
+                ContractName::from_literal("db-5"),
             ),
         ];
         new_stackerdbs.sort();
@@ -2216,9 +2235,15 @@ mod test {
             out_degree: 1,
         };
 
-        let mut db =
-            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".must_into(), &[], &[])
-                .unwrap();
+        let mut db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            UrlString::from_literal("http://foo.com"),
+            &[],
+            &[],
+        )
+        .unwrap();
 
         {
             let tx = db.tx_begin().unwrap();
@@ -2351,11 +2376,11 @@ mod test {
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
-                "db-1".must_into(),
+                ContractName::from_literal("db-1"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
-                "db-2".must_into(),
+                ContractName::from_literal("db-2"),
             ),
         ];
         stackerdbs.sort();
@@ -2388,11 +2413,11 @@ mod test {
         let mut changed_stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
-                "db-1".must_into(),
+                ContractName::from_literal("db-1"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
-                "db-3".must_into(),
+                ContractName::from_literal("db-3"),
             ),
         ];
         changed_stackerdbs.sort();
@@ -2428,11 +2453,11 @@ mod test {
         let mut new_stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x04, [0x05; 20]).unwrap(),
-                "db-4".must_into(),
+                ContractName::from_literal("db-4"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x05, [0x06; 20]).unwrap(),
-                "db-5".must_into(),
+                ContractName::from_literal("db-5"),
             ),
         ];
         new_stackerdbs.sort();
@@ -2456,11 +2481,11 @@ mod test {
             let mut replace_stackerdbs = vec![
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(0x06, [0x07; 20]).unwrap(),
-                    "db-6".must_into(),
+                    ContractName::from_literal("db-6"),
                 ),
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(0x07, [0x08; 20]).unwrap(),
-                    "db-7".must_into(),
+                    ContractName::from_literal("db-7"),
                 ),
             ];
             replace_stackerdbs.sort();
@@ -2552,11 +2577,11 @@ mod test {
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
-                "db-1".must_into(),
+                ContractName::from_literal("db-1"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
-                "db-2".must_into(),
+                ContractName::from_literal("db-2"),
             ),
         ];
         stackerdbs.sort();
@@ -2591,11 +2616,11 @@ mod test {
         let mut changed_stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
-                "db-1".must_into(),
+                ContractName::from_literal("db-1"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
-                "db-3".must_into(),
+                ContractName::from_literal("db-3"),
             ),
         ];
         changed_stackerdbs.sort();
@@ -2685,11 +2710,11 @@ mod test {
         let mut replace_stackerdbs = vec![
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x06, [0x07; 20]).unwrap(),
-                "db-6".must_into(),
+                ContractName::from_literal("db-6"),
             ),
             QualifiedContractIdentifier::new(
                 StandardPrincipalData::new(0x07, [0x08; 20]).unwrap(),
-                "db-7".must_into(),
+                ContractName::from_literal("db-7"),
             ),
         ];
         replace_stackerdbs.sort();
@@ -2871,7 +2896,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
-            "http://foo.com".must_into(),
+            UrlString::from_literal("http://foo.com"),
             &[],
             &initial_neighbors,
         )
@@ -2978,7 +3003,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
-            "http://foo.com".must_into(),
+            UrlString::from_literal("http://foo.com"),
             &[],
             &initial_neighbors,
         )
@@ -3100,7 +3125,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
-            "http://foo.com".must_into(),
+            UrlString::from_literal("http://foo.com"),
             &asn4_table,
             &[],
         )
@@ -3157,9 +3182,15 @@ mod test {
     /// `denied` and `allowed` columns appropriately.
     #[test]
     fn test_peer_preemptive_deny_allow() {
-        let mut db =
-            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".must_into(), &[], &[])
-                .unwrap();
+        let mut db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            UrlString::from_literal("http://foo.com"),
+            &[],
+            &[],
+        )
+        .unwrap();
         {
             let tx = db.tx_begin().unwrap();
             PeerDB::set_deny_peer(&tx, 0x9abcdef0, &PeerAddress([0x1; 16]), 12345, 10000000)
@@ -3184,9 +3215,15 @@ mod test {
     /// PeerDB::get_allowed_cidrs() correctly store and load CIDR prefixes
     #[test]
     fn test_peer_cidr_lists() {
-        let mut db =
-            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".must_into(), &[], &[])
-                .unwrap();
+        let mut db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            UrlString::from_literal("http://foo.com"),
+            &[],
+            &[],
+        )
+        .unwrap();
         {
             let tx = db.tx_begin().unwrap();
             PeerDB::add_cidr_prefix(&tx, "denied_prefixes", &PeerAddress([0x1; 16]), 64).unwrap();
@@ -3205,9 +3242,15 @@ mod test {
     /// Tests PeerDB::is_address_denied()
     #[test]
     fn test_peer_is_denied() {
-        let mut db =
-            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".must_into(), &[], &[])
-                .unwrap();
+        let mut db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            UrlString::from_literal("http://foo.com"),
+            &[],
+            &[],
+        )
+        .unwrap();
         {
             let tx = db.tx_begin().unwrap();
             PeerDB::add_deny_cidr(
@@ -3338,7 +3381,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
-            "http://foo.com".must_into(),
+            UrlString::from_literal("http://foo.com"),
             &[],
             &[neighbor_1.clone(), neighbor_2.clone()],
         )
@@ -3487,7 +3530,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
-            "http://foo.com".must_into(),
+            UrlString::from_literal("http://foo.com"),
             &[],
             &[neighbor_1.clone(), neighbor_2.clone()],
         )
@@ -3878,9 +3921,15 @@ mod test {
         let query_peer_version_param = PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32; // Query for peers supporting at least 3.0
         let min_age_fresh = now_secs - 7200; // Fresh if contacted in last 2 hours
 
-        let mut db =
-            PeerDB::connect_memory(network_id, 0, 0, "http://test.com".must_into(), &[], &[])
-                .unwrap();
+        let mut db = PeerDB::connect_memory(
+            network_id,
+            0,
+            0,
+            UrlString::from_literal("http://test.com"),
+            &[],
+            &[],
+        )
+        .unwrap();
 
         let base_neighbor = Neighbor {
             addr: NeighborKey {

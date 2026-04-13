@@ -33,7 +33,6 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::MustInto;
 
 use super::SIGNERS_MAX_LIST_SIZE;
 use crate::burnchains::PoxConstants;
@@ -1687,11 +1686,11 @@ fn simple_epoch21_test() {
 
     let clarity_2_0_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
-        "contract-2-0".must_into(),
+        ContractName::from_literal("contract-2-0"),
     );
     let clarity_2_0_bad_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
-        "contract-2-0-bad".must_into(),
+        ContractName::from_literal("contract-2-0-bad"),
     );
     let clarity_2_0_content = "
 (define-private (stx-account (a principal)) 1)
@@ -1701,11 +1700,11 @@ fn simple_epoch21_test() {
 
     let clarity_2_1_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
-        "contract-2-1".must_into(),
+        ContractName::from_literal("contract-2-1"),
     );
     let clarity_2_1_bad_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
-        "contract-2-1-bad".must_into(),
+        ContractName::from_literal("contract-2-1-bad"),
     );
     let clarity_2_1_content = "
 (define-public (call-through)
@@ -1804,10 +1803,10 @@ fn max_stackerdb_list() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "signer".must_into(),
+                        ClarityName::from_literal("signer"),
                         Value::Principal(PrincipalData::from(signer_address)),
                     ),
-                    ("num-slots".must_into(), Value::UInt(1)),
+                    (ClarityName::from_literal("num-slots"), Value::UInt(1)),
                 ])
                 .expect("BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple"),
             )

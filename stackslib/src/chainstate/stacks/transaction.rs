@@ -1225,7 +1225,6 @@ mod test {
     use rstest::rstest;
     use stacks_common::util::hash::*;
     use stacks_common::util::retry::LogReader;
-    use stacks_common::util::MustInto;
 
     use super::*;
     use crate::chainstate::stacks::test::codec_all_transactions;
@@ -1976,7 +1975,7 @@ mod test {
     #[case::contract_address(
         PrincipalData::from(QualifiedContractIdentifier {
             issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
-            name: "foo-contract".must_into(),
+            name: ContractName::from_literal("foo-contract"),
         })
     )]
     fn test_transaction_payload_token_transfer(#[case] addr: PrincipalData) {
@@ -2285,7 +2284,7 @@ mod test {
 
         let recipient = PrincipalData::from(QualifiedContractIdentifier {
             issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
-            name: "foo-contract".must_into(),
+            name: ContractName::from_literal("foo-contract"),
         });
 
         let coinbase_payload =

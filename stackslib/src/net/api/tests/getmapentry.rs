@@ -18,10 +18,9 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksBlockId;
 use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, Value};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
-use stacks_common::util::MustInto;
 
 use super::test_rpc;
 use crate::net::api::*;
@@ -40,7 +39,7 @@ fn test_try_parse_request() {
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world-unconfirmed".try_into().unwrap(),
-        "test-map".must_into(),
+        ClarityName::from_literal("test-map"),
         Value::UInt(13),
         TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
         false,
@@ -75,7 +74,10 @@ fn test_try_parse_request() {
             .unwrap()
         )
     );
-    assert_eq!(handler.map_name, Some("test-map".must_into()));
+    assert_eq!(
+        handler.map_name,
+        Some(ClarityName::from_literal("test-map"))
+    );
     assert_eq!(handler.key, Some(Value::UInt(13)));
 
     // parsed request consumes headers that would not be in a constructed reqeuest

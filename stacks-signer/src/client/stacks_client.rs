@@ -756,7 +756,6 @@ mod tests {
     use rand_core::RngCore;
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-    use stacks_common::util::MustInto;
 
     use super::*;
     use crate::client::tests::{
@@ -949,9 +948,12 @@ mod tests {
                 let principal_data = StacksAddress::from_string(signer).unwrap().into();
 
                 let data_map = [
-                    ("num-slots".must_into(), ClarityValue::UInt(13)),
                     (
-                        "signer".must_into(),
+                        ClarityName::from_literal("num-slots"),
+                        ClarityValue::UInt(13),
+                    ),
+                    (
+                        ClarityName::from_literal("signer"),
                         ClarityValue::Principal(PrincipalData::Standard(principal_data)),
                     ),
                 ]

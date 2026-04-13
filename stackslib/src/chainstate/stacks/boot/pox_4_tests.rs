@@ -28,7 +28,6 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::MustInto;
 
 use super::test::*;
 use crate::burnchains::{Burnchain, PoxConstants};
@@ -4689,10 +4688,13 @@ fn stack_agg_increase() {
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "stacker".must_into(),
+                ClarityName::from_literal("stacker"),
                 Value::Principal(PrincipalData::from(bob.address.clone())),
             ),
-            ("total-locked".must_into(), Value::UInt(min_ustx * 2)),
+            (
+                ClarityName::from_literal("total-locked"),
+                Value::UInt(min_ustx * 2),
+            ),
         ])
         .unwrap(),
     ))
@@ -6461,10 +6463,13 @@ fn stack_increase(use_nakamoto: bool) {
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "stacker".must_into(),
+                ClarityName::from_literal("stacker"),
                 Value::Principal(PrincipalData::from(alice_address.clone())),
             ),
-            ("total-locked".must_into(), Value::UInt(min_ustx * 2)),
+            (
+                ClarityName::from_literal("total-locked"),
+                Value::UInt(min_ustx * 2),
+            ),
         ])
         .unwrap(),
     ))
@@ -6646,8 +6651,14 @@ fn delegate_stack_increase(use_nakamoto: bool) {
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
-            ("stacker".must_into(), Value::Principal(alice_address)),
-            ("total-locked".must_into(), Value::UInt(min_ustx * 2)),
+            (
+                ClarityName::from_literal("stacker"),
+                Value::Principal(alice_address),
+            ),
+            (
+                ClarityName::from_literal("total-locked"),
+                Value::UInt(min_ustx * 2),
+            ),
         ])
         .unwrap(),
     ))
@@ -9050,7 +9061,11 @@ pub fn get_stacking_state_pox_4(
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
-            TupleData::from_data(vec![("stacker".must_into(), account.clone().into())]).unwrap(),
+            TupleData::from_data(vec![(
+                ClarityName::from_literal("stacker"),
+                account.clone().into(),
+            )])
+            .unwrap(),
         );
         let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
@@ -9076,21 +9091,27 @@ pub fn make_signer_key_authorization_lookup_key(
 ) -> Value {
     TupleData::from_data(vec![
         (
-            "pox-addr".must_into(),
+            ClarityName::from_literal("pox-addr"),
             pox_addr.as_clarity_tuple().unwrap().into(),
         ),
-        ("reward-cycle".must_into(), Value::UInt(reward_cycle.into())),
         (
-            "topic".must_into(),
+            ClarityName::from_literal("reward-cycle"),
+            Value::UInt(reward_cycle.into()),
+        ),
+        (
+            ClarityName::from_literal("topic"),
             Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
         ),
-        ("period".must_into(), Value::UInt(period)),
+        (ClarityName::from_literal("period"), Value::UInt(period)),
         (
-            "signer-key".must_into(),
+            ClarityName::from_literal("signer-key"),
             Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
         ),
-        ("max-amount".must_into(), Value::UInt(max_amount)),
-        ("auth-id".must_into(), Value::UInt(auth_id)),
+        (
+            ClarityName::from_literal("max-amount"),
+            Value::UInt(max_amount),
+        ),
+        (ClarityName::from_literal("auth-id"), Value::UInt(auth_id)),
     ])
     .unwrap()
     .into()
@@ -9180,12 +9201,15 @@ pub fn get_partially_stacked_state_pox_4(
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = TupleData::from_data(vec![
             (
-                "pox-addr".must_into(),
+                ClarityName::from_literal("pox-addr"),
                 pox_addr.as_clarity_tuple().unwrap().into(),
             ),
-            ("reward-cycle".must_into(), Value::UInt(reward_cycle.into())),
             (
-                "sender".must_into(),
+                ClarityName::from_literal("reward-cycle"),
+                Value::UInt(reward_cycle.into()),
+            ),
+            (
+                ClarityName::from_literal("sender"),
                 PrincipalData::from(sender.clone()).into(),
             ),
         ])
@@ -9219,7 +9243,11 @@ pub fn get_delegation_state_pox_4(
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
-            TupleData::from_data(vec![("stacker".must_into(), account.clone().into())]).unwrap(),
+            TupleData::from_data(vec![(
+                ClarityName::from_literal("stacker"),
+                account.clone().into(),
+            )])
+            .unwrap(),
         );
         let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(

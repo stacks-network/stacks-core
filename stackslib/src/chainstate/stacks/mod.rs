@@ -1236,8 +1236,8 @@ pub mod test {
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
     use stacks_common::bitvec::BitVec;
+    use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
-    use stacks_common::util::{get_epoch_time_secs, MustInto};
 
     use super::*;
     use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -1532,7 +1532,7 @@ pub mod test {
             TransactionPayload::TokenTransfer(
                 PrincipalData::from(QualifiedContractIdentifier {
                     issuer: stx_address.into(),
-                    name: "hello-contract-name".must_into(),
+                    name: ContractName::from_literal("hello-contract-name"),
                 }),
                 123,
                 TokenTransferMemo([0u8; 34]),

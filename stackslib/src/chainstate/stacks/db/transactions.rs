@@ -1710,7 +1710,6 @@ impl StacksChainState {
 #[cfg(test)]
 pub mod test {
     use clarity::util::secp256k1::Secp256k1PrivateKey;
-    use clarity::util::MustInto;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
@@ -1841,7 +1840,7 @@ pub mod test {
             post_conditions: vec![],
             payload: TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: "test-contract".must_into(),
+                    name: ContractName::from_literal("test-contract"),
                     code_body: StacksString::from_str("(/ 1 0)").unwrap(),
                 },
                 None,
@@ -1947,7 +1946,7 @@ pub mod test {
             post_conditions: vec![],
             payload: TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: "test-contract".must_into(),
+                    name: ContractName::from_literal("test-contract"),
                     code_body: StacksString::from_str("(define-public (ping) (ok true))").unwrap(),
                 },
                 None,
@@ -2004,7 +2003,7 @@ pub mod test {
             )],
             payload: TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: "test-contract".must_into(),
+                    name: ContractName::from_literal("test-contract"),
                     code_body: StacksString::from_str("(define-public (ping) (ok true))").unwrap(),
                 },
                 None,
@@ -2099,7 +2098,7 @@ pub mod test {
             let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
             let recv_addr = PrincipalData::from(QualifiedContractIdentifier {
                 issuer: StacksAddress::new(1, Hash160([0xfe; 20])).unwrap().into(),
-                name: "contract-hellow".must_into(),
+                name: ContractName::from_literal("contract-hellow"),
             });
 
             let mut tx_stx_transfer = StacksTransaction::new(

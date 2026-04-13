@@ -5570,7 +5570,6 @@ mod test {
     use clarity::util::sleep_ms;
     use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::util::MustInto;
 
     use super::*;
     use crate::burnchains::*;
@@ -5655,7 +5654,7 @@ mod test {
             0x9abcdef0,
             0,
             23456,
-            "http://test-p2p.com".must_into(),
+            UrlString::from_literal("http://test-p2p.com"),
             &[],
             initial_neighbors,
         )

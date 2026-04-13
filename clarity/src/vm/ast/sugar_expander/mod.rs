@@ -171,7 +171,7 @@ impl SugarExpander {
 
 #[cfg(test)]
 mod test {
-    use stacks_common::util::MustInto;
+    use clarity_types::ClarityName;
 
     use crate::vm::Value;
     use crate::vm::ast::sugar_expander::SugarExpander;
@@ -186,7 +186,7 @@ mod test {
         end_line: u32,
         end_column: u32,
     ) -> PreSymbolicExpression {
-        let mut e = PreSymbolicExpression::atom(x.must_into());
+        let mut e = PreSymbolicExpression::atom(ClarityName::from_literal(x));
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -258,7 +258,7 @@ mod test {
         end_line: u32,
         end_column: u32,
     ) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom(x.must_into());
+        let mut e = SymbolicExpression::atom(ClarityName::from_literal(x));
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -540,7 +540,7 @@ mod test {
 
     #[test]
     fn test_transform_sugared_contract_identifier() {
-        let contract_name = "tokens".must_into();
+        let contract_name = ContractName::from_literal("tokens");
         let pre_ast = vec![make_sugared_contract_identifier(contract_name, 1, 1, 1, 1)];
         let unsugared_contract_id =
             QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.tokens")

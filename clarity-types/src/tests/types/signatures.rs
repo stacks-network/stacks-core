@@ -15,9 +15,7 @@
 use std::collections::BTreeSet;
 
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::MustInto;
 
-use crate::Value;
 use crate::errors::ClarityTypeError;
 use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
@@ -28,6 +26,7 @@ use crate::types::{
     StandardPrincipalData, StringSubtype, StringUTF8Length, TraitIdentifier, TupleData,
     TupleTypeSignature, WRAPPER_VALUE_SIZE,
 };
+use crate::{ClarityName, Value};
 
 #[test]
 fn test_core_constants() {
@@ -415,8 +414,8 @@ fn test_type_min_size_list() {
 fn test_type_min_size_tuple() {
     let actual = TypeSignature::TupleType(
         TupleTypeSignature::try_from(vec![
-            ("a".must_into(), TypeSignature::IntType),
-            ("b".must_into(), TypeSignature::BoolType),
+            (ClarityName::from_literal("a"), TypeSignature::IntType),
+            (ClarityName::from_literal("b"), TypeSignature::BoolType),
         ])
         .unwrap(),
     );
@@ -490,7 +489,7 @@ fn test_type_min_size_principal_matches_minimum_value_kind() {
 #[test]
 fn test_type_min_size_callable_trait_matches_minimum_value_kind() {
     let trait_id = TraitIdentifier {
-        name: "t".must_into(),
+        name: ClarityName::from_literal("t"),
         contract_identifier: QualifiedContractIdentifier::local("trait-def").unwrap(),
     };
     let declared_type = TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()));
@@ -514,12 +513,12 @@ fn test_type_min_size_tuple_with_list_matches_minimum_value() {
     let declared_type = TypeSignature::TupleType(
         TupleTypeSignature::try_from(vec![
             (
-                "items".must_into(),
+                ClarityName::from_literal("items"),
                 TypeSignature::list_of(TypeSignature::IntType, 10).unwrap(),
             ),
-            ("ok".must_into(), TypeSignature::BoolType),
+            (ClarityName::from_literal("ok"), TypeSignature::BoolType),
             (
-                "maybe".must_into(),
+                ClarityName::from_literal("maybe"),
                 TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
             ),
         ])
@@ -528,11 +527,11 @@ fn test_type_min_size_tuple_with_list_matches_minimum_value() {
     let min_value = Value::from(
         TupleData::from_data(vec![
             (
-                "items".must_into(),
+                ClarityName::from_literal("items"),
                 Value::cons_list_unsanitized(vec![]).unwrap(),
             ),
-            ("ok".must_into(), Value::Bool(false)),
-            ("maybe".must_into(), Value::none()),
+            (ClarityName::from_literal("ok"), Value::Bool(false)),
+            (ClarityName::from_literal("maybe"), Value::none()),
         ])
         .unwrap(),
     );
@@ -551,7 +550,7 @@ fn test_least_supertype() {
     let callables = [
         CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
         CallableSubtype::Trait(TraitIdentifier {
-            name: "foo".must_into(),
+            name: ClarityName::from_literal("foo"),
             contract_identifier: QualifiedContractIdentifier::transient(),
         }),
     ];
@@ -559,7 +558,7 @@ fn test_least_supertype() {
     let callables2 = [
         CallableSubtype::Principal(QualifiedContractIdentifier::local("bar").unwrap()),
         CallableSubtype::Trait(TraitIdentifier {
-            name: "bar".must_into(),
+            name: ClarityName::from_literal("bar"),
             contract_identifier: QualifiedContractIdentifier::transient(),
         }),
     ];
@@ -621,13 +620,19 @@ fn test_least_supertype() {
             (
                 TypeSignature::NoType,
                 TypeSignature::TupleType(
-                    TupleTypeSignature::try_from(vec![("a".must_into(), TypeSignature::IntType)])
-                        .unwrap(),
+                    TupleTypeSignature::try_from(vec![(
+                        ClarityName::from_literal("a"),
+                        TypeSignature::IntType,
+                    )])
+                    .unwrap(),
                 ),
             ),
             TypeSignature::TupleType(
-                TupleTypeSignature::try_from(vec![("a".must_into(), TypeSignature::IntType)])
-                    .unwrap(),
+                TupleTypeSignature::try_from(vec![(
+                    ClarityName::from_literal("a"),
+                    TypeSignature::IntType,
+                )])
+                .unwrap(),
             ),
         ),
         (
@@ -660,12 +665,12 @@ fn test_least_supertype() {
             (
                 TypeSignature::NoType,
                 TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
-                    name: "foo".must_into(),
+                    name: ClarityName::from_literal("foo"),
                     contract_identifier: QualifiedContractIdentifier::transient(),
                 })),
             ),
             TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
-                name: "foo".must_into(),
+                name: ClarityName::from_literal("foo"),
                 contract_identifier: QualifiedContractIdentifier::transient(),
             })),
         ),
@@ -722,17 +727,26 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::TupleType(
-                    TupleTypeSignature::try_from(vec![("a".must_into(), TypeSignature::IntType)])
-                        .unwrap(),
+                    TupleTypeSignature::try_from(vec![(
+                        ClarityName::from_literal("a"),
+                        TypeSignature::IntType,
+                    )])
+                    .unwrap(),
                 ),
                 TypeSignature::TupleType(
-                    TupleTypeSignature::try_from(vec![("a".must_into(), TypeSignature::IntType)])
-                        .unwrap(),
+                    TupleTypeSignature::try_from(vec![(
+                        ClarityName::from_literal("a"),
+                        TypeSignature::IntType,
+                    )])
+                    .unwrap(),
                 ),
             ),
             TypeSignature::TupleType(
-                TupleTypeSignature::try_from(vec![("a".must_into(), TypeSignature::IntType)])
-                    .unwrap(),
+                TupleTypeSignature::try_from(vec![(
+                    ClarityName::from_literal("a"),
+                    TypeSignature::IntType,
+                )])
+                .unwrap(),
             ),
         ),
         (
@@ -767,16 +781,16 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
-                    name: "foo".must_into(),
+                    name: ClarityName::from_literal("foo"),
                     contract_identifier: QualifiedContractIdentifier::transient(),
                 })),
                 TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
-                    name: "foo".must_into(),
+                    name: ClarityName::from_literal("foo"),
                     contract_identifier: QualifiedContractIdentifier::transient(),
                 })),
             ),
             TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
-                name: "foo".must_into(),
+                name: ClarityName::from_literal("foo"),
                 contract_identifier: QualifiedContractIdentifier::transient(),
             })),
         ),
@@ -885,14 +899,14 @@ fn test_least_supertype() {
             (
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![(
-                        "b".must_into(),
+                        ClarityName::from_literal("b"),
                         TypeSignature::STRING_ASCII_MIN,
                     )])
                     .unwrap(),
                 ),
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![(
-                        "b".must_into(),
+                        ClarityName::from_literal("b"),
                         TypeSignature::new_ascii_type_checked(17),
                     )])
                     .unwrap(),
@@ -900,7 +914,7 @@ fn test_least_supertype() {
             ),
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![(
-                    "b".must_into(),
+                    ClarityName::from_literal("b"),
                     TypeSignature::new_ascii_type_checked(17),
                 )])
                 .unwrap(),
@@ -955,12 +969,18 @@ fn test_least_supertype() {
         (TypeSignature::STRING_UTF8_MIN, TypeSignature::BUFFER_MIN),
         (
             TypeSignature::TupleType(
-                TupleTypeSignature::try_from(vec![("a".must_into(), TypeSignature::IntType)])
-                    .unwrap(),
+                TupleTypeSignature::try_from(vec![(
+                    ClarityName::from_literal("a"),
+                    TypeSignature::IntType,
+                )])
+                .unwrap(),
             ),
             TypeSignature::TupleType(
-                TupleTypeSignature::try_from(vec![("a".must_into(), TypeSignature::UIntType)])
-                    .unwrap(),
+                TupleTypeSignature::try_from(vec![(
+                    ClarityName::from_literal("a"),
+                    TypeSignature::UIntType,
+                )])
+                .unwrap(),
             ),
         ),
         (
@@ -979,7 +999,7 @@ fn test_least_supertype() {
         ),
         (
             TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
-                name: "foo".must_into(),
+                name: ClarityName::from_literal("foo"),
                 contract_identifier: QualifiedContractIdentifier::transient(),
             })),
             TypeSignature::PrincipalType,
@@ -999,14 +1019,17 @@ fn test_least_supertype() {
         (
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![(
-                    "b".must_into(),
+                    ClarityName::from_literal("b"),
                     TypeSignature::STRING_ASCII_MIN,
                 )])
                 .unwrap(),
             ),
             TypeSignature::TupleType(
-                TupleTypeSignature::try_from(vec![("b".must_into(), TypeSignature::UIntType)])
-                    .unwrap(),
+                TupleTypeSignature::try_from(vec![(
+                    ClarityName::from_literal("b"),
+                    TypeSignature::UIntType,
+                )])
+                .unwrap(),
             ),
         ),
         (

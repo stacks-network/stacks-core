@@ -414,7 +414,6 @@ pub mod pox4 {
 
 #[cfg(test)]
 mod test {
-    use clarity::util::MustInto;
     use clarity::vm::types::{TupleData, Value};
     use stacks_common::consts::CHAIN_ID_MAINNET;
     use stacks_common::util::hash::to_hex;
@@ -438,14 +437,17 @@ mod test {
         let domain = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "name".must_into(),
+                    ClarityName::from_literal("name"),
                     Value::string_ascii_from_bytes("Test App".into()).unwrap(),
                 ),
                 (
-                    "version".must_into(),
+                    ClarityName::from_literal("version"),
                     Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
                 ),
-                ("chain-id".must_into(), Value::UInt(CHAIN_ID_MAINNET.into())),
+                (
+                    ClarityName::from_literal("chain-id"),
+                    Value::UInt(CHAIN_ID_MAINNET.into()),
+                ),
             ])
             .unwrap(),
         );
@@ -469,14 +471,17 @@ mod test {
         let domain = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "name".must_into(),
+                    ClarityName::from_literal("name"),
                     Value::string_ascii_from_bytes("Test App".into()).unwrap(),
                 ),
                 (
-                    "version".must_into(),
+                    ClarityName::from_literal("version"),
                     Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
                 ),
-                ("chain-id".must_into(), Value::UInt(CHAIN_ID_MAINNET.into())),
+                (
+                    ClarityName::from_literal("chain-id"),
+                    Value::UInt(CHAIN_ID_MAINNET.into()),
+                ),
             ])
             .unwrap(),
         );

@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use clarity::types::net::PeerHost;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
@@ -28,10 +29,10 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey,
 };
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::pipe::Pipe;
 use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
-use stacks_common::util::{get_epoch_time_secs, MustInto};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::Txid;
@@ -342,11 +343,17 @@ impl<'a> TestRPC<'a> {
 
         // stacker DBs get initialized thru reconfiguration when the above block gets processed
         peer_1_config.add_stacker_db(
-            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".must_into()),
+            QualifiedContractIdentifier::new(
+                addr1.clone().into(),
+                ContractName::from_literal("hello-world"),
+            ),
             StackerDBConfig::noop(),
         );
         peer_2_config.add_stacker_db(
-            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".must_into()),
+            QualifiedContractIdentifier::new(
+                addr1.clone().into(),
+                ContractName::from_literal("hello-world"),
+            ),
             StackerDBConfig::noop(),
         );
 
@@ -470,7 +477,7 @@ impl<'a> TestRPC<'a> {
                 &neighbor,
                 &[QualifiedContractIdentifier::new(
                     addr1.clone().into(),
-                    "hello-world".must_into(),
+                    ContractName::from_literal("hello-world"),
                 )],
             )
             .unwrap();

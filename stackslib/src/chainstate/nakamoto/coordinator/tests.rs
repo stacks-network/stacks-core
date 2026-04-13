@@ -32,7 +32,6 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{Address, StacksEpoch, StacksPublicKeyBuffer};
 use stacks_common::util::hash::{to_hex, Hash160};
-use stacks_common::util::MustInto;
 
 use crate::burnchains::tests::TestMiner;
 use crate::burnchains::Txid;
@@ -1044,15 +1043,15 @@ fn block_info_tests(use_primary_testnet: bool) {
 
     let clar1_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar1_contract_name.must_into(),
+        name: ContractName::from_literal(clar1_contract_name),
     };
     let clar3_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar3_contract_name.must_into(),
+        name: ContractName::from_literal(clar3_contract_name),
     };
     let clar4_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar4_contract_name.must_into(),
+        name: ContractName::from_literal(clar4_contract_name),
     };
 
     let get_tip_info = |peer: &mut TestPeer| {

@@ -1435,7 +1435,6 @@ pub mod test {
     use clarity::vm::contracts::Contract;
     use clarity::vm::types::*;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
-    use stacks_common::util::MustInto;
 
     use self::signers_tests::readonly_call;
     use super::*;
@@ -2133,8 +2132,8 @@ pub mod test {
         let key_opt = readonly_call(
             peer,
             latest_block_id,
-            SIGNERS_VOTING_NAME.must_into(),
-            "get-approved-aggregate-key".must_into(),
+            ContractName::from_literal(SIGNERS_VOTING_NAME),
+            ClarityName::from_literal("get-approved-aggregate-key"),
             vec![Value::UInt(reward_cycle)],
         )
         .expect_optional()

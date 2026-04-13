@@ -34,11 +34,10 @@ use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
-use clarity::vm::{ClarityVersion, ContractName};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName};
 use lazy_static::lazy_static;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore, ClarityMarfStoreTransaction};
@@ -287,7 +286,8 @@ fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> Executi
     let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
         panic!("Expected a standard principal data");
     };
-    let contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".must_into());
+    let contract_id =
+        QualifiedContractIdentifier::new(p1_principal.clone(), ContractName::from_literal("self"));
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
@@ -899,10 +899,14 @@ fn setup_cost_tracked_test(
         panic!("Expected a principal data");
     };
 
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".must_into());
-    let trait_contract_id =
-        QualifiedContractIdentifier::new(p1_principal, "contract-trait".must_into());
+    let other_contract_id = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("contract-other"),
+    );
+    let trait_contract_id = QualifiedContractIdentifier::new(
+        p1_principal,
+        ContractName::from_literal("contract-trait"),
+    );
 
     owned_env
         .initialize_versioned_contract(trait_contract_id, version, contract_trait, None)
@@ -1039,8 +1043,10 @@ fn test_program_cost(
         p1_principal.clone(),
         ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
     );
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal, "contract-other".must_into());
+    let other_contract_id = QualifiedContractIdentifier::new(
+        p1_principal,
+        ContractName::from_literal("contract-other"),
+    );
 
     owned_env
         .initialize_versioned_contract(self_contract_id.clone(), version, &contract_self, None)
@@ -1246,11 +1252,16 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         panic!("Expected a principal data");
     };
 
-    let cost_definer =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".must_into());
-    let intercepted =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".must_into());
-    let caller = QualifiedContractIdentifier::new(p1_principal, "caller".must_into());
+    let cost_definer = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("cost-definer"),
+    );
+    let intercepted = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("intercepted"),
+    );
+    let caller =
+        QualifiedContractIdentifier::new(p1_principal, ContractName::from_literal("caller"));
 
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
@@ -1490,15 +1501,26 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         panic!("Expected a principal data");
     };
 
-    let cost_definer =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".must_into());
-    let bad_cost_definer =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "bad-cost-definer".must_into());
-    let bad_cost_args_definer =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "bad-cost-args-definer".must_into());
-    let intercepted =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".must_into());
-    let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".must_into());
+    let cost_definer = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("cost-definer"),
+    );
+    let bad_cost_definer = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("bad-cost-definer"),
+    );
+    let bad_cost_args_definer = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("bad-cost-args-definer"),
+    );
+    let intercepted = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("intercepted"),
+    );
+    let caller = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("caller"),
+    );
 
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
@@ -1835,8 +1857,14 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         let circuits = tracker.contract_call_circuits();
         assert_eq!(circuits.len(), 2);
 
-        let circuit1 = circuits.get(&(intercepted.clone(), "intercepted-function".must_into()));
-        let circuit2 = circuits.get(&(intercepted, "intercepted-function2".must_into()));
+        let circuit1 = circuits.get(&(
+            intercepted.clone(),
+            ClarityName::from_literal("intercepted-function"),
+        ));
+        let circuit2 = circuits.get(&(
+            intercepted,
+            ClarityName::from_literal("intercepted-function2"),
+        ));
 
         assert!(circuit1.is_some());
         assert!(circuit2.is_some());

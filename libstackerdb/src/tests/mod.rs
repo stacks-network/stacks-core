@@ -15,11 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ContractName;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::MustInto;
 
 use crate::*;
 
@@ -81,7 +81,8 @@ fn test_stackerdb_paths() {
     )
     .unwrap();
 
-    let contract_id = QualifiedContractIdentifier::new(addr.into(), "hello-world".must_into());
+    let contract_id =
+        QualifiedContractIdentifier::new(addr.into(), ContractName::from_literal("hello-world"));
 
     assert_eq!(
         stackerdb_get_metadata_path(contract_id.clone()),

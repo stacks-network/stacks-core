@@ -21,7 +21,7 @@ use std::time::Duration;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::Value;
+use clarity::vm::{ContractName, Value};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::params;
@@ -33,7 +33,7 @@ use stacks_common::types::{MempoolCollectionBehavior, StacksEpochId};
 use stacks_common::util::hash::{Hash160, *};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms, MustInto};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 
 use super::mempool::MemPoolWalkStrategy;
 use super::MemPoolDB;
@@ -1624,7 +1624,7 @@ fn mempool_db_test_rbf() {
     let payload = TransactionPayload::TokenTransfer(
         PrincipalData::from(QualifiedContractIdentifier {
             issuer: stx_address.clone().into(),
-            name: "hello-contract-name".must_into(),
+            name: ContractName::from_literal("hello-contract-name"),
         }),
         123,
         TokenTransferMemo([0u8; 34]),

@@ -14,14 +14,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
-use stacks_common::util::MustInto;
-
 use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{
     ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
+use crate::{ClarityName, ContractName};
 
 fn test_deser_ser(v: Value) {
     assert_eq!(
@@ -184,30 +183,32 @@ fn test_string_utf8() {
 fn test_tuples() {
     let t_1 = Value::from(
         TupleData::from_data(vec![
-            ("a".must_into(), Value::Int(1)),
-            ("b".must_into(), Value::Int(1)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(1)),
         ])
         .unwrap(),
     );
     let t_0 = Value::from(
         TupleData::from_data(vec![
-            ("b".must_into(), Value::Int(1)),
-            ("a".must_into(), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(1)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
         ])
         .unwrap(),
     );
     let t_2 = Value::from(
         TupleData::from_data(vec![
-            ("a".must_into(), Value::Int(1)),
-            ("b".must_into(), Value::Bool(true)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Bool(true)),
         ])
         .unwrap(),
     );
-    let t_3 = Value::from(TupleData::from_data(vec![("a".must_into(), Value::Int(1))]).unwrap());
+    let t_3 = Value::from(
+        TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(1))]).unwrap(),
+    );
     let t_4 = Value::from(
         TupleData::from_data(vec![
-            ("a".must_into(), Value::Int(1)),
-            ("c".must_into(), Value::Bool(true)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("c"), Value::Bool(true)),
         ])
         .unwrap(),
     );
@@ -305,7 +306,7 @@ fn test_vectors() {
                     ],
                 )
                 .unwrap(),
-                "abcd".must_into(),
+                ContractName::from_literal("abcd"),
             )
             .into()),
         ),
@@ -336,8 +337,8 @@ fn test_vectors() {
             "0c000000020362617a0906666f6f62617203",
             Ok(Value::from(
                 TupleData::from_data(vec![
-                    ("baz".must_into(), Value::none()),
-                    ("foobar".must_into(), Value::Bool(true)),
+                    (ClarityName::from_literal("baz"), Value::none()),
+                    (ClarityName::from_literal("foobar"), Value::Bool(true)),
                 ])
                 .unwrap(),
             )),
@@ -407,7 +408,8 @@ fn test_principals() {
             .unwrap();
     let standard_p = Value::from(issuer.clone());
 
-    let contract_identifier = QualifiedContractIdentifier::new(issuer, "foo".must_into());
+    let contract_identifier =
+        QualifiedContractIdentifier::new(issuer, ContractName::from_literal("foo"));
     let contract_p2 = Value::from(PrincipalData::Contract(contract_identifier));
 
     test_deser_ser(contract_p2.clone());

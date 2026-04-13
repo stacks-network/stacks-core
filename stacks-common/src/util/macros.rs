@@ -275,13 +275,6 @@ macro_rules! guarded_string {
             }
         }
 
-        impl $crate::util::MustInto<$Name> for str {
-            #[cfg(any(test, feature = "testing"))]
-            fn must_into(&'static self) -> $Name {
-                $Name::from_literal(self)
-            }
-        }
-
         impl fmt::Display for $Name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 self.0.fmt(f)

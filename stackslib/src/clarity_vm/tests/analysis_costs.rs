@@ -25,7 +25,6 @@ use clarity::vm::{execute as vm_execute, ClarityVersion, ContractName};
 use rstest::rstest;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
@@ -56,10 +55,14 @@ fn setup_tracked_cost_test(
                           (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".must_into());
-    let trait_contract_id =
-        QualifiedContractIdentifier::new(p1_principal, "contract-trait".must_into());
+    let other_contract_id = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("contract-other"),
+    );
+    let trait_contract_id = QualifiedContractIdentifier::new(
+        p1_principal,
+        ContractName::from_literal("contract-trait"),
+    );
 
     let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
     clarity_instance

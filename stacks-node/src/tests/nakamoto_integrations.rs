@@ -112,7 +112,7 @@ use stacks_common::types::{
 };
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_secs, sleep_ms, MustInto};
+use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
 use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
@@ -16867,8 +16867,11 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.must_into())
-                .into(),
+            QualifiedContractIdentifier::new(
+                sender_addr.clone().into(),
+                ContractName::from_literal(contract_name),
+            )
+            .into(),
             Value::none(),
         ],
     );
@@ -16933,8 +16936,11 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.must_into())
-                .into(),
+            QualifiedContractIdentifier::new(
+                sender_addr.clone().into(),
+                ContractName::from_literal(contract_name),
+            )
+            .into(),
             Value::none(),
         ],
     );
@@ -17026,8 +17032,11 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.must_into())
-                .into(),
+            QualifiedContractIdentifier::new(
+                sender_addr.clone().into(),
+                ContractName::from_literal(contract_name),
+            )
+            .into(),
             Value::none(),
         ],
     );
@@ -17973,7 +17982,7 @@ fn check_as_contract_rollback() {
     let contract_name = "test-contract";
     let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
         issuer: sender_addr.clone().into(),
-        name: contract_name.must_into(),
+        name: ContractName::from_literal(contract_name),
     });
     let deploy_fee = 4000;
     let call_fee = 400;

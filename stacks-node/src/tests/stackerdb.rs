@@ -17,12 +17,12 @@
 use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ContractName;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::MustInto;
 use {reqwest, serde_json};
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
@@ -158,7 +158,7 @@ fn test_stackerdb_load_store() {
 
     conf.node.stacker_dbs.push(QualifiedContractIdentifier::new(
         to_addr(&privks[0]).into(),
-        "hello-world".must_into(),
+        ContractName::from_literal("hello-world"),
     ));
     let contract_id = conf.node.stacker_dbs[0].clone();
 
@@ -295,7 +295,7 @@ fn test_stackerdb_event_observer() {
 
     conf.node.stacker_dbs.push(QualifiedContractIdentifier::new(
         to_addr(&privks[0]).into(),
-        "hello-world".must_into(),
+        ContractName::from_literal("hello-world"),
     ));
     let contract_id = conf.node.stacker_dbs[0].clone();
 

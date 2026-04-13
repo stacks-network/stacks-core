@@ -17,12 +17,11 @@ use std::env;
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, ContractName, Value};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{to_hex, Hash160};
-use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{
@@ -112,8 +111,8 @@ fn make_dummy_cc_tx(fee: u64) -> StacksTransactionReceipt {
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::ContractCall(TransactionContractCall {
             address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
-            contract_name: "cc-dummy".must_into(),
-            function_name: "func-name".must_into(),
+            contract_name: ContractName::from_literal("cc-dummy"),
+            function_name: ClarityName::from_literal("func-name"),
             function_args: vec![],
         }),
     );

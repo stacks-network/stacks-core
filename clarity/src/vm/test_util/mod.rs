@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use clarity_types::ClarityName;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -22,7 +23,6 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksAddress,
     StacksBlockId, VRFSeed,
 };
-use stacks_common::util::MustInto;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::vm::costs::ExecutionCost;
@@ -314,9 +314,12 @@ impl BurnStateDB for UnitTestBurnStateDB {
         Some((
             vec![
                 TupleData::from_data(vec![
-                    ("version".must_into(), Value::buff_from(vec![0u8]).unwrap()),
                     (
-                        "hashbytes".must_into(),
+                        ClarityName::from_literal("version"),
+                        Value::buff_from(vec![0u8]).unwrap(),
+                    ),
+                    (
+                        ClarityName::from_literal("hashbytes"),
                         Value::buff_from(vec![0u8; 20]).unwrap(),
                     ),
                 ])

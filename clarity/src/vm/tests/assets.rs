@@ -14,9 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #[cfg(test)]
-use stacks_common::types::StacksEpochId;
+use clarity_types::ClarityName;
 #[cfg(test)]
-use stacks_common::util::MustInto;
+use clarity_types::ContractName;
+#[cfg(test)]
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
 use crate::vm::errors::VmExecutionError;
@@ -144,6 +146,8 @@ fn execute_transaction(
 
 #[apply(test_epochs)]
 fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
+    use clarity_types::ContractName;
+
     let mut owned_env = env_factory.get_env(epoch);
     let contract = r#"(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
                     (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))
@@ -179,10 +183,14 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         panic!("Expected principal data");
     };
 
-    let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".must_into());
-    let second_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "second".must_into());
+    let token_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("tokens"),
+    );
+    let second_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("second"),
+    );
 
     owned_env
         .initialize_contract(token_contract_id.clone(), contract, None)
@@ -513,6 +521,8 @@ fn test_simple_token_system(
     epoch: StacksEpochId,
     mut env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
+    use clarity_types::{ClarityName, ContractName};
+
     let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
 
@@ -531,12 +541,14 @@ fn test_simple_token_system(
         panic!("Expected principal data");
     };
 
-    let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".must_into());
+    let token_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("tokens"),
+    );
 
     let token_identifier = AssetIdentifier {
         contract_identifier: token_contract_id.clone(),
-        asset_name: "stackaroos".must_into(),
+        asset_name: ClarityName::from_literal("stackaroos"),
     };
 
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
@@ -805,6 +817,8 @@ fn test_simple_token_system(
 
 #[apply(test_epochs)]
 fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
+    use clarity_types::ContractName;
+
     let mut owned_env = env_factory.get_env(epoch);
     let bad_0 = "(define-fungible-token stackaroos (- 5))";
     let bad_1 = "(define-fungible-token stackaroos true)";
@@ -830,8 +844,10 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         panic!("Expected principal data");
     };
 
-    let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".must_into());
+    let token_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("tokens"),
+    );
     let err = owned_env
         .initialize_contract(token_contract_id.clone(), bad_0, None)
         .unwrap_err();
@@ -906,6 +922,8 @@ fn test_overlapping_nfts(
     epoch: StacksEpochId,
     mut env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
+    use clarity_types::ContractName;
+
     let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
     let names_contract = ASSET_NAMES;
@@ -916,12 +934,18 @@ fn test_overlapping_nfts(
         panic!("Expected standard principal data");
     };
 
-    let tokens_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".must_into());
-    let names_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".must_into());
-    let names_2_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "names-2".must_into());
+    let tokens_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("tokens"),
+    );
+    let names_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("names"),
+    );
+    let names_2_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("names-2"),
+    );
 
     owned_env
         .initialize_contract(tokens_contract_id, tokens_contract, None)
@@ -940,6 +964,8 @@ fn test_simple_naming_system(
     epoch: StacksEpochId,
     mut env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
+    use clarity_types::{ClarityName, ContractName};
+
     let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
 
@@ -963,19 +989,23 @@ fn test_simple_naming_system(
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
-    let tokens_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".must_into());
+    let tokens_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("tokens"),
+    );
 
-    let names_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".must_into());
+    let names_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("names"),
+    );
 
     let names_identifier = AssetIdentifier {
         contract_identifier: names_contract_id,
-        asset_name: "names".must_into(),
+        asset_name: ClarityName::from_literal("names"),
     };
     let tokens_identifier = AssetIdentifier {
         contract_identifier: tokens_contract_id.clone(),
-        asset_name: "stackaroos".must_into(),
+        asset_name: ClarityName::from_literal("stackaroos"),
     };
 
     let name_hash_expensive_0 = execute("(hash160 1)");
@@ -986,8 +1016,10 @@ fn test_simple_naming_system(
         .initialize_contract(tokens_contract_id, tokens_contract, None)
         .unwrap();
 
-    let names_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "names".must_into());
+    let names_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("names"),
+    );
     owned_env
         .initialize_contract(names_contract_id.clone(), names_contract, None)
         .unwrap();
@@ -1358,8 +1390,10 @@ fn test_constant_contract_principal_in_stx_ops() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-stx".must_into());
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("test-stx"));
 
     owned_env
         .initialize_versioned_contract(
@@ -1484,8 +1518,10 @@ fn test_constant_contract_principal_in_ft_ops() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-ft".must_into());
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("test-ft"));
 
     owned_env
         .initialize_versioned_contract(
@@ -1579,8 +1615,10 @@ fn test_constant_contract_principal_in_nft_principal_args() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-nft".must_into());
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("test-nft"));
 
     owned_env
         .initialize_versioned_contract(
@@ -1671,8 +1709,12 @@ fn test_constant_contract_principal_in_compound_values() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-compound".must_into());
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id = QualifiedContractIdentifier::new(
+        p1_std.clone(),
+        ContractName::from_literal("test-compound"),
+    );
 
     owned_env
         .initialize_versioned_contract(
@@ -1736,9 +1778,12 @@ fn test_nft_with_constant_contract_principal_as_token_id() {
         panic!("Expected principal data");
     };
 
-    let helper_contract_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
-    let nft_contract_id =
-        QualifiedContractIdentifier::new(p1_std.clone(), "nft-contract".must_into());
+    let helper_contract_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let nft_contract_id = QualifiedContractIdentifier::new(
+        p1_std.clone(),
+        ContractName::from_literal("nft-contract"),
+    );
 
     // A trivial contract so we have a valid contract principal to reference.
     owned_env
@@ -1796,7 +1841,7 @@ fn test_nft_with_constant_contract_principal_as_token_id() {
         .expect("p1 should have asset entries");
     let nft_identifier = AssetIdentifier {
         contract_identifier: nft_contract_id,
-        asset_name: "nft".must_into(),
+        asset_name: ClarityName::from_literal("nft"),
     };
     let entry = p1_assets
         .get(&nft_identifier)
@@ -1851,8 +1896,12 @@ fn test_constant_contract_principal_is_eq() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-contract".must_into());
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id = QualifiedContractIdentifier::new(
+        p1_std.clone(),
+        ContractName::from_literal("test-contract"),
+    );
 
     owned_env
         .initialize_versioned_contract(
@@ -1918,8 +1967,12 @@ fn test_constant_contract_principal_index_of_and_list_ops() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-contract".must_into());
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id = QualifiedContractIdentifier::new(
+        p1_std.clone(),
+        ContractName::from_literal("test-contract"),
+    );
 
     owned_env
         .initialize_versioned_contract(

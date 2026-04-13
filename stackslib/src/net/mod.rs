@@ -2258,7 +2258,6 @@ pub mod test {
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::vrf::*;
-    use stacks_common::util::MustInto;
 
     use super::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -2669,7 +2668,7 @@ pub mod test {
                 org: 0,
                 allowed: 0,
                 denied: 0,
-                data_url: "".must_into(),
+                data_url: UrlString::from_literal(""),
                 setup_code: "".into(),
                 check_pox_invariants: None,
                 stacker_db_configs: vec![],

@@ -515,7 +515,6 @@ mod test {
     use clarity_types::types::QualifiedContractIdentifier;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
-    use stacks_common::util::MustInto;
 
     use crate::vm::analysis::errors::RuntimeCheckErrorKind;
     use crate::vm::analysis::type_checker::v2_1::MAX_FUNCTION_PARAMETERS;
@@ -535,9 +534,11 @@ mod test {
     ) {
         // ---- BAD SIGNATURE ----
         // Instead of ((x uint)), we pass (x)
+
+        use clarity_types::ClarityName;
         let bad_signature = vec![
-            SymbolicExpression::atom("f".must_into()),
-            SymbolicExpression::atom("x".must_into()), // NOT a (name type) list
+            SymbolicExpression::atom(ClarityName::from_literal("f")),
+            SymbolicExpression::atom(ClarityName::from_literal("x")), // NOT a (name type) list
         ];
 
         let body = SymbolicExpression::atom_value(Value::UInt(1));
@@ -590,21 +591,25 @@ mod test {
         #[case] version: ClarityVersion,
         #[case] epoch: StacksEpochId,
     ) {
+        use clarity_types::ClarityName;
+
         if epoch < StacksEpochId::Epoch33 {
             return;
         }
         // Build a trait method with MORE than MAX_FUNCTION_PARAMETERS arguments
         // (f (uint uint uint ... ) (response uint uint))
-        let too_many_args =
-            vec![SymbolicExpression::atom("uint".must_into()); MAX_FUNCTION_PARAMETERS + 1];
+        let too_many_args = vec![
+            SymbolicExpression::atom(ClarityName::from_literal("uint"));
+            MAX_FUNCTION_PARAMETERS + 1
+        ];
 
         let method = SymbolicExpression::list(vec![
-            SymbolicExpression::atom("f".must_into()),
+            SymbolicExpression::atom(ClarityName::from_literal("f")),
             SymbolicExpression::list(too_many_args),
             SymbolicExpression::list(vec![
-                SymbolicExpression::atom("response".must_into()),
-                SymbolicExpression::atom("uint".must_into()),
-                SymbolicExpression::atom("uint".must_into()),
+                SymbolicExpression::atom(ClarityName::from_literal("response")),
+                SymbolicExpression::atom(ClarityName::from_literal("uint")),
+                SymbolicExpression::atom(ClarityName::from_literal("uint")),
             ]),
         ]);
 
@@ -637,7 +642,7 @@ mod test {
         };
 
         let err = handle_define_trait(
-            &"bad-trait".must_into(),
+            &ClarityName::from_literal("bad-trait"),
             &trait_body,
             &mut exec_state,
             &invoke_ctx,

@@ -440,8 +440,7 @@ mod tests {
     use clarity::vm::database::MemoryBackingStore;
     use clarity::vm::errors::{RuntimeError, VmExecutionError};
     use clarity::vm::types::{StandardPrincipalData, TupleData};
-    use clarity::vm::Value;
-    use stacks_common::util::MustInto;
+    use clarity::vm::{ClarityName, Value};
 
     use crate::pox_4::{handle_contract_call, POX_4_NAME};
 
@@ -493,9 +492,18 @@ mod tests {
         // (stacker, lock-amount, unlock-height) tuple
         let stack_stx_response = Value::okay(Value::Tuple(
             TupleData::from_data(vec![
-                ("stacker".must_into(), Value::Principal(stacker.clone())),
-                ("lock-amount".must_into(), Value::UInt(100_000_000)), // trying to lock 100 more STX
-                ("unlock-burn-height".must_into(), Value::UInt(15_000)),
+                (
+                    ClarityName::from_literal("stacker"),
+                    Value::Principal(stacker.clone()),
+                ),
+                (
+                    ClarityName::from_literal("lock-amount"),
+                    Value::UInt(100_000_000),
+                ), // trying to lock 100 more STX
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(15_000),
+                ),
             ])
             .unwrap(),
         ))

@@ -34,7 +34,7 @@ use rusqlite::params;
 use stacks_common::address::*;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::{get_epoch_time_ms, sleep_ms, MustInto};
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
@@ -4484,8 +4484,8 @@ fn mempool_incorporate_pox_unlocks() {
                              Value::UInt(total_balance as u128 - 10_000),
                              Value::Tuple(
                                  TupleData::from_data(vec![
-                                     ("version".must_into(), Value::buff_from(vec![0x00]).unwrap()),
-                                     ("hashbytes".must_into(), Value::buff_from(vec![0; 20]).unwrap()),
+                                     (ClarityName::from_literal("version"), Value::buff_from(vec![0x00]).unwrap()),
+                                     (ClarityName::from_literal("hashbytes"), Value::buff_from(vec![0; 20]).unwrap()),
                                  ]).unwrap(),
                              ),
                              Value::UInt(my_height as u128),

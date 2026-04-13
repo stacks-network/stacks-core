@@ -17,12 +17,12 @@ use std::collections::HashMap;
 use std::{env, thread};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::Value;
+use clarity::vm::{ContractName, Value};
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::config::InitialBalance;
 use stacks::core::test_util::make_contract_call;
 use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
-use stacks_common::util::{sleep_ms, MustInto};
+use stacks_common::util::sleep_ms;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
@@ -52,8 +52,10 @@ fn trait_invocation_behavior() {
     let contract_addr = to_addr(&spender_sk);
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let impl_contract_id =
-        QualifiedContractIdentifier::new(contract_addr.clone().into(), "impl-simple".must_into());
+    let impl_contract_id = QualifiedContractIdentifier::new(
+        contract_addr.clone().into(),
+        ContractName::from_literal("impl-simple"),
+    );
 
     let mut spender_nonce = 0;
     let fee_amount = 10_000;

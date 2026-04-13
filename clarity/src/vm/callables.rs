@@ -540,7 +540,7 @@ fn clarity2_implicit_cast(
 
 #[cfg(test)]
 mod test {
-    use stacks_common::util::MustInto;
+    use clarity_types::ContractName;
 
     use super::*;
     use crate::vm::types::{
@@ -754,17 +754,17 @@ mod test {
     fn test_canonicalize_defined_function() {
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".must_into(),
-            "my-trait".must_into(),
+            ContractName::from_literal("my-contract"),
+            ClarityName::from_literal("my-trait"),
         );
         let mut f = DefinedFunction::new(
             vec![(
-                "a".must_into(),
+                ClarityName::from_literal("a"),
                 TypeSignature::TraitReferenceType(trait_id.clone()),
             )],
             SymbolicExpression::atom_value(Value::Int(3)),
             DefineType::Public,
-            &"foo".must_into(),
+            &ClarityName::from_literal("foo"),
             "testing",
         );
         f.canonicalize_types(&StacksEpochId::Epoch21);
