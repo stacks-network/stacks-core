@@ -1,0 +1,19 @@
+[package]
+name = "uint-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Current (in-tree) version of stacks-common
+stacks-common-new = { package = "stacks-common", path = "../../stacks-common", default-features = false }
+
+# Old version of stacks-common pinned at the comparison commit
+stacks-common-old = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core", rev = "eef1647d90c0c78d06c12277d931a8976bd819f3", default-features = false }
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "uint_ops"
+harness = false
