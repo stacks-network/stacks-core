@@ -245,7 +245,7 @@ macro_rules! guarded_string {
             /// panic. Only pass hardcoded known-good values. For anything else, use `try_from`
             /// and deal with errors.
             pub fn from_literal(value: &'static str) -> Self {
-                Self::try_from(value).expect("Expected must_from to never fail")
+                Self::try_from(value).expect("Expected from_literal to never fail")
             }
         }
 
