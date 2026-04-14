@@ -920,8 +920,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // Step 2: reserve space for the root at the front of the blob.
         //
         // We assume all inline child pointers need u64 encoding (worst case).
-        // After all other nodes are written we seek back and write the root
-        // with its actual pointer widths.
+        // When some child offsets fit in u32, the root's actual size is
+        // smaller than the reserved space, leaving a small dead gap (at most
+        // 4 * n_inline_children bytes) between the root and the first descendant.
         let root_reserved_size = {
             let (root_node, _) = self.get_nodetype(root_mem_ptr)?;
             Self::reserved_root_size(get_node_byte_len(root_node), root_node.ptrs())?
@@ -1161,7 +1162,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         // Step 2: reserve space for the root at the front of the blob.
         //
-        // Assume all inline child pointers need u64 encoding (worst case).
+        // We assume all inline child pointers need u64 encoding (worst case).
+        // When some child offsets fit in u32, the root's actual size is
+        // smaller than the reserved space, leaving a small dead gap (at most
+        // 4 * n_inline_children bytes) between the root and the first descendant.
         let root_reserved_size = {
             if let Some(patch) = root_dp.patch() {
                 Self::reserved_root_size(TRIEHASH_ENCODED_SIZE + patch.size(), &patch.ptr_diff)?
