@@ -415,10 +415,13 @@ fn dump_consume_large_offset_sets_u64_ptr_bit() {
         .expect("create temp trie dump");
     let end_offset = trie.dump_consume(&mut file).expect("dump large trie");
     assert!(end_offset > u64::from(u32::MAX));
+    // child-before-parent order: the last two nodes in the file are the shallowest
+    // non-root nodes of the linear chain. Both have children at offsets
+    // exceeding u32::MAX, so both carry u64 pointers (per_node_size + 4).
     assert_second_last_ptr_id_is_u64(
         &mut file,
         end_offset,
-        per_node_size,
+        per_node_size + 4,
         per_node_size + 4,
         u64::try_from(TRIEHASH_ENCODED_SIZE + 1).expect("infallible"),
         "seek to second-last child ptr id",
@@ -476,10 +479,12 @@ fn dump_compressed_consume_large_offset_sets_u64_ptr_bit() {
         get_sparse_ptrs_bitmap_size(TrieNodeID::Node256 as u8).expect("node256 bitmap size"),
     )
     .expect("infallible");
+    // child-before-parent order: both the last and second-to-last nodes have
+    // children at offsets exceeding u32::MAX, so both use u64 pointers.
     assert_second_last_ptr_id_is_u64(
         &mut file,
         end_offset,
-        per_node_size,
+        widened_second_last_size,
         widened_second_last_size,
         u64::try_from(TRIEHASH_ENCODED_SIZE + 1 + 1).expect("infallible") + bitmap_size,
         "seek to second-last compressed child ptr id",

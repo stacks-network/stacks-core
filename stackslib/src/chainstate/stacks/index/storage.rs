@@ -384,7 +384,7 @@ impl<T: MarfTrieId> UncommittedState<T> {
 /// `TriePtr::ptr()` is treated as an in-memory node index into `data`, and
 /// traversal/indexing paths are intentionally bounded to `u32`.
 /// Large `u64` byte offsets are only materialized when serializing this trie
-/// to persistent storage (see `dump_consume`/`write_trie_indirect`).
+/// to persistent storage (see `dump_consume`/`dump_compressed_consume`).
 #[derive(Clone)]
 pub struct TrieRAM<T: MarfTrieId> {
     data: Vec<(TrieNodeType, TrieHash)>,
@@ -626,103 +626,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
         (lr, lw)
     }
 
-    /// write the trie data to f, using node_data_order to
-    ///   iterate over node_data
-    pub fn write_trie_indirect<F: Write + Seek>(
-        f: &mut F,
-        node_data_order: &[u32],
-        node_data: &[(TrieNodeType, TrieHash)],
-        offsets: &[u64],
-        parent_hash: &T,
-    ) -> Result<(), Error> {
-        assert_eq!(node_data_order.len(), offsets.len());
-
-        // write parent block ptr
-        f.rewind()?;
-        f.write_all(parent_hash.as_bytes())
-            .map_err(Error::IOError)?;
-
-        // write zero-identifier (TODO: this is a convenience hack for now, we should remove the
-        //    identifier from the trie data blob)
-        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
-        f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
-
-        for (ix, indirect) in node_data_order.iter().enumerate() {
-            // dump the node to storage
-            let node = node_data
-                .get(*indirect as usize)
-                .ok_or_else(|| Error::CorruptionError("node_data_order pointer invalid".into()))?;
-            write_nodetype_bytes(f, &node.0, node.1)?;
-
-            // next node
-            let next_offset = *offsets.get(ix).ok_or_else(|| {
-                Error::CorruptionError("node_data_order.len() != offsets.len()".into())
-            })?;
-            f.seek(SeekFrom::Start(next_offset))?;
-        }
-
-        Ok(())
-    }
-
-    /// write the trie data to f, using node_data_order to
-    ///   iterate over node_data
-    /// Compression improvements:
-    /// * Do not store backptr 0's if the node isn't a backptr
-    /// * Store a compact representation for sparse child pointer lists
-    /// * If a node was copied from another, then only store the difference in ptrs (TrieNodePatch)
-    pub fn write_trie_indirect_compressed<F: Write + Seek>(
-        f: &mut F,
-        node_data_order: &[DumpPtr],
-        node_data: &[(TrieNodeType, TrieHash)],
-        offsets: &[u64],
-        parent_hash: &T,
-    ) -> Result<(), Error> {
-        assert_eq!(node_data_order.len(), offsets.len());
-
-        // write parent block ptr
-        f.rewind()?;
-        f.write_all(parent_hash.as_bytes())
-            .map_err(Error::IOError)?;
-
-        // write zero-identifier (TODO: this is a convenience hack for now, we should remove the
-        //    identifier from the trie data blob)
-        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
-        f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
-
-        for (ix, indirect) in node_data_order.iter().enumerate() {
-            if let Some((hash_bytes, patch)) = indirect.hash_and_patch() {
-                let f_pos_before = f.stream_position()?;
-                f.write_all(hash_bytes)?;
-                patch.consensus_serialize(f).map_err(|e| {
-                    Error::CorruptionError(format!("Failed to serialize patch: {e:?}"))
-                })?;
-
-                let f_pos_after = f.stream_position()?;
-                trace!(
-                    "write {:?} {} at {}-{}",
-                    &patch,
-                    &to_hex(hash_bytes),
-                    f_pos_before,
-                    f_pos_after
-                );
-            } else {
-                // dump the node to storage
-                let node = node_data.get(indirect.ptr() as usize).ok_or_else(|| {
-                    Error::CorruptionError("node_data_order pointer invalid".into())
-                })?;
-
-                write_nodetype_bytes_compressed(f, &node.0, node.1)?;
-            }
-            // next node
-            let next_offset = *offsets.get(ix).ok_or_else(|| {
-                Error::CorruptionError("node_data_order.len() != offsets.len()".into())
-            })?;
-            f.seek(SeekFrom::Start(next_offset))?;
-        }
-
-        Ok(())
-    }
-
     /// Calculate the MARF root hash from a trie root hash.
     /// This hashes the trie root hash with a geometric series of prior trie hashes.
     fn calculate_marf_root_hash(
@@ -934,134 +837,143 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
     }
 
+    /// Compute the reserved on-disk size for a root written after its children.
+    fn reserved_root_size(base_len: usize, ptrs: &[TriePtr]) -> Result<u64, Error> {
+        let base_len = u64::try_from(base_len).map_err(|_| Error::OverflowError)?;
+        let inline_ptr_growth = u64::try_from(
+            ptrs.iter()
+                .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                .count(),
+        )
+        .map_err(|_| Error::OverflowError)?
+        .checked_mul(4)
+        .ok_or(Error::OverflowError)?;
+        base_len
+            .checked_add(inline_ptr_growth)
+            .ok_or(Error::OverflowError)
+    }
+
+    /// Rewrite inline child pointers from in-memory indices to file offsets.
+    fn update_inline_child_ptrs(ptrs: &mut [TriePtr], file_offsets: &[u64]) -> Result<(), Error> {
+        for ptr in ptrs.iter_mut() {
+            if ptr.is_empty() || is_backptr(ptr.id) {
+                continue;
+            }
+
+            let child_idx = ptr.ptr_as_usize()?;
+            let Some(&offset) = file_offsets.get(child_idx) else {
+                return Err(Error::CorruptionError("Child index out of range".into()));
+            };
+            // 0 is the sentinel for "not yet placed": valid offsets are always
+            // past the 36-byte header + root reservation.
+            if offset == 0 {
+                return Err(Error::CorruptionError(
+                    "Child offset not yet written".into(),
+                ));
+            }
+
+            ptr.ptr = offset;
+        }
+
+        Ok(())
+    }
+
     /// Walk through the buffered TrieNodes and dump them to f.
     /// This consumes this TrieRAM instance.
+    ///
+    /// Uses a child-before-parent DFS write order.
+    ///
+    /// The root node's space is reserved at the front of the
+    /// blob (immediately after the header) assuming u64 pointers,
+    /// and it is written last once all child offsets are known.
     pub(crate) fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
-        // step 1: determine breadth-first node order
-        let mut frontier: VecDeque<u32> = VecDeque::new();
-        let mut node_data = vec![];
-        let mut inline_child_count = 0usize;
-        // True when a node has inline children, i.e. non-empty, non-backptr
-        // child pointers serialized inline in the current trie blob. Their
-        // encoded widths may widen from u32 to u64.
-        let mut has_inline_children = vec![];
+        let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr_as_u32()?;
 
-        let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
-        frontier.push_back(
-            u32::try_from(start)
-                .map_err(|_| Error::CorruptionError("Root pointer exceeds u32::MAX".into()))?,
-        );
-
-        while let Some(pointer) = frontier.pop_front() {
-            let (node, _node_hash) = self.get_nodetype(pointer)?;
-
-            // queue each child
-            let mut has_inline = false;
-            if !node.is_leaf() {
-                for ptr in node.ptrs().iter() {
-                    if !ptr.is_empty() && !is_backptr(ptr.id) {
-                        let idx = ptr.ptr_as_u32()?;
-                        frontier.push_back(idx);
-                        inline_child_count = inline_child_count
-                            .checked_add(1)
-                            .ok_or_else(|| Error::OverflowError)?;
-                        has_inline = true;
-                    }
-                }
-            }
-
-            has_inline_children.push(has_inline);
-            node_data.push(pointer);
-        }
-
-        // step 2: repeatedly lay out nodes until serialized offsets stabilize
-        // The first 32 bytes are reserved for the parent block hash,
-        // and the next 4 bytes for the local block identifier.
-        let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-        let mut offsets = Vec::with_capacity(node_data.len());
-        // Cached byte lengths: nodes without inline children have constant
-        // sizes across passes, so we only recompute nodes that have them.
-        let mut byte_lens = node_data
-            .iter()
-            .map(|p| {
-                let (node, _) = self.get_nodetype(*p)?;
-                u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)
-            })
-            .collect::<Result<Vec<u64>, Error>>()?;
-
-        assert_eq!(node_data.len(), has_inline_children.len());
-        assert_eq!(node_data.len(), byte_lens.len());
-
-        // The first pass replaces in-memory indices with serialized offsets.
-        // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
-        // A pass that changes offsets without introducing any new wide pointers is the final
-        // settling pass, so `inline_child_count + 2` bounds convergence.
-        let max_layout_passes = inline_child_count.saturating_add(2);
-        let mut converged = false;
-        for _ in 0..max_layout_passes {
-            offsets.clear();
-            let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-            for ((&pointer, &has_inline), blen) in node_data
-                .iter()
-                .zip(has_inline_children.iter())
-                .zip(byte_lens.iter_mut())
-            {
-                if has_inline {
-                    let (node, _) = self.get_nodetype(pointer)?;
-                    *blen =
-                        u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)?;
-                }
-                ptr += *blen;
-                offsets.push(ptr);
-            }
-            end_offset = ptr;
-
-            let mut changed = false;
-            let mut i = 0;
-            for (&node_data_ptr, &has_inline) in node_data.iter().zip(has_inline_children.iter()) {
-                if !has_inline {
-                    continue;
-                }
-                let next_node = &mut self
-                    .data
-                    .get_mut(usize::try_from(node_data_ptr).map_err(|_| Error::OverflowError)?)
-                    .ok_or_else(|| {
-                        Error::CorruptionError("Miscalculated dump_consume pointer".into())
-                    })?
-                    .0;
-                let ptrs = next_node.ptrs_mut();
-                for ptr in ptrs.iter_mut() {
-                    if !ptr.is_empty() && !is_backptr(ptr.id) {
-                        let next_offset = *offsets.get(i).ok_or_else(|| {
-                            Error::CorruptionError("Miscalculated dump_consume offsets".into())
-                        })?;
-                        if ptr.ptr != next_offset {
-                            ptr.ptr = next_offset;
-                            changed = true;
+        // Step 1: collect nodes in root-first DFS order.
+        let write_order = {
+            let mut order = Vec::with_capacity(self.data.len());
+            let mut stack = vec![root_mem_ptr];
+            while let Some(ptr) = stack.pop() {
+                order.push(ptr);
+                let (node, _) = self.get_nodetype(ptr)?;
+                if !node.is_leaf() {
+                    for child in node.ptrs().iter() {
+                        if !child.is_empty() && !is_backptr(child.id) {
+                            stack.push(child.ptr_as_u32()?);
                         }
-                        i += 1;
                     }
                 }
             }
-            if !changed {
-                converged = true;
-                break;
-            }
-        }
-        if !converged {
-            return Err(Error::CorruptionError(format!(
-                "dump_consume layout did not converge after {max_layout_passes} passes"
-            )));
+            order
+        };
+        // Split root from the remaining nodes.
+        let (&root_ptr, descendants) = write_order
+            .split_first()
+            .ok_or_else(|| Error::CorruptionError("Empty trie in dump_consume".into()))?;
+        if root_ptr != root_mem_ptr {
+            return Err(Error::CorruptionError(
+                "Root node missing from dump_consume write order".into(),
+            ));
         }
 
-        // step 3: write out each node (now that they have stable write ptrs)
-        TrieRAM::write_trie_indirect(
-            f,
-            &node_data,
-            self.data.as_slice(),
-            offsets.as_slice(),
-            &self.parent,
-        )?;
+        // Step 2: reserve space for the root at the front of the blob.
+        //
+        // We assume all inline child pointers need u64 encoding (worst case).
+        // After all other nodes are written we seek back and write the root
+        // with its actual pointer widths.
+        let root_reserved_size = {
+            let (root_node, _) = self.get_nodetype(root_mem_ptr)?;
+            Self::reserved_root_size(get_node_byte_len(root_node), root_node.ptrs())?
+        };
+
+        // Write the blob header (parent hash + reserved 4-byte block-id field set to 0).
+        f.rewind()?;
+        f.write_all(self.parent.as_bytes())
+            .map_err(Error::IOError)?;
+        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
+        f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
+
+        f.seek(SeekFrom::Start(header_size + root_reserved_size))?;
+
+        // Map from in-memory index -> file offset where each node was written.
+        let mut file_offsets = vec![0u64; self.data.len()];
+
+        // Step 3: write all descendant nodes in child-before-parent order.
+        //
+        // Reverse-iterating `descendants` ensures each child's file offset is already
+        // recorded by the time we write its parent.
+        for &mem_ptr in descendants.iter().rev() {
+            let mem_idx = usize::try_from(mem_ptr).map_err(|_| Error::OverflowError)?;
+            *file_offsets.get_mut(mem_idx).ok_or_else(|| {
+                Error::CorruptionError("Node index out of range in dump_consume".into())
+            })? = f.stream_position()?;
+
+            let entry = self.data.get_mut(mem_idx).ok_or_else(|| {
+                Error::CorruptionError("Invalid node pointer in dump_consume".into())
+            })?;
+
+            if !entry.0.is_leaf() {
+                Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+            }
+
+            write_nodetype_bytes(f, &entry.0, entry.1)?;
+        }
+
+        let end_offset = f.stream_position()?;
+
+        // Step 4: write the root node into its reserved space.
+        let root_idx = usize::try_from(root_mem_ptr).map_err(|_| Error::OverflowError)?;
+        let entry = self
+            .data
+            .get_mut(root_idx)
+            .ok_or_else(|| Error::CorruptionError("Invalid root pointer in dump_consume".into()))?;
+
+        if !entry.0.is_leaf() {
+            Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+        }
+        f.seek(SeekFrom::Start(header_size))?;
+        write_nodetype_bytes(f, &entry.0, entry.1)?;
 
         Ok(end_offset)
     }
@@ -1144,6 +1056,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// * Store a compact representation for sparse child pointer lists
     /// * If a node was copied from another, then only store the difference in ptrs (TrieNodePatch)
     ///
+    /// Uses a child-before-parent DFS write order.
+    ///
     /// Returns Ok(len) to report number of bytes written
     /// Returns Err(..) if we fail to write
     pub(crate) fn dump_compressed_consume<F: Write + Seek>(
@@ -1151,243 +1065,184 @@ impl<T: MarfTrieId> TrieRAM<T> {
         storage_tx: &mut TrieStorageTransaction<T>,
         f: &mut F,
     ) -> Result<u64, Error> {
-        // step 1: determine breadth-first node order and any patch payloads
-        let mut frontier: VecDeque<u32> = VecDeque::new();
+        let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let max_patch_depth = MAX_PATCH_DEPTH as usize;
+        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr_as_u32()?;
 
-        let mut node_data = vec![];
-        let mut inline_child_count = 0usize;
-        // True when a node has inline children, i.e. non-empty, non-backptr
-        // child pointers serialized inline in the current trie blob. Their
-        // encoded widths may widen from u32 to u64.
-        let mut has_inline_children = vec![];
+        // Step 1: collect nodes in root-first DFS order, computing patch
+        // payloads along the way.
+        let mut write_order = Vec::with_capacity(self.data.len());
+        {
+            let mut stack = vec![root_mem_ptr];
+            while let Some(pointer) = stack.pop() {
+                let (node, node_hash) = self.get_nodetype(pointer)?;
 
-        let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
-        frontier.push_back(
-            u32::try_from(start)
-                .map_err(|_| Error::CorruptionError("Root pointer exceeds u32::MAX".into()))?,
-        );
-
-        while let Some(pointer) = frontier.pop_front() {
-            let (node, node_hash) = self.get_nodetype(pointer)?;
-
-            // IMPROVEMENT: if we can, store a patch node instead of the whole node.
-            // Only applies to non-leaf nodes, and only if doing so results in a stack of patches
-            // that's less than MAX_PATCH_DEPTH. Also, only patch a node if the path is the same.
-            let mut patch_node_opt = if !node.is_leaf()
-                && node.get_patches().len() < MAX_PATCH_DEPTH as usize
-            {
-                if let Some((last_patch_block_id, last_patch_ptr, _)) = node.get_patches().last() {
-                    // this node is a patch to a node in a previous trie.  Try to amend a patch
-                    // atop it.
-                    let block_hash = storage_tx.get_block_hash_caching(*last_patch_block_id)?;
-
-                    // construct a COW pointer to this patch node
-                    let mut patch_ptr = TriePtr::new(
-                        set_backptr(TrieNodeID::Patch as u8),
-                        last_patch_ptr.chr(),
-                        last_patch_ptr.ptr(),
-                    );
-                    patch_ptr.back_block = *last_patch_block_id;
-
-                    let base_ptr = TrieCowPtr::new(block_hash.clone(), patch_ptr);
-                    let patch_node_opt = Self::make_node_patch(storage_tx, base_ptr, &node)?;
-                    if let Some(patch_node) = patch_node_opt {
-                        trace!(
-                            "Create amendment patch for node at {:?}: {:?}",
-                            &base_ptr,
-                            &node
+                // If possible, store a patch instead of the whole node.
+                let mut patch_node_opt = if !node.is_leaf()
+                    && node.get_patches().len() < max_patch_depth
+                {
+                    if let Some((last_patch_block_id, last_patch_ptr, _)) =
+                        node.get_patches().last()
+                    {
+                        let block_hash = storage_tx.get_block_hash_caching(*last_patch_block_id)?;
+                        let mut patch_ptr = TriePtr::new(
+                            set_backptr(TrieNodeID::Patch as u8),
+                            last_patch_ptr.chr(),
+                            last_patch_ptr.ptr(),
                         );
-                        Some((node_hash.to_bytes(), patch_node))
-                    } else {
-                        None
-                    }
-                } else if let Some(cowptr) = node.get_cow_ptr() {
-                    // this node was a COW node for this trie
-                    let patch_node_opt = Self::make_node_patch(storage_tx, *cowptr, &node)?;
-                    if let Some(patch_node) = patch_node_opt {
-                        trace!("Create COW patch for node at {:?}: {:?}", &cowptr, &node);
-                        Some((node_hash.to_bytes(), patch_node))
+                        patch_ptr.back_block = *last_patch_block_id;
+                        let base_ptr = TrieCowPtr::new(block_hash.clone(), patch_ptr);
+                        let patch_node_opt = Self::make_node_patch(storage_tx, base_ptr, &node)?;
+                        if let Some(patch_node) = patch_node_opt {
+                            trace!("Create amendment patch for node at {base_ptr:?}: {node:?}");
+                            Some((node_hash.to_bytes(), patch_node))
+                        } else {
+                            None
+                        }
+                    } else if let Some(cowptr) = node.get_cow_ptr() {
+                        let patch_node_opt = Self::make_node_patch(storage_tx, *cowptr, &node)?;
+                        if let Some(patch_node) = patch_node_opt {
+                            trace!("Create COW patch for node at {cowptr:?}: {node:?}");
+                            Some((node_hash.to_bytes(), patch_node))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
                 } else {
                     None
-                }
-            } else {
-                None
-            };
-
-            debug_assert!({
-                if let Some((_, patch_node)) = patch_node_opt.as_ref() {
-                    // The BFS frontier and the convergence loop must visit the
-                    // exact same inline children in the same order. Compare the
-                    // chr() sequence of inline children in the full node against
-                    // the patch diff to guarantee this.
-                    let node_inline = node
-                        .ptrs()
-                        .iter()
-                        .filter(|p| !p.is_empty() && !is_backptr(p.id))
-                        .map(|p| p.chr());
-                    let diff_inline = patch_node
-                        .ptr_diff
-                        .iter()
-                        .filter(|p| !p.is_empty() && !is_backptr(p.id))
-                        .map(|p| p.chr());
-                    node_inline.eq(diff_inline)
-                } else {
-                    true
-                }
-            });
-
-            // queue each child
-            let mut has_inline = false;
-            if !node.is_leaf() {
-                for ptr in node.ptrs().iter() {
-                    if !ptr.is_empty() && !is_backptr(ptr.id) {
-                        let idx = u32::try_from(ptr.ptr()).map_err(|_| {
-                            Error::CorruptionError(format!(
-                                "In-memory node index {} exceeds u32::MAX",
-                                ptr.ptr()
-                            ))
-                        })?;
-                        frontier.push_back(idx);
-                        inline_child_count = inline_child_count
-                            .checked_add(1)
-                            .ok_or_else(|| Error::OverflowError)?;
-                        has_inline = true;
-                    }
-                }
-            }
-
-            // Nodes with inline children need re-measurement each layout
-            // pass because child offsets can widen from u32 to u64.
-            if let Some((hash_bytes, patch)) = patch_node_opt.take() {
-                node_data.push(DumpPtr::Patch(pointer, hash_bytes, patch));
-            } else {
-                node_data.push(DumpPtr::Normal(pointer));
-            }
-            has_inline_children.push(has_inline);
-        }
-
-        // step 2: repeatedly lay out nodes until serialized offsets stabilize
-        // The first 32 bytes are reserved for the parent block hash,
-        // and the next 4 bytes for the local block identifier.
-        let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-        let mut offsets = vec![];
-        // Cached byte lengths: nodes without inline children (leaves,
-        // back-pointer-only nodes, patches) have constant sizes across
-        // passes, so we only recompute nodes that have inline children.
-        let mut byte_lens = node_data
-            .iter()
-            .map(|dp| {
-                let byte_len = if let Some(patch) = dp.patch() {
-                    TRIEHASH_ENCODED_SIZE + patch.size()
-                } else {
-                    let (node, _) = self.get_nodetype(dp.ptr())?;
-                    get_node_byte_len_compressed(node)
                 };
-                u64::try_from(byte_len).map_err(|_| Error::OverflowError)
-            })
-            .collect::<Result<Vec<u64>, Error>>()?;
 
-        assert_eq!(node_data.len(), has_inline_children.len());
-        assert_eq!(node_data.len(), byte_lens.len());
-
-        // The first pass replaces in-memory indices with serialized offsets.
-        // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
-        // A pass that changes offsets without introducing any new wide pointers is the final
-        // settling pass, so `inline_child_count + 2` bounds convergence.
-        let max_layout_passes = inline_child_count.saturating_add(2);
-        let mut converged = false;
-        for _pass in 0..max_layout_passes {
-            offsets.clear();
-            let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-            for (node_data_ptr, (&has_inline, blen)) in node_data
-                .iter()
-                .zip(has_inline_children.iter().zip(byte_lens.iter_mut()))
-            {
-                if has_inline {
-                    let new_len = if let Some(patch) = node_data_ptr.patch() {
-                        TRIEHASH_ENCODED_SIZE + patch.size()
+                debug_assert!({
+                    if let Some((_, patch_node)) = patch_node_opt.as_ref() {
+                        let node_inline = node
+                            .ptrs()
+                            .iter()
+                            .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                            .map(|p| p.chr());
+                        let diff_inline = patch_node
+                            .ptr_diff
+                            .iter()
+                            .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                            .map(|p| p.chr());
+                        node_inline.eq(diff_inline)
                     } else {
-                        let (node, _) = self.get_nodetype(node_data_ptr.ptr())?;
-                        get_node_byte_len_compressed(node)
-                    };
-                    *blen = u64::try_from(new_len).map_err(|_| Error::OverflowError)?;
-                }
-                ptr += *blen;
-                offsets.push(ptr);
-            }
-            end_offset = ptr;
-
-            let mut changed = false;
-            let mut i = 0;
-            for (node_data_ptr, &has_inline) in node_data.iter_mut().zip(has_inline_children.iter())
-            {
-                if let Some(patch) = node_data_ptr.patch_mut() {
-                    for ptr in patch.ptr_diff.iter_mut() {
-                        if !ptr.is_empty() && !is_backptr(ptr.id) {
-                            let next_offset = *offsets.get(i).ok_or_else(|| {
-                                Error::CorruptionError(
-                                    "Miscalculated dump_compressed_consume offsets".into(),
-                                )
-                            })?;
-                            if ptr.ptr != next_offset {
-                                ptr.ptr = next_offset;
-                                changed = true;
-                            }
-                            i += 1;
-                        }
+                        true
                     }
-                } else if has_inline {
-                    let next_node = &mut self
-                        .data
-                        .get_mut(
-                            usize::try_from(node_data_ptr.ptr())
-                                .map_err(|_| Error::OverflowError)?,
-                        )
-                        .ok_or_else(|| {
-                            Error::CorruptionError(
-                                "Miscalculated dump_compressed_consume pointer".into(),
-                            )
-                        })?
-                        .0;
-                    let ptrs = next_node.ptrs_mut();
-                    for ptr in ptrs.iter_mut() {
-                        if !ptr.is_empty() && !is_backptr(ptr.id) {
-                            let next_offset = *offsets.get(i).ok_or_else(|| {
-                                Error::CorruptionError(
-                                    "Miscalculated dump_compressed_consume offsets".into(),
-                                )
-                            })?;
-                            if ptr.ptr != next_offset {
-                                ptr.ptr = next_offset;
-                                changed = true;
-                            }
-                            i += 1;
+                });
+
+                // Push children onto the DFS stack.
+                if !node.is_leaf() {
+                    for child in node.ptrs().iter() {
+                        if !child.is_empty() && !is_backptr(child.id) {
+                            let idx = child.ptr_as_u32()?;
+                            stack.push(idx);
                         }
                     }
                 }
-            }
-            if !changed {
-                converged = true;
-                break;
+
+                if let Some((hash_bytes, patch)) = patch_node_opt.take() {
+                    write_order.push(DumpPtr::Patch(pointer, hash_bytes, patch));
+                } else {
+                    write_order.push(DumpPtr::Normal(pointer));
+                }
             }
         }
-        if !converged {
-            return Err(Error::CorruptionError(format!(
-                "dump_compressed_consume layout did not converge after {max_layout_passes} passes"
-            )));
+        // Split root (index 0) from the remaining nodes.
+        let (root_dp, descendants) = write_order.split_first_mut().ok_or_else(|| {
+            Error::CorruptionError("Empty trie in dump_compressed_consume".into())
+        })?;
+        if root_dp.ptr() != root_mem_ptr {
+            return Err(Error::CorruptionError(
+                "Root node missing from dump_compressed_consume write order".into(),
+            ));
         }
 
-        // step 3: write out each node (now that they have stable write ptrs)
-        TrieRAM::write_trie_indirect_compressed(
-            f,
-            &node_data,
-            self.data.as_slice(),
-            offsets.as_slice(),
-            &self.parent,
-        )?;
+        // Step 2: reserve space for the root at the front of the blob.
+        //
+        // Assume all inline child pointers need u64 encoding (worst case).
+        let root_reserved_size = {
+            if let Some(patch) = root_dp.patch() {
+                Self::reserved_root_size(TRIEHASH_ENCODED_SIZE + patch.size(), &patch.ptr_diff)?
+            } else {
+                let (root_node, _) = self.get_nodetype(root_mem_ptr)?;
+                Self::reserved_root_size(get_node_byte_len_compressed(root_node), root_node.ptrs())?
+            }
+        };
+
+        // Write the blob header.
+        f.rewind()?;
+        f.write_all(self.parent.as_bytes())
+            .map_err(Error::IOError)?;
+        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
+        f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
+
+        // Seek past the reserved root space.
+        f.seek(SeekFrom::Start(header_size + root_reserved_size))?;
+
+        // Map from in-memory index -> file offset where each node was written.
+        let mut file_offsets = vec![0u64; self.data.len()];
+
+        // Helper: write a DumpPtr (patch or normal) to the file.
+        fn write_dump_ptr<F: Write + Seek, T: MarfTrieId>(
+            f: &mut F,
+            dp: &DumpPtr,
+            data: &[(TrieNodeType, TrieHash)],
+        ) -> Result<(), Error> {
+            if let Some((hash_bytes, patch)) = dp.hash_and_patch() {
+                f.write_all(hash_bytes)?;
+                patch.consensus_serialize(f).map_err(|e| {
+                    Error::CorruptionError(format!("Failed to serialize patch: {e:?}"))
+                })?;
+            } else {
+                let node_idx = usize::try_from(dp.ptr()).map_err(|_| Error::OverflowError)?;
+                let node = data.get(node_idx).ok_or_else(|| {
+                    Error::CorruptionError("node pointer invalid in compressed dump".into())
+                })?;
+                write_nodetype_bytes_compressed(f, &node.0, node.1)?;
+            }
+            Ok(())
+        }
+
+        // Step 3: write all descendant nodes in child-before-parent order.
+        //
+        // Reverse-iterating `descendants` ensures each child's file offset is already
+        // recorded by the time we write its parent.
+        for dp in descendants.iter_mut().rev() {
+            let dp_idx = usize::try_from(dp.ptr()).map_err(|_| Error::OverflowError)?;
+            *file_offsets.get_mut(dp_idx).ok_or_else(|| {
+                Error::CorruptionError("Node index out of range in dump_compressed_consume".into())
+            })? = f.stream_position()?;
+            if let Some(patch) = dp.patch_mut() {
+                Self::update_inline_child_ptrs(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
+            } else {
+                let entry = self.data.get_mut(dp_idx).ok_or_else(|| {
+                    Error::CorruptionError("Invalid node pointer in dump_compressed_consume".into())
+                })?;
+                if !entry.0.is_leaf() {
+                    Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+                }
+            }
+            write_dump_ptr::<F, T>(f, dp, &self.data)?;
+        }
+
+        let end_offset = f.stream_position()?;
+
+        // Step 4: write the root node into its reserved space.
+        if let Some(patch) = root_dp.patch_mut() {
+            Self::update_inline_child_ptrs(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
+        } else {
+            let root_idx = usize::try_from(root_dp.ptr()).map_err(|_| Error::OverflowError)?;
+            let entry = self.data.get_mut(root_idx).ok_or_else(|| {
+                Error::CorruptionError("Invalid root pointer in dump_compressed_consume".into())
+            })?;
+            if !entry.0.is_leaf() {
+                Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+            }
+        }
+        f.seek(SeekFrom::Start(header_size))?;
+        write_dump_ptr::<F, T>(f, root_dp, &self.data)?;
 
         Ok(end_offset)
     }
