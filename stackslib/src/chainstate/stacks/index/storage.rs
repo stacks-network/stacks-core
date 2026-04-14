@@ -974,7 +974,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
             Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
         }
         f.seek(SeekFrom::Start(header_size))?;
-        write_nodetype_bytes(f, &entry.0, entry.1)?;
+        let root_written = write_nodetype_bytes(f, &entry.0, entry.1)?;
+        debug_assert!(
+            root_written <= root_reserved_size,
+            "root wrote {root_written} bytes but only {root_reserved_size} were reserved"
+        );
 
         Ok(end_offset)
     }
@@ -1247,6 +1251,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
         f.seek(SeekFrom::Start(header_size))?;
         write_dump_ptr::<F, T>(f, root_dp, &self.data)?;
+        debug_assert!(
+            f.stream_position().unwrap_or(u64::MAX) - header_size <= root_reserved_size,
+            "root exceeded its reserved space"
+        );
 
         Ok(end_offset)
     }
