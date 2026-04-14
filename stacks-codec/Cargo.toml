@@ -1,0 +1,15 @@
+[package]
+name = "stacks-codec"
+version = "0.1.0"
+authors = [
+    "Jude Nelson <jude@stacks.org>",
+    "Aaron Blankstein <aaron@blockstack.com>",
+    "Ludo Galabru <ludovic@blockstack.com>",
+]
+license = "GPL-3.0"
+homepage = "https://github.com/stacks-network/stacks-core"
+repository = "https://github.com/stacks-network/stacks-core"
+description = "Binary consensus serialization codec for the Stacks blockchain"
+keywords = ["stacks", "stx", "blockchain", "codec", "serialization"]
+readme = "README.md"
+edition = "2021"
