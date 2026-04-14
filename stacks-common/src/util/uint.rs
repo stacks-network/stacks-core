@@ -2320,14 +2320,14 @@ mod tests {
             prop_assert_eq!(result, a);
         }
 
-        /// pow(0) == MINIMAL for any non-zero value
+        /// pow(0) == 1 for any non-zero value
         #[test]
-        fn pow_zero_is_minimal(
+        fn pow_zero_is_one(
             val in 1u64..u64::MAX,
         ) {
             let a = FP::from_u64(val);
             let result = a.pow(0).expect("pow(0) should not fail");
-            prop_assert_eq!(result, FP::MINIMAL);
+            prop_assert_eq!(result, FP::from_u64(1));
         }
 
         /// root/pow inverse: find_root_floor(a^n, n) ≈ a
