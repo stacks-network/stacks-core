@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+mod block_proposal_data;
 mod http;
 mod libsigner;
 mod signer_state;
@@ -226,16 +227,12 @@ fn test_status_endpoint() {
     let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, res_send);
     let endpoint: SocketAddr = "127.0.0.1:31000".parse().unwrap();
 
+    // Spawn the signer first so the HTTP server is listening before the mock client connects
+    let running_signer = signer.spawn(endpoint).unwrap();
+
     // simulate a node that's trying to push data
     let mock_stacks_node = thread::spawn(move || {
-        let mut sock = match TcpStream::connect(endpoint) {
-            Ok(sock) => sock,
-            Err(e) => {
-                eprint!("Error connecting to {endpoint}: {e}");
-                sleep_ms(100);
-                return;
-            }
-        };
+        let mut sock = TcpStream::connect(endpoint).unwrap();
         let req = format!("GET /status HTTP/1.1\r\nHost: {endpoint}\r\nConnection: close\r\n\r\n");
 
         sock.write_all(req.as_bytes()).unwrap();
@@ -246,8 +243,6 @@ fn test_status_endpoint() {
         assert_eq!(expected_status_res, &res_str[..expected_status_res.len()]);
         sock.flush().unwrap();
     });
-
-    let running_signer = signer.spawn(endpoint).unwrap();
     sleep_ms(3000);
     let accepted_events = running_signer.stop().unwrap();
 

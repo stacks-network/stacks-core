@@ -1532,7 +1532,7 @@ pub mod test {
             TransactionPayload::TokenTransfer(
                 PrincipalData::from(QualifiedContractIdentifier {
                     issuer: stx_address.into(),
-                    name: "hello-contract-name".into(),
+                    name: ContractName::from_literal("hello-contract-name"),
                 }),
                 123,
                 TokenTransferMemo([0u8; 34]),

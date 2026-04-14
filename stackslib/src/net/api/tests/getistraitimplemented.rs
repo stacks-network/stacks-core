@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksBlockId;
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ClarityName;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
@@ -80,7 +81,10 @@ fn test_try_parse_request() {
             .unwrap()
         )
     );
-    assert_eq!(handler.trait_name, Some("trait-name".into()));
+    assert_eq!(
+        handler.trait_name,
+        Some(ClarityName::from_literal("trait-name"))
+    );
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();
@@ -107,7 +111,7 @@ fn test_try_make_response() {
         "hello-world".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "test-trait".into(),
+        ClarityName::from_literal("test-trait"),
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
@@ -119,7 +123,7 @@ fn test_try_make_response() {
         "hello-world".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "test-trait-2".into(),
+        ClarityName::from_literal("test-trait-2"),
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
@@ -131,7 +135,7 @@ fn test_try_make_response() {
         "hello-world-unconfirmed".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "test-trait".into(),
+        ClarityName::from_literal("test-trait"),
         TipRequest::UseLatestUnconfirmedTip,
     );
     requests.push(request);
@@ -143,7 +147,7 @@ fn test_try_make_response() {
         "hello-world".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "does-not-exist".into(),
+        ClarityName::from_literal("does-not-exist"),
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
@@ -155,7 +159,7 @@ fn test_try_make_response() {
         "does-not-exist".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "test-trait".into(),
+        ClarityName::from_literal("test-trait"),
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);

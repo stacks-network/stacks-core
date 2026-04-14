@@ -171,6 +171,8 @@ impl SugarExpander {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ClarityName;
+
     use crate::vm::Value;
     use crate::vm::ast::sugar_expander::SugarExpander;
     use crate::vm::ast::types::ContractAST;
@@ -178,13 +180,13 @@ mod test {
     use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 
     fn make_pre_atom(
-        x: &str,
+        x: &'static str,
         start_line: u32,
         start_column: u32,
         end_line: u32,
         end_column: u32,
     ) -> PreSymbolicExpression {
-        let mut e = PreSymbolicExpression::atom(x.into());
+        let mut e = PreSymbolicExpression::atom(ClarityName::from_literal(x));
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -250,13 +252,13 @@ mod test {
     }
 
     fn make_atom(
-        x: &str,
+        x: &'static str,
         start_line: u32,
         start_column: u32,
         end_line: u32,
         end_column: u32,
     ) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom(x.into());
+        let mut e = SymbolicExpression::atom(ClarityName::from_literal(x));
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -538,7 +540,7 @@ mod test {
 
     #[test]
     fn test_transform_sugared_contract_identifier() {
-        let contract_name = "tokens".into();
+        let contract_name = ContractName::from_literal("tokens");
         let pre_ast = vec![make_sugared_contract_identifier(contract_name, 1, 1, 1, 1)];
         let unsugared_contract_id =
             QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.tokens")
