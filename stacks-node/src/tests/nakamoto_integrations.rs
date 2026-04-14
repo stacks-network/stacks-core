@@ -15926,8 +15926,8 @@ fn check_sip040_post_conditions() {
         PostConditionPrincipal::Origin,
         AssetInfo {
             contract_address: sender_addr.clone(),
-            contract_name: ContractName::from(contract_name),
-            asset_name: ClarityName::from("asset"),
+            contract_name: ContractName::from_literal(contract_name),
+            asset_name: ClarityName::from_literal("asset"),
         },
         Value::UInt(1),
         NonfungibleConditionCode::MaybeSent,
@@ -16867,8 +16867,11 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
-                .into(),
+            QualifiedContractIdentifier::new(
+                sender_addr.clone().into(),
+                ContractName::from_literal(contract_name),
+            )
+            .into(),
             Value::none(),
         ],
     );
@@ -16933,8 +16936,11 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
-                .into(),
+            QualifiedContractIdentifier::new(
+                sender_addr.clone().into(),
+                ContractName::from_literal(contract_name),
+            )
+            .into(),
             Value::none(),
         ],
     );
@@ -17026,8 +17032,11 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
-                .into(),
+            QualifiedContractIdentifier::new(
+                sender_addr.clone().into(),
+                ContractName::from_literal(contract_name),
+            )
+            .into(),
             Value::none(),
         ],
     );
@@ -17544,7 +17553,7 @@ fn check_restrict_assets_rollback() {
             call_fee,
             chain_id,
             sender_addr,
-            contract_name,
+            contract_name.try_into().unwrap(),
             function_name,
             function_args,
         );
@@ -17973,7 +17982,7 @@ fn check_as_contract_rollback() {
     let contract_name = "test-contract";
     let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
         issuer: sender_addr.clone().into(),
-        name: contract_name.into(),
+        name: ContractName::from_literal(contract_name),
     });
     let deploy_fee = 4000;
     let call_fee = 400;
@@ -18249,7 +18258,7 @@ fn check_as_contract_rollback() {
     ) -> (Value, u128, u128) {
         let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
             issuer: sender_addr.clone().into(),
-            name: contract_name.into(),
+            name: contract_name.try_into().unwrap(),
         });
         let contract_balance = get_account(http_origin, &contract_addr).balance;
         let recipient_balance = get_account(http_origin, recipient).balance;
@@ -19003,7 +19012,7 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
             0,
             deploy_fee,
             naka_conf.burnchain.chain_id,
-            &contract_name,
+            contract_name.as_str(),
             &contract,
         );
 
