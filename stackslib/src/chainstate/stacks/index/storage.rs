@@ -1193,7 +1193,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let mut file_offsets = vec![0u64; self.data.len()];
 
         // Helper: write a DumpPtr (patch or normal) to the file.
-        fn write_dump_ptr<F: Write + Seek, T: MarfTrieId>(
+        fn write_dump_ptr<F: Write + Seek>(
             f: &mut F,
             dp: &DumpPtr,
             data: &[(TrieNodeType, TrieHash)],
@@ -1232,7 +1232,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                     Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
                 }
             }
-            write_dump_ptr::<F, T>(f, dp, &self.data)?;
+            write_dump_ptr(f, dp, &self.data)?;
         }
 
         let end_offset = f.stream_position()?;
@@ -1250,7 +1250,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             }
         }
         f.seek(SeekFrom::Start(header_size))?;
-        write_dump_ptr::<F, T>(f, root_dp, &self.data)?;
+        write_dump_ptr(f, root_dp, &self.data)?;
         debug_assert!(
             f.stream_position().unwrap_or(u64::MAX) - header_size <= root_reserved_size,
             "root exceeded its reserved space"
