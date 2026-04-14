@@ -22,16 +22,17 @@ use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::{
-    SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
-    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
-    TransactionVersion,
+    CoinbasePayload, SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction,
+    TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+    TransactionSpendingCondition, TransactionVersion,
 };
 use blockstack_lib::core::test_util::make_stacks_transfer_tx;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
 use clarity::types::PrivateKey;
 use clarity::util::secp256k1::Secp256k1PublicKey;
+use clarity::util::vrf::VRFProof;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
@@ -617,4 +618,107 @@ fn check_sortition_timeout() {
         Duration::from_secs(1),
     )
     .unwrap());
+}
+
+/// Test that a tenure change proposal is rejected when a locally-accepted
+/// (but not globally-accepted) block already exists in the same tenure.
+///
+/// This is a regression test: previously, the check used
+/// `get_last_globally_accepted_block`, which would miss blocks in
+/// `LocallyAccepted` or `PreCommitted` state and incorrectly allow
+/// a duplicate tenure change.
+#[test]
+fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
+    let MockServerClient {
+        server,
+        client: stacks_client,
+        config: _,
+    } = MockServerClient::new();
+    let rand_int = server.local_addr().unwrap().port();
+
+    let (_stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, sortitions_view) =
+        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
+
+    // Set up the block in the current tenure
+    block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
+    let parent_block_header = make_parent_header_meta(&block_sk, &mut block);
+    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
+
+    // Insert a locally-accepted block in the same tenure (same consensus_hash).
+    // This simulates a miner's first tenure-start block that the signer has
+    // locally accepted but that hasn't yet gathered enough signatures to be
+    // globally accepted. In practice this block would contain a tenure-change
+    // and coinbase tx, but we omit them here because `get_last_accepted_block`
+    // only queries by consensus_hash and block state — the block's transactions
+    // are irrelevant to the duplicate check.
+    let existing_block_proposal = BlockProposal {
+        block: NakamotoBlock {
+            header: NakamotoBlockHeader {
+                version: 1,
+                chain_length: 10,
+                burn_spent: 10,
+                consensus_hash: cur_sortition.data.consensus_hash.clone(),
+                parent_block_id: StacksBlockId([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+                state_index_root: TrieHash([0; 32]),
+                timestamp: 11,
+                miner_signature: MessageSignature::empty(),
+                signer_signature: vec![],
+                pox_treatment: BitVec::ones(1).unwrap(),
+            },
+            txs: vec![],
+        },
+        burn_height: 2,
+        reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
+    };
+    let mut existing_block_info = BlockInfo::from(existing_block_proposal);
+    existing_block_info.mark_locally_accepted(false).unwrap();
+    signer_db.insert_block(&existing_block_info).unwrap();
+
+    // Now build a *second* tenure-start block proposal for the same tenure.
+    // This simulates the miner attempting to replace their first block (e.g.,
+    // with different transactions). The tenure change tx must have
+    // cause=BlockFound with a coinbase to be recognized as a tenure-start block.
+    let tenure_change_payload = TenureChangePayload {
+        tenure_consensus_hash: cur_sortition.data.consensus_hash.clone(),
+        prev_tenure_consensus_hash: cur_sortition.data.parent_tenure_id.clone(),
+        burn_view_consensus_hash: cur_sortition.data.consensus_hash.clone(),
+        previous_tenure_end: block.header.parent_block_id.clone(),
+        previous_tenure_blocks: 1,
+        cause: TenureChangeCause::BlockFound,
+        pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_sk)),
+    };
+    let tenure_change_tx = make_tenure_change_tx(tenure_change_payload);
+    let coinbase_tx = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
+        TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(VRFProof::empty())),
+    );
+    block.txs = vec![tenure_change_tx, coinbase_tx];
+    block.header.sign_miner(&block_sk).unwrap();
+
+    let exit_flag = Arc::new(AtomicBool::new(false));
+    let moved_exit_flag = exit_flag.clone();
+
+    let serve = std::thread::spawn(move || {
+        crate::client::tests::write_response_nonblockinig(
+            &server,
+            response.as_bytes(),
+            moved_exit_flag,
+        );
+    });
+
+    let result = sortitions_view.check_proposal(&stacks_client, &mut signer_db, &block);
+
+    exit_flag.store(true, Ordering::SeqCst);
+    serve.join().unwrap();
+
+    // The proposal should be rejected because there's already a locally-accepted
+    // block in this tenure. Before the fix, this would have incorrectly passed
+    // because get_last_globally_accepted_block would not find the locally-accepted block.
+    assert!(
+        matches!(result, Err(RejectReason::DuplicateBlockFound)),
+        "Expected DuplicateBlockFound rejection when a locally-accepted block exists in the tenure, got: {result:?}"
+    );
 }
