@@ -3,12 +3,8 @@ set -euo pipefail
 
 # Creates a changelog fragment interactively and stages it.
 
-# Detect the current branch and try to extract a PR number
+# Detect the current branch
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-PR_NUM=""
-if [[ "$BRANCH" =~ ([0-9]+) ]]; then
-  PR_NUM="${BASH_REMATCH[1]}"
-fi
 
 # --- Location ---
 echo ""
@@ -59,16 +55,14 @@ esac
 # --- Filename ---
 DEFAULT_DESC=""
 # Try to derive a short description from the branch name
-# Strip common prefixes like feat/, fix/, chore/, etc. and the PR number
-STRIPPED_BRANCH=$(echo "$BRANCH" | sed -E 's|^[a-z]+/||' | sed -E 's|^[0-9]+-?||')
+# Strip common prefixes like feat/, fix/, chore/, etc.
+STRIPPED_BRANCH=$(echo "$BRANCH" | sed -E 's|^[a-z]+/||')
 if [[ -n "$STRIPPED_BRANCH" ]]; then
   DEFAULT_DESC="$STRIPPED_BRANCH"
 fi
 
 echo ""
-if [[ -n "$PR_NUM" && -n "$DEFAULT_DESC" ]]; then
-  DEFAULT_NAME="${PR_NUM}-${DEFAULT_DESC}.${CATEGORY}"
-elif [[ -n "$DEFAULT_DESC" ]]; then
+if [[ -n "$DEFAULT_DESC" ]]; then
   DEFAULT_NAME="${DEFAULT_DESC}.${CATEGORY}"
 else
   DEFAULT_NAME=""
@@ -78,7 +72,7 @@ if [[ -n "$DEFAULT_NAME" ]]; then
   read -rp "Filename [${DEFAULT_NAME}]: " FILENAME
   FILENAME="${FILENAME:-$DEFAULT_NAME}"
 else
-  read -rp "Filename (e.g. 1234-short-desc.${CATEGORY}): " FILENAME
+  read -rp "Filename (e.g. short-desc.${CATEGORY}): " FILENAME
 fi
 
 # Ensure the filename ends with the category extension
