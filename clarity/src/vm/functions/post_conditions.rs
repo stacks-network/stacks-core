@@ -560,7 +560,7 @@ fn check_allowances(
 
             if let Some(wildcard_vec) = ft_allowances.get(&AssetIdentifier {
                 contract_identifier: asset.contract_identifier.clone(),
-                asset_name: "*".into(),
+                asset_name: ClarityName::from_literal("*"),
             }) {
                 merged.extend(wildcard_vec.iter().cloned());
             }
@@ -589,7 +589,7 @@ fn check_allowances(
 
             if let Some((index, allowance_vec)) = nft_allowances.get(&AssetIdentifier {
                 contract_identifier: asset.contract_identifier.clone(),
-                asset_name: "*".into(),
+                asset_name: ClarityName::from_literal("*"),
             }) {
                 merged.push((*index, allowance_vec));
             }

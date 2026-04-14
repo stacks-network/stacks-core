@@ -34,7 +34,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use {rusqlite, url};
+use url;
 
 use self::dns::*;
 use crate::burnchains::{Error as burnchain_error, Txid};
@@ -2668,7 +2668,7 @@ pub mod test {
                 org: 0,
                 allowed: 0,
                 denied: 0,
-                data_url: "".into(),
+                data_url: UrlString::from_literal(""),
                 setup_code: "".into(),
                 check_pox_invariants: None,
                 stacker_db_configs: vec![],

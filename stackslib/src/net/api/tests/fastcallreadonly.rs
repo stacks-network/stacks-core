@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use clarity::types::chainstate::StacksBlockId;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::ClarityName;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
@@ -85,7 +86,7 @@ fn test_try_parse_request() {
     );
     assert_eq!(
         handler.call_read_only_handler.function,
-        Some("ro-test".into())
+        Some(ClarityName::from_literal("ro-test"))
     );
     assert_eq!(
         handler.call_read_only_handler.sender,
