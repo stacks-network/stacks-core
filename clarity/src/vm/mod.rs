@@ -379,7 +379,14 @@ pub fn apply(
                 return Err(e);
             }
         };
-        let arg_use = arg_value.get_memory_use()?;
+        let arg_use = match arg_value.get_memory_use() {
+            Ok(x) => x,
+            Err(e) => {
+                exec_state.drop_memory(used_memory)?;
+                exec_state.call_stack.decr_apply_depth();
+                return Err(e.into());
+            }
+        };
         match exec_state.add_memory(arg_use) {
             Ok(_x) => {}
             Err(e) => {
