@@ -30,7 +30,7 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::TypeSignature::BoolType;
 use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::{ListData, SequenceData, TypeSignature, Value};
-use crate::vm::{LocalContext, apply, eval, lookup_function};
+use crate::vm::{LocalContext, apply_evaluated, eval, lookup_function};
 
 pub fn list_cons(
     args: &[SymbolicExpression],
@@ -57,6 +57,13 @@ pub fn list_cons(
     Ok(value)
 }
 
+/// Implements the Clarity `filter` function: `(filter func sequence)`.
+///
+/// Applies a boolean predicate `func` to each element of `sequence`, returning a new
+/// sequence containing only the elements for which `func` returned `true`.
+/// The predicate must return a `bool`; a type error is raised otherwise.
+///
+/// `args[0]` is the function name (atom) and `args[1]` is the sequence expression.
 pub fn special_filter(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -81,21 +88,19 @@ pub fn special_filter(
         Value::Sequence(sequence_data) => {
             sequence = Value::Sequence(
                 sequence_data
-                    .try_retain(
-                        &mut |atom: SymbolicExpression| -> Result<bool, VmExecutionError> {
-                            let filter_eval =
-                                apply(&function, &[atom], exec_state, invoke_ctx, context)?;
-                            if let Value::Bool(include) = filter_eval {
-                                Ok(include)
-                            } else {
-                                Err(RuntimeCheckErrorKind::TypeValueError(
-                                    Box::new(BoolType),
-                                    filter_eval.to_error_string(),
-                                )
-                                .into())
-                            }
-                        },
-                    )
+                    .try_retain(&mut |value: Value| -> Result<bool, VmExecutionError> {
+                        let filter_eval =
+                            apply_evaluated(&function, vec![value], exec_state, invoke_ctx)?;
+                        if let Value::Bool(include) = filter_eval {
+                            Ok(include)
+                        } else {
+                            Err(RuntimeCheckErrorKind::TypeValueError(
+                                Box::new(BoolType),
+                                filter_eval.to_error_string(),
+                            )
+                            .into())
+                        }
+                    })
                     .map_err(|e| match e {
                         RetainValuesError::Internal(err) => {
                             VmExecutionError::Internal(VmInternalError::Expect(format!(
@@ -117,6 +122,14 @@ pub fn special_filter(
     Ok(sequence)
 }
 
+/// Implements the Clarity `fold` function: `(fold func sequence initial)`.
+///
+/// Iterates over `sequence`, threading an accumulator through successive calls to `func`.
+/// Each step calls `func` with `(element, accumulator)` and uses the result as the new
+/// accumulator. Returns the final accumulator value.
+///
+/// `args[0]` is the function name (atom), `args[1]` is the sequence expression,
+/// and `args[2]` is the initial accumulator value.
 pub fn special_fold(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -134,36 +147,35 @@ pub fn special_fold(
         ))?;
 
     let function = lookup_function(function_name, exec_state, invoke_ctx)?;
-    let mut sequence =
-        eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+    let sequence = eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
     let initial = eval(&args[2], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
 
-    match sequence {
-        Value::Sequence(ref mut sequence_data) => sequence_data
-            .atom_values()
-            .map_err(|_| {
-                VmInternalError::Expect(
-                    "ERROR: Invalid sequence data successfully constructed".into(),
-                )
-            })?
-            .into_iter()
-            .try_fold(initial, |acc, x| {
-                apply(
-                    &function,
-                    &[x, SymbolicExpression::atom_value(acc)],
-                    exec_state,
-                    invoke_ctx,
-                    context,
-                )
-            }),
-        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+    let Value::Sequence(seq) = sequence else {
+        return Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::type_of(&sequence)?
         ))
-        .into()),
+        .into());
+    };
+
+    let mut acc = initial;
+    for element_result in seq {
+        let element = element_result.map_err(|_| {
+            VmInternalError::Expect("ERROR: Invalid sequence data successfully constructed".into())
+        })?;
+        acc = apply_evaluated(&function, vec![element, acc], exec_state, invoke_ctx)?;
     }
+    Ok(acc)
 }
 
+/// Implements the Clarity `map` function: `(map func sequence-0 ... sequence-n)`.
+///
+/// Applies `func` element-wise across one or more input sequences, collecting the results
+/// into a new list. When multiple sequences are provided, iteration stops at the length of
+/// the shortest sequence. Each call to `func` receives one element from each sequence,
+/// positionally (e.g., the i-th call gets the i-th element of every sequence).
+///
+/// `args[0]` is the function name (atom) and `args[1..]` are the sequence expressions.
 pub fn special_map(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -184,40 +196,33 @@ pub fn special_map(
     // Let's consider a function f (f a b c ...)
     // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1, ...] ...
     // To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
-    let mut mapped_func_args = vec![];
+    let mut mapped_func_args: Vec<Vec<Value>> = vec![];
     let mut min_args_len = usize::MAX;
     for map_arg in args[1..].iter() {
-        let mut sequence =
+        let sequence =
             eval(map_arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
-        match sequence {
-            Value::Sequence(ref mut sequence_data) => {
-                min_args_len = min_args_len.min(sequence_data.len());
-                for (apply_index, value) in sequence_data
-                    .atom_values()
-                    .map_err(|_| {
-                        VmInternalError::Expect(
-                            "ERROR: Invalid sequence data successfully constructed".into(),
-                        )
-                    })?
-                    .into_iter()
-                    .enumerate()
-                {
-                    if apply_index > min_args_len {
-                        break;
-                    }
-                    if apply_index >= mapped_func_args.len() {
-                        mapped_func_args.push(vec![value]);
-                    } else {
-                        mapped_func_args[apply_index].push(value);
-                    }
-                }
+        let Value::Sequence(seq) = sequence else {
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                "Expected sequence: {}",
+                TypeSignature::type_of(&sequence)?
+            ))
+            .into());
+        };
+        let seq_len = seq.len();
+        min_args_len = min_args_len.min(seq_len);
+        for (apply_index, element_result) in seq.into_iter().enumerate() {
+            let value = element_result.map_err(|_| {
+                VmInternalError::Expect(
+                    "ERROR: Invalid sequence data successfully constructed".into(),
+                )
+            })?;
+            if apply_index > min_args_len {
+                break;
             }
-            _ => {
-                return Err(RuntimeCheckErrorKind::Unreachable(format!(
-                    "Expected sequence: {}",
-                    TypeSignature::type_of(&sequence)?
-                ))
-                .into());
+            if apply_index >= mapped_func_args.len() {
+                mapped_func_args.push(vec![value]);
+            } else {
+                mapped_func_args[apply_index].push(value);
             }
         }
     }
@@ -225,7 +230,7 @@ pub fn special_map(
     // We can now apply the map
     let mut mapped_results = vec![];
     let mut previous_len = None;
-    for arguments in mapped_func_args.iter() {
+    for arguments in mapped_func_args.into_iter() {
         // Stop iterating when we are done with the shortest sequence
         if let Some(previous_len) = previous_len {
             if previous_len != arguments.len() {
@@ -234,7 +239,7 @@ pub fn special_map(
         } else {
             previous_len = Some(arguments.len());
         }
-        let res = apply(&function, arguments, exec_state, invoke_ctx, context)?;
+        let res = apply_evaluated(&function, arguments, exec_state, invoke_ctx)?;
         mapped_results.push(res);
     }
 

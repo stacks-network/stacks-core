@@ -724,9 +724,9 @@ fn check_principal_construct(
     Ok(TypeSignature::new_response(
             TypeSignature::PrincipalType,
             TupleTypeSignature::try_from(vec![
-                ("error_code".into(), TypeSignature::UIntType),
+                (ClarityName::from_literal("error_code"), TypeSignature::UIntType),
                 (
-                    "value".into(),
+                    ClarityName::from_literal("value"),
                     TypeSignature::new_option(TypeSignature::PrincipalType).map_err(|_| StaticCheckErrorKind::Unreachable("FATAL: failed to create (optional principal) type signature".into()))?,
                 ),
             ])
@@ -1086,10 +1086,16 @@ impl TypedNativeFunction {
                     fn parse_principal_basic_type()
                     -> Result<TupleTypeSignature, StaticCheckErrorKind> {
                         TupleTypeSignature::try_from(vec![
-                            ("version".into(), TypeSignature::BUFFER_1),
-                            ("hash-bytes".into(), TypeSignature::BUFFER_20),
                             (
-                                "name".into(),
+                                ClarityName::from_literal("version"),
+                                TypeSignature::BUFFER_1,
+                            ),
+                            (
+                                ClarityName::from_literal("hash-bytes"),
+                                TypeSignature::BUFFER_20,
+                            ),
+                            (
+                                ClarityName::from_literal("name"),
                                 TypeSignature::new_option(
                                     TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX,
                                 )
@@ -1121,9 +1127,15 @@ impl TypedNativeFunction {
                     })?,
                 )],
                 returns: TupleTypeSignature::try_from(vec![
-                    ("unlocked".into(), TypeSignature::UIntType),
-                    ("locked".into(), TypeSignature::UIntType),
-                    ("unlock-height".into(), TypeSignature::UIntType),
+                    (
+                        ClarityName::from_literal("unlocked"),
+                        TypeSignature::UIntType,
+                    ),
+                    (ClarityName::from_literal("locked"), TypeSignature::UIntType),
+                    (
+                        ClarityName::from_literal("unlock-height"),
+                        TypeSignature::UIntType,
+                    ),
                 ])
                 .map_err(|_| {
                     StaticCheckErrorKind::Unreachable(

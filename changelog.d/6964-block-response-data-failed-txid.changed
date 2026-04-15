@@ -1,0 +1,1 @@
+`BlockResponseData` version bumped from 4 to 5 to include the new `failed_txid` field. Older signers that don't send this field are handled gracefully via backwards-compatible deserialization.

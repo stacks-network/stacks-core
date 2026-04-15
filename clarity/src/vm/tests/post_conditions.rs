@@ -22,7 +22,7 @@ use std::convert::TryFrom;
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
-use clarity_types::{ClarityName, Value};
+use clarity_types::{ClarityName, ContractName, Value};
 use pinny::tag;
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
@@ -744,7 +744,8 @@ fn test_as_contract_bad_transfer_with_short_return_in_body() {
   )
 )"#;
     let sender = StandardPrincipalData::transient();
-    let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+    let contract_id =
+        QualifiedContractIdentifier::new(sender.clone(), ContractName::from_literal("contract"));
     let contract = PrincipalData::Contract(contract_id);
     let expected = Value::error(Value::UInt(0)).unwrap();
     let opt_value = execute_and_check(snippet, sender.clone(), |g| {
@@ -791,7 +792,8 @@ fn test_as_contract_bad_transfer_with_early_return_ok_in_body() {
   )
 )"#;
     let sender = StandardPrincipalData::transient();
-    let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+    let contract_id =
+        QualifiedContractIdentifier::new(sender.clone(), ContractName::from_literal("contract"));
     let contract = PrincipalData::Contract(contract_id);
     let expected = Value::error(Value::UInt(0)).unwrap();
     let opt_value = execute_and_check(snippet, sender.clone(), |g| {
@@ -1981,7 +1983,7 @@ proptest! {
         let asset_identifier = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
                 sender.clone(),
-                "contract".into(),
+                ContractName::from_literal("contract"),
             ),
             asset_name: ClarityName::try_from("stackos".to_string())
                 .expect("valid fungible token name"),
@@ -2025,7 +2027,7 @@ proptest! {
         let asset_identifier = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
                 sender.clone(),
-                "contract".into(),
+                ContractName::from_literal("contract"),
             ),
             asset_name: ClarityName::try_from("stackaroo".to_string())
                 .expect("valid non-fungible token name"),
@@ -2098,7 +2100,7 @@ proptest! {
     ) {
         let snippet = format!("(as-contract? () {body})");
         let c3_snippet = format!("(as-contract {body})");
-        let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+        let contract_id = QualifiedContractIdentifier::new(sender.clone(), ContractName::from_literal("contract"));
         let contract = PrincipalData::Contract(contract_id);
         assert_results_match(
             (c3_snippet.as_str(), ClarityVersion::Clarity3),
