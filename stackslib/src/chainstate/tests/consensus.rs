@@ -24,7 +24,7 @@ use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, ResponseData};
-use clarity::vm::{ClarityVersion, Value as ClarityValue};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 
@@ -1817,8 +1817,8 @@ impl ConsensusUtils {
             200,
             CHAIN_ID_TESTNET,
             &to_addr(&FAUCET_PRIV_KEY),
-            contract_name,
-            funct_name,
+            ContractName::try_from(contract_name.to_string()).unwrap(),
+            ClarityName::try_from(funct_name.to_string()).unwrap(),
             args,
         )
     }
@@ -1835,8 +1835,8 @@ impl ConsensusUtils {
     ) -> StacksTransaction {
         let payload = TransactionContractCall {
             address: FAUCET_ADDRESS.clone(),
-            contract_name: contract_name.into(),
-            function_name: funct_name.into(),
+            contract_name: ContractName::try_from(contract_name.to_string()).unwrap(),
+            function_name: ClarityName::try_from(funct_name.to_string()).unwrap(),
             function_args: args.to_vec(),
         };
 

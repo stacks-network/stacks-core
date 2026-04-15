@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use clarity::vm::types::{PrincipalData, ResponseData};
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use madhouse::{Command, CommandWrapper};
 use proptest::array::uniform4;
 use proptest::prelude::{any, Just, Strategy};
@@ -58,8 +58,8 @@ fn ok_true() -> Value {
 fn nft_asset_info() -> AssetInfo {
     AssetInfo {
         contract_address: FAUCET_ADDRESS.clone(),
-        contract_name: "nft".into(),
-        asset_name: "asset".into(),
+        contract_name: ContractName::try_from("nft".to_string()).unwrap(),
+        asset_name: ClarityName::try_from("asset".to_string()).unwrap(),
     }
 }
 
