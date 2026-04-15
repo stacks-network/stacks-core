@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Stacks Open Internet Foundation
+// Copyright (C) 2023-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::{env, thread};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::Value;
+use clarity::vm::{ContractName, Value};
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::config::InitialBalance;
 use stacks::core::test_util::make_contract_call;
@@ -52,8 +52,10 @@ fn trait_invocation_behavior() {
     let contract_addr = to_addr(&spender_sk);
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let impl_contract_id =
-        QualifiedContractIdentifier::new(contract_addr.clone().into(), "impl-simple".into());
+    let impl_contract_id = QualifiedContractIdentifier::new(
+        contract_addr.clone().into(),
+        ContractName::from_literal("impl-simple"),
+    );
 
     let mut spender_nonce = 0;
     let fee_amount = 10_000;
