@@ -1,0 +1,325 @@
+## Run the full suite of property tests with elevated case counts.
+##
+## Targets tests tagged with `#[tag(t_prop)]` (see docs/property-testing.md).
+##
+## Triggers:
+##   schedule  — nightly at 05:00 UTC on NIGHTLY_BRANCH (`develop`)
+##   dispatch  — manual, on any branch, with configurable PROPTEST_CASES
+##
+## On test failure the workflow:
+##   1. Saves proptest regression seeds as a workflow artifact
+##   2. Posts a failure summary to the Job Summary page
+##   3. Replays saved seeds automatically on the next run
+##   4. Send a Slack notification
+##
+## Note: A Slack notification is also sent in case of unexpected workflow error.
+
+name: Tests::Proptest Nightly
+
+on:
+  schedule:
+    ## Run every day at 05:00 UTC
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      proptest_cases:
+        description: "Number of cases per proptest"
+        required: true
+        default: "2500"
+        type: string
+      slack_notify:
+        description: "Enable Slack notifications"
+        required: false
+        default: false
+        type: boolean
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: proptest-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_BACKTRACE: full
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
+  ## Test timeout in minutes
+  TEST_TIMEOUT: 120
+  ## Branch to check out on scheduled (nightly) runs.
+  NIGHTLY_BRANCH: develop
+  ## Default number of generated cases per proptest (used on scheduled runs).
+  NIGHTLY_PROPTEST_CASES: 2500
+  ## Whether to send Slack notifications on nightly (scheduled) runs.
+  NIGHTLY_SLACK_NOTIFY: true
+  ## Test tag to filter for proptest tests
+  TEST_TAG: t_prop
+  ## Enable `madhouse-rs` tests to work with `PROPTEST_CASES`
+  MADHOUSE: 1 
+
+
+jobs:
+  proptests-nightly:
+    name: Run All Proptest Tests
+    runs-on: ubuntu-latest
+    steps:
+      ## Compute env variables depending on the workflow trigger (schedule vs dispatch)
+      - name: Prepare env
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            branch="${NIGHTLY_BRANCH}"
+            cases="${NIGHTLY_PROPTEST_CASES}"
+            slack_notify="${NIGHTLY_SLACK_NOTIFY}"
+          else
+            branch="${{ github.ref_name }}"
+            cases="${{ inputs.proptest_cases }}"
+            slack_notify="${{ inputs.slack_notify }}"
+          fi
+
+          # Disable Slack notifications if the webhook secret is not set (e.g. in forks)
+          if [[ -z "${SLACK_WEBHOOK}" ]]; then
+            echo "::notice::Slack notifications disabled: SLACK_WEBHOOK_CI_NIGHTLY secret is not set"
+            slack_notify="false"
+          fi
+
+          artifact="proptest-nightly-${branch//\//-}"
+
+          # Set computed env variables
+          echo "CHECKOUT_REF=${branch}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=${artifact}" >> "$GITHUB_ENV"
+          echo "PROPTEST_CASES=${cases}" >> "$GITHUB_ENV"
+          echo "SLACK_NOTIFY=${slack_notify}" >> "$GITHUB_ENV"
+
+          # Print computed env variables
+          echo "CHECKOUT_REF=${branch}"
+          echo "ARTIFACT_NAME=${artifact}"
+          echo "PROPTEST_CASES=${cases}"
+          echo "SLACK_NOTIFY=${slack_notify}"
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cf39a74df4a72510be4e5b63348d61067f11e64a # v2.75.0
+        with:
+          tool: cargo-nextest
+
+      ## Compile and list all tests matching the TEST_TAG tag.
+      ## Build artifacts are cached by cargo for the subsequent run step.
+      ## Fails the job if no matching tests are found.
+      - name: Discover proptest tests
+        id: discover
+        run: |
+          cargo nextest list -E "test(/:t::(?:.*::)?${TEST_TAG}:/)" --message-format oneline \
+            > /tmp/prop-tests.txt 2>/dev/null
+          count=$(wc -l < /tmp/prop-tests.txt)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+          if [ "$count" -gt 0 ]; then
+            echo "Proptest tests found: $count"
+            cat /tmp/prop-tests.txt
+          else
+            echo "::error::No tests matching the ${TEST_TAG} tag were found"
+            exit 1
+          fi
+
+      ## Restore proptest regression files from the most recent run on this branch.
+      ## These files contain failing seeds that proptest replays automatically.
+      - name: Restore proptest regressions (if any)
+        if: steps.discover.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ env.ARTIFACT_NAME }}
+        run: |
+          artifact_url=$(gh api \
+            "repos/${{ github.repository }}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=1" \
+            --jq '.artifacts[0] | select(.expired == false) | .archive_download_url // empty')
+
+          if [[ -z "$artifact_url" ]]; then
+            echo "No regression artifact found — first run or expired"
+            exit 0
+          fi
+
+          echo "Restoring regression artifact: $ARTIFACT_NAME"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "$artifact_url" \
+            -o /tmp/regression.zip
+          unzip -o /tmp/regression.zip -d .
+
+      ## Run all proptest tests with elevated PROPTEST_CASES (resolved in Prepare env).
+      ## --no-fail-fast ensures ALL tests run to completion for a full report.
+      - name: Run proptests (PROPTEST_CASES=${{ env.PROPTEST_CASES }})
+        id: run_tests
+        if: steps.discover.outputs.count != '0'
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        run: |
+          ## Config file for JUnit output and test filtering
+          cat > /tmp/nextest-ci.toml << EOF
+          [profile.default]
+          junit = { path = "/tmp/nextest-junit.xml" }
+          default-filter = 'test(/:t::(?:.*::)?${TEST_TAG}:/)'
+          EOF
+
+          cargo nextest run \
+            --no-fail-fast \
+            --config-file /tmp/nextest-ci.toml
+
+      - name: Extract test failures (if any)
+        if: failure() && steps.run_tests.outcome == 'failure'
+        run: |
+          if [ -f /tmp/nextest-junit.xml ]; then
+            sudo apt-get install -y libxml2-utils
+            xmllint --xpath '//testcase[failure or error]/@name' /tmp/nextest-junit.xml \
+              | grep -oP 'name="\K[^"]+' \
+              > /tmp/failed-prop-tests.txt
+          fi
+
+      ## Persist proptest regression files for the next run on this branch.
+      - name: Save proptest regressions (if any)
+        if: failure() && steps.run_tests.outcome == 'failure'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            **/proptest-regressions/
+            **/*.proptest-regressions
+          if-no-files-found: ignore
+          overwrite: true
+
+      ## Report failures in the GitHub Actions Job Summary.
+      - name: Report test failures to Job Summary
+        if: failure() && steps.run_tests.outcome == 'failure'
+        run: |
+          failed_tests=$(cat /tmp/failed-prop-tests.txt 2>/dev/null || echo "(unknown)")
+
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## Proptest Nightly Failures
+
+          The following proptest tests failed:
+
+          \`\`\`
+          ${failed_tests}
+          \`\`\`
+
+          Proptest regression seeds have been saved as a workflow artifact (see **Artifacts** section)
+          and will be replayed automatically on the next run.
+          EOF
+
+      ## Notify Slack when proptest tests fail.
+      - name: Slack — proptest run failure
+        if: failure() && steps.run_tests.outcome == 'failure' && env.SLACK_NOTIFY == 'true'
+        uses: slackapi/slack-github-action@e090a7a7c0b2d9b7ae32bd34f086e680ce260b06 # v3.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ":red_circle: Proptest Nightly - Tests Failure",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The proptest run detected test failures."
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Workflow:*\n${{ github.workflow }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n`${{ env.CHECKOUT_REF }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Cases per test:*\n${{ env.PROPTEST_CASES }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Run",
+                        "emoji": true
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+
+      ## Notify Slack when the workflow fails for reasons other than test failures
+      - name: Slack — workflow error
+        if: failure() && steps.run_tests.outcome != 'failure' && env.SLACK_NOTIFY == 'true'
+        uses: slackapi/slack-github-action@e090a7a7c0b2d9b7ae32bd34f086e680ce260b06 # v3.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ":warning: Proptest Nightly — Workflow Error",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The workflow failed due to unexpected error."
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Workflow:*\n${{ github.workflow }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n`${{ env.CHECKOUT_REF }}`"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Run",
+                        "emoji": true
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
