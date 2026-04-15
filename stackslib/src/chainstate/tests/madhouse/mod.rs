@@ -20,6 +20,7 @@ mod state;
 use std::sync::Arc;
 
 use madhouse::{execute_commands, prop_allof, scenario, Command};
+use pinny::tag;
 use proptest::prelude::Strategy;
 
 use self::commands::*;
@@ -29,6 +30,7 @@ use self::context::Epoch33ToEpoch34TestContext;
 /// returns `(err u0)` with effects rolled back. Both "safe" (within allowance)
 /// and "combined-exceeds" (each op passes individually, combined total exceeds)
 /// are exercised in each epoch.
+#[tag(t_prop)]
 #[test]
 fn scenario_with_stx_postconditions() {
     let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
@@ -55,6 +57,7 @@ fn scenario_with_stx_postconditions() {
 /// A 33-contract chain (depth=65) exceeds the Epoch33 limit but fits Epoch34.
 /// A 64-contract chain (depth=127) is the exact max for Epoch34. A 65-contract
 /// chain (depth=129) exceeds even Epoch34.
+#[tag(t_prop)]
 #[test]
 fn scenario_depth_limits() {
     let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
@@ -81,6 +84,7 @@ fn scenario_depth_limits() {
 /// key pair and calls its public function to verify the expected result.
 /// Cross-version call proves the callee's version governs, not the caller's.
 /// Epoch34-only because Clarity5 requires Epoch34.
+#[tag(t_prop)]
 #[test]
 fn scenario_cross_version_calls() {
     let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
@@ -102,6 +106,7 @@ fn scenario_cross_version_calls() {
 /// SIP-040 post-condition new features: `Originator` mode and `MaybeSent`
 /// condition code. Pre-Epoch34 both features are rejected by static epoch
 /// validation. Epoch34 exercises all happy and failure paths.
+#[tag(t_prop)]
 #[test]
 fn scenario_sip040_postconditions() {
     let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
@@ -131,6 +136,7 @@ fn scenario_sip040_postconditions() {
 /// The same command checks the relay filter AND mines the contract. Pre-Epoch34
 /// the relay rejects (no mining). Epoch34 the relay accepts and the contract is
 /// deployed on-chain.
+#[tag(t_prop)]
 #[test]
 fn scenario_relay_filter() {
     let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
@@ -151,6 +157,7 @@ fn scenario_relay_filter() {
 /// randomizes command selection so that `check()` guards enforce valid
 /// interleavings, uncovering ordering-dependent and cross-feature interaction
 /// bugs.
+#[tag(t_prop)]
 #[test]
 fn scenario_epoch34_full() {
     let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
