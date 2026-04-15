@@ -4101,10 +4101,11 @@ impl NakamotoChainState {
                     *newest_ch = tenure_start_header.consensus_hash.clone();
                 }
             } else {
-                warn!(
+                error!(
                     "No miner payment record for tenure {}; excluding from STX/BTC cycle totals",
                     &tenure_start_header.consensus_hash
                 );
+                return Err(ChainstateError::DBError(DBError::NotFoundError));
             }
 
             // Check if this tenure is the anchor block (inclusive start) of current_cycle.
@@ -4211,10 +4212,11 @@ impl NakamotoChainState {
                     newest_ch = Some(tenure_start_header.consensus_hash.clone());
                 }
             } else {
-                warn!(
+                error!(
                     "No miner payment record for tenure {}; excluding from incremental STX/BTC cycle totals",
                     &tenure_start_header.consensus_hash
                 );
+                return Err(ChainstateError::DBError(DBError::NotFoundError));
             }
 
             let Some(parent_ch) =
@@ -4585,7 +4587,8 @@ impl NakamotoChainState {
         )
         .unwrap_or_default();
 
-        // Validate the 2 most recent completed cache entries against the current fork.
+        // Validate the 2 most recent completed cache entries against the current fork
+        // (a Bitcoin fork deeper than that would be catastrophic any way).
         for &check_cycle in &[reward_cycle, reward_cycle.saturating_sub(1)] {
             if let Some(cached) = complete_cache.get(&check_cycle) {
                 if !Self::is_tenure_in_fork(conn, tip_index_hash, &cached.last_tenure_ch) {
