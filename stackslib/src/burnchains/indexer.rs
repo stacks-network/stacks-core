@@ -49,7 +49,7 @@ pub trait BurnchainBlockParser {
 
     fn parse(
         &mut self,
-        block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B,
+        block: <<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B,
         epoch_id: StacksEpochId,
     ) -> Result<BurnchainBlock, burnchain_error>;
 }

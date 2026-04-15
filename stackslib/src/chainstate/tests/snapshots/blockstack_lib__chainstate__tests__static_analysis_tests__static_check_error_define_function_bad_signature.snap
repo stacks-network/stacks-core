@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "1e5bc447c723ae9c1587a79e55178269f3a9a3267757a9675b2b19a05c0285a6",
+    marf_hash: "d0f26289f5643325a498808ffec774a32c89ae043d5fc855463f3452470c85e3",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "75d2a1351ae66268d4d65e0fcd4f81681deaf6418ee1f21c8913eb5d2417ae20",
+    marf_hash: "a3e3c73c2ed38b1ca4bb5d9741ffc80b9a372c72fc2d199148c88efb6364f51b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6159a9d431bc1cf844f7df0963b879e55827a8ca5b0277bb538a7e3b1cfda4c4",
+    marf_hash: "b2211137de96e7c790f2e5cbb67e46a3ac2d52778a78273eb5596bd18241a6aa",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3aa556d80e8ecea69ee6c378d34b9aacdda00792b7404c5c6b5c3a8eb19602d2",
+    marf_hash: "6a6ee0fbb0ebe15b476137f5675c0d80d8c8bc099bedcc4e0a9f7ab337a93eb7",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c4d00f7176f62b396993ace754f3e92b2f15343fce7e23e94153fe4cfd32a82a",
+    marf_hash: "8f1823b80ae110256965c701d2abba5ef29c7dc1725599d9e8cfe667f44085fe",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9365694f610989097b2adb95fb462036d94ecb817e4084f837537b874efce6ee",
+    marf_hash: "cac3bbdcb1fe38cf4710e775be457c2e1e0972d4bfc69e9be9a85c143a374d3f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b40dc215bddc5b7df3b98fcae2d9611e3f70005869c207bfa37104f47df7769f",
+    marf_hash: "aa218215ea0ed14392583973c712a1dacc6abcdb8a54bf13646b64c7728c686b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "44238704010f65fd782b1b464f9ade7561feee17d51f801ec507cbec1549f167",
+    marf_hash: "b188e907819545c68b6b04d617d1ea360cf1611cebe38d86dc1916b447e03c8a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "299fea4a2a2e9b68a5dc314028ded7907074a5368ff751ac7e81b9fa272ee619",
+    marf_hash: "d14e7f7a6b7c5609439687827df243b7d61154a156a94cd53371b7144645fb5c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: def-func-bad-sign-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f89ef9ba4dfffd1dcd972449c80e21dcca6afe7315b4809dd564557519d2897b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a3b94851538f4a5bc725f944faf77bdd08cd290a7e2017954a763dce6629eb4b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2b8680f999d5c58651f6e701c6bc1eaf546f9ff82ef61d229a307d2fc8054e9b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3b1a35ff509ab948a3e3cde1d947458bf72ba7a505ba2268b9e8e725bacb4ec0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b0a73ba1f8e67ce3c3dfef763c755bbe4e9768fe362f73418c225103e7f62be5",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

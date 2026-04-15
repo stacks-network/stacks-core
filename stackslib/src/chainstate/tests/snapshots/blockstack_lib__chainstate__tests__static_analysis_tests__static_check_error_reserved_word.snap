@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "b516f9ef62928fce845a11e44db9afd41e0c586a0ab8e79c46cebf8d25017fc3",
+    marf_hash: "3fcd822762f6025b0c8c9bda66e83ca6975867c136ee79e4142f1b4882238c91",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1328e1fad429c451ec9a51f1fab45f5e33907286c47ecf657cc87672419a7715",
+    marf_hash: "05a272f6c79d97f8faf02d90aac980c21cbebfd6cae7be8f7d11ee2088c74517",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b77309de4f140de3fdbf0e75f794339eb0c53bd7b78d134ebda9ad57e34bf14c",
+    marf_hash: "10a3381c7feea8712f6b63f57e0c1f1b2de0a4364221973d3e7f6d91ba6f4221",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a558621c7d6ddac9feecf590d066eeb55f83a5aa11aa45ee81ce078f15ced90d",
+    marf_hash: "610fcb8dca7b56df83da8d0636baa388cf22ac5994e5c91f0e056bd31392a1bd",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "deb04947eea4fa368130ef13cec863491efa9ac54b3f53c623a8b4856b3c212d",
+    marf_hash: "453c8087a51b04f72729ada6bbecdebe6dc8d7cd113db606122706b5589e9151",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e0f7664f66916d58eea7b9375ed7890f15f871778a64fe6f6541adfabddc4b1d",
+    marf_hash: "661e77a4d1eacefe4d4e87fed6c302a5f46966dba61d5ea9763cfe4c80868d01",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "97dea19b09027cf7ee1e85ced7912cf04921ce2136e543eaa3ffe9934af1491e",
+    marf_hash: "9d8387ffd74623dcade77542fb65092f201c8a04824c1f8a9d1323d53d55892c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1b5d0aa35b0ecbd3ad6c5d4bbd1a69a4f40df11efb53d7e0115eb696fa195467",
+    marf_hash: "99c35934456fa30715716703458d25745fcb889bb4607b9b0c34b9dee47a22ae",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "44c5d5f4bf34e936eb33ab35947bbb123446ab8c22e4f1a8e4e81c61234c6612",
+    marf_hash: "f1246b992c057e9d6d459bc1416e57ac0a402310b22be03b2c4fdbd9c90624e9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: reserved-word-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: block-height is a reserved word) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1315,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1315,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f89066f92965dfa3c7c8330fd1e1b17f06d0c2dc0356ea728c3d543d8d3258fd",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(NameAlreadyUsed(\"block-height\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 43,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8876,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 43,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8876,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7c9b3a0c4d75caf0d6aba41660a746c864b39ca10481ceeb370f73575baf1a4e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(NameAlreadyUsed(\"block-height\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 43,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8876,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 43,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8876,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c7ca24d5619197490bed6a376686f73b15203badc088de4131945570b525a04d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: block-height is a reserved word) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1315,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1315,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "969a348acd5f29f139322a7f288ae86abb7029193f5ccced3ebb45fa1bbb16d9",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: block-height is a reserved word) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1315,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1315,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3b40e3df567de4acfce2765764cc494c014e186d1fd48a6c49abaf7b6ca3b9ae",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: block-height is a reserved word) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

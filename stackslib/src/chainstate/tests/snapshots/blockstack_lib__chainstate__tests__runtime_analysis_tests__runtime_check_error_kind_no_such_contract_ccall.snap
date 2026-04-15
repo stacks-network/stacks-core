@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "47216b0d3bd2d207077a9f678b83d26313682f16b8bf128f5f0208908af2ed59",
+    marf_hash: "fd29873584df83f8d936129296dd1db3e8b30588183929278ed0bb5cade0a253",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,8 +34,38 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "82bc01d74f80d3b276d1cdd37f9d4c04c64bfda6e00c9f6239fc7a28184c850f",
+    marf_hash: "8a20208420a4aa155bb5622ae76a99fe03d3ea557531bcd6e5093e038754cf02",
     evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: non-existent-contract, function_name: this-function-does-not-exist, function_args: [[]])",
+        vm_error: "Some(NoSuchContract(\"ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.non-existent-contract\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a31655bde25b866c5c65b7bcf0ec3823dddffaa4934de247bc6fc51946d253bd",
+    evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: non-existent-contract, function_name: this-function-does-not-exist, function_args: [[]])",

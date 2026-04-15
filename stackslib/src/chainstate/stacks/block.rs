@@ -2137,6 +2137,10 @@ mod test {
             &tx_future_clarity,
             StacksEpochId::Epoch34
         ));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &tx_future_clarity,
+            StacksEpochId::Epoch35
+        ));
     }
 
     #[rstest]
@@ -2180,6 +2184,7 @@ mod test {
     #[case(StacksEpochId::Epoch32, false)]
     #[case(StacksEpochId::Epoch33, false)]
     #[case(StacksEpochId::Epoch34, true)]
+    #[case(StacksEpochId::Epoch35, true)]
     fn test_validate_transaction_static_epoch_nft_maybesent_gated_to_epoch34(
         #[case] epoch_id: StacksEpochId,
         #[case] expected: bool,

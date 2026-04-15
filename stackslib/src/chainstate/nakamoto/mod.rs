@@ -5454,6 +5454,7 @@ impl NakamotoChainState {
         if evaluated_epoch >= StacksEpochId::Epoch25 {
             signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
                 &mut clarity_tx,
+                sortition_dbconn,
                 first_block_height,
                 pox_constants,
                 burn_header_height.into(),

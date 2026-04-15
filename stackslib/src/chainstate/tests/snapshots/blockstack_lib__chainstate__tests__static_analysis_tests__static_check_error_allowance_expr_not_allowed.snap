@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "e742345ea2b41b2998e14306968db855d81f4f27dc053ac815e89251d7d0849e",
+    marf_hash: "92ee7645721c74ee7e171b6fbf07c2fe8a229a1bfa21809481c833eb19e9c799",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fbfdeeaad79229d5ae49a0038ffcfb02eb7adefe4eef63cc0bda5b03e5917d65",
+    marf_hash: "6a2da1a4cc31048b231d0a131c76c2498b80df37a4ab24860741eecba8a49cfd",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,11 +64,71 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "48a784dc82fe709f4af4ec4f0cb262ede367307b4473f2ad092fb4fba44b25e9",
+    marf_hash: "b18da14df5da8179119437996ebfc44d89287f261a3d5036925d4314909c741b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: allow-expr-not-allo-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3484365c70a9532cd78923f8616f5526cf7624557edfc147a2180246e921b1b3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: allow-expr-not-allo-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "30bf66849a79cc9b70cebfae02d3e53af947f1f95732afa8c3d08e9fdf4e2d5c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: allow-expr-not-allo-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

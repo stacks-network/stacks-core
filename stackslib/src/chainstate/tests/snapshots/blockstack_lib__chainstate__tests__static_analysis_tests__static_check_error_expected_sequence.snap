@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "337bc6b3688150a0aa7e4e37e3ec142a71600e5334ff6e1fad814b0cd6b76fce",
+    marf_hash: "51c3f0001bee20ca958e3a1fe92b5a47da61100498ffeeda14f3bd51e2872507",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "197000d152837895bdec2e69dc8f35082d2313342a7d4c4b84f5913ffa035a36",
+    marf_hash: "90173b98f1700d3034471394d7c31f77cd0797b38ef3aa0f2b2ecb4faa6d9f34",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9df1ec9a4990e0249141713900975bc3fc780e38fad12b1d38a6236e8717f33f",
+    marf_hash: "19ed7a0bf845dd6ad158da5b7503924acab9424e4a2fc1e4d5231c0afc09ed13",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "49e8d3f94a03375a20fdf6f7406f7fba947d259bc862817c6872d2bf645e559c",
+    marf_hash: "f8fc0d7fba2490999103ac844cb3a04421dfa1232b5e91162eba39ce2d18d437",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "eb900bb583425468618e7c24470af3b61e1bfdb591b4d09818179e32a68e2cd0",
+    marf_hash: "8eb578cd421094dd8e221a9ab1570bbd89028b520dc2668ba78165a1732fa443",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a95b7953c70e1b615e6f530ea0cf37dda61613d4692f1d99706dac2ce50ecf54",
+    marf_hash: "77822c840fb66761a44c13210fe2729843f1c8f63b4e9dad61a67ee8986a0f63",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "956e4265eb91a506474c97f37e09722e8bc2b18afd195f4e063bbb5e2c5afee6",
+    marf_hash: "5f3c876addd3cb806858d04a54fd26dc3072c48fa7c935803ef020db08817567",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "24c3c232e4a2eb2c98541bac22c08bc0c9773f93b912c1ce89c31af5f58659eb",
+    marf_hash: "5adcf3c8ca86ba8a71688829a11eaf392e5cc68d344dee9a01ebd6f11b511785",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f4f1d9d5b4524c70c8c4b78c3e45a01d905805e8115c9429e3e8d74209850162",
+    marf_hash: "e482ec347330990484b550a432556970e6eaf91231e0867516c934f633ca9474",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: expected-sequence-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: expecting expression of type \'list\', \'buff\', \'string-ascii\' or \'string-utf8\' - found \'int\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 713,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 713,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "78ccba749c8b2d026a1fae17f3da7627789ba73cd34cef6cd577e03f56d767b1",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-sequence-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: expecting expression of type \'list\', \'buff\', \'string-ascii\' or \'string-utf8\' - found \'int\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 713,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 713,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a5bd14fc766a1bf728bfe159055fdc77ef0e3c3fdac8f47461f633d5330e9e8f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-sequence-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: expecting expression of type \'list\', \'buff\', \'string-ascii\' or \'string-utf8\' - found \'int\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 713,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 713,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "00b1bd530bf40e9d91d59188a2a8b98e7cd3dff683f729f859e36cebfce1a684",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-sequence-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: expecting expression of type \'list\', \'buff\', \'string-ascii\' or \'string-utf8\' - found \'int\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 713,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 713,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "17c692ec05ff6510f35449aa2e3f7ca8dce993e3ed0a0819aae64c68412b7134",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-sequence-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: expecting expression of type \'list\', \'buff\', \'string-ascii\' or \'string-utf8\' - found \'int\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 713,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 713,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2faf6ab78f3058e99bcc2b381999e3253b77024f31a013287a284fcb1dc098de",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-sequence-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expecting expression of type \'list\', \'buff\', \'string-ascii\' or \'string-utf8\' - found \'int\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

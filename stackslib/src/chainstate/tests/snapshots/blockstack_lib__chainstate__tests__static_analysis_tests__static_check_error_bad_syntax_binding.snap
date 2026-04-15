@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "23dfd92b3591bc2368de19f62fbeecd710a283597884d6d8bc76d2cc9f263dc8",
+    marf_hash: "11e28521c1c9b385b6a18edb624e2a0fe2506f97af3021e9cba3842bc14be734",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "aae362b86bb7a185b357b930491c83ec24ac4c1586a7a48941410726c9ecf44e",
+    marf_hash: "e86856d3172d11908fa0253c24ffd9e09e4c960de8acee9b8f699261c755b14d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "94d24deedb5e179270141e32c6ef80637d4c0b1f14bd5efef9b0ef49caa4f82a",
+    marf_hash: "e40767107456d2325c095d8df1220368e2da975713677fab7e88ebc3a5085024",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -95,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1b89f66d456a7a0d9712f00aa868a17b4143b88ed666ac806ca9ae87ee2d2082",
+    marf_hash: "2b0da7b4aeea27d2cada027eb448f7d1b492badbba52e4ded4035b5852da0dc8",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "528a39c8258f0ec1c67444c3de4640bc84db68b3dfb3d14a270ea6f7dc7da04c",
+    marf_hash: "0ce1522220e0ee25c700e8888b612eb8faac16f372788ab38d5df6534dde5a7f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +154,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "827779d9208061c50f1d22f35c39e1f7a260a6e2aa73570a2fe1db994a8e8abd",
+    marf_hash: "089b29b4973107e4a7377dce0a2bb45fa5ef1975a1c05956b8ee2b3f55b9c745",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +184,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6b952967f249d0a7dae4f0718902c297272c75c3ab17f8752441e559faf7df86",
+    marf_hash: "ebc21993453a89a40c7b07231bf616fd660d17faa9bd772e86ba1635002c69da",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +214,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fbc8d40a047e8dcb3b2240240c9d1362be0c94973a6b172688784273169e9134",
+    marf_hash: "74ea6380145ae2f6c71aeb2037422b5bc0bd494cdf0f68ec51a93e1d220ae508",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +244,161 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "58e2656d1d9932f5b989f26f49a848444b44c89a47783f5968b4272b1def15b4",
+    marf_hash: "ec4171fac926d77f9f41dc2a2ae7ded8288ed653aa970a3425cdb3aff5c57ab9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: bad-syntax-binding-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 666,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 666,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2f7f002fbc851c12aa4ed21a2508849d9960c1c6206dae9d89041e127fa056bd",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 666,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 666,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d54fa176012eac85e6016347302c4cd313366b4ace22803abb269435ddbf3e5c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 666,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 666,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "85e7af9bab796ef40404a7593262e5be65bfb347b356847008c67b5308c2ae5c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 666,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 666,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0d2282f25898b8d3ecedb3f039f726522b20e2521cb8af8f3e9d32c4ba18d002",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 666,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 666,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2ae18d0b413ab9ab35b224c12f749506494200c8be075d6954ce4a0f94cd5a72",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -1,0 +1,1 @@
+Added `FixedPointU256` struct for simple fixed point math, used by PoX-5 reward set calculations

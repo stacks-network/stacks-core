@@ -479,30 +479,6 @@ pub enum Command {
         working_dir: String,
     },
 
-    /// Replay chainstate from old to new database
-    #[command(name = "replay-chainstate")]
-    ReplayChainstate {
-        /// Old chainstate path
-        #[arg(value_name = "OLD_CHAINSTATE_PATH")]
-        old_chainstate_path: String,
-
-        /// Old sortition DB path
-        #[arg(value_name = "OLD_SORTITION_PATH")]
-        old_sortition_path: String,
-
-        /// Old burnchain DB path
-        #[arg(value_name = "OLD_BURNCHAIN_PATH")]
-        old_burnchain_path: String,
-
-        /// New chainstate path
-        #[arg(value_name = "NEW_CHAINSTATE_PATH")]
-        new_chainstate_path: String,
-
-        /// New burnchain DB path
-        #[arg(value_name = "NEW_BURNCHAIN_PATH")]
-        new_burnchain_path: String,
-    },
-
     // ================ PoX/Sortition Commands ================
     /// Evaluate PoX anchor selection at a block height
     #[command(name = "evaluate-pox-anchor")]

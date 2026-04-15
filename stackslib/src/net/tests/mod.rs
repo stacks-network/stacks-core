@@ -186,6 +186,43 @@ impl NakamotoBootPlan {
         chainstate_config.test_stackers = Some(self.test_stackers.clone());
         chainstate_config.burnchain.pox_constants = self.pox_constants.clone();
 
+        // Override pox activation heights to match epoch start heights,
+        // mirroring what the production config does in config/mod.rs.
+        // Only override when the epoch has a non-zero start_height; zero means
+        // the epoch is collapsed/active-from-genesis in the test epoch list, and
+        // overriding would clobber the values set by with_pox_constants().
+        if let Some(epochs) = chainstate_config.epochs.as_ref() {
+            let pox = &mut chainstate_config.burnchain.pox_constants;
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch21) {
+                if epoch.start_height > 0 {
+                    pox.v1_unlock_height = epoch.start_height as u32 + 1;
+                }
+            }
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch22) {
+                if epoch.start_height > 0 {
+                    pox.v2_unlock_height = epoch.start_height as u32 + 1;
+                }
+            }
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch24) {
+                if epoch.start_height > 0 {
+                    pox.pox_3_activation_height = epoch.start_height as u32;
+                }
+            }
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch25) {
+                if epoch.start_height > 0 {
+                    pox.pox_4_activation_height = epoch.start_height as u32;
+                    pox.v3_unlock_height = epoch.start_height as u32 + 1;
+                }
+            }
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch35) {
+                pox.pox_5_activation_height = epoch.start_height as u32;
+            } else {
+                // If Epoch35 is not in the epoch list, disable pox-5 activation
+                // to avoid NoSuchContract errors when pox-5 is not deployed.
+                pox.pox_5_activation_height = u32::MAX;
+            }
+        }
+
         if let Some(epochs) = chainstate_config.epochs.as_ref() {
             StacksEpoch::validate_nakamoto_transition_schedule(
                 epochs,
@@ -223,6 +260,7 @@ impl NakamotoBootPlan {
             3 * cycle_length + 1,
             // pox-3 activates at start of third cycle, just before v2 unlock
             2 * cycle_length + 1,
+            10 * cycle_length + 1,
         );
         self.pox_constants = new_consts;
         self
@@ -803,19 +841,13 @@ impl NakamotoBootPlan {
         // transaction in `all_blocks` ran to completion
         if let Some(observer) = observer {
             let mut observed_blocks = observer.get_blocks();
-            let mut block_idx = (peer
-                .config
-                .chain_config
-                .burnchain
-                .pox_constants
-                .pox_4_activation_height
-                + peer
-                    .config
-                    .chain_config
-                    .burnchain
-                    .pox_constants
-                    .reward_cycle_length
-                - 25) as usize;
+            // Skip past the epoch 2.x blocks in `observed_blocks` to find where
+            // the Nakamoto blocks begin. Find the first observed block that is a
+            // Nakamoto block and use that as the starting index.
+            let mut block_idx = observed_blocks
+                .iter()
+                .position(|blk| blk.metadata.anchored_header.as_stacks_nakamoto().is_some())
+                .expect("No Nakamoto blocks found in observed blocks");
 
             // filter out observed blocks that are malleablized
             observed_blocks.retain(|blk| {

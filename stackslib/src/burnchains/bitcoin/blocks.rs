@@ -24,12 +24,12 @@ use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::address::{BitcoinAddress, SegwitBitcoinAddress};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::{
     bits, BitcoinBlock, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
-    Error as btc_error, PeerMessage,
+    Error as btc_error, PeerMessage, WatchedP2WSHOutput, WitnessScriptHash,
 };
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
@@ -472,11 +472,11 @@ impl BitcoinBlockParser {
     /// or not to decode scriptSigs.
     pub fn parse_block(
         &self,
-        block: &Block,
+        block: Block,
         block_height: u64,
         epoch_id: StacksEpochId,
     ) -> BitcoinBlock {
-        let fee_rate_sat_per_vbyte = self.block_mean_fee_rate_sat_per_vbyte(block, block_height);
+        let fee_rate_sat_per_vbyte = self.block_mean_fee_rate_sat_per_vbyte(&block, block_height);
         let mut accepted_txs = vec![];
         for (i, tx) in block.txdata.iter().enumerate() {
             match self.parse_tx(tx, i, epoch_id) {
@@ -498,12 +498,40 @@ impl BitcoinBlockParser {
             }
         }
 
+        // Extract transactions with P2WSH outputs
+        let mut watched_p2wsh_outputs = vec![];
+        for tx in block.txdata.iter() {
+            for (vout_index, output) in tx.output.iter().enumerate() {
+                let Some(parsed_output) =
+                    BitcoinTxOutput::from_bitcoin_txout(self.network_id, output)
+                else {
+                    continue;
+                };
+                let BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(
+                    _network_id,
+                    witness_script_hash,
+                )) = parsed_output.address
+                else {
+                    continue;
+                };
+                watched_p2wsh_outputs.push(WatchedP2WSHOutput {
+                    witness_script_hash: WitnessScriptHash(witness_script_hash),
+                    amount: parsed_output.units,
+                    txid: Txid::from_bitcoin_tx_hash(&tx.txid()),
+                    vout: vout_index
+                        .try_into()
+                        .expect("FATAL: parsed bitcoin tx with greater that u32::MAX outputs"),
+                });
+            }
+        }
+
         BitcoinBlock {
             block_height,
             block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.bitcoin_hash()),
             parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
             txs: accepted_txs,
             timestamp: block.header.time as u64,
+            watched_p2wsh_outputs,
         }
     }
 
@@ -584,13 +612,13 @@ impl BitcoinBlockParser {
     /// (in which case, we should re-start the conversation with the peer and try again).
     pub fn process_block(
         &self,
-        block: &Block,
+        block: Block,
         header: &LoneBlockHeader,
         height: u64,
         epoch_id: StacksEpochId,
     ) -> Option<BitcoinBlock> {
         // block header contents must match
-        if !BitcoinBlockParser::check_block(block, header) {
+        if !BitcoinBlockParser::check_block(&block, header) {
             error!(
                 "Expected block {} does not match received block {}",
                 header.header.bitcoin_hash(),
@@ -610,11 +638,11 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
     fn parse(
         &mut self,
-        ipc_block: &BitcoinBlockIPC,
+        ipc_block: BitcoinBlockIPC,
         epoch_id: StacksEpochId,
     ) -> Result<BurnchainBlock, burnchain_error> {
         match ipc_block.block_message {
-            btc_message::NetworkMessage::Block(ref block) => {
+            btc_message::NetworkMessage::Block(block) => {
                 match self.process_block(
                     block,
                     &ipc_block.header_data.block_header,
@@ -1183,6 +1211,7 @@ mod tests {
                             expected_btc_tx_fee: None,
                         }
                     ],
+                    watched_p2wsh_outputs: vec![],
                     timestamp: 1543267060,
                 })
             },
@@ -1342,7 +1371,8 @@ mod tests {
                             ],
                             expected_btc_tx_fee: None,
                         }
-                    ]
+                    ],
+                    watched_p2wsh_outputs: vec![],
                 })
             },
             BlockFixture {
@@ -1361,7 +1391,7 @@ mod tests {
             let height = block_fixture.height;
 
             let parsed_block_opt =
-                parser.process_block(&block, &header, height, StacksEpochId::Epoch2_05);
+                parser.process_block(block, &header, height, StacksEpochId::Epoch2_05);
             assert_eq!(parsed_block_opt, block_fixture.result);
         }
     }
@@ -1374,16 +1404,16 @@ mod tests {
             .replacen("69643a666f6f2e74657374", "69645b666f6f2e74657374", 1);
         let block = make_block(&block_hex).expect("failed to decode block fixture");
         let fee_rate_sat_per_vb = 25;
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]))
-            .with_fixed_fee_rate_sat_per_vbyte(fee_rate_sat_per_vb);
-        let parsed_block = parser.parse_block(&block, 32, StacksEpochId::Epoch34);
-
-        assert_eq!(parsed_block.txs.len(), 1);
-        assert_eq!(parsed_block.txs[0].opcode, Opcodes::LeaderBlockCommit as u8);
         let expected_fee = BitcoinBlockParser::estimate_tx_fee_from_block_fee_rate_sat_per_vbyte(
             &block.txdata[1],
             fee_rate_sat_per_vb,
         );
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]))
+            .with_fixed_fee_rate_sat_per_vbyte(fee_rate_sat_per_vb);
+        let parsed_block = parser.parse_block(block, 32, StacksEpochId::Epoch34);
+
+        assert_eq!(parsed_block.txs.len(), 1);
+        assert_eq!(parsed_block.txs[0].opcode, Opcodes::LeaderBlockCommit as u8);
         assert_eq!(parsed_block.txs[0].expected_btc_tx_fee, expected_fee);
     }
 
@@ -1455,19 +1485,6 @@ mod tests {
             "computed mean fee rate does not match fixture"
         );
 
-        let parsed_block = parser.parse_block(&block, meta.block_height, StacksEpochId::latest());
-
-        let parsed_commits: Vec<_> = parsed_block
-            .txs
-            .iter()
-            .filter(|tx| tx.opcode == Opcodes::LeaderBlockCommit as u8)
-            .collect();
-
-        assert!(
-            !parsed_commits.is_empty(),
-            "expected at least one commit in fixture"
-        );
-
         let tx_vbytes_by_txid: HashMap<_, _> = block
             .txdata
             .iter()
@@ -1480,6 +1497,19 @@ mod tests {
                 (txid, tx_vbytes)
             })
             .collect();
+
+        let parsed_block = parser.parse_block(block, meta.block_height, StacksEpochId::latest());
+
+        let parsed_commits: Vec<_> = parsed_block
+            .txs
+            .iter()
+            .filter(|tx| tx.opcode == Opcodes::LeaderBlockCommit as u8)
+            .collect();
+
+        assert!(
+            !parsed_commits.is_empty(),
+            "expected at least one commit in fixture"
+        );
 
         for commit_tx in parsed_commits {
             let txid = commit_tx.txid.to_hex();

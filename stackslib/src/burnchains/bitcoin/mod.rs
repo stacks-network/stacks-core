@@ -19,8 +19,11 @@
 
 use std::{error, fmt, io};
 
+use sha2::{Digest, Sha256};
+use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::serde_serializers::prefix_hex;
 use stacks_common::util::HexError as btc_hex_error;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
@@ -233,12 +236,42 @@ pub struct BitcoinTransaction {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct WitnessScriptHash(#[serde(with = "prefix_hex")] pub [u8; 32]);
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct WatchedP2WSHOutput {
+    /// Watched outputs are all P2WSH. This field is the P2WSH.
+    pub witness_script_hash: WitnessScriptHash,
+    /// Satoshis paid to this output
+    pub amount: u64,
+    /// Identifies the transaction which contained this output
+    pub txid: Txid,
+    /// The output index (vout) in the transaction corresponding to this output
+    pub vout: u32,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BitcoinBlock {
     pub block_height: u64,
     pub block_hash: BurnchainHeaderHash,
     pub parent_block_hash: BurnchainHeaderHash,
     pub txs: Vec<BitcoinTransaction>,
+    pub watched_p2wsh_outputs: Vec<WatchedP2WSHOutput>,
     pub timestamp: u64,
+}
+
+impl From<Sha256> for WitnessScriptHash {
+    fn from(value: Sha256) -> Self {
+        let hash: [u8; 32] = value.finalize().into();
+        Self(hash)
+    }
+}
+
+impl From<&Script> for WitnessScriptHash {
+    fn from(value: &Script) -> Self {
+        let hash: [u8; 32] = Sha256::digest(value.as_bytes()).into();
+        WitnessScriptHash(hash)
+    }
 }
 
 impl BitcoinBlock {
@@ -253,6 +286,7 @@ impl BitcoinBlock {
             block_height: height,
             block_hash: hash.clone(),
             parent_block_hash: parent.clone(),
+            watched_p2wsh_outputs: Vec::new(),
             txs,
             timestamp,
         }
