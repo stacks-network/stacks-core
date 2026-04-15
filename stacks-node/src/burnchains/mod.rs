@@ -1,6 +1,5 @@
 pub mod bitcoin;
 pub mod bitcoin_regtest_controller;
-pub mod mocknet_controller;
 pub mod rpc;
 
 use std::time::Instant;
@@ -14,7 +13,6 @@ use stacks::core::{EpochList, StacksEpochId};
 use stacks_common::codec::Error as CodecError;
 
 pub use self::bitcoin_regtest_controller::{make_bitcoin_indexer, BitcoinRegtestController};
-pub use self::mocknet_controller::MocknetController;
 use super::operations::BurnchainOpSigner;
 
 #[derive(Debug, thiserror::Error)]
