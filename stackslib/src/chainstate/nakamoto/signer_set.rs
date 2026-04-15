@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use clarity::util::uint::{BitArray as _, Uint256, Uint512};
+use clarity::util::uint::{FixedPointU256, Uint256};
 use clarity::vm::clarity::ClarityError;
 use clarity::vm::database::DataVariableMetadata;
 use clarity::vm::events::StacksTransactionEvent;
@@ -953,7 +953,7 @@ impl NakamotoSigners {
 
         let ratio_percentiles_type = ListTypeData::new_list(
             TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                BufferLength::try_from(512u32).map_err(|_| {
+                BufferLength::try_from(256u32).map_err(|_| {
                     ChainstateError::Expects(
                         "FATAL: failed to setup ratio percentile clarity type".into(),
                     )
@@ -1011,10 +1011,11 @@ impl NakamotoSigners {
             .into_iter()
             .map(|ratio_entry| {
                 let ratio_buff = ratio_entry
-                    .expect_buff(512)
+                    .expect_buff(256)
                     .map_err(|e| format!("Expected buff for ratio entry: {e}"))?;
-                Uint512::from_bytes_le(ratio_buff)
-                    .ok_or_else(|| "Failed to parse ratio entry buffer to U512".into())
+                let raw_ratio = Uint256::from_bytes_le(ratio_buff)
+                    .ok_or_else(|| "Failed to parse ratio entry buffer to U512")?;
+                Ok(FixedPointU256::<64>::construct_raw(raw_ratio))
             })
             .collect();
         let prior_ratios = ratios_result.map_err(|e| {
@@ -1031,7 +1032,7 @@ impl NakamotoSigners {
 
         let new_ratios_clar: Result<Vec<_>, _> = new_ratios
             .into_iter()
-            .map(|big_int| Value::buff_from(big_int.to_bytes_le().to_vec()))
+            .map(|big_int| Value::buff_from(big_int.to_bytes_le()))
             .collect();
         let new_ratios_clar = Value::cons_list_unsanitized(new_ratios_clar.map_err(|e| {
             ChainstateError::Expects(format!(
@@ -1078,59 +1079,20 @@ impl NakamotoSigners {
         Ok(SignerCalculation { reward_set, events })
     }
 
-    pub fn pow_scaled(base: &Uint512, exp: u32, scaling: &Uint512) -> Uint512 {
-        if exp == 0 {
-            return Uint512::from_u64(1);
-        }
-        let mut output = *base;
-        for _ in 1..exp {
-            output = output * *base / *scaling;
-        }
-        output
-    }
-
-    pub fn find_root_floor(base: Uint512, root: u32, scaling: &Uint512) -> Option<Uint512> {
-        if root == 1 {
-            return Some(base);
-        }
-        if root == 0 {
-            return None;
-        }
-
-        let mut low = Uint512::from_u64(1);
-        let mut high = base;
-        loop {
-            if high <= low {
-                return Some(high.min(low));
-            }
-            let guess = (high + low) / Uint512::from_u64(2);
-            let value = Self::pow_scaled(&guess, root, scaling);
-            if value == base {
-                return Some(guess);
-            } else if value > base {
-                high = guess - Uint512::from_u64(1);
-            } else if value < base {
-                low = guess + Uint512::from_u64(1);
-            }
-        }
-    }
-
     pub(crate) fn pox_5_make_reward_set<P: Pox5PoolInfoProvider>(
         entries: Vec<(RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>)>,
         pox_constants: &PoxConstants,
         pool_info_provider: &mut P,
-        prior_ratio_percentiles: Vec<Uint512>,
+        prior_ratio_percentiles: Vec<FixedPointU256<64>>,
         // will probably need other arguments here to get the windowed averages for
         //  STX/BTC price ratio, STX/BTC 95th percentile ratios
-    ) -> Result<(RewardSet, Vec<Uint512>), ChainstateError> {
-        let SCALING_FACTOR = Uint512::from_u128(u128::MAX) + Uint512::one();
-
+    ) -> Result<(RewardSet, Vec<FixedPointU256<64>>), ChainstateError> {
         // f_min := minimum amount of STX which can be staked for a given BTC stake
         let max_supported_lock_cycles = 12;
-        let f_min_denominator = 100;
-        let price_ratio = Uint512::from_u64(1);
+        let f_min_denominator = Uint256::from_u64(100);
+        let price_ratio = FixedPointU256::<64>::from_u64(1);
         // d_min_t := minimum allowed stx / btc ratio scaled by SCALING_FACTOR
-        let d_min_t = (price_ratio * SCALING_FACTOR) / Uint512::from_u64(f_min_denominator);
+        let d_min_t = price_ratio.div(f_min_denominator).unwrap();
         // p := BTC-weighted Percentile to Define D
         let p = 95;
         // Maximum Ratio Multiplier
@@ -1169,13 +1131,15 @@ impl NakamotoSigners {
         for entry in entries.iter() {
             total_btc_locked = entry.sats_locked.saturating_add(total_btc_locked);
             total_ustx_locked = entry.entry.amount_ustx.saturating_add(total_ustx_locked);
-            let ustx_locked = Uint512::from_u128(entry.entry.amount_ustx) * SCALING_FACTOR;
+            let ustx_locked = FixedPointU256::from_u128(entry.entry.amount_ustx);
             if entry.sats_locked < 1 {
                 // should be unreachable, but better safe
                 continue;
             }
-            let sats_locked = Uint512::from_u64(entry.sats_locked);
-            let d_i = ustx_locked / sats_locked;
+            let sats_locked = Uint256::from_u64(entry.sats_locked);
+            let d_i = ustx_locked.div(sats_locked).ok_or_else(|| {
+                ChainstateError::Expects("Failed to divide by fixed point due to scaling".into())
+            })?;
             if d_i < d_min_t {
                 warn!(
                     "PoX entry had STX/BTC ratio less than the minimum";
@@ -1184,13 +1148,6 @@ impl NakamotoSigners {
                 );
                 continue;
             }
-            // Overflow sanity check:
-            // d_i is at most u128::MAX, scaled by 128 bits,
-            // so d_i must have 256 empty high bits
-            assert_eq!(d_i.0[7], 0);
-            assert_eq!(d_i.0[6], 0);
-            assert_eq!(d_i.0[5], 0);
-            assert_eq!(d_i.0[4], 0);
             d_i_vec.push((d_i, entry));
         }
 
@@ -1198,10 +1155,10 @@ impl NakamotoSigners {
         let mut w_i_vec = d_i_vec.clone();
         // Step 2: compute D_t -- the BTC weighted pth-percentile of d in this cycle
         // D_t is scaled by SCALING FACTOR
-        d_i_vec.sort_by_key(|(d_i, _)| *d_i);
+        d_i_vec.sort_by(|(a, _), (b, _)| a.cmp(&b));
         let total_target_btc_locked = (total_btc_locked / 100) * p;
         let mut total_locked_so_far = 0;
-        let mut D_t = Uint512::from_u64(0);
+        let mut D_t = FixedPointU256::ZERO;
         for (d_i, entry) in d_i_vec {
             total_locked_so_far = entry.sats_locked.saturating_add(total_locked_so_far);
             D_t = d_i;
@@ -1211,117 +1168,86 @@ impl NakamotoSigners {
         }
 
         // Compute the GeoWeightedAvg for D
-        if prior_ratio_percentiles.len() > 4 {
-            return Err(ChainstateError::Expects(
-                "Prior ratio percentiles length must be less than 4".into(),
-            ));
-        }
-        let weighting = 5;
-        let lowest_weight = weighting - prior_ratio_percentiles.len() as u32;
-        let total_weight = (lowest_weight..=weighting).sum();
-        let D_t_contrib = Self::find_root_floor(
-            Self::pow_scaled(&D_t, weighting, &SCALING_FACTOR),
-            total_weight,
-            &SCALING_FACTOR,
-        );
-        let D_avg = prior_ratio_percentiles
-            .iter()
-            .enumerate()
-            .fold(D_t_contrib, |acc, (index, prior_ratio)| {
-                // will not underflow because of the check for len() > 4 above
-                let exponent = weighting - 1 - (index as u32);
-                let contribution = Self::find_root_floor(
-                    Self::pow_scaled(prior_ratio, exponent, &SCALING_FACTOR),
-                    total_weight,
-                    &SCALING_FACTOR,
-                )?;
-                Some(acc? * contribution / SCALING_FACTOR)
-            })
+        let D_avg = FixedPointU256::weighted_geometric_average(&D_t, &prior_ratio_percentiles)
             .ok_or_else(|| {
-                ChainstateError::Expects("Failed to find w-th root for D calculations".into())
+                ChainstateError::Expects(
+                    "Failed to compute weighted geometric average for D".into(),
+                )
             })?;
-
-        // Overflow sanity check:
-        // D_avg is at most u128::MAX, scaled by 128 bits,
-        // so D_avg must have 256 empty high bits
-        assert_eq!(D_avg.0[7], 0);
-        assert_eq!(D_avg.0[6], 0);
-        assert_eq!(D_avg.0[5], 0);
-        assert_eq!(D_avg.0[4], 0);
 
         let mut ratios_to_store = Vec::with_capacity(4);
         ratios_to_store.push(D_t);
         ratios_to_store.extend(prior_ratio_percentiles.into_iter().take(3));
 
         // Step 3: Compute w_i scaled by SCALING_FACTOR
-        let mut W = Uint512::zero();
+        let mut W = FixedPointU256::ZERO;
         for (d_i, entry) in w_i_vec.iter_mut() {
             let r_i = if *d_i >= D_avg {
-                SCALING_FACTOR // 1
+                FixedPointU256::from_u64(1)
             } else {
-                // Overflow sanity check: d_i has 256 empty high bits,
-                //  so scaling 128 bits cannot overflow
-                // D_avg > d_i, so the following calculation
-                // leads to a number between 0 and 1, scaled by SCALING_FACTOR
-                *d_i * SCALING_FACTOR / D_avg
+                d_i.div_and_scale(&D_avg).ok_or_else(|| {
+                    ChainstateError::Expects("Division by zero during d_i/D_avg calculation".into())
+                })?
             };
-            // Overflow sanity check:
-            // r_i is at most 1, scaled by 128 bits,
-            // so r_i must have 256 + 127 empty high bits
-            assert_eq!(r_i.0[7], 0);
-            assert_eq!(r_i.0[6], 0);
-            assert_eq!(r_i.0[5], 0);
-            assert_eq!(r_i.0[4], 0);
-            assert_eq!(r_i.0[3], 0);
-            assert!(r_i.0[2] <= 1);
 
-            // s_i_numer has scaling factor of 256
-            let s_i_numer = r_i * r_i;
-            // s_i_denom has a scaling factor of 256
-            let s_i_denom = (r_i * r_i) + ((SCALING_FACTOR - r_i) * (SCALING_FACTOR - r_i));
-            // drop scaling factor of s_i_denom by 128
-            // s_i is the sigmoid output, scaled by SCALING_FACTOR
-            let s_i = s_i_numer / (s_i_denom / SCALING_FACTOR);
-
-            // s_i should be <= 1
-            // Overflow sanity check:
-            // s_i is at most 1, scaled by 128 bits,
-            // so s_i must have 256 + 127 empty high bits
-            assert_eq!(s_i.0[7], 0);
-            assert_eq!(s_i.0[6], 0);
-            assert_eq!(s_i.0[5], 0);
-            assert_eq!(s_i.0[4], 0);
-            assert_eq!(s_i.0[3], 0);
-            assert!(s_i.0[2] <= 1);
+            // s_i is the sigmoid output: r^2 / (r^2 + (1-r)^2), in [0, 1]
+            let s_i = r_i.sigmoid().ok_or_else(|| {
+                ChainstateError::Expects("Overflow during sigmoid calculation".into())
+            })?;
 
             // ratio_multiplier is M_ratio_i scaled by SCALING_FACTOR
             // this is at most u32::max (but in constants used, 10)
             // so ratio multiplier has 256 + 96 empty high bits
-            let ratio_multiplier = SCALING_FACTOR + s_i.mul_u32(M_ratio_max - 1);
-            let time_multiplier_user = SCALING_FACTOR
-                * Uint512::from_u128(
-                    entry
-                        .entry
-                        .num_cycles
-                        .min(max_supported_lock_cycles)
-                        .saturating_sub(1),
-                )
-                / Uint512::from_u128(max_supported_lock_cycles.saturating_sub(1));
+            let ratio_multiplier = s_i
+                .mul_u64(M_ratio_max - 1)
+                .and_then(|x| x.add(&FixedPointU256::from_u64(1)))
+                .ok_or_else(|| {
+                    ChainstateError::Expects("Overflow while computing multiplier".into())
+                })?;
+            let time_multiplier_user = FixedPointU256::from_u128(
+                entry
+                    .entry
+                    .num_cycles
+                    .min(max_supported_lock_cycles)
+                    .saturating_sub(1),
+            )
+            .div(Uint256::from_u128(
+                max_supported_lock_cycles.saturating_sub(1),
+            ))
+            .ok_or_else(|| {
+                ChainstateError::Expects("Division by zero while computing multiplier".into())
+            })?;
             // time_multiplier is scaled by SCALING_FACTOR
             // this is at most u32::max (but in constants used, 1.5)
             // so time multiplier has 256 + 96 empty high bits
-            let time_multiplier = SCALING_FACTOR
-                + (time_multiplier_user.mul_u32(M_time_max)
-                    / Uint512::from_u64(M_time_max_denominator));
+            let time_multiplier = time_multiplier_user
+                .mul_u64(M_time_max)
+                .ok_or_else(|| {
+                    ChainstateError::Expects("Overflow while computing multiplier".into())
+                })?
+                .div(Uint256::from_u64(M_time_max_denominator))
+                .ok_or_else(|| {
+                    ChainstateError::Expects("Division by zero while computing multiplier".into())
+                })?
+                .add(&FixedPointU256::from_u64(1))
+                .ok_or_else(|| {
+                    ChainstateError::Expects("Overflow while computing multiplier".into())
+                })?;
 
             // overflow sanity check: multiplying ratio_multiplier by
             // time_multiplier occupies at most 160 bits of the 352 available
-            let user_multiplier = time_multiplier * ratio_multiplier / SCALING_FACTOR;
+            let user_multiplier = time_multiplier.mul(&ratio_multiplier).ok_or_else(|| {
+                ChainstateError::Expects("Overflow while computing multiplier".into())
+            })?;
             // user_multiplier has scaling factor of SCALING_FACTOR
 
             // w_i has scaling factor of SCALING_FACTOR
-            let w_i = user_multiplier * Uint512::from_u64(entry.sats_locked);
-            W = W + w_i;
+            let w_i = user_multiplier
+                .mul_u64(entry.sats_locked)
+                .ok_or_else(|| ChainstateError::Expects("Overflow while computing w_i".into()))?;
+            W = W
+                .add(&w_i)
+                .ok_or_else(|| ChainstateError::Expects("Overflow while computing W".into()))?;
             *d_i = w_i;
         }
 
@@ -1333,8 +1259,10 @@ impl NakamotoSigners {
                 RawPox5EntryInfo::Pool(principal_data) => {
                     let (cur_w, cur_stx_amt) = pooled_entries
                         .entry(principal_data)
-                        .or_insert((Uint512::zero(), 0u128));
-                    *cur_w = *cur_w + w_i;
+                        .or_insert((FixedPointU256::ZERO, 0u128));
+                    cur_w.increment(&w_i).ok_or_else(|| {
+                        ChainstateError::Expects("Overflow while computing pool w_i".into())
+                    })?;
                     *cur_stx_amt += entry.entry.amount_ustx;
                 }
                 RawPox5EntryInfo::Solo {
@@ -1373,11 +1301,21 @@ impl NakamotoSigners {
         let reward_slots = pox_constants.reward_slots();
         let mut rewarded_addresses = Vec::with_capacity(reward_slots as usize);
         // same scaling as W and w_i
-        let reward_slot_threshold = W / Uint512::from_u64(reward_slots.into());
+        let reward_slot_threshold =
+            W.div(Uint256::from_u64(reward_slots.into()))
+                .ok_or_else(|| {
+                    ChainstateError::Expects(
+                        "Divide by zero when computing reward slot threshold".into(),
+                    )
+                })?;
         for (pox_addr, _, w_i, _) in totaled_entries.iter() {
-            // reward_slot_threshold has same scaling as w_i,
-            //  so, this result is unscaled
-            let slots_assigned = *w_i / reward_slot_threshold;
+            let slots_assigned =
+                w_i.div_and_drop_scale(&reward_slot_threshold)
+                    .ok_or_else(|| {
+                        ChainstateError::Expects(
+                            "Divide by zero when computing assigned slots".into(),
+                        )
+                    })?;
             let slots_assigned = slots_assigned.low_u32();
             for _ in 0..slots_assigned {
                 rewarded_addresses.push((*pox_addr).clone());
@@ -1388,9 +1326,7 @@ impl NakamotoSigners {
         //
         // We need to set a threshold amount for signing participation,
         //  so we set a threshold based on total_ustx_locked / reward_slots
-        let signer_weight_scaling = Uint256::from_u64(reward_slots.into());
         let signer_threshold_ustx = total_ustx_locked / u128::from(reward_slots);
-        let total_ustx_locked_256 = Uint256::from_u128(total_ustx_locked);
         let mut signers = vec![];
         for (_, signer, _, amount_ustx) in totaled_entries.iter() {
             if *amount_ustx < signer_threshold_ustx {
@@ -1402,12 +1338,14 @@ impl NakamotoSigners {
                 );
                 continue;
             }
-            let amount_ustx_scaled = Uint256::from_u128(*amount_ustx) * signer_weight_scaling;
-            let signer_weight = amount_ustx_scaled / total_ustx_locked_256;
+            let weight = *amount_ustx / signer_threshold_ustx;
+            let weight = weight.try_into().map_err(|_| {
+                ChainstateError::Expects("Computed signer weight > u32::MAX".into())
+            })?;
             signers.push(NakamotoSignerEntry {
                 signing_key: *signer,
                 stacked_amt: *amount_ustx,
-                weight: signer_weight.low_u32(),
+                weight,
             });
         }
 
@@ -1859,7 +1797,7 @@ mod tests {
         let result =
             NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
 
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
         let (reward_set, _new_ratios) = result.unwrap();
 
         // Verify signers were created
