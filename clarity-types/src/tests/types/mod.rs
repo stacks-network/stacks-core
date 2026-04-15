@@ -29,7 +29,6 @@ use crate::types::{
 
 mod utils {
     use super::*;
-    use crate::representations::SymbolicExpression;
 
     /// build a list SequenceData from integer values.
     pub fn make_int_sequence(values: &[i128]) -> SequenceData {
@@ -41,12 +40,12 @@ mod utils {
     }
 
     /// always-true predicate (keep everything).
-    pub fn keep_all(_: SymbolicExpression) -> Result<bool, ()> {
+    pub fn keep_all(_: Value) -> Result<bool, ()> {
         Ok(true)
     }
 
     /// always-false predicate (discard everything).
-    pub fn keep_none(_: SymbolicExpression) -> Result<bool, ()> {
+    pub fn keep_none(_: Value) -> Result<bool, ()> {
         Ok(false)
     }
 
