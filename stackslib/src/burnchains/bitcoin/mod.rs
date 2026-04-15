@@ -226,6 +226,13 @@ pub struct BitcoinTransaction {
     pub data_amt: u64,
     pub inputs: Vec<BitcoinTxInput>,
     pub outputs: Vec<BitcoinTxOutput>,
+    /// Optional expected BTC tx fee, in satoshis.
+    /// This is not the actual fee paid for this transaction, but rather an
+    /// expected fee that the transaction should pay, based on the calculated
+    /// fee rate of the block it was included in.
+    /// This is only computed for block commit transactions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_btc_tx_fee: Option<u64>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

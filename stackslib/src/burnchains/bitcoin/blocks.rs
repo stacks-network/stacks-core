@@ -37,6 +37,7 @@ use crate::burnchains::indexer::{
 use crate::burnchains::{
     BurnchainBlock, Error as burnchain_error, MagicBytes, Txid, MAGIC_BYTES_LENGTH,
 };
+use crate::chainstate::burn::Opcodes;
 use crate::core::StacksEpochId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +94,7 @@ pub struct BitcoinBlockDownloader {
 pub struct BitcoinBlockParser {
     network_id: BitcoinNetworkType,
     magic_bytes: MagicBytes,
+    fixed_fee_rate_sat_per_vbyte: Option<u64>,
 }
 
 impl BitcoinBlockDownloader {
@@ -225,7 +227,17 @@ impl BitcoinBlockParser {
         BitcoinBlockParser {
             network_id,
             magic_bytes,
+            fixed_fee_rate_sat_per_vbyte: None,
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_fixed_fee_rate_sat_per_vbyte(
+        mut self,
+        fee_rate_sat_per_vbyte: u64,
+    ) -> BitcoinBlockParser {
+        self.fixed_fee_rate_sat_per_vbyte = Some(fee_rate_sat_per_vbyte);
+        self
     }
 
     /// Allow raw inputs?
@@ -445,6 +457,7 @@ impl BitcoinBlockParser {
                     data_amt,
                     inputs,
                     outputs,
+                    expected_btc_tx_fee: None,
                 })
             }
             (_, _) => {
@@ -463,10 +476,20 @@ impl BitcoinBlockParser {
         block_height: u64,
         epoch_id: StacksEpochId,
     ) -> BitcoinBlock {
+        let fee_rate_sat_per_vbyte = self.block_mean_fee_rate_sat_per_vbyte(&block, block_height);
         let mut accepted_txs = vec![];
         for (i, tx) in block.txdata.iter().enumerate() {
             match self.parse_tx(tx, i, epoch_id) {
-                Some(bitcoin_tx) => {
+                Some(mut bitcoin_tx) => {
+                    if bitcoin_tx.opcode == Opcodes::LeaderBlockCommit as u8 {
+                        if let Some(fee_rate_sat_per_vbyte) = fee_rate_sat_per_vbyte {
+                            bitcoin_tx.expected_btc_tx_fee =
+                                Self::estimate_tx_fee_from_block_fee_rate_sat_per_vbyte(
+                                    tx,
+                                    fee_rate_sat_per_vbyte,
+                                );
+                        }
+                    }
                     accepted_txs.push(bitcoin_tx);
                 }
                 None => {
@@ -510,6 +533,76 @@ impl BitcoinBlockParser {
             timestamp: block.header.time as u64,
             watched_p2wsh_outputs,
         }
+    }
+
+    /// Vbytes is just the weight divided by 4, rounded up.  See BIP-141 for details.
+    fn tx_vbytes(tx: &Transaction) -> Option<u64> {
+        tx.get_weight().checked_add(3).map(|weight| weight / 4)
+    }
+
+    /// Estimate the fee for a transaction from a sat/vbyte fee
+    /// rate. The result is exact integer arithmetic:
+    ///
+    /// fee_sats = fee_rate_sat_per_vbyte * tx_vbytes
+    fn estimate_tx_fee_from_block_fee_rate_sat_per_vbyte(
+        tx: &Transaction,
+        fee_rate_sat_per_vbyte: u64,
+    ) -> Option<u64> {
+        let tx_vbytes = Self::tx_vbytes(tx)?;
+        let fee = u128::from(fee_rate_sat_per_vbyte).checked_mul(u128::from(tx_vbytes))?;
+        u64::try_from(fee).ok()
+    }
+
+    fn is_coinbase(tx: &Transaction) -> bool {
+        tx.input
+            .first()
+            .map(|input| {
+                input.previous_output.txid.0 == [0; 32] && input.previous_output.vout == u32::MAX
+            })
+            .unwrap_or(false)
+    }
+
+    fn bitcoin_subsidy_sats(block_height: u64, network: BitcoinNetworkType) -> u64 {
+        const INITIAL_SUBSIDY_SATS: u64 = 5_000_000_000;
+        let halving_interval: u64 = match network {
+            BitcoinNetworkType::Regtest => 150,
+            _ => 210_000,
+        };
+
+        let halvings = block_height / halving_interval;
+        if halvings >= 64 {
+            return 0;
+        }
+        INITIAL_SUBSIDY_SATS >> halvings
+    }
+
+    fn block_mean_fee_rate_sat_per_vbyte(&self, block: &Block, block_height: u64) -> Option<u64> {
+        if let Some(fixed_fee_rate_sat_per_vbyte) = self.fixed_fee_rate_sat_per_vbyte {
+            return Some(fixed_fee_rate_sat_per_vbyte);
+        }
+
+        let (coinbase_tx, non_coinbase_txs) = block.txdata.split_first()?;
+        if !Self::is_coinbase(coinbase_tx) {
+            return None;
+        }
+
+        let coinbase_outputs_total = coinbase_tx
+            .output
+            .iter()
+            .try_fold(0u64, |sum, output| sum.checked_add(output.value))?;
+
+        let subsidy = Self::bitcoin_subsidy_sats(block_height, self.network_id);
+        let total_fees = coinbase_outputs_total.checked_sub(subsidy)?;
+
+        let non_coinbase_vbytes = non_coinbase_txs
+            .iter()
+            .try_fold(0u64, |sum, tx| sum.checked_add(Self::tx_vbytes(tx)?))?;
+
+        if non_coinbase_vbytes == 0 {
+            return None;
+        }
+
+        Some(total_fees / non_coinbase_vbytes)
     }
 
     /// Return true if we handled the block, and we can receive the next one.  Update internal
@@ -569,6 +662,10 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::fs;
+
+    use serde::{Deserialize, Serialize};
     use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
@@ -585,7 +682,17 @@ mod tests {
         BitcoinTxInputStructured, BitcoinTxOutput,
     };
     use crate::burnchains::{MagicBytes, Txid};
+    use crate::chainstate::burn::Opcodes;
     use crate::core::StacksEpochId;
+
+    const REAL_BLOCK_FIXTURE_HEX_PATH: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/burnchains/bitcoin/test_fixtures/real_block_with_commits.hex"
+    );
+    const REAL_BLOCK_FIXTURE_META_PATH: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/burnchains/bitcoin/test_fixtures/real_block_with_commits.meta.json"
+    );
 
     struct TxFixture {
         txstr: String,
@@ -602,6 +709,12 @@ mod tests {
         header: String,
         height: u64,
         result: Option<BitcoinBlock>,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    struct RealBlockFixtureMeta {
+        block_height: u64,
+        mean_fee_rate_sat_per_vb: u64,
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -718,7 +831,8 @@ mod tests {
                             units: 70341,
                             address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("9f2660e75380675206b6f1e2b4f106ae33266be4").unwrap()).unwrap()
                         }
-                    ]
+                    ],
+                    expected_btc_tx_fee: None,
                 })
             },
             TxFixture {
@@ -761,7 +875,8 @@ mod tests {
                             units: 1293677,
                             address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("c26afc6cb80ca477c280780902b40cbef8cd804d").unwrap()).unwrap()
                         }
-                    ]
+                    ],
+                    expected_btc_tx_fee: None,
                 })
             },
             TxFixture {
@@ -792,7 +907,8 @@ mod tests {
                             units: 4993076500,
                             address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
                         }
-                    ]
+                    ],
+                    expected_btc_tx_fee: None,
                 })
             },
             TxFixture {
@@ -825,7 +941,8 @@ mod tests {
                             units: 6400000,
                             address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
                         },
-                    ]
+                    ],
+                    expected_btc_tx_fee: None,
                 })
             }
         ];
@@ -880,7 +997,8 @@ mod tests {
                             units: 70341,
                             address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("9f2660e75380675206b6f1e2b4f106ae33266be4").unwrap()).unwrap()
                         }
-                    ]
+                    ],
+                    expected_btc_tx_fee: None,
                 })
             },
             TxFixture {
@@ -913,7 +1031,8 @@ mod tests {
                             units: 1293677,
                             address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("c26afc6cb80ca477c280780902b40cbef8cd804d").unwrap()).unwrap()
                         }
-                    ]
+                    ],
+                    expected_btc_tx_fee: None,
                 })
             },
             TxFixture {
@@ -944,7 +1063,8 @@ mod tests {
                             units: 4993076500,
                             address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
                         }
-                    ]
+                    ],
+                    expected_btc_tx_fee: None,
                 })
             },
             TxFixture {
@@ -977,7 +1097,8 @@ mod tests {
                             units: 6400000,
                             address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
                         },
-                    ]
+                    ],
+                    expected_btc_tx_fee: None,
                 })
             },
             TxFixture {
@@ -1006,6 +1127,7 @@ mod tests {
                             address: BitcoinAddress::from_string("1BaqZJqwt2dcdxt6oa3mwSK4DiEyfXCgnZ").unwrap(),
                         },
                     ],
+                    expected_btc_tx_fee: None,
                 }),
             }
         ];
@@ -1085,7 +1207,8 @@ mod tests {
                                     units: 4993076500,
                                     address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
                                 }
-                            ]
+                            ],
+                            expected_btc_tx_fee: None,
                         }
                     ],
                     watched_p2wsh_outputs: vec![],
@@ -1129,7 +1252,8 @@ mod tests {
                                     units: 4986192000,
                                     address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
                                 }
-                            ]
+                            ],
+                            expected_btc_tx_fee: None,
                         },
                         BitcoinTransaction {
                             data_amt: 0,
@@ -1157,7 +1281,8 @@ mod tests {
                                     units: 211500,
                                     address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
                                 }
-                            ]
+                            ],
+                            expected_btc_tx_fee: None,
                         },
                         BitcoinTransaction {
                             data_amt: 0,
@@ -1185,7 +1310,8 @@ mod tests {
                                     units: 211500,
                                     address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
                                 }
-                            ]
+                            ],
+                            expected_btc_tx_fee: None,
                         },
                         BitcoinTransaction {
                             data_amt: 0,
@@ -1213,7 +1339,8 @@ mod tests {
                                     units: 211500,
                                     address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
                                 }
-                            ]
+                            ],
+                            expected_btc_tx_fee: None,
                         },
                         BitcoinTransaction {
                             data_amt: 0,
@@ -1241,7 +1368,8 @@ mod tests {
                                     units: 211500,
                                     address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
                                 }
-                            ]
+                            ],
+                            expected_btc_tx_fee: None,
                         }
                     ],
                     watched_p2wsh_outputs: vec![],
@@ -1265,6 +1393,140 @@ mod tests {
             let parsed_block_opt =
                 parser.process_block(block, &header, height, StacksEpochId::Epoch2_05);
             assert_eq!(parsed_block_opt, block_fixture.result);
+        }
+    }
+
+    #[test]
+    fn parse_block_estimates_block_commit_fee_from_block_fee_rate() {
+        // Reuse the block fixture above, but flip the Stacks opcode in the OP_RETURN payload
+        // from `:` ("69643a...") to `[` ("69645b...") so this tx parses as a block-commit.
+        let block_hex = "000000209cef4ccd19f4294dd5c762aab6d9577fb4412cd4c0a662a953a8b7969697bc1ddab52e6f053758022fb92f04388eb5fdd87046776e9c406880e728b48e6930aff462fc5bffff7f200000000002020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0502b5020101ffffffff024018a41200000000232103f51f0c868fd99a4a3a14fe2153fba3c5f635c31bf0a588545627134b49609097ac0000000000000000266a24aa21a9ed18a09ae86261d6802bff7fa705afa558764ed3750c2273bfae5b5136c44d14d6012000000000000000000000000000000000000000000000000000000000000000000000000001000000000101a7ef2b09722ad786c569c0812005a731ce19290bb0a2afc16cb91056c2e4c19e0100000017160014393ffec4f09b38895b8502377693f23c6ae00f19ffffffff0300000000000000000d6a0b69643a666f6f2e746573747c1500000000000017a9144b85301ba8e42bf98472b8ed4939d5f76b98fcea87144d9c290100000017a91431f8968eb1730c83fb58409a9a560a0a0835027f8702483045022100fc82815edf1c0ef0c601cf1e26494626d7b01597be5ab83df025ff1ee67730130220016c4c29d77aadb5ff57c0c9272a43950ca29b84d8adfaed95ac69db90b35d5b012102d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e8100000000"
+            .replacen("69643a666f6f2e74657374", "69645b666f6f2e74657374", 1);
+        let block = make_block(&block_hex).expect("failed to decode block fixture");
+        let fee_rate_sat_per_vb = 25;
+        let expected_fee = BitcoinBlockParser::estimate_tx_fee_from_block_fee_rate_sat_per_vbyte(
+            &block.txdata[1],
+            fee_rate_sat_per_vb,
+        );
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]))
+            .with_fixed_fee_rate_sat_per_vbyte(fee_rate_sat_per_vb);
+        let parsed_block = parser.parse_block(block, 32, StacksEpochId::Epoch34);
+
+        assert_eq!(parsed_block.txs.len(), 1);
+        assert_eq!(parsed_block.txs[0].opcode, Opcodes::LeaderBlockCommit as u8);
+        assert_eq!(parsed_block.txs[0].expected_btc_tx_fee, expected_fee);
+    }
+
+    #[test]
+    fn bitcoin_subsidy_halving_schedule() {
+        let mainnet = BitcoinNetworkType::Mainnet;
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(0, mainnet),
+            5_000_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(209_999, mainnet),
+            5_000_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(210_000, mainnet),
+            2_500_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(420_000, mainnet),
+            1_250_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(210_000 * 33, mainnet),
+            0
+        );
+
+        // Regtest halves every 150 blocks
+        let regtest = BitcoinNetworkType::Regtest;
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(0, regtest),
+            5_000_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(149, regtest),
+            5_000_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(150, regtest),
+            2_500_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(300, regtest),
+            1_250_000_000
+        );
+    }
+
+    #[test]
+    fn real_bitcoin_block_fee_estimation_smoke_test() {
+        let meta_json = fs::read_to_string(REAL_BLOCK_FIXTURE_META_PATH)
+            .expect("failed to read real-block fixture metadata");
+        let meta: RealBlockFixtureMeta =
+            serde_json::from_str(&meta_json).expect("failed to parse real-block fixture metadata");
+
+        let block_hex = fs::read_to_string(REAL_BLOCK_FIXTURE_HEX_PATH)
+            .expect("failed to read real-block hex fixture");
+        let block = make_block(block_hex.trim()).expect("failed to decode real-block fixture");
+
+        // Use current mainnet magic bytes ("X2") for real Bitcoin fixture validation.
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([0x58, 0x32]));
+
+        // Derive the expected fee rate the same way the production code does, so we can
+        // cross-check the per-commit estimates below.
+        let fee_rate_sat_per_vb = parser
+            .block_mean_fee_rate_sat_per_vbyte(&block, meta.block_height)
+            .expect("should compute a mean fee rate for real block");
+        assert_eq!(
+            fee_rate_sat_per_vb, meta.mean_fee_rate_sat_per_vb,
+            "computed mean fee rate does not match fixture"
+        );
+
+        let tx_vbytes_by_txid: HashMap<_, _> = block
+            .txdata
+            .iter()
+            .map(|tx| {
+                let txid = Txid::from_vec_be(tx.txid().as_bytes())
+                    .expect("failed to convert txid")
+                    .to_hex();
+                let tx_vbytes =
+                    BitcoinBlockParser::tx_vbytes(tx).expect("could not compute vbytes");
+                (txid, tx_vbytes)
+            })
+            .collect();
+
+        let parsed_block = parser.parse_block(block, meta.block_height, StacksEpochId::latest());
+
+        let parsed_commits: Vec<_> = parsed_block
+            .txs
+            .iter()
+            .filter(|tx| tx.opcode == Opcodes::LeaderBlockCommit as u8)
+            .collect();
+
+        assert!(
+            !parsed_commits.is_empty(),
+            "expected at least one commit in fixture"
+        );
+
+        for commit_tx in parsed_commits {
+            let txid = commit_tx.txid.to_hex();
+            let tx_vbytes = tx_vbytes_by_txid
+                .get(txid.as_str())
+                .unwrap_or_else(|| panic!("unexpected commit txid {txid}"));
+            let expected_fee = u64::try_from(
+                u128::from(fee_rate_sat_per_vb)
+                    .checked_mul(u128::from(*tx_vbytes))
+                    .expect("overflow while estimating fee"),
+            )
+            .expect("fee estimate overflowed u64");
+            assert_eq!(
+                commit_tx.expected_btc_tx_fee,
+                Some(expected_fee),
+                "unexpected estimate for commit txid {txid}"
+            );
         }
     }
 }

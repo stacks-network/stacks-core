@@ -1233,6 +1233,7 @@ fn replay_block_nakamoto(
         &mut chainstate_tx,
         clarity_instance,
         &mut burn_view_handle,
+        sort_db,
         burnchain_view,
         &pox_constants,
         &parent_header_info,

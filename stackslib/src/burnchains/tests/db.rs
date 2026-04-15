@@ -316,6 +316,7 @@ fn test_classify_stack_stx() {
                 bytes: Hash160([1; 20]),
             }),
         }],
+        expected_btc_tx_fee: None,
     };
 
     // this one will not have a corresponding pre_stack_stx tx.
@@ -340,6 +341,7 @@ fn test_classify_stack_stx() {
                 bytes: Hash160([1; 20]),
             }),
         }],
+        expected_btc_tx_fee: None,
     };
 
     // this one will have a corresponding pre_stack_stx tx.
@@ -364,6 +366,7 @@ fn test_classify_stack_stx() {
                 bytes: Hash160([2; 20]),
             }),
         }],
+        expected_btc_tx_fee: None,
     };
 
     // this one won't have a corresponding pre_stack_stx tx.
@@ -388,6 +391,7 @@ fn test_classify_stack_stx() {
                 bytes: Hash160([1; 20]),
             }),
         }],
+        expected_btc_tx_fee: None,
     };
 
     // this one won't use the correct output
@@ -412,6 +416,7 @@ fn test_classify_stack_stx() {
                 bytes: Hash160([1; 20]),
             }),
         }],
+        expected_btc_tx_fee: None,
     };
 
     let ops_0 = vec![pre_stack_stx_0, stack_stx_0];
@@ -548,6 +553,7 @@ pub fn make_simple_block_commit(
         block_height,
         burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
         burn_header_hash: burn_header.block_hash.clone(),
+        expected_btc_tx_fee: Some(1000),
     };
 
     if burnchain.is_in_prepare_phase(block_height) {
@@ -831,6 +837,7 @@ fn test_classify_delegate_stx() {
             }
             .into(),
         }],
+        expected_btc_tx_fee: None,
     };
 
     // Set up the data field for the delegate stx transactions
@@ -863,6 +870,7 @@ fn test_classify_delegate_stx() {
             }
             .into(),
         }],
+        expected_btc_tx_fee: None,
     };
 
     // this one will have a corresponding pre_stx tx.
@@ -899,6 +907,7 @@ fn test_classify_delegate_stx() {
                 .into(),
             },
         ],
+        expected_btc_tx_fee: None,
     };
 
     // this one won't have a corresponding pre_stx tx.
@@ -924,6 +933,7 @@ fn test_classify_delegate_stx() {
             }
             .into(),
         }],
+        expected_btc_tx_fee: None,
     };
 
     // This one won't use the correct output from the pre stx transaction.
@@ -950,6 +960,7 @@ fn test_classify_delegate_stx() {
             }
             .into(),
         }],
+        expected_btc_tx_fee: None,
     };
 
     let ops_0 = vec![pre_delegate_stx_0, delegate_stx_0];

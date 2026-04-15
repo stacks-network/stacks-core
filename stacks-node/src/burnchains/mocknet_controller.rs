@@ -221,6 +221,7 @@ impl BurnchainController for MocknetController {
                             BURN_BLOCK_MINED_AT_MODULUS - 1
                         } as u8,
                         burn_header_hash: next_block_header.block_hash.clone(),
+                        expected_btc_tx_fee: payload.expected_btc_tx_fee,
                     })
                 }
                 BlockstackOperationType::PreStx(payload) => {

@@ -1200,7 +1200,7 @@ impl NakamotoSigners {
             // so ratio multiplier has 256 + 96 empty high bits
             let ratio_multiplier = s_i
                 .mul_u64(M_ratio_max - 1)
-                .and_then(|x| x.add(&FixedPointU256::from_u64(1)))
+                .and_then(|x| x.checked_add(&FixedPointU256::from_u64(1)))
                 .ok_or_else(|| {
                     ChainstateError::Expects("Overflow while computing multiplier".into())
                 })?;
@@ -1229,7 +1229,7 @@ impl NakamotoSigners {
                 .ok_or_else(|| {
                     ChainstateError::Expects("Division by zero while computing multiplier".into())
                 })?
-                .add(&FixedPointU256::from_u64(1))
+                .checked_add(&FixedPointU256::from_u64(1))
                 .ok_or_else(|| {
                     ChainstateError::Expects("Overflow while computing multiplier".into())
                 })?;
@@ -1246,7 +1246,7 @@ impl NakamotoSigners {
                 .mul_u64(entry.sats_locked)
                 .ok_or_else(|| ChainstateError::Expects("Overflow while computing w_i".into()))?;
             W = W
-                .add(&w_i)
+                .checked_add(&w_i)
                 .ok_or_else(|| ChainstateError::Expects("Overflow while computing W".into()))?;
             *d_i = w_i;
         }

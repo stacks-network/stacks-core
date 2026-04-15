@@ -171,6 +171,8 @@ components:
       $ref: ./components/schemas/tenure-blocks.schema.yaml
     BlockReplay:
       $ref: ./components/schemas/block-replay.schema.yaml
+    GetStxBtcRatio:
+      $ref: ./components/schemas/get-stx-btc-ratio.schema.yaml
 
 paths:
   /v2/transactions:
@@ -2470,5 +2472,47 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/stx_btc_ratio/{cycle_num}:
+    get:
+      summary: Get STX/BTC mining ratio for a reward cycle
+      tags:
+        - Mining
+      security: []
+      operationId: getStxBtcRatio
+      description: |
+        Returns the aggregate STX earned and BTC spent by miners during the
+        given reward cycle, along with the raw μSTX-per-satoshi ratio and a
+        5-cycle weighted geometric mean (smoothed ratio).
+
+        **Units**: `stx_btc_ratio` and `smoothed_stx_btc_ratio` are in
+        **μSTX per satoshi**.  To convert to the familiar STX/BTC rate,
+        multiply by 100 (1 BTC = 10⁸ sat, 1 STX = 10⁶ μSTX).
+
+        **BTC spent**: includes both the PoX outputs (`burnchain_sortition_burn`)
+        and the estimated Bitcoin transaction fees (`expected_btc_tx_fee`) for
+        every competing block-commit in each sortition of the cycle.
+
+        **Null semantics**: a ratio field is `null` when the cycle has no
+        usable data (no tenures, or no BTC spent).  A value of `0` means data
+        exists but miners earned zero STX.
+      parameters:
+        - name: cycle_num
+          in: path
+          required: true
+          description: Reward cycle number to query.
+          schema:
+            type: integer
+            minimum: 0
+        - $ref: ./components/parameters/tip.yaml
+      responses:
+        "200":
+          description: STX/BTC ratio data for the requested reward cycle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetStxBtcRatio"
         "500":
           $ref: "#/components/responses/InternalServerError"

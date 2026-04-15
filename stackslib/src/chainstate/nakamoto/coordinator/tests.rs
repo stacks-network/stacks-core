@@ -28,7 +28,8 @@ use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLE
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey,
 };
 use stacks_common::types::{Address, StacksEpoch, StacksPublicKeyBuffer};
 use stacks_common::util::hash::{to_hex, Hash160};
@@ -4306,4 +4307,509 @@ fn test_stacks_on_burnchain_ops() {
 
     peer.check_nakamoto_migration();
     peer.check_malleablized_blocks(all_blocks, 2);
+}
+
+/// Test that `get_stx_btc_ratio_for_cycle` correctly uses the incremental cache path.
+///
+/// 1. After booting Nakamoto and mining several tenures, query a completed Nakamoto
+///    cycle (full scan → cached as complete).
+/// 2. Query again — should return the same result from cache.
+/// 3. Query the current (in-progress) cycle — caches as incomplete.
+/// 4. Mine a new tenure.
+/// 5. Query the current cycle again — incremental update picks up the new tenure.
+#[test]
+fn test_stx_btc_ratio_incremental_cache() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let pox_constants = peer.config.chain_config.burnchain.pox_constants.clone();
+    let first_burn_height = peer.config.chain_config.burnchain.first_block_height;
+
+    // Mine enough Nakamoto tenures to span at least 2 full reward cycles.
+    // Reward cycle length is 5 and boot leaves us at cycle 8 boundary (burn height ~37).
+    // We need ~12 tenures to fill cycle 8 and get partway into cycle 9+.
+    for _ in 0..12 {
+        let (burn_ops, mut tenure_change, miner_key) =
+            peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+        let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+        peer.make_nakamoto_tenure(
+            tenure_change_tx,
+            coinbase_tx,
+            &mut test_signers,
+            |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+        );
+    }
+
+    // Determine the current tip and reward cycle.
+    let (tip_id, current_cycle) = {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap();
+        let tip_id = tip.index_block_hash();
+        let current_cycle = pox_constants
+            .block_height_to_reward_cycle(first_burn_height, u64::from(tip.burn_header_height))
+            .unwrap();
+        (tip_id, current_cycle)
+    };
+
+    // Pick a past Nakamoto cycle. Nakamoto starts at cycle ~8, so current_cycle - 1
+    // should have Nakamoto tenures.
+    let past_cycle = current_cycle.saturating_sub(1);
+    assert!(
+        past_cycle >= 8,
+        "Expected enough Nakamoto cycles; past_cycle={past_cycle}"
+    );
+
+    // --- Step 1: Query the past cycle (full scan, should cache as complete) ---
+    let ratio_first = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            past_cycle,
+        )
+        .unwrap()
+    };
+    assert!(
+        ratio_first.tenure_count > 0,
+        "Past Nakamoto cycle {} should have tenures, got 0",
+        past_cycle,
+    );
+    assert!(ratio_first.stx_btc_ratio.is_some());
+
+    // Verify it was cached as complete.
+    {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let (complete, incomplete) = NakamotoChainState::load_cached_cycle_totals(
+            chainstate.db(),
+            past_cycle,
+            past_cycle,
+            &tip_id,
+        )
+        .unwrap();
+        assert!(
+            complete.contains_key(&past_cycle),
+            "Past cycle should be in complete cache"
+        );
+        assert!(incomplete.is_empty());
+    }
+
+    // --- Step 2: Query again — should return the same values from cache ---
+    let ratio_cached = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            past_cycle,
+        )
+        .unwrap()
+    };
+    assert_eq!(ratio_first.tenure_count, ratio_cached.tenure_count);
+    assert_eq!(ratio_first.stx_earned_ustx, ratio_cached.stx_earned_ustx);
+    assert_eq!(ratio_first.btc_spent_sats, ratio_cached.btc_spent_sats);
+
+    // --- Step 3: Query the current (in-progress) cycle ---
+    let ratio_current_before = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            current_cycle,
+        )
+        .unwrap()
+    };
+    let tenure_count_before = ratio_current_before.tenure_count;
+
+    // --- Step 4: Mine another tenure ---
+    let (burn_ops, mut tenure_change, miner_key) =
+        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+    tenure_change.tenure_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+    peer.make_nakamoto_tenure(
+        tenure_change_tx,
+        coinbase_tx,
+        &mut test_signers,
+        |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+    );
+
+    // Get the new tip and cycle.
+    let (new_tip_id, new_cycle) = {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap();
+        let cycle = pox_constants
+            .block_height_to_reward_cycle(first_burn_height, u64::from(tip.burn_header_height))
+            .unwrap();
+        (tip.index_block_hash(), cycle)
+    };
+
+    // --- Step 5: Query the current cycle again at the new tip ---
+    // If we're still in the same cycle, the incremental path should pick up the new tenure.
+    // If we crossed into a new cycle, the old current_cycle is now complete.
+    let ratio_current_after = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &new_tip_id,
+            current_cycle,
+        )
+        .unwrap()
+    };
+
+    if new_cycle == current_cycle {
+        // Same cycle — the incremental path or the query path should pick up
+        // the new tenure if the miner reward was scheduled.
+        assert!(
+            ratio_current_after.tenure_count >= tenure_count_before,
+            "Tenure count should not decrease: before={}, after={}",
+            tenure_count_before,
+            ratio_current_after.tenure_count
+        );
+        assert!(
+            ratio_current_after.stx_earned_ustx >= ratio_current_before.stx_earned_ustx,
+            "STX earned should not decrease after adding a tenure"
+        );
+    } else {
+        // Crossed into next cycle — current_cycle is now complete, tenure count should
+        // be >= what it was (the full scan or incremental may find the same or more tenures).
+        assert!(
+            ratio_current_after.tenure_count >= tenure_count_before,
+            "Completed cycle should have at least as many tenures as before"
+        );
+    }
+
+    // The past cycle result should still be unchanged.
+    let ratio_past_after = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &new_tip_id,
+            past_cycle,
+        )
+        .unwrap()
+    };
+    assert_eq!(ratio_first.tenure_count, ratio_past_after.tenure_count);
+    assert_eq!(
+        ratio_first.stx_earned_ustx,
+        ratio_past_after.stx_earned_ustx
+    );
+    assert_eq!(ratio_first.btc_spent_sats, ratio_past_after.btc_spent_sats);
+}
+
+/// Test: mid-cycle cold start triggers a full scan via the `append_block` fallback.
+///
+/// Simulates the scenario where a node upgrades mid-cycle with no cache entries:
+/// 1. Boot Nakamoto and mine tenures (populates cache incrementally).
+/// 2. Delete all cache entries for the current cycle (simulates cold upgrade).
+/// 3. Mine another tenure in the same cycle.
+/// 4. Verify the cache was re-populated by the full-scan fallback in `append_block`.
+#[test]
+fn test_stx_btc_ratio_mid_cycle_cold_start_full_scan() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let pox_constants = peer.config.chain_config.burnchain.pox_constants.clone();
+    let first_burn_height = peer.config.chain_config.burnchain.first_block_height;
+
+    // Mine enough Nakamoto tenures to have data in the current cycle.
+    for _ in 0..12 {
+        let (burn_ops, mut tenure_change, miner_key) =
+            peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+        let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+        peer.make_nakamoto_tenure(
+            tenure_change_tx,
+            coinbase_tx,
+            &mut test_signers,
+            |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+        );
+    }
+
+    // Determine the current tip and cycle.
+    let (tip_id, current_cycle) = {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap();
+        let tip_id = tip.index_block_hash();
+        let cycle = pox_constants
+            .block_height_to_reward_cycle(first_burn_height, u64::from(tip.burn_header_height))
+            .unwrap();
+        (tip_id, cycle)
+    };
+
+    // Verify that the cache has an entry for the current cycle (populated incrementally).
+    {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let (complete, incomplete) = NakamotoChainState::load_cached_cycle_totals(
+            chainstate.db(),
+            current_cycle,
+            current_cycle,
+            &tip_id,
+        )
+        .unwrap();
+        assert!(
+            complete.contains_key(&current_cycle) || incomplete.contains_key(&current_cycle),
+            "Cache should have an entry for current cycle {current_cycle} after mining 12 tenures"
+        );
+    }
+
+    // Delete all cache entries for the current cycle to simulate a cold upgrade.
+    {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        chainstate
+            .db()
+            .execute(
+                "DELETE FROM stx_btc_cycle_cache WHERE reward_cycle = ?1",
+                rusqlite::params![current_cycle],
+            )
+            .expect("Failed to clear cache");
+
+        // Confirm the cache is now empty for this cycle.
+        let (complete, incomplete) = NakamotoChainState::load_cached_cycle_totals(
+            chainstate.db(),
+            current_cycle,
+            current_cycle,
+            &tip_id,
+        )
+        .unwrap();
+        assert!(
+            complete.is_empty() && incomplete.is_empty(),
+            "Cache should be empty after deletion"
+        );
+    }
+
+    // Mine another tenure — this should trigger the mid-cycle cold start full scan
+    // inside `append_block`.
+    let (burn_ops, mut tenure_change, miner_key) =
+        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+    tenure_change.tenure_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+    peer.make_nakamoto_tenure(
+        tenure_change_tx,
+        coinbase_tx,
+        &mut test_signers,
+        |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+    );
+
+    // Get the new tip.
+    let (new_tip_id, new_cycle) = {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap();
+        let cycle = pox_constants
+            .block_height_to_reward_cycle(first_burn_height, u64::from(tip.burn_header_height))
+            .unwrap();
+        (tip.index_block_hash(), cycle)
+    };
+
+    // Verify the cache was re-populated after the mid-cycle cold start.
+    // The incremental path in append_block should have created an entry for
+    // whichever cycle the new tenure landed in.
+    let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+    let (complete, incomplete) = NakamotoChainState::load_cached_cycle_totals(
+        chainstate.db(),
+        new_cycle,
+        new_cycle,
+        &new_tip_id,
+    )
+    .unwrap();
+
+    assert!(
+        complete.contains_key(&new_cycle) || incomplete.contains_key(&new_cycle),
+        "Cache should have an entry for cycle {new_cycle} after mining a tenure"
+    );
+    let entry = incomplete
+        .get(&new_cycle)
+        .or_else(|| complete.get(&new_cycle))
+        .expect("Expected cache entry");
+    assert!(
+        entry.totals.tenure_count > 0,
+        "Cache should have tenures in cycle {new_cycle}"
+    );
+    assert!(
+        entry.totals.stx_earned_ustx > 0,
+        "Cache should have STX earned in cycle {new_cycle}"
+    );
+}
+
+/// Test that a simulated Bitcoin reorg (corrupted `last_tenure_ch`) causes the
+/// completed cycle cache to be invalidated and recomputed.
+///
+/// 1. Mine tenures and query a completed cycle (populates cache).
+/// 2. Corrupt the cached `last_tenure_ch` to a non-existent consensus hash
+///    (simulates a Bitcoin reorg that invalidated that sortition).
+/// 3. Query the same cycle again — the fork check should detect the stale entry,
+///    discard it, and recompute from scratch.
+/// 4. Verify the recomputed result matches the original.
+#[test]
+fn test_stx_btc_ratio_reorg_invalidates_completed_cache() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let pox_constants = peer.config.chain_config.burnchain.pox_constants.clone();
+    let first_burn_height = peer.config.chain_config.burnchain.first_block_height;
+
+    // Mine enough tenures to have a completed cycle.
+    for _ in 0..12 {
+        let (burn_ops, mut tenure_change, miner_key) =
+            peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+        let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+        peer.make_nakamoto_tenure(
+            tenure_change_tx,
+            coinbase_tx,
+            &mut test_signers,
+            |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+        );
+    }
+
+    let (tip_id, current_cycle) = {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap();
+        let cycle = pox_constants
+            .block_height_to_reward_cycle(first_burn_height, u64::from(tip.burn_header_height))
+            .unwrap();
+        (tip.index_block_hash(), cycle)
+    };
+
+    let past_cycle = current_cycle.saturating_sub(1);
+
+    // Step 1: Query the past cycle — full scan, cached as complete.
+    let ratio_original = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            past_cycle,
+        )
+        .unwrap()
+    };
+    assert!(ratio_original.tenure_count > 0);
+
+    // Verify it's cached as complete.
+    {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let (complete, _) = NakamotoChainState::load_cached_cycle_totals(
+            chainstate.db(),
+            past_cycle,
+            past_cycle,
+            &tip_id,
+        )
+        .unwrap();
+        assert!(
+            complete.contains_key(&past_cycle),
+            "Past cycle should be cached as complete"
+        );
+    }
+
+    // Step 2: Corrupt the cache to simulate a Bitcoin reorg.
+    // Replace last_tenure_ch with a non-existent consensus hash AND set tenure_count
+    // to a bogus value so we can verify the entry was actually recomputed (not served
+    // from the corrupted cache).
+    let bogus_tenure_count = 99999;
+    {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let bogus_ch = ConsensusHash([0xde; 20]);
+        chainstate
+            .db()
+            .execute(
+                "UPDATE stx_btc_cycle_cache SET last_tenure_ch = ?1, tenure_count = ?2 WHERE reward_cycle = ?3",
+                rusqlite::params![bogus_ch.to_hex(), bogus_tenure_count, past_cycle],
+            )
+            .expect("Failed to corrupt cache");
+    }
+
+    // Step 3: Query again — the fork check should detect the bogus tenure and recompute.
+    let ratio_after_reorg = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            past_cycle,
+        )
+        .unwrap()
+    };
+
+    // Step 4: The result should NOT have the bogus tenure count (proving it was recomputed).
+    assert_ne!(
+        ratio_after_reorg.tenure_count, bogus_tenure_count as u64,
+        "Should not return the corrupted cache entry"
+    );
+    // The recomputed result should match the original.
+    assert_eq!(
+        ratio_original.tenure_count, ratio_after_reorg.tenure_count,
+        "Recomputed tenure count should match original"
+    );
+    assert_eq!(
+        ratio_original.stx_earned_ustx, ratio_after_reorg.stx_earned_ustx,
+        "Recomputed STX earned should match original"
+    );
+    assert_eq!(
+        ratio_original.btc_spent_sats, ratio_after_reorg.btc_spent_sats,
+        "Recomputed BTC spent should match original"
+    );
 }

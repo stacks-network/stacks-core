@@ -247,7 +247,22 @@ fn open_nakamoto_chainstate_dbs(
     chainstate_dir: &str,
     network: &str,
 ) -> (SortitionDB, StacksChainState) {
-    let (mainnet, chain_id, pox_constants, dirname) = match network {
+    let (mainnet, chain_id, pox_constants, dirname) = nakamoto_network_params(network);
+
+    let chain_state_path = format!("{chainstate_dir}/{dirname}/chainstate/");
+    let sort_db_path = format!("{chainstate_dir}/{dirname}/burnchain/sortition/");
+
+    let sort_db = SortitionDB::open(&sort_db_path, true, pox_constants, None)
+        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
+
+    let (chain_state, _) = StacksChainState::open(mainnet, chain_id, &chain_state_path, None)
+        .expect("Failed to open stacks chain state");
+
+    (sort_db, chain_state)
+}
+
+fn nakamoto_network_params(network: &str) -> (bool, u32, PoxConstants, &str) {
+    match network {
         "mainnet" => (
             true,
             CHAIN_ID_MAINNET,
@@ -282,18 +297,7 @@ fn open_nakamoto_chainstate_dbs(
         _ => {
             panic!("Unrecognized network name '{network}'");
         }
-    };
-
-    let chain_state_path = format!("{chainstate_dir}/{dirname}/chainstate/");
-    let sort_db_path = format!("{chainstate_dir}/{dirname}/burnchain/sortition/");
-
-    let sort_db = SortitionDB::open(&sort_db_path, true, pox_constants, None)
-        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
-
-    let (chain_state, _) = StacksChainState::open(mainnet, chain_id, &chain_state_path, None)
-        .expect("Failed to open stacks chain state");
-
-    (sort_db, chain_state)
+    }
 }
 
 fn check_shadow_network(network: &str) {
@@ -797,6 +801,47 @@ fn main() {
                 .unwrap()
                 .unwrap();
             println!("{}", &header.index_block_hash());
+            process::exit(0);
+        }
+
+        Command::GetStxBtcRatio {
+            chainstate_dir,
+            network,
+            reward_cycle,
+            chain_tip,
+        } => {
+            check_shadow_network(&network);
+            let (sort_db, chain_state) = open_nakamoto_chainstate_dbs(&chainstate_dir, &network);
+
+            let tip_index_block = if let Some(chain_tip) = chain_tip {
+                StacksBlockId::from_hex(&chain_tip).unwrap_or_else(|e| {
+                    panic!("Invalid chain tip '{chain_tip}': {e}");
+                })
+            } else {
+                NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+                    .unwrap()
+                    .unwrap()
+                    .index_block_hash()
+            };
+
+            let ratio = NakamotoChainState::get_stx_btc_ratio_for_cycle(
+                &mut chain_state.index_conn(),
+                &sort_db,
+                &tip_index_block,
+                reward_cycle,
+            )
+            .unwrap_or_else(|e| panic!("Failed to calculate STX/BTC ratio: {e}"));
+
+            let out = json!({
+                "tip_index_block_hash": tip_index_block.to_string(),
+                "reward_cycle": ratio.reward_cycle,
+                "tenure_count": ratio.tenure_count,
+                "stx_earned_ustx": ratio.stx_earned_ustx.to_string(),
+                "btc_spent_sats": ratio.btc_spent_sats,
+                "stx_btc_ratio": ratio.stx_btc_ratio,
+                "smoothed_stx_btc_ratio": ratio.smoothed_stx_btc_ratio,
+            });
+            println!("{out}");
             process::exit(0);
         }
 

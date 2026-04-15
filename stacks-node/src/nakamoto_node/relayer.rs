@@ -1241,6 +1241,7 @@ impl RelayerThread {
             txid: Txid([0u8; 32]),
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
+            expected_btc_tx_fee: None,
         };
 
         Ok(LastCommit::new(

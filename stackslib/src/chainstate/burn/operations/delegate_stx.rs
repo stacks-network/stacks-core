@@ -327,6 +327,7 @@ mod tests {
                     .into(),
                 },
             ],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
@@ -398,6 +399,7 @@ mod tests {
                     .into(),
                 },
             ],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
@@ -445,6 +447,7 @@ mod tests {
                 }
                 .into(),
             }],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
@@ -481,6 +484,7 @@ mod tests {
                 }
                 .into(),
             }],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
@@ -521,6 +525,7 @@ mod tests {
                 }
                 .into(),
             }],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
@@ -554,6 +559,7 @@ mod tests {
             }
             .into()],
             outputs: vec![],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
@@ -620,6 +626,7 @@ mod tests {
                     .into(),
                 },
             ],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();

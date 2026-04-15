@@ -179,6 +179,7 @@ fn test_process_block_ops() {
         block_height: 124,
         burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
         burn_header_hash: block_124_hash_initial.clone(),
+        expected_btc_tx_fee: Some(1000),
     };
 
     let block_commit_2 = LeaderBlockCommitOp {
@@ -218,6 +219,7 @@ fn test_process_block_ops() {
         block_height: 124,
         burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
         burn_header_hash: block_124_hash_initial.clone(),
+        expected_btc_tx_fee: Some(1000),
     };
 
     let block_commit_3 = LeaderBlockCommitOp {
@@ -257,6 +259,7 @@ fn test_process_block_ops() {
         block_height: 124,
         burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
         burn_header_hash: block_124_hash_initial.clone(),
+        expected_btc_tx_fee: Some(1000),
     };
 
     let block_ops_121: Vec<BlockstackOperationType> =
@@ -800,6 +803,7 @@ fn test_burn_snapshot_sequence() {
                 burn_parent_modulus: ((first_block_height + (i as u64))
                     % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                 burn_header_hash: burn_block_hash.clone(),
+                expected_btc_tx_fee: Some(1000),
             };
 
             block_ops.push(BlockstackOperationType::LeaderBlockCommit(
