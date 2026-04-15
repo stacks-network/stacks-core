@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #[cfg(test)]
+use pinny::tag;
+#[cfg(test)]
 use proptest::prelude::*;
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
@@ -2378,6 +2380,7 @@ fn deploy_and_dispatch(
 #[cfg(test)]
 proptest! {
     /// Self-define + dispatch succeeds for any trait shape.
+    #[tag(t_prop)]
     #[test]
     fn prop_trait_self_define_and_dispatch(shape in trait_shape_strategy()) {
         let combined = shape.combined_contract_source("my-trait");
@@ -2391,6 +2394,7 @@ proptest! {
     }
 
     /// Missing method-0 produces `BadTraitImplementation` at runtime.
+    #[tag(t_prop)]
     #[test]
     fn prop_trait_missing_method_detected(shape in trait_shape_strategy()) {
         let combined = shape.combined_contract_source("my-trait");
@@ -2408,6 +2412,7 @@ proptest! {
     }
 
     /// Wrong return type on method-0 produces `ReturnTypesMustMatch`.
+    #[tag(t_prop)]
     #[test]
     fn prop_trait_wrong_return_type_detected(shape in trait_shape_strategy()) {
         let combined = shape.combined_contract_source("my-trait");
