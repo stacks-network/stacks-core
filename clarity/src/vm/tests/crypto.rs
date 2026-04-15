@@ -1064,6 +1064,7 @@ proptest! {
 
     // Clarity5 sign_digest roundtrip. Checks both the crypto primitive and the
     // VM to catch marshalling bugs.
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_clarity5_digest_roundtrip(
         seed in any::<[u8; 32]>(),
@@ -1101,6 +1102,7 @@ proptest! {
 
     // Clarity5 uses verify_digest (prehash), so a double-hash signature from
     // sign() must fail. Both primitive and VM must agree on rejection.
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_clarity5_rejects_double_hash(
         seed in any::<[u8; 32]>(),
@@ -1137,6 +1139,7 @@ proptest! {
     }
 
     // Clarity4 double-hashes, so a sign_digest() signature must not verify.
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_clarity4_rejects_single_hash(
         seed in any::<[u8; 32]>(),
@@ -1168,6 +1171,7 @@ proptest! {
 
     // ClarityVersion governs hashing, not epoch. A Clarity4 contract in
     // Epoch34 must still double-hash.
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_clarity4_epoch34_double_hash(
         seed in any::<[u8; 32]>(),
@@ -1215,6 +1219,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(false), sh_result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_clarity5_tampered_msg(
         seed in any::<[u8; 32]>(),
@@ -1247,6 +1252,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(false), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_clarity5_wrong_key(
         seed_a in any::<[u8; 32]>(),
@@ -1283,6 +1289,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(false), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_clarity5_malformed_pubkey(
         seed in any::<[u8; 32]>(),
@@ -1315,6 +1322,7 @@ proptest! {
 
     // Random bytes, random lengths. Neither the primitive nor the VM may panic
     // on any input shape.
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_clarity5_arbitrary_inputs(
         msg_bytes in proptest::collection::vec(
