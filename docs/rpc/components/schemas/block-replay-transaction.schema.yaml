@@ -1,0 +1,56 @@
+type: object
+properties:
+  data:
+    type: object
+    description: JSON representation of the transaction payload
+  events:
+    type: array
+    items:
+      description: JSON representation of the transaction events
+      $ref: "./block-replay-transaction-event.schema.yaml"
+  execution_cost:
+    $ref: "./execution-cost.schema.yaml"
+  hex:
+    type: string
+    description: hexadecimal representation of the transaction body
+  result_hex:
+    type: string
+    description: The transaction's result, encoded as a Clarity hex string
+  post_condition_aborted:
+    type: boolean
+    description: Whether the transaction was aborted by a post-condition
+  stx_burned:
+    type: integer
+    description: number of burned stx
+  tx_index:
+    type: integer
+    description: index of the transaction in the array of transactions
+  txid:
+    type: string
+    description: transaction id
+  vm_error:
+    type: [string, "null"]
+    description: optional vm error (for runtime failures)
+  cpu_instructions:
+    type: [integer, "null"]
+    description: number of instructions executed
+  cpu_cycles:
+    type: [integer, "null"]
+    description: number of cycles executed
+  cpu_ref_cycles:
+    type: [integer, "null"]
+    description: number of reference cycles executed
+required:
+  - data
+  - events
+  - execution_cost
+  - hex
+  - result_hex
+  - post_condition_aborted
+  - stx_burned
+  - tx_index
+  - txid
+  - vm_error
+  - cpu_instructions
+  - cpu_cycles
+  - cpu_ref_cycles

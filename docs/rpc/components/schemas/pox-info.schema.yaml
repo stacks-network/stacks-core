@@ -210,29 +210,7 @@ properties:
           type: integer
           minimum: 0
         block_limit:
-          type: object
-          required:
-            - read_count
-            - read_length
-            - write_count
-            - write_length
-            - runtime
-          properties:
-            read_count:
-              type: integer
-              minimum: 0
-            read_length:
-              type: integer
-              minimum: 0
-            write_count:
-              type: integer
-              minimum: 0
-            write_length:
-              type: integer
-              minimum: 0
-            runtime:
-              type: integer
-              minimum: 0
+          $ref: "./execution-cost.schema.yaml"
         network_epoch:
           type: integer
           minimum: 0

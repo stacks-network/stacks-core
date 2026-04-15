@@ -48,37 +48,18 @@ properties:
   transactions:
     type: array
     items:
-      type: object
-      properties:
-        data:
-          type: object
-          description: JSON representation of the transaction payload
-        events:
-          type: array
-          items:
-            type: object
-            description: JSON representation of the transaction events
-        execution_cost:
-          type: object
-          description: costs accounting for the transaction
-        hex:
-          type: string
-          description: hexadecimal representation of the transaction body
-        result_hex:
-          type: string
-          description: The transaction's result, encoded as a Clarity hex string
-        post_condition_aborted:
-          type: boolean
-          description: Whether the transaction was aborted by a post-condition
-        stx_burned:
-          type: integer
-          description: number of burned stx
-        tx_index:
-          type: integer
-          description: index of the transaction in the array of transactions
-        txid:
-          type: string
-          description: transaction id
-        vm_error:
-          type: [string, "null"]
-          description: optional vm error (for runtime failures)
+      $ref: "./block-replay-transaction.schema.yaml"
+required:
+  - block_hash
+  - block_id
+  - block_height
+  - consensus_hash
+  - fees
+  - miner_signature
+  - parent_block_id
+  - signer_signature
+  - state_index_root
+  - timestamp
+  - tx_merkle_root
+  - valid_merkle_root
+  - transactions
