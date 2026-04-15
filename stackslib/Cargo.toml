@@ -69,7 +69,7 @@ chrono = "0.4.19"
 tempfile = "3.3"
 pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
-madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", tag = "0.2.1" }
+madhouse = { workspace = true }
 insta = { version = "1.37.0", features = ["ron"] }
 
 [features]
