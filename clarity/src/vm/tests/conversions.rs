@@ -774,6 +774,7 @@ proptest! {
 
     // Empty buffer must return none for every type. Forces the corner case
     // that random generation would almost never produce.
+    #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_empty_buffer_returns_none(
         type_name in consensus_buff_type_strategy()
@@ -797,6 +798,7 @@ proptest! {
 
     // Random garbage bytes must never crash/runtime error. Any byte sequence
     // should produce either none or a valid value, never a panic/runtime error.
+    #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_random_bytes_never_crash(
         garbage in proptest::collection::vec(any::<u8>(), 0..1024),
@@ -822,6 +824,7 @@ proptest! {
 
     // Principal version >= 32 is invalid per StandardPrincipalData::new().
     // Epoch34 returns none; pre-Epoch34 triggers a rejectable error.
+    #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_invalid_principal_version_returns_none(
         version in 32u8..=255,
@@ -870,6 +873,7 @@ proptest! {
     // Epoch governs error handling for unexpected serialization, not
     // ClarityVersion. Clarity4 at Epoch34 returns none; Clarity4 at Epoch33
     // returns a rejectable error.
+    #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_invalid_principal_epoch_governs(
         version in 32u8..,
@@ -916,6 +920,7 @@ proptest! {
 
     // Consensus serialization round-trip: Rust-level encoding fed back through
     // from-consensus-buff? must recover the original value.
+    #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_roundtrip(
         value in clarity_values_no_response()
@@ -954,6 +959,7 @@ proptest! {
 
     // Type safety: bytes serialized as one type and deserialized as a
     // different top-level constructor must return none.
+    #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_type_mismatch_returns_none(
         (type_str, bytes, wrong_type) in
@@ -1013,6 +1019,7 @@ proptest! {
 
     // Partial data must never decode: slicing a valid encoding at any interior
     // byte must return none.
+    #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_truncated_returns_none(
         (type_str, bytes, cut_point) in
