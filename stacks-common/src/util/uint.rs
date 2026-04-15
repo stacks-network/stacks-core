@@ -281,6 +281,14 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
         out
     }
 
+    /// Drop the fractional bits and return the integer part as a `Uint256`,
+    /// rounding to the nearest integer (half rounds up).
+    pub fn to_uint256_rounded(&self) -> Uint256 {
+        let half = Uint256::from_u64(1) << (SCALE - 1) as usize;
+        let rounded = self.value.checked_add(&half).unwrap_or(self.value);
+        rounded >> SCALE as usize
+    }
+
     /// Find the `n`th root of self using binary search, trimming the scale to `self.scaling` on
     ///  iterations
     pub fn find_root_floor(&self, n: u32) -> Option<Self> {
@@ -429,6 +437,17 @@ macro_rules! construct_uint {
                 ret[0] = (init & 0xffffffffffffffffffffffffffffffff) as u64;
                 ret[1] = (init >> 64) as u64;
                 Self(ret)
+            }
+
+            /// Convert to `u128`, saturating at `u128::MAX` if the value
+            /// exceeds 128 bits.
+            pub fn to_u128_saturating(&self) -> u128 {
+                for i in 2..Self::N_WORDS {
+                    if self.0[i] != 0 {
+                        return u128::MAX;
+                    }
+                }
+                (u128::from(self.0[1]) << 64) | u128::from(self.0[0])
             }
 
             /// Return the maximum representable value (all bits set).
@@ -1456,6 +1475,20 @@ mod tests {
             // Upper limbs should be zero
             prop_assert_eq!(u.0[2], 0);
             prop_assert_eq!(u.0[3], 0);
+        }
+
+        /// from_u128 then to_u128_saturating roundtrips
+        #[test]
+        fn u256_to_u128_saturating_roundtrip(val in any::<u128>()) {
+            prop_assert_eq!(Uint256::from_u128(val).to_u128_saturating(), val);
+        }
+
+        /// to_u128_saturating saturates when upper limbs are set
+        #[test]
+        fn u256_to_u128_saturating_saturates(val in any::<u128>()) {
+            let mut u = Uint256::from_u128(val);
+            u.0[2] = 1;
+            prop_assert_eq!(u.to_u128_saturating(), u128::MAX);
         }
 
         /// from_i64 roundtrips for non-negative values
@@ -2562,5 +2595,91 @@ mod tests {
 
         let s_half = half.sigmoid().expect("sigmoid(0.5) should succeed");
         assert_fp_approx_eq(&s_half, &half, 1, 1000).unwrap();
+    }
+
+    // -------------------------------------------------------------------
+    // to_u128_saturating (Uint256) tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn u256_to_u128_saturating_zero() {
+        assert_eq!(Uint256::from_u64(0).to_u128_saturating(), 0u128);
+    }
+
+    #[test]
+    fn u256_to_u128_saturating_max_u128() {
+        assert_eq!(
+            Uint256::from_u128(u128::MAX).to_u128_saturating(),
+            u128::MAX
+        );
+    }
+
+    #[test]
+    fn u256_to_u128_saturating_overflow_limb2() {
+        let mut v = Uint256::from_u64(42);
+        v.0[2] = 1;
+        assert_eq!(v.to_u128_saturating(), u128::MAX);
+    }
+
+    #[test]
+    fn u256_to_u128_saturating_overflow_limb3() {
+        let mut v = Uint256::from_u64(0);
+        v.0[3] = 1;
+        assert_eq!(v.to_u128_saturating(), u128::MAX);
+    }
+
+    // -------------------------------------------------------------------
+    // to_uint256_rounded (FixedPointU256) tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn to_uint256_rounded_exact_integer() {
+        // An exact integer (e.g. 1000) should round to itself.
+        let fp = FP::from_u64(1000);
+        assert_eq!(fp.to_uint256_rounded(), Uint256::from_u64(1000));
+    }
+
+    #[test]
+    fn to_uint256_rounded_zero() {
+        assert_eq!(FP::ZERO.to_uint256_rounded(), Uint256::from_u64(0));
+    }
+
+    #[test]
+    fn to_uint256_rounded_just_below_integer() {
+        // 999 + (1 - MINIMAL) in fixed-point = one ULP below 1000.
+        // Should round up to 1000.
+        let one = FP::from_u64(1);
+        let almost_one = one.checked_sub(&FP::MINIMAL).unwrap();
+        let fp = FP::from_u64(999).checked_add(&almost_one).unwrap();
+        assert_eq!(fp.to_uint256_rounded(), Uint256::from_u64(1000));
+    }
+
+    #[test]
+    fn to_uint256_rounded_just_above_integer() {
+        // 1000 + MINIMAL (smallest fraction above 1000). Should round to 1000.
+        let fp = FP::from_u64(1000).checked_add(&FP::MINIMAL).unwrap();
+        assert_eq!(fp.to_uint256_rounded(), Uint256::from_u64(1000));
+    }
+
+    #[test]
+    fn to_uint256_rounded_half_rounds_up() {
+        // 0.5 in fixed-point should round up to 1.
+        let half = FP::from_u64(1).div(Uint256::from_u64(2)).unwrap();
+        assert_eq!(half.to_uint256_rounded(), Uint256::from_u64(1));
+    }
+
+    #[test]
+    fn to_uint256_rounded_below_half_rounds_down() {
+        // Just below 0.5: should round down to 0.
+        let half = FP::from_u64(1).div(Uint256::from_u64(2)).unwrap();
+        let below_half = half.checked_sub(&FP::MINIMAL).unwrap();
+        assert_eq!(below_half.to_uint256_rounded(), Uint256::from_u64(0));
+    }
+
+    #[test]
+    fn to_uint256_rounded_large_value() {
+        let val = u128::MAX >> 1; // large but won't overflow when shifted
+        let fp = FP::from_u128(val);
+        assert_eq!(fp.to_uint256_rounded(), Uint256::from_u128(val));
     }
 }

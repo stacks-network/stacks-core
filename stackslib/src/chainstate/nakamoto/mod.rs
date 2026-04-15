@@ -40,7 +40,7 @@ use stacks_common::types::{PrivateKey, SIP031EmissionInterval, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::uint::Uint256;
+use stacks_common::util::uint::FixedPointU256;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
@@ -108,8 +108,6 @@ pub mod tenure;
 pub mod test_signers;
 #[cfg(test)]
 pub mod tests;
-
-mod bigint_math;
 
 pub use self::staging_blocks::{
     NakamotoStagingBlocksConn, NakamotoStagingBlocksConnRef, NakamotoStagingBlocksTx,
@@ -4763,96 +4761,35 @@ impl NakamotoChainState {
         ratio_by_cycle: &HashMap<u64, Option<u128>>,
         weights: &[u32],
     ) -> Option<u128> {
-        // Math overview:
-        // We want the weighted geometric mean:
-        //   G = Π_i (r_i)^(w_i / W), where W = Σ_i w_i.
-        // Equivalently, G is the W-th root of:
-        //   P = Π_i (r_i)^(w_i).
-        //
-        // To avoid floating-point math, we work in Q64 fixed-point (same scaling as AtcRational):
-        //   r_i_fp = r_i << 64
-        // and solve for the integer floor of g_fp such that:
-        //   g_fp^W <= Π_i (r_i_fp)^(w_i).
-        // We find this floor with integer binary search, then convert back to an integer ratio by
-        // shifting right 64 bits.
-        //
-        // This gives a deterministic fixed-point approximation of
-        //   w_5^(5/15) * w_4^(4/15) * w_3^(3/15) * w_2^(2/15) * w_1^(1/15)
-        // (or the same expression with dynamic W if some cycles are missing).
-        // Same Q64 scaling as AtcRational.
-        use bigint_math::{bigint_from_uint256, cmp_bigint, mul_bigint, pow_bigint};
-        const FIXED_POINT_SHIFT: usize = 64;
-
-        fn uint256_to_u128_saturating(value: &Uint256) -> u128 {
-            if value.0[2] != 0 || value.0[3] != 0 {
-                return u128::MAX;
-            }
-            (u128::from(value.0[1]) << 64) | u128::from(value.0[0])
-        }
-
         // If the current cycle is undefined, keep the smoothed value undefined too.
-        if ratio_by_cycle
-            .get(&reward_cycle)
-            .copied()
-            .flatten()
-            .is_none()
-        {
-            return None;
+        let current_ratio = ratio_by_cycle.get(&reward_cycle).copied().flatten()?;
+
+        // A ratio of zero zeros out the entire geometric mean.
+        if current_ratio == 0 {
+            return Some(0);
         }
 
-        let mut weighted_ratios = vec![];
-        let mut sum_weights = 0u32;
-        let mut max_ratio = 0u128;
-        for (offset, weight) in weights.iter().enumerate() {
+        let current_fp = FixedPointU256::<64>::from_u128(current_ratio);
+
+        // Collect prior cycles that have data, in order (most recent first).
+        let mut priors = vec![];
+        for offset in 1..weights.len() {
             let offset_u64 = u64::try_from(offset).expect("FATAL: offset conversion failure");
             if offset_u64 > reward_cycle {
                 break;
             }
-
             let cycle = reward_cycle - offset_u64;
             let Some(ratio) = ratio_by_cycle.get(&cycle).copied().flatten() else {
                 continue;
             };
-            // A ratio of zero (BTC burned but no STX earned) zeros out the entire geometric
-            // mean, because zero raised to any positive power is zero. This differs from a
-            // `None` ratio (no data for that cycle), which is simply excluded above.
             if ratio == 0 {
                 return Some(0);
             }
-            let ratio_fp = Uint256::from_u128(ratio) << FIXED_POINT_SHIFT;
-            weighted_ratios.push((ratio_fp, *weight));
-            max_ratio = max_ratio.max(ratio);
-            sum_weights = sum_weights.saturating_add(*weight);
+            priors.push(FixedPointU256::<64>::from_u128(ratio));
         }
 
-        if sum_weights == 0 {
-            return None;
-        }
-
-        let mut weighted_product = vec![1u64];
-        for (ratio_fp, weight) in weighted_ratios {
-            let ratio_fp_big = bigint_from_uint256(&ratio_fp);
-            let weighted_ratio = pow_bigint(&ratio_fp_big, weight);
-            weighted_product = mul_bigint(&weighted_product, &weighted_ratio);
-        }
-
-        // Find floor of fixed-point geometric mean `g_fp` such that:
-        // g_fp^sum_weights <= product(ratio_fp_i^weight_i)
-        let one = Uint256::from_u64(1);
-        let mut low = Uint256::from_u64(0);
-        let mut high = Uint256::from_u128(max_ratio) << FIXED_POINT_SHIFT;
-        while low < high {
-            let mid = low + (((high - low) + one) >> 1);
-            let mid_big = bigint_from_uint256(&mid);
-            let mid_pow = pow_bigint(&mid_big, sum_weights);
-            match cmp_bigint(&mid_pow, &weighted_product) {
-                std::cmp::Ordering::Greater => high = mid - one,
-                std::cmp::Ordering::Less | std::cmp::Ordering::Equal => low = mid,
-            }
-        }
-
-        let smoothed_ratio = low >> FIXED_POINT_SHIFT;
-        Some(uint256_to_u128_saturating(&smoothed_ratio))
+        let result = FixedPointU256::<64>::weighted_geometric_average(&current_fp, &priors)?;
+        Some(result.to_uint256_rounded().to_u128_saturating())
     }
 
     /// Find all of the TXIDs of Stacks-on-burnchain operations processed in the given Stacks fork.
