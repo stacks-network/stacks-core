@@ -4907,7 +4907,7 @@ impl StacksChainState {
         ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
         // Do not try to handle auto-unlocks on pox_reward_cycle 0
         // This cannot even occur in the mainchain, because 2.1 starts much
-        //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
+        //  after the 1st reward cycle, however, this could come up in regtest.
         if pox_reward_cycle <= 1 {
             return Ok(vec![]);
         }
