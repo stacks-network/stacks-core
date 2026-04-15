@@ -22,6 +22,7 @@
 //! Borrowed with gratitude from Andrew Poelstra's rust-bitcoin library
 
 use std::fmt;
+use std::sync::LazyLock;
 
 use crate::util::hash::{hex_bytes, to_hex};
 
@@ -29,6 +30,9 @@ use crate::util::hash::{hex_bytes, to_hex};
 pub trait BitArray {
     /// Is bit set?
     fn bit(&self, idx: usize) -> bool;
+
+    /// Set bit to `1`
+    fn set_bit(&mut self, idx: usize);
 
     /// Returns an array which is just the bits from start to end
     fn bit_slice(&self, start: usize, end: usize) -> Self;
@@ -64,8 +68,8 @@ fn carrying_mul<const N: usize>(a: &[u64; N], b: &[u64; N], checked: bool) -> Op
             }
             // products a[i]*b[j] where i+j >= N land beyond the output array
             if b[j] != 0 {
-                for i in (N - j)..N {
-                    if a[i] != 0 {
+                for a_i in &a[(N - j)..N] {
+                    if *a_i != 0 {
                         return None;
                     }
                 }
@@ -78,8 +82,8 @@ fn carrying_mul<const N: usize>(a: &[u64; N], b: &[u64; N], checked: bool) -> Op
 /// Perform gradeschool multiplication using carrying_mul on a single word
 fn carrying_mul_u64<const N: usize>(mut a: [u64; N], b: u64) -> ([u64; N], u64) {
     let mut carry = 0;
-    for i in 0..N {
-        (a[i], carry) = a[i].carrying_mul(b, carry);
+    for a_i in a.iter_mut() {
+        (*a_i, carry) = a_i.carrying_mul(b, carry);
     }
     (a, carry)
 }
@@ -104,6 +108,56 @@ fn borrowing_sub<const N: usize>(mut a: [u64; N], b: &[u64; N]) -> ([u64; N], bo
         (a[i], next_borrow) = a[i].borrowing_sub(b[i], next_borrow);
     }
     (a, next_borrow)
+}
+
+/// Convert a [`Uint256`] to an `f64` approximation.
+///
+/// Only the top ~53 significant bits are preserved (the width of the `f64`
+/// mantissa).  Returns `0.0` for zero inputs.
+fn uint256_to_f64(v: &Uint256) -> f64 {
+    let b = v.bits();
+    if b == 0 {
+        return 0.0;
+    }
+    if b <= 53 {
+        v.low_u64() as f64
+    } else {
+        let shift = b - 53;
+        let top = (*v >> shift).low_u64();
+        (top as f64) * (2.0f64).powi(shift as i32)
+    }
+}
+
+/// Convert a non-negative finite `f64` to a [`Uint256`].
+///
+/// Values ≤ 0 or non-finite map to zero.  Values that would exceed 2^256
+/// are clamped to [`Uint256::max()`].
+fn f64_to_uint256(x: f64) -> Uint256 {
+    if x < 1.0 || !x.is_finite() {
+        return Uint256::zero();
+    }
+    let bits = x.to_bits();
+    // Implicit leading 1 + 52 stored mantissa bits = 53-bit significand.
+    let mantissa = (bits & 0x000F_FFFF_FFFF_FFFF) | 0x0010_0000_0000_0000;
+    let biased_exp = ((bits >> 52) & 0x7FF) as i64;
+    // Unbiased exponent adjusted so mantissa represents an integer.
+    let exp = biased_exp - 1023 - 52;
+    let base = Uint256::from_u64(mantissa);
+    if exp >= 0 {
+        let shift = exp as usize;
+        if shift + 53 > 256 {
+            Uint256::max()
+        } else {
+            base << shift
+        }
+    } else {
+        let shift = (-exp) as usize;
+        if shift >= 53 {
+            Uint256::zero()
+        } else {
+            base >> shift
+        }
+    }
 }
 
 /// A fixed-point unsigned 256-bit number with a compile-time scale factor.
@@ -179,6 +233,7 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
     }
 
     /// Checked addition. Returns `None` on overflow.
+    #[allow(clippy::should_implement_trait)]
     pub fn add(self, other: &Self) -> Option<Self> {
         let value = self.value.checked_add(&other.value)?;
         Some(Self { value })
@@ -199,6 +254,7 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
     }
 
     /// Checked subtraction. Returns `None` on underflow.
+    #[allow(clippy::should_implement_trait)]
     pub fn sub(self, other: &Self) -> Option<Self> {
         let value = self.value.checked_sub(&other.value)?;
         Some(Self { value })
@@ -246,7 +302,7 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
     /// Divide self by other and return the unscaled result.
     /// The resulting `Uint256` will have `SCALE` zero high-bits.
     pub fn div_and_drop_scale(&self, other: &Self) -> Option<Uint256> {
-        let Self { value } = self.div(other.value.clone())?;
+        let Self { value } = self.div(other.value)?;
         Some(value)
     }
 
@@ -281,6 +337,37 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
         out
     }
 
+    /// Use `f64` arithmetic to compute an approximate `n`th root and return
+    /// `(low, high)` bounds that bracket the true answer.
+    ///
+    /// The bounds are within ~2^-48 relative distance of the guess, so the
+    /// subsequent binary search only needs ~48 iterations instead of ~200+.
+    /// Falls back to `(MINIMAL, self)` if the f64 computation is degenerate.
+    fn root_bounds_f64(x: &Self, n: u32) -> (Self, Self) {
+        let raw_f64 = uint256_to_f64(&x.value);
+        if raw_f64 == 0.0 {
+            return (Self::MINIMAL, x.clone());
+        }
+        let scale_f64 = (2.0f64).powi(SCALE as i32);
+        let logical = raw_f64 / scale_f64;
+        let root = logical.powf(1.0 / n as f64);
+        let result_raw_f64 = root * scale_f64;
+        if !result_raw_f64.is_finite() || result_raw_f64 < 1.0 {
+            return (Self::MINIMAL, x.clone());
+        }
+        let guess_raw = f64_to_uint256(result_raw_f64);
+        let guess = Self::construct_raw(guess_raw);
+        // Widen by ~2^-48 relative to cover f64 rounding + powf error.
+        let margin = Self::construct_raw(if guess.value.bits() > 48 {
+            guess.value >> 48usize
+        } else {
+            Uint256::from_u64(1)
+        });
+        let low = guess.clone().sub(&margin).unwrap_or(Self::MINIMAL);
+        let high = guess.add(&margin).unwrap_or(x.clone());
+        (low, high)
+    }
+
     /// Find the `n`th root of self using binary search, trimming the scale to `self.scaling` on
     ///  iterations
     pub fn find_root_floor(&self, n: u32) -> Option<Self> {
@@ -291,11 +378,18 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
             return None;
         }
 
-        let mut low = Self::MINIMAL;
-        let mut high = self.clone();
+        // Use f64 arithmetic to seed tight initial bounds.
+        let (mut low, mut high) = Self::root_bounds_f64(self, n);
         loop {
             if high <= low {
-                return Some(high.min(low));
+                let mut result = high.min(low);
+                // Guard against off-by-one from truncating midpoint division:
+                // if result^n overshoots, back off one unit to restore floor
+                // semantics.
+                if result.pow(n).is_none_or(|p| &p > self) {
+                    result = result.sub(&Self::MINIMAL)?;
+                }
+                return Some(result);
             }
             let guess = high.clone().add(&low)?.div(Uint256::from_u64(2))?;
             match guess.pow(n) {
@@ -361,6 +455,153 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
         let one_minus_r_sq = one_minus_r.pow(2)?;
         let denom = r_sq.clone().add(&one_minus_r_sq)?;
         r_sq.div_and_scale(&denom)
+    }
+
+    /// Compute `log2(self.value) + SCALE` := the base-2 logarithm of the underlying
+    /// raw integer returning the result as a `FixedPointU256<SCALE>` with
+    /// full fractional precision.
+    ///
+    /// This equals `log2(self) + SCALE`, which is always non-negative for
+    /// nonzero inputs, sidestepping the need for signed arithmetic.
+    ///
+    /// Returns `None` if `self` is zero (log of zero is undefined).
+    ///
+    /// # Use in weighted geometric mean
+    ///
+    /// The bias cancels out: `log2_biased(geo_mean) = weighted_avg(log2_biased(x_i))`.
+    pub fn log2_biased(&self) -> Option<Self> {
+        if self.value == Uint256::zero() {
+            return None;
+        }
+
+        // n = integer part of log2 of the raw u256 value.
+        //     which is `log2(self) + SCALE`
+        let n = self.value.bits() - 1;
+
+        // Normalize: shift so y represents (raw u256 / 2^n)
+        // This corresponds to a value in [1.0, 2.0) with SCALE fractional bits.
+        //
+        // y_raw is in range [1<<SCALE, 1<<(SCALE+1))
+        let scale = SCALE as usize;
+        let y_raw = if n <= scale {
+            self.value << (scale - n)
+        } else {
+            self.value >> (n - scale)
+        };
+
+        let two_fp = Self::from_u64(2);
+
+        // Compute the fractional component by iterative squaring
+        // (see: `https://en.wikipedia.org/wiki/Binary_logarithm#Iterative_approximation`)
+        let mut y = Self::construct_raw(y_raw);
+        let mut frac = Self::ZERO;
+        for m in (0..scale).rev() {
+            y = y.pow(2)?;
+
+            if y >= two_fp {
+                frac.value.set_bit(m);
+                y.value = y.value >> 1usize;
+            }
+        }
+
+        let int_part = Self::from_u64(n as u64);
+        int_part.add(&frac)
+    }
+}
+
+impl<const SCALE: u16> FixedPointU256<SCALE>
+where
+    FixedPointU256<SCALE>: FractionalExp2,
+{
+    /// Compute the weighted geometric average using logarithms.
+    ///
+    /// Same semantics as [`weighted_geometric_average`] but implemented
+    /// via [`log2_biased`](Self::log2_biased) / [`exp2_biased`](Self::exp2_biased)
+    /// instead of root-then-pow.
+    ///
+    /// Returns `None` if any input is zero, on overflow, or if
+    /// `priors.len() > 4`.
+    pub fn weighted_geometric_average_log(current: &Self, priors: &[Self]) -> Option<Self> {
+        if priors.len() > 4 {
+            return None;
+        }
+        let max_weight: u32 = 5;
+        let total_weight: u32 = (max_weight - priors.len() as u32..=max_weight).sum();
+
+        // Accumulate weighted sum of biased logarithms
+        let mut sum = current.log2_biased()?.mul_u64(max_weight as u64)?;
+
+        for (index, prior) in priors.iter().enumerate() {
+            let weight = max_weight - 1 - index as u32;
+            let log_val = prior.log2_biased()?;
+            let weighted = log_val.mul_u64(weight as u64)?;
+            sum = sum.add(&weighted)?;
+        }
+
+        // Divide by total weight to get average
+        let avg = sum.div(Uint256::from_u64(total_weight as u64))?;
+
+        // Convert back from log-space
+        Self::exp2_biased(&avg)
+    }
+
+    /// Compute `2^target` where `target` was produced by [`log2_biased`](Self::log2_biased).
+    ///
+    /// This is the inverse of `log2_biased`: if `y = x.log2_biased()`,
+    /// then `exp2_biased(&y) ≈ x` (up to rounding).
+    ///
+    /// Returns `None` on overflow or arithmetic error.
+    pub fn exp2_biased(target: &Self) -> Option<Self> {
+        let scale = SCALE as usize;
+
+        // The integer part `n` is used as a shift amount, so it must fit in `usize`.
+        // For any `target` produced by `log2_biased` on a `Uint256`, `n` is at most
+        // `256 + SCALE` (= 383 with SCALE < 128), which trivially fits.
+        // Guard against a malformed `target` whose integer part exceeds 64 bits
+        let int_part = target.value >> scale;
+        if int_part.bits() > 64 {
+            return None;
+        }
+        let n = int_part.low_u64() as usize;
+
+        let result = target.fractional_exp2()?;
+
+        // result.value = 2^f * 2^SCALE (fixed-point representation of 2^f).
+        // We want output.value = 2^(n + f), so shift by (n - SCALE).
+        if n >= scale {
+            let shift = n - scale;
+            if shift > 0 && shift + result.value.bits() > 256 {
+                return None; // overflow
+            }
+            Some(Self::construct_raw(result.value << shift))
+        } else {
+            let shift = scale - n;
+            Some(Self::construct_raw(result.value >> shift))
+        }
+    }
+}
+
+pub trait FractionalExp2: Sized {
+    /// Returns `2^f` where `f` is the fractional part of `self`.
+    /// Returns None on overflow
+    fn fractional_exp2(&self) -> Option<Self>;
+}
+
+impl FractionalExp2 for FixedPointU256<64> {
+    fn fractional_exp2(&self) -> Option<Self> {
+        // Compute 2^f using successive square roots (MSB to LSB).
+        // s_k = 2^(1/2^k), starting with s_1 = sqrt(2).
+        // result = product of s_k for each set bit k in the fractional part of target.
+        // Bits at or above 64 are the integer part and are intentionally ignored here.
+        //
+        // Fast path: use precomputed table of successive square roots.
+        let mut result = Self::from_u64(1);
+        for (f_bit, s) in SQRT2_TABLE_64.iter().enumerate() {
+            if self.value.bit(f_bit) {
+                result = result.mul(s)?;
+            }
+        }
+        Some(result)
     }
 }
 
@@ -641,6 +882,12 @@ macro_rules! construct_uint {
             }
 
             #[inline]
+            fn set_bit(&mut self, index: usize) {
+                let Self(ref mut arr) = self;
+                arr[index / 64] |= (1 << (index % 64));
+            }
+
+            #[inline]
             fn bit_slice(&self, start: usize, end: usize) -> Self {
                 (*self >> start).mask(end - start)
             }
@@ -756,7 +1003,7 @@ macro_rules! construct_uint {
                         val = self.0[d - word_shift] << bit_shift;
                     }
                     // Carry-in: high bits spilled from the next-lower source word
-                    if bit_shift > 0 && d >= word_shift + 1 {
+                    if bit_shift > 0 && d > word_shift {
                         val |= self.0[d - word_shift - 1] >> (64 - bit_shift);
                     }
                     self.0[d] = val;
@@ -834,6 +1081,29 @@ impl Uint512 {
         Uint256(tmp)
     }
 }
+
+/// Precomputed table of successive square roots of 2 for `FixedPointU256<64>`.
+/// Stored as raw values to avoid having to try to perform generics matching.
+///
+/// `SQRT2_TABLE_64[k]` holds the raw `Uint256` representation of `2^(1/2^(k+1))`
+/// in fixed-point with SCALE = 64.  That is:
+/// - `[63]` = sqrt(2)
+/// - `[62]` = 2^(1/4)
+/// - `[61]` = 2^(1/8)
+/// - ...
+/// - `[0]` = 2^(1/2^64)
+///
+/// Used by [`FixedPointU256::exp2_biased`] to avoid recomputing `find_root_floor(2)`
+/// on every iteration.
+static SQRT2_TABLE_64: LazyLock<[FixedPointU256<64>; 64]> = LazyLock::new(|| {
+    let mut table = [FixedPointU256::ZERO; 64];
+    let mut s: FixedPointU256<64> = FixedPointU256::from_u64(2);
+    for k in (0..64).rev() {
+        s = s.find_root_floor(2).expect("successive sqrt must exist");
+        table[k] = s.clone();
+    }
+    table
+});
 
 #[cfg(test)]
 mod tests {
@@ -1562,18 +1832,21 @@ mod tests {
 
         /// Add<&Self> matches Add<Self>
         #[test]
+        #[allow(clippy::op_ref)]
         fn u256_add_ref_matches_owned(a in arb_uint256(), b in arb_uint256()) {
             prop_assert_eq!(a + &b, a + b);
         }
 
         /// Sub<&Self> matches Sub<Self>
         #[test]
+        #[allow(clippy::op_ref)]
         fn u256_sub_ref_matches_owned(a in arb_uint256(), b in arb_uint256()) {
             prop_assert_eq!(a - &b, a - b);
         }
 
         /// Mul<&Self> matches Mul<Self>
         #[test]
+        #[allow(clippy::op_ref)]
         fn u256_mul_ref_matches_owned(a in arb_uint256_small(), b in arb_uint256_small()) {
             prop_assert_eq!(a * &b, a * b);
         }
@@ -2559,5 +2832,208 @@ mod tests {
 
         let s_half = half.sigmoid().expect("sigmoid(0.5) should succeed");
         assert_fp_approx_eq(&s_half, &half, 1, 1000).unwrap();
+    }
+
+    // log2_biased tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn log2_biased_zero() {
+        assert_eq!(FP::ZERO.log2_biased(), None);
+    }
+
+    #[test]
+    fn log2_biased_minimal() {
+        // MINIMAL has raw value 1, log2(1) = 0
+        assert_eq!(FP::MINIMAL.log2_biased(), Some(FP::ZERO));
+    }
+
+    #[test]
+    fn log2_biased_one() {
+        // from_u64(1) has raw = 1 << 64, log2(1<<64) = 64
+        assert_eq!(FP::from_u64(1).log2_biased(), Some(FP::from_u64(64)));
+    }
+
+    #[test]
+    fn log2_biased_powers_of_two() {
+        for k in 0u32..63 {
+            let val = FP::from_u64(1u64 << k);
+            let expected = FP::from_u64(64 + k as u64);
+            assert_eq!(val.log2_biased(), Some(expected), "failed for 2^{k}");
+        }
+    }
+
+    #[test]
+    fn log2_biased_sub_one() {
+        // 0.5 has raw = 1 << 63, log2(1<<63) = 63
+        let half = FP::from_u64(1).div(Uint256::from_u64(2)).unwrap();
+        assert_eq!(half.log2_biased(), Some(FP::from_u64(63)));
+        // 0.25 has raw = 1 << 62, log2(1<<62) = 62
+        let quarter = FP::from_u64(1).div(Uint256::from_u64(4)).unwrap();
+        assert_eq!(quarter.log2_biased(), Some(FP::from_u64(62)));
+    }
+
+    #[test]
+    fn log2_biased_non_power_precision() {
+        // log2(3) ≈ 1.584962500721156
+        // biased result = 64 + log2(3) ≈ 65.585
+        // As fixed-point: 65.585 * 2^64 ≈ 0x41_95C0_1A39_FBD6_88 (approx)
+        let result = FP::from_u64(3).log2_biased().unwrap();
+        // Cross-check: integer part should be 65 (= 64 + 1, since 2 <= 3 < 4)
+        let int_part = result.value >> 64;
+        assert_eq!(int_part, Uint256::from_u64(65));
+        // Check against f64: log2(3) fractional part ≈ 0.584962500721156
+        let frac_f64 = 3.0_f64.log2().fract();
+        let frac_raw = result.value & ((Uint256::from_u64(1) << 64usize) - Uint256::from_u64(1));
+        let frac_as_f64 = frac_raw.low_u64() as f64 / (1u128 << 64) as f64;
+        // Allow ~1e-9 tolerance (f64 has ~15 digits, we compare at that level)
+        assert!(
+            (frac_as_f64 - frac_f64).abs() < 1e-9,
+            "fractional part mismatch: got {frac_as_f64}, expected {frac_f64}"
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn log2_biased_powers_of_two_exact(k in 0u32..63) {
+            let val = FP::from_u64(1u64 << k);
+            let result = val.log2_biased().expect("should not be None");
+            // Powers of 2 should have zero fractional bits
+            let frac_mask = (Uint256::from_u64(1) << 64usize) - Uint256::from_u64(1);
+            prop_assert_eq!(result.value & frac_mask, Uint256::zero());
+        }
+
+        #[test]
+        fn log2_biased_monotonic(
+            a in 1u64..u64::MAX,
+            b in 1u64..u64::MAX,
+        ) {
+            let fa = FP::from_u64(a);
+            let fb = FP::from_u64(b);
+            let la = fa.log2_biased().unwrap();
+            let lb = fb.log2_biased().unwrap();
+            if a < b {
+                prop_assert!(la < lb, "log2 not monotonic: log2({a}) >= log2({b})");
+            } else if a == b {
+                prop_assert_eq!(la, lb);
+            } else {
+                prop_assert!(la > lb, "log2 not monotonic: log2({a}) <= log2({b})");
+            }
+        }
+    }
+
+    // exp2_biased tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn exp2_biased_zero() {
+        // 2^0 = 1 as raw Uint256, i.e. MINIMAL
+        let result = FP::exp2_biased(&FP::ZERO).unwrap();
+        assert_eq!(result, FP::MINIMAL);
+    }
+
+    #[test]
+    fn exp2_biased_scale() {
+        // 2^64 = 1.0 in fixed-point (raw = 1 << 64)
+        let result = FP::exp2_biased(&FP::from_u64(64)).unwrap();
+        assert_eq!(result, FP::from_u64(1));
+    }
+
+    #[test]
+    fn exp2_biased_powers() {
+        for k in 0u32..62 {
+            let target = FP::from_u64(64 + k as u64);
+            let result = FP::exp2_biased(&target).unwrap();
+            assert_eq!(
+                result,
+                FP::from_u64(1u64 << k),
+                "exp2_biased(64 + {k}) should be 2^{k}"
+            );
+        }
+    }
+
+    #[test]
+    fn exp2_roundtrip_known_values() {
+        for val in [1u64, 2, 3, 5, 7, 100, 1000, u64::MAX / 2] {
+            let fp = FP::from_u64(val);
+            let log = fp.log2_biased().unwrap();
+            let back = FP::exp2_biased(&log).unwrap();
+            // Allow 0.1% relative error from find_root_floor rounding
+            assert_fp_approx_eq(&back, &fp, 1, 1000).unwrap();
+        }
+    }
+
+    // weighted_geometric_average_log tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn geo_avg_log_no_priors_identity() {
+        let current = FP::from_u64(42);
+        let result = FP::weighted_geometric_average_log(&current, &[]).unwrap();
+        assert_fp_approx_eq(&result, &current, 1, 1000).unwrap();
+    }
+
+    #[test]
+    fn geo_avg_log_all_equal() {
+        let v = FP::from_u64(100);
+        let priors = vec![v.clone(); 3];
+        let result = FP::weighted_geometric_average_log(&v, &priors).unwrap();
+        assert_fp_approx_eq(&result, &v, 1, 1000).unwrap();
+    }
+
+    #[test]
+    fn geo_avg_log_rejects_too_many_priors() {
+        let v = FP::from_u64(10);
+        let priors = vec![v.clone(); 5];
+        assert!(FP::weighted_geometric_average_log(&v, &priors).is_none());
+    }
+
+    proptest! {
+        /// Compare log-based and root-based geometric averages: no priors
+        #[test]
+        fn geo_avg_log_vs_original_no_priors(
+            val in 1u64..1_000_000u64,
+        ) {
+            let current = FP::from_u64(val);
+            let root_result = FP::weighted_geometric_average(&current, &[])
+                .expect("root-based should succeed");
+            let log_result = FP::weighted_geometric_average_log(&current, &[])
+                .expect("log-based should succeed");
+            assert_fp_approx_eq(&root_result, &log_result, 1, 100)?;
+        }
+
+        /// Compare log-based and root-based: all equal values
+        #[test]
+        fn geo_avg_log_vs_original_equal(
+            val in 1u64..1_000_000u64,
+            num_priors in 1usize..4,
+        ) {
+            let v = FP::from_u64(val);
+            let priors: Vec<FP> = vec![v.clone(); num_priors];
+            let root_result = FP::weighted_geometric_average(&v, &priors)
+                .expect("root-based should succeed");
+            let log_result = FP::weighted_geometric_average_log(&v, &priors)
+                .expect("log-based should succeed");
+            assert_fp_approx_eq(&root_result, &log_result, 1, 100)?;
+        }
+
+        /// Compare log-based and root-based: mixed values
+        #[test]
+        fn geo_avg_log_vs_original_mixed(
+            current_val in 1_000u64..1_000_000u64,
+            prior_val in 1u64..999u64,
+            num_priors in 1usize..4,
+        ) {
+            prop_assume!(current_val > prior_val);
+            let current = FP::from_u64(current_val);
+            let prior = FP::from_u64(prior_val);
+            let priors: Vec<FP> = vec![prior; num_priors];
+            let root_result = FP::weighted_geometric_average(&current, &priors)
+                .expect("root-based should succeed");
+            let log_result = FP::weighted_geometric_average_log(&current, &priors)
+                .expect("log-based should succeed");
+            // 1% tolerance to accommodate different rounding paths
+            assert_fp_approx_eq(&root_result, &log_result, 1, 100)?;
+        }
     }
 }
