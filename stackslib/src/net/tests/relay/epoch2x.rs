@@ -20,6 +20,7 @@ use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
+use pinny::tag;
 use proptest::prelude::*;
 use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
@@ -3709,6 +3710,7 @@ proptest! {
     // Epoch34 removes the relay depth filter. The same over-limit contract
     // must be rejected pre-Epoch34 but accepted in Epoch34. Depths 100+ avoid
     // parser-version boundary ambiguity.
+    #[tag(t_prop)]
     #[test]
     fn prop_relay_depth_filter_removed_at_epoch34(
         depth in 100usize..300,
