@@ -379,7 +379,14 @@ pub fn apply(
                 return Err(e);
             }
         };
-        let arg_use = arg_value.get_memory_use()?;
+        let arg_use = match arg_value.get_memory_use() {
+            Ok(x) => x,
+            Err(e) => {
+                exec_state.drop_memory(used_memory)?;
+                exec_state.call_stack.decr_apply_depth();
+                return Err(e.into());
+            }
+        };
         match exec_state.add_memory(arg_use) {
             Ok(_x) => {}
             Err(e) => {
@@ -720,7 +727,8 @@ where
     use crate::vm::tests::test_only_mainnet_to_chain_id;
     use crate::vm::types::QualifiedContractIdentifier;
 
-    let contract_id = QualifiedContractIdentifier::new(sender, "contract".into());
+    let contract_id =
+        QualifiedContractIdentifier::new(sender, ContractName::from_literal("contract"));
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
@@ -823,6 +831,7 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>, ClarityEvalError> {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ClarityName;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
@@ -846,22 +855,22 @@ mod test {
         //  (do_work a)
         //
         let content = [SymbolicExpression::list(vec![
-            SymbolicExpression::atom("do_work".into()),
-            SymbolicExpression::atom("a".into()),
+            SymbolicExpression::atom(ClarityName::from_literal("do_work")),
+            SymbolicExpression::atom(ClarityName::from_literal("a")),
         ])];
 
         let func_body = SymbolicExpression::list(vec![
-            SymbolicExpression::atom("+".into()),
+            SymbolicExpression::atom(ClarityName::from_literal("+")),
             SymbolicExpression::atom_value(Value::Int(5)),
-            SymbolicExpression::atom("x".into()),
+            SymbolicExpression::atom(ClarityName::from_literal("x")),
         ]);
 
-        let func_args = vec![("x".into(), TypeSignature::IntType)];
+        let func_args = vec![(ClarityName::from_literal("x"), TypeSignature::IntType)];
         let user_function = DefinedFunction::new(
             func_args,
             func_body,
             DefineType::Private,
-            &"do_work".into(),
+            &ClarityName::from_literal("do_work"),
             "",
         );
 
@@ -882,10 +891,10 @@ mod test {
 
         contract_context
             .variables
-            .insert("a".into(), Value::Int(59));
+            .insert(ClarityName::from_literal("a"), Value::Int(59));
         contract_context
             .functions
-            .insert("do_work".into(), user_function);
+            .insert(ClarityName::from_literal("do_work"), user_function);
 
         let mut call_stack = CallStack::new();
         let mut exec_state = ExecutionState {

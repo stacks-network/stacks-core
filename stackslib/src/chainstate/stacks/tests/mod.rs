@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -1138,7 +1138,7 @@ pub fn make_user_contract_publish(
     contract_name: &str,
     contract_content: &str,
 ) -> StacksTransaction {
-    let name = ContractName::from(contract_name);
+    let name = ContractName::try_from(contract_name).expect("invalid contract name");
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload = TransactionSmartContract { name, code_body };
@@ -1154,7 +1154,7 @@ pub fn make_versioned_user_contract_publish(
     contract_content: &str,
     version: ClarityVersion,
 ) -> StacksTransaction {
-    let name = ContractName::from(contract_name);
+    let name = ContractName::try_from(contract_name).unwrap();
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload = TransactionPayload::SmartContract(

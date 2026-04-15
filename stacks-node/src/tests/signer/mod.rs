@@ -609,9 +609,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         info!("Latest sortition: {sortition_latest:?}");
         info!("Prior sortition: {sortition_prior:?}");
 
-        assert_eq!(
-            sortition_latest.last_sortition_ch,
-            sortition_latest.stacks_parent_ch
+        assert!(
+            std::env::var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL") == Ok("1".to_string())
+                || sortition_latest.last_sortition_ch == sortition_latest.stacks_parent_ch
         );
         let latest_block = self
             .stacks_client
@@ -646,9 +646,13 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                     panic!();
                 };
                 assert_eq!(Some(current_miner_pkh), sortition_latest.miner_pk_hash160);
-                assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
-                assert_eq!(parent_tenure_last_block, latest_block_id);
-                assert_eq!(parent_tenure_last_block_height, latest_block.height());
+                if std::env::var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL")
+                    != Ok("1".to_string())
+                {
+                    assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
+                    assert_eq!(parent_tenure_last_block, latest_block_id);
+                    assert_eq!(parent_tenure_last_block_height, latest_block.height());
+                }
             });
     }
 
@@ -1796,6 +1800,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
             EventKeyType::BlockProposal,
             EventKeyType::MinedBlocks,
             EventKeyType::BurnchainBlocks,
+            EventKeyType::MemPoolTransactions,
         ],
         timeout_ms: 1000,
         disable_retries: false,

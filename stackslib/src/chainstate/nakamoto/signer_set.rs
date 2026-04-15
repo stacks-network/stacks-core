@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
-use clarity::vm::{SymbolicExpression, Value};
+use clarity::vm::{ClarityName, SymbolicExpression, Value};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
@@ -61,9 +61,10 @@ impl RawRewardSetEntry {
         })?;
 
         let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-            .ok_or_else(|| {
-                ChainstateError::Expects(format!("not a valid PoX address: {pox_addr_tuple}"))
-            })?;
+            .unwrap_or_else(|| {
+                warn!("Invalid PoX address supplied, replacing with burn address"; "pox_addr_tuple" => %pox_addr_tuple);
+                PoxAddress::standard_burn_address(is_mainnet)
+            });
 
         let total_ustx = tuple_data
             .remove("total-ustx")
@@ -232,10 +233,10 @@ impl NakamotoSigners {
                     let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
                     let tuple_data = TupleData::from_data(vec![
                         (
-                            "signer".into(),
+                            ClarityName::from_literal("signer"),
                             Value::Principal(PrincipalData::from(signing_address)),
                         ),
-                        ("num-slots".into(), Value::UInt(1)),
+                        (ClarityName::from_literal("num-slots"), Value::UInt(1)),
                     ])
                     .map_err(|e| {
                         ChainstateError::Expects(format!(
@@ -260,10 +261,13 @@ impl NakamotoSigners {
                     let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
                     let tuple = TupleData::from_data(vec![
                         (
-                            "signer".into(),
+                            ClarityName::from_literal("signer"),
                             Value::Principal(PrincipalData::from(signing_address)),
                         ),
-                        ("weight".into(), Value::UInt(signer.weight.into())),
+                        (
+                            ClarityName::from_literal("weight"),
+                            Value::UInt(signer.weight.into()),
+                        ),
                     ])
                     .map_err(|e| {
                         ChainstateError::Expects(format!(
@@ -558,7 +562,7 @@ impl NakamotoSigners {
         };
         if payload.contract_identifier()
             != boot_code_id(SIGNERS_VOTING_NAME, transaction.is_mainnet())
-            || payload.function_name != SIGNERS_VOTING_FUNCTION_NAME.into()
+            || payload.function_name != ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME)
         {
             // This is not a special cased transaction.
             return None;
