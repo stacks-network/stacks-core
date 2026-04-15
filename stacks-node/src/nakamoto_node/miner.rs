@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -47,6 +47,7 @@ use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::types::chainstate::BlockHeaderHash;
+use stacks::types::{MinerDiagnosticData, MiningReason};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 #[cfg(test)]
@@ -235,6 +236,16 @@ impl std::fmt::Display for MinerReason {
                 f,
                 "Read-Count Extend: burn_view_consensus_hash = {burn_view_consensus_hash:?}",
             ),
+        }
+    }
+}
+
+impl Into<MiningReason> for MinerReason {
+    fn into(self) -> MiningReason {
+        match self {
+            Self::BlockFound { .. } => MiningReason::BlockFound,
+            Self::Extended { .. } => MiningReason::Extended,
+            Self::ReadCountExtend { .. } => MiningReason::ReadCountExtend,
         }
     }
 }
@@ -958,6 +969,22 @@ impl BlockMinerThread {
                     "Failed to open chainstate DB. Cannot mine! {e:?}"
                 ))
             })?;
+
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
+        let diagnostics = MinerDiagnosticData {
+            burnchain_tip_height: burn_tip.block_height,
+            burnchain_tip_consensus_hash: burn_tip.consensus_hash,
+            burnchain_tip_header_hash: burn_tip.burn_header_hash,
+            tenure_extend_time_stamp: coordinator.get_tenure_extend_timestamp(),
+            read_count_extend_timestamp: coordinator.get_read_count_extend_timestamp(),
+            mining_reason: self.reason.clone().into(),
+        };
+
         coordinator.propose_block(
             new_block,
             &self.burnchain,
@@ -967,6 +994,7 @@ impl BlockMinerThread {
             &self.globals.counters,
             &self.burn_election_block,
             &self.miner_db,
+            diagnostics,
         )
     }
 
