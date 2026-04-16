@@ -24,7 +24,7 @@ exclude = ["contrib/tools/config-docs-generator"]
 ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
 lazy_static = "1.4.0"
-madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", tag = "0.2.1" }
+madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", rev = "f83f8ea649182c40b9dbd1b90f8de86261b91fe7" } #v0.2.1
 pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
 rand_core = "0.6.4"
 rand = "0.8"
