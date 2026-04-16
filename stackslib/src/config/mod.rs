@@ -312,41 +312,6 @@ impl ConfigFile {
         }
     }
 
-    pub fn helium() -> ConfigFile {
-        // ## Settings for local testnet, relying on a local bitcoind server
-        // ## running with the following bitcoin.conf:
-        // ##
-        // ##    chain=regtest
-        // ##    disablewallet=0
-        // ##    txindex=1
-        // ##    server=1
-        // ##    rpcuser=helium
-        // ##    rpcpassword=helium
-        // ##
-        let burnchain = BurnchainConfigFile {
-            mode: Some("helium".to_string()),
-            commit_anchor_block_within: Some(10_000),
-            rpc_port: Some(18443),
-            peer_port: Some(18444),
-            peer_host: Some("0.0.0.0".to_string()),
-            username: Some("helium".to_string()),
-            password: Some("helium".to_string()),
-            local_mining_public_key: Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string()),
-            ..BurnchainConfigFile::default()
-        };
-
-        let node = NodeConfigFile {
-            miner: Some(false),
-            stacker: Some(false),
-            ..NodeConfigFile::default()
-        };
-
-        ConfigFile {
-            burnchain: Some(burnchain),
-            node: Some(node),
-            ..ConfigFile::default()
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -794,7 +759,6 @@ impl Config {
         };
 
         let supported_modes = [
-            "helium",
             "neon",
             "argon",
             "krypton",
@@ -808,10 +772,6 @@ impl Config {
                 "Setting burnchain.network not supported (should be: {})",
                 supported_modes.join(", ")
             ));
-        }
-
-        if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
-            return Err("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)".into());
         }
 
         let is_mainnet = burnchain.mode == "mainnet";
@@ -1215,7 +1175,6 @@ pub struct BurnchainConfig {
     /// Supported values:
     /// - `"mainnet"`: mainnet
     /// - `"xenon"`: testnet
-    /// - `"helium"`: regtest
     /// - `"neon"`: regtest
     /// - `"argon"`: regtest
     /// - `"krypton"`: regtest
@@ -1332,7 +1291,7 @@ pub struct BurnchainConfig {
     /// public key.
     ///
     /// It is primarily used in modes that rely on a controlled Bitcoin regtest
-    /// backend (e.g., "helium", "neon") where the Stacks node itself
+    /// backend (e.g., "neon") where the Stacks node itself
     /// needs to instruct the Bitcoin node to generate blocks.
     ///
     /// The key is used to derive the Bitcoin address that receives the coinbase
@@ -1340,7 +1299,6 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: `None`
     /// @notes:
-    ///   - Mandatory if [`BurnchainConfig::mode`] is "helium".
     ///   - This is intended strictly for testing purposes.
     pub local_mining_public_key: Option<String>,
     /// Optional bitcoin block height at which the Stacks node process should
@@ -1631,7 +1589,7 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "helium" | "neon" | "argon" | "krypton" | "nakamoto-neon" => {
+            "neon" | "argon" | "krypton" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             other => panic!("Invalid stacks-node mode: {other}"),
@@ -1882,7 +1840,7 @@ pub struct NodeConfig {
     /// Human-readable name for the node. Primarily used for identification in testing
     /// environments (e.g., deriving log file names, temporary directory names).
     /// ---
-    /// @default: `"helium-node"`
+    /// @default: `"stacks-node"`
     pub name: String,
     /// The node's Bitcoin wallet private key, provided as a hex string in the config file.
     /// Used to initialize the node's keychain for signing operations.
@@ -2360,7 +2318,7 @@ impl Default for NodeConfig {
         let mut seed = [0u8; 32];
         rng.fill_bytes(&mut seed);
 
-        let name = "helium-node";
+        let name = "stacks-node";
         NodeConfig {
             name: name.to_string(),
             seed: seed.to_vec(),

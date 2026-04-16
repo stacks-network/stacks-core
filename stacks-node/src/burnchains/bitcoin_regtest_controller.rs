@@ -571,7 +571,7 @@ impl BitcoinRegtestController {
         let coordinator_comms = match self.use_coordinator.as_ref() {
             Some(x) => x.clone(),
             None => {
-                // pre-PoX helium node
+                // no coordinator — fall back to direct indexer sync
                 let tip = self.receive_blocks_helium();
                 let height = tip.block_snapshot.block_height;
                 return Ok((tip, height));
@@ -2365,14 +2365,8 @@ impl BurnchainController for BitcoinRegtestController {
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
-        let (burnchain_tip, burnchain_height) = if self.config.burnchain.mode == "helium" {
-            // Helium: this node is responsible for mining new burnchain blocks
-            self.build_next_block(1);
-            self.receive_blocks(true, None)?
-        } else {
-            // Neon: this node is waiting on a block to be produced
-            self.receive_blocks(true, target_block_height_opt)?
-        };
+        let (burnchain_tip, burnchain_height) =
+            self.receive_blocks(true, target_block_height_opt)?;
 
         // Evaluate process_exit_at_block_height setting
         if let Some(cap) = self.config.burnchain.process_exit_at_block_height {
