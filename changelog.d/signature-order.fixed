@@ -1,0 +1,1 @@
+Fixed signature ordering check that only compared against first signer's index.
