@@ -369,5 +369,5 @@ jobs:
         with:
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
           compare-ref: ${{ github.base_ref }} # defaults to master if this isn't supplied
-          fail-on-error: true
+          fail-on-error: false # If this GitHub step is rerun for the same job #, Coveralls will report an error that the job is closed. Don't fail CI for that case.
       
