@@ -344,10 +344,7 @@ impl ResidentBytes for ASCIIData {
 
 impl ResidentBytes for UTF8Data {
     fn heap_bytes(&self) -> usize {
-        // Vec<Vec<u8>>: outer vec backing + each inner vec's backing
-        let outer = self.data.capacity() * size_of::<Vec<u8>>();
-        let inner: usize = self.data.iter().map(|v| v.capacity()).sum();
-        outer + inner
+        self.data.heap_bytes()
     }
 }
 
