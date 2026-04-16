@@ -15,12 +15,11 @@
 
 use std::sync::Arc;
 
-use clarity::vm::types::ResponseData;
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::ClarityVersion;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
-use super::unwrap_single_tx_success;
+use super::{ok_true, unwrap_single_tx_success};
 use crate::chainstate::tests::consensus::{
     ConsensusUtils, ExpectedResult, TestBlock, FAUCET_PRIV_KEY,
 };
@@ -45,14 +44,6 @@ const EPOCH33_DEPTH_LIMIT: usize = 64;
 
 /// Epoch34 max call-stack depth.
 const EPOCH34_DEPTH_LIMIT: usize = 128;
-
-/// Expected return value from a successful ping call: `(ok true)`.
-fn ok_true() -> Value {
-    Value::Response(ResponseData {
-        committed: true,
-        data: Box::new(Value::Bool(true)),
-    })
-}
 
 /// Deploy a chain of N contracts, each calling the previous one's `ping`
 /// function. `contract-0.ping` returns `(ok true)`. `contract-i.ping` calls

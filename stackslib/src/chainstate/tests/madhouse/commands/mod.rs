@@ -20,7 +20,8 @@ pub mod postcond;
 pub mod relay;
 pub mod sip040;
 
-pub use advance::AdvanceToEpoch34;
+use clarity::vm::types::ResponseData;
+use clarity::vm::Value;
 
 use crate::chainstate::tests::consensus::{ExpectedResult, ExpectedTransactionOutput};
 
@@ -67,6 +68,15 @@ pub fn unwrap_block_failure(result: &ExpectedResult, label: &str) {
         panic!("{label}: expected block failure, got: {result:?}");
     };
 }
+/// Expected return value from a successful ping call: `(ok true)`.
+pub fn ok_true() -> Value {
+    Value::Response(ResponseData {
+        committed: true,
+        data: Box::new(Value::Bool(true)),
+    })
+}
+
+pub use advance::AdvanceToEpoch34;
 pub use cross_call::{CallC5ViaC4Caller, VerifyC4DoubleHash, VerifyC5DoubleHash, VerifyC5Prehash};
 pub use depth::{
     CallChainLong, CallChainShort, CallChainTooLong, DeployCallChainLong, DeployCallChainShort,

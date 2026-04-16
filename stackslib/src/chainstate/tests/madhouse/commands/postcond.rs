@@ -20,17 +20,10 @@ use clarity::vm::{ClarityVersion, Value};
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::Strategy;
 
-use super::{unwrap_block_failure, unwrap_single_tx_success};
+use super::{ok_true, unwrap_block_failure, unwrap_single_tx_success};
 use crate::chainstate::tests::consensus::{ConsensusUtils, TestBlock};
 use crate::chainstate::tests::madhouse::context::Epoch33ToEpoch34TestContext;
 use crate::chainstate::tests::madhouse::state::Epoch33ToEpoch34TestState;
-
-fn ok_true() -> Value {
-    Value::Response(ResponseData {
-        committed: true,
-        data: Box::new(Value::Bool(true)),
-    })
-}
 
 fn err_u0() -> Value {
     Value::Response(ResponseData {

@@ -15,13 +15,13 @@
 
 use std::sync::Arc;
 
-use clarity::vm::types::{PrincipalData, ResponseData};
+use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use madhouse::{Command, CommandWrapper};
 use proptest::array::uniform4;
 use proptest::prelude::{any, Just, Strategy};
 
-use super::{unwrap_block_failure, unwrap_multi_tx_success, unwrap_single_tx_success};
+use super::{ok_true, unwrap_block_failure, unwrap_multi_tx_success, unwrap_single_tx_success};
 use crate::chainstate::stacks::{
     AssetInfo, FungibleConditionCode, NonfungibleConditionCode, PostConditionPrincipal,
     TransactionPostCondition, TransactionPostConditionMode,
@@ -46,13 +46,6 @@ const NFT_CONTRACT: &str = "\
 (define-public (burn-stx (amount uint))
     (stx-burn? amount tx-sender))
 ";
-
-fn ok_true() -> Value {
-    Value::Response(ResponseData {
-        committed: true,
-        data: Box::new(Value::Bool(true)),
-    })
-}
 
 /// Build the `AssetInfo` for the NFT contract's `asset` token.
 fn nft_asset_info() -> AssetInfo {
