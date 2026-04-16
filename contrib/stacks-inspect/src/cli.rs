@@ -17,6 +17,23 @@ use clap::{Args, Parser, Subcommand};
 
 /// Structs for commands that call helper functions
 #[derive(Args, Debug, Clone)]
+pub struct RollbackArgs {
+    /// Path to the network-specific working directory (the directory containing
+    /// `chainstate/` and `burnchain/` subdirectories, e.g. `~/.stacks-node/mainnet`).
+    #[arg(value_name = "DB_PATH")]
+    pub db_path: String,
+
+    /// Roll back to this Stacks block height (inclusive).  All blocks at heights
+    /// strictly above this value are removed.
+    #[arg(value_name = "TARGET_HEIGHT")]
+    pub target_height: u64,
+
+    /// Print what would be removed without modifying the database.
+    #[arg(long, default_value_t = false)]
+    pub dry_run: bool,
+}
+
+#[derive(Args, Debug, Clone)]
 pub struct TryMineArgs {
     /// Path to chainstate directory
     pub chainstate_path: String,
@@ -527,6 +544,18 @@ pub enum Command {
         #[arg(value_name = "ADVANTAGES")]
         advantages: Vec<String>,
     },
+
+    // ================ Recovery Commands ================
+    /// Roll back committed chainstate to a target Stacks block height.
+    ///
+    /// Removes all block data above the target height from the chainstate databases.
+    /// Useful for testing upgrade paths, recovering from an unclean shutdown, or
+    /// reverting a failed hardfork upgrade before the activation window closes.
+    ///
+    /// The sortition (burnchain) database is not modified.  After rollback, restart
+    /// the node normally; it will resume syncing from the new tip.
+    #[command(name = "rollback")]
+    Rollback(RollbackArgs),
 
     // ================ Utility Commands ================
     /// Generate peer public key from seed

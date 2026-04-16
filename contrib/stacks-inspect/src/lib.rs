@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod cli;
+pub mod rollback;
 
 use std::io::Write;
 use std::time::Instant;
@@ -23,7 +24,8 @@ use clarity::types::chainstate::SortitionId;
 use clarity::util::hash::{Sha512Trunc256Sum, to_hex};
 use clarity_cli::read_file_or_stdin;
 pub use cli::{
-    ContractHashArgs, ReplayMockMiningArgs, TryMineArgs, ValidateBlockArgs, ValidateBlockMode,
+    ContractHashArgs, ReplayMockMiningArgs, RollbackArgs, TryMineArgs, ValidateBlockArgs,
+    ValidateBlockMode,
 };
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
@@ -1285,4 +1287,80 @@ fn replay_block_nakamoto(
     };
 
     Ok(())
+}
+
+/// Roll back committed chainstate to a target Stacks block height.
+///
+/// All blocks at heights strictly above `args.target_height` are removed from the
+/// chainstate databases.  Exits with code 0 on success and 1 on error.
+///
+/// See [`rollback::chainstate_rollback`] for full documentation of the operation.
+pub fn command_rollback(args: &RollbackArgs) {
+    if args.dry_run {
+        eprintln!(
+            "Dry-run mode: showing what would be removed at heights above {} in {}",
+            args.target_height, args.db_path,
+        );
+    } else {
+        eprintln!(
+            "Rolling back chainstate in {} to height {} …",
+            args.db_path, args.target_height,
+        );
+    }
+
+    match rollback::chainstate_rollback(&args.db_path, args.target_height, args.dry_run) {
+        Ok(stats) => {
+            if args.dry_run {
+                eprintln!("Dry-run complete.  The following rows would be removed:");
+            } else {
+                eprintln!("Rollback complete.  Rows removed:");
+            }
+
+            eprintln!(
+                "  Nakamoto block headers:  {}",
+                stats.nakamoto_blocks_removed
+            );
+            eprintln!("  Epoch 2 block headers:   {}", stats.epoch2_blocks_removed);
+            eprintln!("  MARF trie entries:       {}", stats.marf_entries_removed);
+            eprintln!("  Transactions:            {}", stats.transactions_removed);
+            eprintln!("  Payments:                {}", stats.payments_removed);
+            eprintln!(
+                "  Matured rewards:         {}",
+                stats.matured_rewards_removed
+            );
+            eprintln!(
+                "  Burnchain txids:         {}",
+                stats.burnchain_txids_removed
+            );
+            eprintln!(
+                "  Epoch transitions:       {}",
+                stats.epoch_transitions_removed
+            );
+            eprintln!(
+                "  Nakamoto reward sets:    {}",
+                stats.nakamoto_reward_sets_removed
+            );
+            eprintln!("  Tenure events:           {}", stats.tenure_events_removed);
+            eprintln!(
+                "  Epoch 2 staging blocks:  {}",
+                stats.epoch2_staging_removed
+            );
+            eprintln!(
+                "  Nakamoto staging blocks: {}",
+                stats.nakamoto_staging_removed
+            );
+
+            if !args.dry_run {
+                eprintln!("\nThe sortition database was not modified.");
+                eprintln!(
+                    "Restart the node to resume syncing from height {}.",
+                    args.target_height
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("Rollback failed: {e}");
+            process::exit(1);
+        }
+    }
 }
