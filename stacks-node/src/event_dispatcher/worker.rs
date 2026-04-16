@@ -1,0 +1,467 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
+use std::sync::Arc;
+use std::thread::{self, sleep};
+use std::time::{Duration, SystemTime};
+
+use rand::Rng;
+use stacks::net::http::HttpRequestContents;
+use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
+use stacks::types::net::PeerHost;
+use url::Url;
+
+use crate::event_dispatcher::db::EventDispatcherDbConnection;
+#[cfg(test)]
+use crate::event_dispatcher::TEST_EVENT_OBSERVER_SKIP_RETRY;
+use crate::event_dispatcher::{EventDispatcherError, EventRequestData};
+
+struct PayloadInfo {
+    /// The id of the payload data in the event observer DB. It must exist.
+    id: i64,
+    /// If true, the HTTP request is only attempted once.
+    disable_retries: bool,
+    /// A value for the HTTP timeout is stored in the DB, but can optionally be overridden.
+    timeout_override: Option<Duration>,
+}
+
+enum WorkerTask {
+    Payload(PayloadInfo),
+    #[cfg(test)]
+    NoOp,
+}
+struct WorkerMessage {
+    task: WorkerTask,
+    /// The worker thread will send a message on this channel once it's done with this request.
+    completion: Sender<()>,
+}
+
+/// The return type of `initiate_send()`. If the caller of that method just wishes to move
+/// on, they can happily drop this result. This is the behavior for most event deliveries.
+///
+/// On the other hand, if they wish to block until the HTTP request was successfully sent
+/// (or, in the case of `disable_retries`, at least attempted), they can call
+/// `.wait_until_complete()`. This is what happens during `process_pending_payloads()` at
+/// startup. Note that it's possible that other requests are in the queue, so the blocking
+/// may take longer than only the handling of this very request.
+pub struct EventDispatcherResult {
+    /// The worker thread will send a one-time message to this channel to notify of completion.
+    /// Afterwards, it will drop the sender and thus close the channel. If this is `None`, then
+    /// the operation is already complete, and `wait_until_complete` returns immediately.
+    receiver: Option<Receiver<()>>,
+}
+
+impl EventDispatcherResult {
+    pub fn wait_until_complete(self) {
+        let Some(receiver) = self.receiver else {
+            return;
+        };
+        // There is no codepath that would drop the sender without sending the acknowledgenent
+        // first. And this method consumes `self`, so it can only be called once.
+        // So if despite all that, `recv()` returns an error, that means the worker thread panicked.
+        receiver
+            .recv()
+            .expect("EventDispatcherWorker thread has terminated mid-operation");
+    }
+}
+
+/// This worker is responsible for making the actual HTTP requests that ultimately result
+/// from dispatching events to observers. It makes those requests on a dedicated separate
+/// thread so that e.g. a slow event observer doesn't block a node from continuing its work.
+///
+/// Call `EventDispatcherWorker::new()` to create.
+///
+/// Call `initiate_send()` with the id of the payload (in the event observer DB) to enqueue.
+///
+/// Cloning the `EventDispatcherWorker` does *not* create a new thread -- both the original and
+/// the clone will share a single queue and worker thread.
+///
+/// Once the `EventDispatcherWorker` (including any clones) is dropped, the worker thread will
+/// finish any enqueued work and then shut down.
+#[derive(Clone)]
+pub struct EventDispatcherWorker {
+    sender: SyncSender<WorkerMessage>,
+    must_block: bool,
+}
+
+static NEXT_THREAD_NUM: AtomicU64 = AtomicU64::new(1);
+
+impl EventDispatcherWorker {
+    /// The custom queue size indicates how many requests are allowed to be pending (i.e. not
+    /// complete) before a call to initiate_send starts blocking. A value of 0 thus means that
+    /// every request blocks.
+    pub fn new(
+        db_path: PathBuf,
+        queue_size: usize,
+    ) -> Result<EventDispatcherWorker, EventDispatcherError> {
+        // If the channel bound is 0, then the send operation will
+        // block until the *message was received*, not until the
+        // payload was sent. Only the next send will then block (until
+        // the previous request was completed).
+        //
+        // In other words, the channel's bound has to be one less than
+        // the desired queue size. If the queue size is 0, then the bound
+        // is also set to zero, and *in addition* we block until the
+        // request has happend.
+
+        let channel_bound = if queue_size > 0 { queue_size - 1 } else { 0 };
+        let must_block = queue_size == 0;
+
+        let (message_tx, message_rx) = sync_channel(channel_bound);
+        let (ready_tx, ready_rx) = channel();
+
+        let thread_num = NEXT_THREAD_NUM.fetch_add(1, Ordering::SeqCst);
+
+        thread::Builder::new()
+            .name(format!("event-dispatcher-{thread_num}").to_string())
+            .spawn(move || {
+                let conn = match EventDispatcherDbConnection::new(&db_path) {
+                    Ok(conn) => conn,
+                    Err(err) => {
+                        error!("Event Dispatcher Worker: Unable to open DB, terminating worker thread: {err}");
+                        ready_tx.send(Err(err)).unwrap();
+                        return;
+                    }
+                };
+
+                if let Err(err) = ready_tx.send(Ok(())) {
+                    // If the sending fails (i.e. the receiver has been dropped), that means a logic bug
+                    // has been introduced to the code -- at time of writing, the main function is waiting
+                    // for this message a few lines down, outside the thread closure.
+                    panic!(
+                        "Event Dispatcher Worker: Unable to send ready state. This is a bug. {err}"
+                    );
+                }
+
+                // this will run forever until the messaging channel is closed
+                Self::main_thread_loop(conn, message_rx);
+            })
+            .unwrap();
+
+        // note double question mark, deals with both the channel RecvError and whatever error
+        // might be sent across that channel
+        ready_rx.recv()??;
+
+        Ok(EventDispatcherWorker {
+            sender: message_tx,
+            must_block,
+        })
+    }
+
+    /// Let the worker know that it should send the request that is stored in the DB under the given
+    /// ID, and delete that DB entry once it's done.
+    ///
+    /// A successful result only means that the request was successfully enqueued, not that it was
+    /// actually made. If you need to wait until the latter has happened, call `wait_until_complete()`
+    /// on the returned `EventDispatcherResult`.
+    ///
+    /// The worker has a limited queue size (1000 by default). If the queue is already full, the
+    /// call to `initiate_send()` will block until space has become available.
+    pub fn initiate_send(
+        &self,
+        id: i64,
+        disable_retries: bool,
+        timeout_override: Option<Duration>,
+    ) -> Result<EventDispatcherResult, EventDispatcherError> {
+        let (sender, receiver) = channel();
+        debug!("Event Dispatcher Worker: sending payload {id}");
+
+        self.sender.send(WorkerMessage {
+            task: WorkerTask::Payload(PayloadInfo {
+                id,
+                disable_retries,
+                timeout_override,
+            }),
+            completion: sender,
+        })?;
+
+        let result = EventDispatcherResult {
+            receiver: Some(receiver),
+        };
+
+        if !self.must_block {
+            return Ok(result);
+        }
+
+        result.wait_until_complete();
+
+        let result = EventDispatcherResult { receiver: None };
+        Ok(result)
+    }
+
+    #[cfg(test)]
+    pub fn noop(&self) -> Result<EventDispatcherResult, EventDispatcherError> {
+        let (sender, receiver) = channel();
+        debug!("Event Dispatcher Worker: sending no-op");
+
+        self.sender.send(WorkerMessage {
+            task: WorkerTask::NoOp,
+            completion: sender,
+        })?;
+
+        // we're ignoring `must_block` here -- the only point of `noop()` is to call
+        // `wait_until_complete()` immedately anyway, so we'll let the caller do that.
+
+        Ok(EventDispatcherResult {
+            receiver: Some(receiver),
+        })
+    }
+
+    fn main_thread_loop(conn: EventDispatcherDbConnection, message_rx: Receiver<WorkerMessage>) {
+        // main loop of the thread -- get message from channel, grab data from DB, send request,
+        // delete from DB, acknowledge
+        loop {
+            let Ok(WorkerMessage { task, completion }) = message_rx.recv() else {
+                info!("Event Dispatcher Worker: channel closed, terminating worker thread.");
+                return;
+            };
+
+            let PayloadInfo {
+                id,
+                disable_retries,
+                timeout_override,
+            } = match task {
+                WorkerTask::Payload(p) => p,
+
+                #[cfg(test)]
+                WorkerTask::NoOp => {
+                    // just ack and move on
+                    debug!("Event Dispatcher Worker: doing no-op");
+                    let _ = completion.send(());
+                    continue;
+                }
+            };
+
+            debug!("Event Dispatcher Worker: doing payload {id}");
+
+            // This should never happen -- we should only receive tasks for payloads that exist. If we don't,
+            // that's inconsistent application state and warrants panicking the worker thread and thus shutting
+            // down the node.
+            let mut payload = conn
+                .get_payload_with_retry(id)
+                .expect("Event dispatcher cannot dispatch non-existent payload. This is a bug.");
+
+            // Deliberately not handling the error case of `duration_since()` -- if the `timestamp`
+            // is *after* `now` (which should be extremely rare), the most likely reason is a *slight*
+            // adjustment to the the system clock (e.g. NTP sync) that happened between storing the
+            // entity and retrieving it, and that should be fine.
+            // If there was a *major* adjustment, all bets are off anyway. You shouldn't mess with your
+            // clock on a server running a node.
+            if payload.timestamp + Duration::from_secs(5 * 60) < SystemTime::now() {
+                warn!(
+                    "Event Dispatcher Worker: Event payload transmitting more than 5 minutes after event";
+                    "timestamp" => format!("{:?}", payload.timestamp),
+                    "id"=> id
+                );
+            }
+
+            if let Some(timeout_override) = timeout_override {
+                payload.request_data.timeout = timeout_override;
+            }
+
+            Self::make_http_request_and_delete_from_db(
+                &payload.request_data,
+                disable_retries,
+                id,
+                &conn,
+            );
+
+            // We're ignoring the result of this call -- if the requester has dropped the receiver
+            // in the meantime, that's fine. That is the usual case of fire-and-forget calls.
+            let _ = completion.send(());
+        }
+    }
+
+    fn make_http_request_and_delete_from_db(
+        data: &EventRequestData,
+        disable_retries: bool,
+        id: i64,
+        conn: &EventDispatcherDbConnection,
+    ) {
+        let http_result = Self::make_http_request(data, disable_retries);
+
+        if let Err(err) = http_result {
+            // log but continue
+            error!("EventDispatcher: dispatching failed"; "url" => data.url.clone(), "error" => ?err);
+        }
+
+        #[cfg(test)]
+        if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
+            warn!("Fault injection: skipping deletion of payload");
+            return;
+        }
+
+        // We're deleting regardless of result -- if retries are disabled, that means
+        // we're supposed to forget about it in case of failure. If they're not disabled,
+        // then we wouldn't be here in case of failue, because `make_http_request` retries
+        // until it's successful (with the exception of the above fault injection which
+        // simulates a shutdown).
+        let deletion_result = conn.delete_payload(id);
+
+        if let Err(e) = deletion_result {
+            error!(
+                "Event observer: failed to delete pending payload from database";
+                "error" => ?e
+            );
+        }
+    }
+
+    fn make_http_request(
+        data: &EventRequestData,
+        disable_retries: bool,
+    ) -> Result<(), EventDispatcherError> {
+        debug!(
+            "Event dispatcher: Sending payload"; "url" => &data.url, "bytes" => data.payload_bytes.len()
+        );
+
+        let url = Url::parse(&data.url)
+            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", data.url));
+
+        let host = url.host_str().expect("Invalid URL: missing host");
+        let port = url.port_or_known_default().unwrap_or(80);
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or(PeerHost::DNS(host.to_string(), port));
+
+        let mut backoff = Duration::from_millis(100);
+        let mut attempts: i32 = 0;
+        // Cap the backoff at 3x the timeout
+        let max_backoff = data.timeout.saturating_mul(3);
+
+        loop {
+            let mut request = StacksHttpRequest::new_for_peer(
+                peerhost.clone(),
+                "POST".into(),
+                url.path().into(),
+                HttpRequestContents::new().payload_json_bytes(Arc::clone(&data.payload_bytes)),
+            )
+            .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+            request.add_header("Connection".into(), "close".into());
+            match send_http_request(host, port, request, data.timeout) {
+                Ok(response) => {
+                    if response.preamble().status_code == 200 {
+                        debug!(
+                            "Event dispatcher: Successful POST"; "url" => %url
+                        );
+                        break;
+                    } else {
+                        error!(
+                            "Event dispatcher: Failed POST"; "url" => %url, "response" => ?response.preamble()
+                        );
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        "Event dispatcher: connection or request failed to {host}:{port} - {err:?}";
+                        "backoff" => ?backoff,
+                        "attempts" => attempts
+                    );
+                    if disable_retries {
+                        warn!("Observer is configured in disable_retries mode: skipping retry of payload");
+                        return Err(err.into());
+                    }
+                    #[cfg(test)]
+                    if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
+                        warn!("Fault injection: skipping retry of payload");
+                        return Err(err.into());
+                    }
+                }
+            }
+
+            sleep(backoff);
+            let jitter: u64 = rand::thread_rng().gen_range(0..100);
+            backoff = std::cmp::min(
+                backoff.saturating_mul(2) + Duration::from_millis(jitter),
+                max_backoff,
+            );
+            attempts = attempts.saturating_add(1);
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::panic;
+    use std::sync::mpsc::RecvTimeoutError;
+
+    use serial_test::serial;
+    use tempfile::tempdir;
+
+    use crate::event_dispatcher::*;
+
+    #[test]
+    #[serial]
+    fn test_worker_dies_if_sent_non_existing_id() {
+        let dir = tempdir().unwrap();
+        let dispatcher =
+            EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 1000);
+
+        // Set up a panic hook that sends us error messages -- we're asserting that a panic occurs
+        // in a background thread, hence this detour. This is important because event dispatching is
+        // often a fire-and-forget operation and thus errors aren't necessarily propagated as usual.
+        let old_hook = panic::take_hook();
+        let (tx, rx) = channel();
+        panic::set_hook(Box::new(move |info| {
+            let error = info
+                .payload_as_str()
+                .unwrap_or("NO ERROR MESSAGE")
+                .to_string();
+            let _ = tx.send(error);
+            old_hook(info);
+        }));
+
+        info!("Sending id to worker for which there is no payload. Expecting dispatcher thread to panic.");
+
+        // The DB is empty, so payload 42 certainly doesn't exist. This should make the worker thread
+        // panic. Calling .recv() on the result's receiver will therefore be an error. Before the change
+        // that this test is accompanying, the worker thread would instead block forever in such a case.
+        // That's the reason we have the explicit timeout handling here -- a timeout would *not* be a
+        // correct result (anymore).
+        let result = dispatcher.worker.initiate_send(42, false, None).unwrap();
+        let recv_result = result
+            .receiver
+            .unwrap()
+            .recv_timeout(Duration::from_secs(20));
+
+        match recv_result {
+            Ok(_) => {
+                panic!("receiving from the event dispatcher result receiver should yield an error")
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("timeout while waiting for the worker thread to die")
+            }
+            Err(RecvTimeoutError::Disconnected) => { /* this is the expected case --  */ }
+        };
+
+        // An identical call to `initiate_send` should now be an error because the worker has died.
+        assert!(
+            dispatcher.worker.initiate_send(42, false, None).is_err(),
+            "second event dispatcher result should be an error"
+        );
+
+        // The panic hook should have sent us the error message from the panic in the worker thread
+        assert!(
+            rx.recv_timeout(Duration::from_secs(20))
+                .is_ok_and(|s| s.contains("cannot dispatch non-existent payload")),
+            "expected thread panic did not happen"
+        );
+    }
+}

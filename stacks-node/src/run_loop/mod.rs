@@ -171,7 +171,7 @@ pub struct RegisteredKey {
 }
 
 pub fn announce_boot_receipts(
-    event_dispatcher: &mut EventDispatcher,
+    event_dispatcher: &EventDispatcher,
     chainstate: &StacksChainState,
     pox_constants: &PoxConstants,
     boot_receipts: &[StacksTransactionReceipt],
