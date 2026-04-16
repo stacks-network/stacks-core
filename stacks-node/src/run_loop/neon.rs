@@ -29,16 +29,15 @@ use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
 use stx_genesis::GenesisData;
 
-use super::RunLoopCallbacks;
 use crate::burnchains::{make_bitcoin_indexer, Error};
+use crate::genesis::{
+    get_account_balances, get_account_lockups, get_names, get_namespaces,
+    use_test_genesis_chainstate,
+};
 use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::neon_node::{
     LeaderKeyRegistrationState, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER,
-};
-use crate::node::{
-    get_account_balances, get_account_lockups, get_names, get_namespaces,
-    use_test_genesis_chainstate,
 };
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
@@ -270,7 +269,6 @@ impl Counters {
 /// Coordinating a node running in neon mode.
 pub struct RunLoop {
     config: Config,
-    pub callbacks: RunLoopCallbacks,
     globals: Option<Globals>,
     counters: Counters,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
@@ -324,7 +322,6 @@ impl RunLoop {
             config,
             globals: None,
             coordinator_channels: Some(channels),
-            callbacks: RunLoopCallbacks::new(),
             counters: Counters::default(),
             should_keep_running,
             event_dispatcher,

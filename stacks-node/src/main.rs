@@ -22,11 +22,10 @@ pub mod globals;
 pub mod keychain;
 pub mod nakamoto_node;
 pub mod neon_node;
-pub mod node;
+pub mod genesis;
 pub mod operations;
 pub mod run_loop;
 pub mod syncctl;
-pub mod tenure;
 
 use std::collections::HashMap;
 use std::{env, panic, process};
@@ -46,10 +45,9 @@ use tikv_jemallocator::Jemalloc;
 
 pub use self::burnchains::{BitcoinRegtestController, BurnchainController, BurnchainTip};
 pub use self::event_dispatcher::EventDispatcher;
+pub use self::genesis::ChainTip;
 pub use self::keychain::Keychain;
-pub use self::node::{ChainTip, Node};
-pub use self::run_loop::{helium, neon};
-pub use self::tenure::Tenure;
+pub use self::run_loop::neon;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 
@@ -299,10 +297,6 @@ fn main() {
     }
 
     let config_file = match subcommand.as_str() {
-        "helium" => {
-            args.finish();
-            ConfigFile::helium()
-        }
         "testnet" => {
             args.finish();
             ConfigFile::xenon()
@@ -421,14 +415,7 @@ fn main() {
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
 
-    let num_round: u64 = 0; // Infinite number of rounds
-
-    if conf.burnchain.mode == "helium" {
-        let mut run_loop = helium::RunLoop::new(conf);
-        if let Err(e) = run_loop.start(num_round) {
-            warn!("Helium runloop exited: {e}");
-        }
-    } else if conf.burnchain.mode == "neon"
+    if conf.burnchain.mode == "neon"
         || conf.burnchain.mode == "nakamoto-neon"
         || conf.burnchain.mode == "xenon"
         || conf.burnchain.mode == "krypton"
@@ -459,15 +446,6 @@ stacks-node <SUBCOMMAND>
 SUBCOMMANDS:
 
 mainnet\t\tStart a node that will join and stream blocks from the public mainnet.
-
-helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
-\t\tThe following bitcoin.conf is expected:
-\t\t  chain=regtest
-\t\t  disablewallet=0
-\t\t  txindex=1
-\t\t  server=1
-\t\t  rpcuser=helium
-\t\t  rpcpassword=helium
 
 testnet\t\tStart a node that will join and stream blocks from the public testnet, relying on Bitcoin Testnet.
 
