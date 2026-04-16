@@ -185,6 +185,13 @@ pub fn increment_errors_emitted_counter() {
     prometheus::ERRORS_EMITTED_COUNTER.inc();
 }
 
+pub fn increment_unreachable_errors_counter(_error_type: &str) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::UNREACHABLE_ERRORS_COUNTER
+        .with_label_values(&[_error_type])
+        .inc();
+}
+
 fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError> {
     let mut path = PathBuf::from(chainstate_root_path);
 
