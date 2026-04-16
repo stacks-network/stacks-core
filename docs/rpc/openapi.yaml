@@ -95,6 +95,8 @@ components:
       $ref: ./components/schemas/pox-info.schema.yaml
     Sortitions:
       $ref: ./components/schemas/sortitions.schema.yaml
+    Sortition:
+      $ref: ./components/schemas/sortition.schema.yaml
     GetHealth:
       $ref: ./components/schemas/get-health.schema.yaml
     AccountData:
@@ -159,6 +161,8 @@ components:
       $ref: ./components/schemas/block-replay-transaction-contract-event.schema.yaml
 
     # Other Schemas
+    ClarityType:
+      $ref: ./components/schemas/clarity-type.schema.yaml
     SignerBlocksSigned:
       $ref: ./components/schemas/signer-blocks-signed.schema.yaml
     UnconfirmedTransaction:
@@ -185,6 +189,8 @@ components:
       $ref: ./components/schemas/block-proposal.schema.yaml
     NetworkPeers:
       $ref: ./components/schemas/network-peers.schema.yaml
+    RPCNeighbor:
+      $ref: ./components/schemas/rpc-neighbor.schema.yaml
     TransactionInfo:
       $ref: ./components/schemas/get-transaction.schema.yaml
     TenureForkInfo:

@@ -8,113 +8,6 @@ required:
   - non_fungible_tokens
   - epoch
   - clarity_version
-
-$defs:
-  ClarityType:
-    description: "Represents a Clarity type. It can be a simple string for primitive types or a nested object for complex types like lists and tuples."
-    oneOf:
-      - type: string
-        description: "Simple primitive type (e.g., 'int', 'uint', 'bool', 'principal')"
-      - type: object
-        description: "List type"
-        required:
-          - list
-        properties:
-          list:
-            type: object
-            required:
-              - type
-            properties:
-              type:
-                $ref: "#/$defs/ClarityType"
-                description: "Type of list elements"
-              length:
-                type: integer
-                description: "Fixed length for list types"
-      - type: object
-        description: "Tuple type"
-        required:
-          - tuple
-        properties:
-          tuple:
-            type: array
-            items:
-              type: object
-              required:
-                - name
-                - type
-              properties:
-                name:
-                  type: string
-                  description: "Field name in the tuple"
-                type:
-                  $ref: "#/$defs/ClarityType"
-                  description: "Type of the tuple field"
-      - type: object
-        description: "Response type"
-        required:
-          - response
-        properties:
-          response:
-            type: object
-            required:
-              - ok
-              - error
-            properties:
-              ok:
-                $ref: "#/$defs/ClarityType"
-                description: "Success type"
-              error:
-                $ref: "#/$defs/ClarityType"
-                description: "Error type"
-      - type: object
-        description: "Optional type"
-        required:
-          - optional
-        properties:
-          optional:
-            $ref: "#/$defs/ClarityType"
-            description: "Wrapped optional type"
-      - type: object
-        description: "Buffer type"
-        required:
-          - buffer
-        properties:
-          buffer:
-            type: object
-            required:
-              - length
-            properties:
-              length:
-                type: integer
-                description: "Fixed length for buffer types"
-      - type: object
-        description: "ASCII string type with fixed maximum length"
-        required:
-          - string-ascii
-        properties:
-          string-ascii:
-            type: object
-            required:
-              - length
-            properties:
-              length:
-                type: integer
-                description: "Maximum number of characters (ASCII)"
-      - type: object
-        description: "UTF-8 string type with fixed maximum length"
-        required:
-          - string-utf8
-        properties:
-          string-utf8:
-            type: object
-            required:
-              - length
-            properties:
-              length:
-                type: integer
-                description: "Maximum number of code-points (UTF-8)"
-
 properties:
   functions:
     type: array
@@ -137,13 +30,13 @@ properties:
               name:
                 type: string
               type:
-                $ref: "#/$defs/ClarityType"
+                $ref: "./clarity-type.schema.yaml"
         outputs:
           type: object
           required: [type]
           properties:
             type:
-              $ref: "#/$defs/ClarityType"
+              $ref: "./clarity-type.schema.yaml"
   variables:
     type: array
     description: List of defined constants
@@ -154,7 +47,7 @@ properties:
         name:
           type: string
         type:
-          $ref: "#/$defs/ClarityType"
+          $ref: "./clarity-type.schema.yaml"
         access:
           type: string
           enum: [constant, variable]
@@ -168,9 +61,9 @@ properties:
         name:
           type: string
         key:
-          $ref: "#/$defs/ClarityType"
+          $ref: "./clarity-type.schema.yaml"
         value:
-          $ref: "#/$defs/ClarityType"
+          $ref: "./clarity-type.schema.yaml"
   fungible_tokens:
     type: array
     description: List of fungible tokens in the contract
@@ -190,7 +83,7 @@ properties:
         name:
           type: string
         type:
-          $ref: "#/$defs/ClarityType"
+          $ref: "./clarity-type.schema.yaml"
   epoch:
     type: string
     description: Stacks epoch identifier (e.g., "Epoch30").
