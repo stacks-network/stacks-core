@@ -1,0 +1,1 @@
+Removed `helium` network mode and its legacy Stacks 2.x run loop. This included the `Node` struct, `Tenure` struct, `RunLoopCallbacks`, and related test infrastructure incompatible with Epoch 3 (Nakamoto). Shared genesis utilities relocated to `genesis.rs`. Use [Clarinet](https://github.com/hirosystems/clarinet) or `nakamoto-neon` mode for local development.

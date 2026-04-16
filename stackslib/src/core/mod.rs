@@ -232,7 +232,7 @@ pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
     write_count: 50_000,
     read_length: 1_000_000_000,
     read_count: 50_000,
-    // allow much more runtime in helium blocks than mainnet
+    // allow much more runtime in regtest blocks than mainnet
     runtime: 100_000_000_000,
 };
 
