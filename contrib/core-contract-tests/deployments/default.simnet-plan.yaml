@@ -123,6 +123,11 @@ plan:
       path: contracts/pox-5.clar
       clarity-version: 4
     - transaction-type: emulated-contract-publish
+      contract-name: pox-5-indirect
+      emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+      path: contracts/pox-5-indirect.clar
+      clarity-version: 4
+    - transaction-type: emulated-contract-publish
       contract-name: test-pox-5-pool
       emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
       path: contracts/test-pox-5-pool.clar

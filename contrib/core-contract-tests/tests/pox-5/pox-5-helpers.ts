@@ -16,6 +16,7 @@ import { randomPoxAddress } from '../test-helpers';
 
 const contracts = projectFactory(project, 'simnet');
 export const pox5 = contracts.pox5;
+export const pox5Indirect = contracts.pox5Indirect;
 export const errorCodes = projectErrors(project).pox5;
 export const testPool = contracts.testPox5Pool;
 
@@ -192,8 +193,6 @@ export function registerPool({
       poolOwner: testPool.identifier,
       signerKey,
       poxAddr: addr,
-      signerSig: new Uint8Array(65),
-      authId: 0,
     }),
     caller,
   );

@@ -17,6 +17,7 @@ import {
 } from '../test-helpers';
 import {
   pox5,
+  pox5Indirect,
   errorCodes,
   testPool,
   createSignerKeyGrant,
@@ -120,7 +121,14 @@ describe('staking', () => {
       const stackers = getAllStackersForCycle(BigInt(startCycle + i));
       expect(stackers).toHaveLength(1);
       expect(stackers[0]).toBe(stacker);
+      expect(rov(pox5.getTotalUstxStacked(BigInt(startCycle + i)))).toBe(
+        minAmount,
+      );
     }
+    expect(rov(pox5.getTotalUstxStacked(0n))).toBe(0n);
+    expect(rov(pox5.getTotalUstxStacked(BigInt(startCycle + numCycles)))).toBe(
+      0n,
+    );
     expect(
       rov(pox5.getStakerSetItemForCycle({ staker: stacker, cycle: 0n })),
     ).toBeNull();
@@ -692,6 +700,7 @@ describe('staking', () => {
           }),
         ),
       ).not.toBeNull();
+      expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount);
     });
 
     test('can switch from solo to pooled via stake-extend-pooled', () => {
@@ -776,14 +785,233 @@ describe('staking', () => {
             version: Uint8Array.from([0x07]),
             hashbytes: randomBytes(32),
           },
-          signerSig: randomBytes(65),
-          authId: 0,
         }),
         deployer,
       );
 
       expect(result.value).toEqual(errorCodes.ERR_INVALID_POX_ADDRESS);
     });
+  });
+});
+
+describe('get-total-ustx-stacked', () => {
+  beforeEach(() => {
+    txOk(
+      pox5.setBurnchainParameters({
+        firstBurnHeight: 0n,
+        prepareCycleLength: 10n,
+        rewardCycleLength: 100n,
+        beginPox5RewardCycle: 0n,
+      }),
+      deployer,
+    );
+  });
+
+  test('returns zero for cycles with no stakers', () => {
+    expect(rov(pox5.getTotalUstxStacked(0n))).toBe(0n);
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(0n);
+    expect(rov(pox5.getTotalUstxStacked(100n))).toBe(0n);
+  });
+
+  test('accumulates totals from multiple stakers in the same cycle', () => {
+    const { signerKey: aliceKey } = setupSigner(alice);
+    const { signerKey: bobKey } = setupSigner(bob);
+    const aliceAmount = minAmount;
+    const bobAmount = minAmount + 500000n;
+
+    txOk(
+      pox5.stake({
+        amountUstx: aliceAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey: aliceKey,
+        maxAmount: aliceAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    txOk(
+      pox5.stake({
+        amountUstx: bobAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey: bobKey,
+        maxAmount: bobAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      bob,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(aliceAmount + bobAmount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(aliceAmount);
+  });
+
+  test('stake-extend adds to new cycle totals', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+    const amount = minAmount;
+
+    const stakeReceipt = txOk(
+      pox5.stake({
+        amountUstx: amount,
+        poxAddr,
+        signerKey,
+        maxAmount: amount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(amount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(0n);
+
+    mineUntil(stakeReceipt.value.unlockBurnHeight);
+
+    txOk(
+      pox5.stakeExtend({
+        amountUstx: amount,
+        numCycles: 1,
+        poxAddr,
+        signerKey,
+        signerSig: null,
+        maxAmount: amount,
+        authId: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(amount);
+  });
+
+  test('stake-update correctly increases cycle totals', () => {
+    const { signerKey } = setupSigner(alice);
+    const initialAmount = minAmount;
+    const increase = 250000n;
+
+    txOk(
+      pox5.stake({
+        amountUstx: initialAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey,
+        maxAmount: initialAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(initialAmount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(initialAmount);
+
+    const { signerKey: nextKey } = setupSigner(alice);
+    txOk(
+      pox5.stakeUpdate({
+        amountUstxIncrease: increase,
+        poxAddr: randomPoxAddress(),
+        signerKey: nextKey,
+        signerSig: null,
+        authId: 1,
+        maxAmount: initialAmount + increase,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(initialAmount + increase);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(initialAmount + increase);
+  });
+
+  test('pooled staking tracks cycle totals', () => {
+    registerPool({ caller: deployer });
+
+    txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(minAmount);
+    expect(rov(pox5.getTotalUstxStacked(3n))).toBe(0n);
+  });
+
+  test('stake-update-pooled correctly increases cycle totals', () => {
+    registerPool({ caller: deployer });
+    const increase = 500000n;
+
+    txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount);
+
+    txOk(
+      pox5.stakeUpdatePooled({
+        poolOwner: testPool.identifier,
+        amountUstxIncrease: increase,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount + increase);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(minAmount + increase);
+  });
+
+  test('stake-extend-pooled adds to new cycle totals', () => {
+    registerPool({ caller: deployer });
+
+    const pooledStake = txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(0n);
+
+    mineUntil(pooledStake.value.unlockBurnHeight);
+
+    txOk(
+      pox5.stakeExtendPooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(minAmount);
   });
 });
 
@@ -1476,8 +1704,6 @@ describe('per-transaction signer signatures', () => {
         poolOwner: testPool.identifier,
         signerKey,
         poxAddr: randomPoxAddress(),
-        signerSig: new Uint8Array(65),
-        authId: 0,
       }),
       deployer,
     );
@@ -1551,4 +1777,415 @@ test('can create the correct output script for a timelock', () => {
   expect(hex.encode(outputScript)).toBe(
     '16051ab3c07a68e5c485f50274b21b2bafc7aa7738bd447502e803b17504deadbeef',
   );
+});
+
+test('pox-addr cannot have an empty version byte', () => {
+  const result = rovErr(
+    pox5.checkPoxAddr({
+      poxAddr: {
+        version: new Uint8Array([0]),
+        hashbytes: new Uint8Array([0]),
+      },
+    }),
+  );
+  expect(result).toEqual(errorCodes.ERR_INVALID_POX_ADDRESS);
+});
+
+describe('contract-caller allowance', () => {
+  beforeEach(() => {
+    txOk(
+      pox5.setBurnchainParameters({
+        firstBurnHeight: 0n,
+        prepareCycleLength: 10n,
+        rewardCycleLength: 100n,
+        beginPox5RewardCycle: 0n,
+      }),
+      deployer,
+    );
+  });
+
+  const wrapper = pox5Indirect.identifier;
+
+  test('stake via wrapper fails without allowance, succeeds with allowance', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+
+    const result = txErr(
+      pox5Indirect.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
+
+    const ok = txOk(
+      pox5Indirect.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(ok.value.stacker).toBe(alice);
+  });
+
+  test('stake-pooled via wrapper fails without allowance, succeeds with allowance', () => {
+    registerPool({ caller: deployer });
+
+    const result = txErr(
+      pox5Indirect.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
+
+    const ok = txOk(
+      pox5Indirect.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+    expect(ok.value.stacker).toBe(alice);
+  });
+
+  test('stake-extend via wrapper fails without allowance, succeeds with allowance', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+    const unlockBytes = randomBytes(255);
+
+    const stakeResult = txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes,
+      }),
+      alice,
+    );
+    mineUntil(stakeResult.value.unlockBurnHeight);
+
+    const result = txErr(
+      pox5Indirect.stakeExtend({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+        numCycles: 1,
+        unlockBytes,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
+
+    const ok = txOk(
+      pox5Indirect.stakeExtend({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+        numCycles: 1,
+        unlockBytes,
+      }),
+      alice,
+    );
+    expect(ok.value.stacker).toBe(alice);
+  });
+
+  test('stake-extend-pooled via wrapper fails without allowance, succeeds with allowance', () => {
+    registerPool({ caller: deployer });
+
+    const stakeResult = txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+    mineUntil(stakeResult.value.unlockBurnHeight);
+
+    const result = txErr(
+      pox5Indirect.stakeExtendPooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
+
+    const ok = txOk(
+      pox5Indirect.stakeExtendPooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(ok.value.stacker).toBe(alice);
+  });
+
+  test('stake-update via wrapper fails without allowance, succeeds with allowance', () => {
+    const { signerKey } = setupSigner(alice);
+    txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    const { signerKey: newSignerKey } = setupSigner(alice);
+    const newPoxAddr = randomPoxAddress();
+
+    const result = txErr(
+      pox5Indirect.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr: newPoxAddr,
+        signerKey: newSignerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
+
+    const ok = txOk(
+      pox5Indirect.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr: newPoxAddr,
+        signerKey: newSignerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+      }),
+      alice,
+    );
+    expect(ok.value.amountUstx).toBe(minAmount + 1n);
+  });
+
+  test('stake-update-pooled via wrapper fails without allowance, succeeds with allowance', () => {
+    registerPool({ caller: deployer });
+    txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+
+    const result = txErr(
+      pox5Indirect.stakeUpdatePooled({
+        poolOwner: testPool.identifier,
+        amountUstxIncrease: 1,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
+
+    const ok = txOk(
+      pox5Indirect.stakeUpdatePooled({
+        poolOwner: testPool.identifier,
+        amountUstxIncrease: 1,
+      }),
+      alice,
+    );
+    expect(ok.value.amountUstx).toBe(minAmount + 1n);
+  });
+
+  test('register-pool via wrapper fails without allowance, succeeds with allowance', () => {
+    const { signerKey } = setupSigner(deployer);
+    const poxAddr = randomPoxAddress();
+
+    const result = txErr(
+      pox5Indirect.registerPool({
+        poolOwner: testPool.identifier,
+        signerKey,
+        poxAddr,
+        signerSig: new Uint8Array(65),
+        authId: 0,
+      }),
+      deployer,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      deployer,
+    );
+
+    const ok = txOk(
+      pox5Indirect.registerPool({
+        poolOwner: testPool.identifier,
+        signerKey,
+        poxAddr,
+        signerSig: new Uint8Array(65),
+        authId: 0,
+      }),
+      deployer,
+    );
+    expect(ok.value.owner).toBe(testPool.identifier);
+  });
+
+  test('revoke-signer-grant via wrapper fails without allowance, succeeds with allowance', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const addr = signerAddress(signerKey);
+
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: null,
+      authId: 0n,
+    });
+
+    const result = txErr(
+      pox5Indirect.revokeSignerGrant({ staker: alice, signerKey }),
+      addr,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      addr,
+    );
+
+    const ok = txOk(
+      pox5Indirect.revokeSignerGrant({ staker: alice, signerKey }),
+      addr,
+    );
+    expect(ok.value).toBe(true);
+  });
+
+  test('allowance with expiration: stake then stake-update via wrapper', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+
+    // Allow the wrapper until burn height 50
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: 50 }), alice);
+
+    txOk(
+      pox5Indirect.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    // stake-update also works before expiration
+    const { signerKey: newSignerKey } = setupSigner(alice);
+    txOk(
+      pox5Indirect.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr,
+        signerKey: newSignerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+      }),
+      alice,
+    );
+
+    // Mine past the expiration
+    mineUntil(51);
+
+    // Now stake-update via wrapper should fail
+    const { signerKey: anotherSignerKey } = setupSigner(alice);
+    const result = txErr(
+      pox5Indirect.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr,
+        signerKey: anotherSignerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 2,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+  });
 });
