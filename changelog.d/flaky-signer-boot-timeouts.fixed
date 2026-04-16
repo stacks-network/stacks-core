@@ -1,0 +1,1 @@
+Fixed flaky `miner_stackerdb_version_rollover` and `multiple_miners_mock_sign_epoch_25` integration tests by increasing polling frequency in `wait_for_registered` and extending the reward set calculation timeout in `boot_to_epoch_25_reward_cycle` to match `boot_to_epoch_3`
