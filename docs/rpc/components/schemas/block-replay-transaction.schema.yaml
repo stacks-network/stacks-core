@@ -1,7 +1,7 @@
 type: object
 properties:
   data:
-    type: object
+    type: [object, "null"]
     description: JSON representation of the transaction payload
   events:
     type: array

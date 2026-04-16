@@ -99,6 +99,35 @@ $defs:
         type: string
         enum:
           - stx_lock_event
+  BlockReplayTransactionStxMintEvent:
+    type: object
+    required:
+      - committed
+      - event_index
+      - stx_mint_event
+      - txid
+      - type
+    properties:
+      committed:
+        type: boolean
+      event_index:
+        type: integer
+      stx_mint_event:
+        type: object
+        required:
+          - amount
+          - recipient
+        properties:
+          amount:
+            type: string
+          recipient:
+            type: string
+      txid:
+        type: string
+      type:
+        type: string
+        enum:
+          - stx_mint_event
   BlockReplayTransactionFtMintEvent:
     type: object
     required:
@@ -217,7 +246,6 @@ $defs:
           - asset_identifier
           - raw_value
           - recipient
-          - value
         properties:
           asset_identifier:
             type: string
@@ -225,9 +253,6 @@ $defs:
             type: string
           recipient:
             type: string
-          value:
-            type: object
-            additionalProperties: {}
       txid:
         type: string
       type:
@@ -254,7 +279,6 @@ $defs:
           - raw_value
           - recipient
           - sender
-          - value
         properties:
           asset_identifier:
             type: string
@@ -264,9 +288,6 @@ $defs:
             type: string
           sender:
             type: string
-          value:
-            type: object
-            additionalProperties: {}
       txid:
         type: string
       type:
@@ -292,7 +313,6 @@ $defs:
           - asset_identifier
           - raw_value
           - sender
-          - value
         properties:
           asset_identifier:
             type: string
@@ -300,9 +320,6 @@ $defs:
             type: string
           sender:
             type: string
-          value:
-            type: object
-            additionalProperties: {}
       txid:
         type: string
       type:
@@ -326,7 +343,6 @@ $defs:
           - contract_identifier
           - raw_value
           - topic
-          - value
         properties:
           contract_identifier:
             type: string
@@ -334,9 +350,6 @@ $defs:
             type: string
           topic:
             type: string
-          value:
-            type: object
-            additionalProperties: {}
       event_index:
         type: integer
       txid:
@@ -349,6 +362,7 @@ oneOf:
   - $ref: "#/$defs/BlockReplayTransactionStxTransferEvent"
   - $ref: "#/$defs/BlockReplayTransactionStxBurnEvent"
   - $ref: "#/$defs/BlockReplayTransactionStxLockEvent"
+  - $ref: "#/$defs/BlockReplayTransactionStxMintEvent"
   - $ref: "#/$defs/BlockReplayTransactionFtMintEvent"
   - $ref: "#/$defs/BlockReplayTransactionFtTransferEvent"
   - $ref: "#/$defs/BlockReplayTransactionFtBurnEvent"
@@ -362,6 +376,7 @@ discriminator:
     stx_transfer_event: "#/$defs/BlockReplayTransactionStxTransferEvent"
     stx_burn_event: "#/$defs/BlockReplayTransactionStxBurnEvent"
     stx_lock_event: "#/$defs/BlockReplayTransactionStxLockEvent"
+    stx_mint_event: "#/$defs/BlockReplayTransactionStxMintEvent"
     ft_mint_event: "#/$defs/BlockReplayTransactionFtMintEvent"
     ft_transfer_event: "#/$defs/BlockReplayTransactionFtTransferEvent"
     ft_burn_event: "#/$defs/BlockReplayTransactionFtBurnEvent"

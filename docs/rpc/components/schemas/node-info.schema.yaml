@@ -18,11 +18,6 @@ required:
   - unanchored_tip
   - unanchored_seq
   - exit_at_block_height
-  - is_fully_synced
-  - node_public_key
-  - node_public_key_hash
-  - last_pox_anchor
-  - stackerdbs
 properties:
   peer_version:
     type: integer
