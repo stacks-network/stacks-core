@@ -16,6 +16,7 @@
 
 use std::io::Write;
 
+use clarity_types::resident_bytes::ResidentBytes;
 use serde::Deserialize;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -104,6 +105,30 @@ pub struct DataVariableMetadata {
 }
 
 clarity_serializable!(DataVariableMetadata);
+
+impl ResidentBytes for FungibleTokenMetadata {
+    fn heap_bytes(&self) -> usize {
+        0 // Option<u128> — no heap allocation
+    }
+}
+
+impl ResidentBytes for NonFungibleTokenMetadata {
+    fn heap_bytes(&self) -> usize {
+        self.key_type.heap_bytes()
+    }
+}
+
+impl ResidentBytes for DataMapMetadata {
+    fn heap_bytes(&self) -> usize {
+        self.key_type.heap_bytes() + self.value_type.heap_bytes()
+    }
+}
+
+impl ResidentBytes for DataVariableMetadata {
+    fn heap_bytes(&self) -> usize {
+        self.value_type.heap_bytes()
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct ContractMetadata {

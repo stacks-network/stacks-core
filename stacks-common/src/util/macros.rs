@@ -234,6 +234,11 @@ macro_rules! guarded_string {
                 self.len() == 0
             }
 
+            /// Returns the heap capacity of the backing `String` buffer.
+            pub fn heap_capacity(&self) -> usize {
+                self.0.capacity()
+            }
+
             /// The caller must guarantee that the conversion will succeed, because the method
             /// will panic otherwise. This is made for converting `&str` into things
             /// like `ClarityName`s, where the source value is hardcoded and thus it's visible

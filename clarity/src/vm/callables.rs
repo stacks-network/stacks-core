@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 
 use clarity_types::representations::ClarityName;
+use clarity_types::resident_bytes::ResidentBytes;
 pub use clarity_types::types::FunctionIdentifier;
 use stacks_common::types::StacksEpochId;
 
@@ -74,6 +75,17 @@ pub struct DefinedFunction {
     pub define_type: DefineType,
     arguments: Vec<ClarityName>,
     body: SymbolicExpression,
+}
+
+impl ResidentBytes for DefinedFunction {
+    fn heap_bytes(&self) -> usize {
+        self.identifier.heap_bytes()
+            + self.name.heap_bytes()
+            + self.arg_types.heap_bytes()
+            + self.arguments.heap_bytes()
+            + self.body.heap_bytes()
+        // define_type is a fieldless enum — no heap allocation
+    }
 }
 
 /// This enum handles the actual invocation of the method
