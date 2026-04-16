@@ -25,7 +25,7 @@ rstest = "0.17.0"
 
 [features]
 default = []
-testing = []
+testing = ["stacks_common/testing"]
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 rusqlite = ["stacks_common/rusqlite", "dep:rusqlite", "dep:serde_json"]
