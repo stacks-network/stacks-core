@@ -1,0 +1,27 @@
+type: object
+oneOf:
+  - $ref: "./block-replay-transaction-stx-transfer-event.schema.yaml"
+  - $ref: "./block-replay-transaction-stx-burn-event.schema.yaml"
+  - $ref: "./block-replay-transaction-stx-lock-event.schema.yaml"
+  - $ref: "./block-replay-transaction-stx-mint-event.schema.yaml"
+  - $ref: "./block-replay-transaction-ft-mint-event.schema.yaml"
+  - $ref: "./block-replay-transaction-ft-transfer-event.schema.yaml"
+  - $ref: "./block-replay-transaction-ft-burn-event.schema.yaml"
+  - $ref: "./block-replay-transaction-nft-mint-event.schema.yaml"
+  - $ref: "./block-replay-transaction-nft-transfer-event.schema.yaml"
+  - $ref: "./block-replay-transaction-nft-burn-event.schema.yaml"
+  - $ref: "./block-replay-transaction-contract-event.schema.yaml"
+discriminator:
+  propertyName: type
+  mapping:
+    stx_transfer_event: "./block-replay-transaction-stx-transfer-event.schema.yaml"
+    stx_burn_event: "./block-replay-transaction-stx-burn-event.schema.yaml"
+    stx_lock_event: "./block-replay-transaction-stx-lock-event.schema.yaml"
+    stx_mint_event: "./block-replay-transaction-stx-mint-event.schema.yaml"
+    ft_mint_event: "./block-replay-transaction-ft-mint-event.schema.yaml"
+    ft_transfer_event: "./block-replay-transaction-ft-transfer-event.schema.yaml"
+    ft_burn_event: "./block-replay-transaction-ft-burn-event.schema.yaml"
+    nft_mint_event: "./block-replay-transaction-nft-mint-event.schema.yaml"
+    nft_transfer_event: "./block-replay-transaction-nft-transfer-event.schema.yaml"
+    nft_burn_event: "./block-replay-transaction-nft-burn-event.schema.yaml"
+    contract_event: "./block-replay-transaction-contract-event.schema.yaml"
