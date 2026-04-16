@@ -135,6 +135,28 @@ components:
       $ref: ./components/schemas/block-replay-transaction.schema.yaml
     BlockReplayTransactionEvent:
       $ref: ./components/schemas/block-replay-transaction-event.schema.yaml
+    BlockReplayTransactionStxTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-transfer-event.schema.yaml
+    BlockReplayTransactionStxBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-burn-event.schema.yaml
+    BlockReplayTransactionStxLockEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-lock-event.schema.yaml
+    BlockReplayTransactionStxMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-mint-event.schema.yaml
+    BlockReplayTransactionFtMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-mint-event.schema.yaml
+    BlockReplayTransactionFtTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-transfer-event.schema.yaml
+    BlockReplayTransactionFtBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-burn-event.schema.yaml
+    BlockReplayTransactionNftMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-mint-event.schema.yaml
+    BlockReplayTransactionNftTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-transfer-event.schema.yaml
+    BlockReplayTransactionNftBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-burn-event.schema.yaml
+    BlockReplayTransactionContractEvent:
+      $ref: ./components/schemas/block-replay-transaction-contract-event.schema.yaml
 
     # Other Schemas
     SignerBlocksSigned:
