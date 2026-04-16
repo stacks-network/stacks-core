@@ -21,7 +21,7 @@ use crate::vm::ClarityVersion;
 #[test]
 fn test_default_for_epoch_is_monotonic() {
     // No Clarity in Epoch10.
-    let clarity_epochs = &StacksEpochId::ALL[1..];
+    let clarity_epochs = &StacksEpochId::since(StacksEpochId::Epoch20);
     for window in clarity_epochs.windows(2) {
         let earlier = ClarityVersion::default_for_epoch(window[0]);
         let later = ClarityVersion::default_for_epoch(window[1]);
