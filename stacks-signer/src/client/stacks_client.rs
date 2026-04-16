@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -187,7 +187,7 @@ impl StacksClient {
         debug!("StacksClient: Getting last set cycle");
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
         let function_name_str = "get-last-set-cycle";
-        let function_name = ClarityName::from(function_name_str);
+        let function_name = ClarityName::from_literal(function_name_str);
         let value = self.read_only_contract_call(
             &signer_stackerdb_contract_id.issuer.clone().into(),
             &signer_stackerdb_contract_id.name,
@@ -208,7 +208,7 @@ impl StacksClient {
             "page" => page,
         );
         let function_name_str = "stackerdb-get-signer-slots-page";
-        let function_name = ClarityName::from(function_name_str);
+        let function_name = ClarityName::from_literal(function_name_str);
         let function_args = &[ClarityValue::UInt(page.into())];
         let value = self.read_only_contract_call(
             &stackerdb_contract.issuer.clone().into(),
@@ -772,8 +772,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[],
             )
         });
@@ -790,8 +790,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[ClarityValue::UInt(10_u128)],
             )
         });
@@ -806,8 +806,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[],
             )
         });
@@ -826,8 +826,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[],
             )
         });
@@ -848,8 +848,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[],
             )
         });
@@ -928,8 +928,14 @@ mod tests {
         ];
 
         let tuple_type_signature: TupleTypeSignature = [
-            (ClarityName::from("num_slots"), TypeSignature::UIntType),
-            (ClarityName::from("signer"), TypeSignature::PrincipalType),
+            (
+                ClarityName::from_literal("num_slots"),
+                TypeSignature::UIntType,
+            ),
+            (
+                ClarityName::from_literal("signer"),
+                TypeSignature::PrincipalType,
+            ),
         ]
         .into_iter()
         .collect::<BTreeMap<_, _>>()
@@ -942,9 +948,12 @@ mod tests {
                 let principal_data = StacksAddress::from_string(signer).unwrap().into();
 
                 let data_map = [
-                    ("num-slots".into(), ClarityValue::UInt(13)),
                     (
-                        "signer".into(),
+                        ClarityName::from_literal("num-slots"),
+                        ClarityValue::UInt(13),
+                    ),
+                    (
+                        ClarityName::from_literal("signer"),
                         ClarityValue::Principal(PrincipalData::Standard(principal_data)),
                     ),
                 ]

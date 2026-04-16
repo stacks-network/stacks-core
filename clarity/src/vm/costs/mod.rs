@@ -70,11 +70,26 @@ lazy_static! {
         #[allow(clippy::expect_used)]
         TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![
-                ("runtime".into(), TypeSignature::UIntType),
-                ("write_length".into(), TypeSignature::UIntType),
-                ("write_count".into(), TypeSignature::UIntType),
-                ("read_count".into(), TypeSignature::UIntType),
-                ("read_length".into(), TypeSignature::UIntType),
+                (
+                    ClarityName::from_literal("runtime"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("write_length"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("write_count"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("read_count"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("read_length"),
+                    TypeSignature::UIntType,
+                ),
             ])
             .expect("BUG: failed to construct type signature for cost tuple"),
         )
@@ -543,7 +558,7 @@ fn load_cost_functions(
                 "confirmed-proposals",
                 &Value::from(
                     TupleData::from_data(vec![(
-                        "confirmed-id".into(),
+                        ClarityName::from_literal("confirmed-id"),
                         Value::UInt(confirmed_proposal),
                     )])
                     .map_err(|_| {
@@ -1120,7 +1135,12 @@ pub fn compute_cost(
         )))?;
 
     let mut program = vec![SymbolicExpression::atom(
-        cost_function_reference.function_name[..].into(),
+        cost_function_reference.function_name[..]
+            .to_string()
+            .try_into()
+            .map_err(|_| {
+                CostErrors::Expect("Cost function should be a valid Clarity name".to_string())
+            })?,
     )];
 
     for input_size in input_sizes.iter() {

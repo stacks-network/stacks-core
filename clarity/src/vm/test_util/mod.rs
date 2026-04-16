@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use clarity_types::ClarityName;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -313,8 +314,14 @@ impl BurnStateDB for UnitTestBurnStateDB {
         Some((
             vec![
                 TupleData::from_data(vec![
-                    ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
-                    ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
+                    (
+                        ClarityName::from_literal("version"),
+                        Value::buff_from(vec![0u8]).unwrap(),
+                    ),
+                    (
+                        ClarityName::from_literal("hashbytes"),
+                        Value::buff_from(vec![0u8; 20]).unwrap(),
+                    ),
                 ])
                 .unwrap(),
             ],

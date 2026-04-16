@@ -1,0 +1,1 @@
+Add tests for handling of bad block commits (vtxindex=0, wrong parent).

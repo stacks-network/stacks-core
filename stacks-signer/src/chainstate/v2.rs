@@ -305,6 +305,7 @@ impl GlobalStateView {
         config: &ProposalEvalConfig,
     ) -> Result<(), RejectReason> {
         // Check that the tenure change's prev_tenure matches the signer's known parent tenure.
+        // This catches block commits with bad parent_block_ptr (e.g., vtxindex=0 exploit).
         if &tenure_change.prev_tenure_consensus_hash != parent_tenure_id {
             warn!(
                 "Block commit parent tenure mismatch: the block commit's parent_block_ptr does not correspond to the actual parent tenure";
@@ -332,7 +333,7 @@ impl GlobalStateView {
         // We already confirmed in check miner activity that the current tenure is valid. So check we are not
         // reorging the tenure blocks
         let last_in_current_tenure = signer_db
-            .get_last_globally_accepted_block(&block.header.consensus_hash)
+            .get_last_accepted_block(&block.header.consensus_hash)
             .map_err(|e| {
                 SignerChainstateError::from(ClientError::InvalidResponse(e.to_string()))
             })?;
