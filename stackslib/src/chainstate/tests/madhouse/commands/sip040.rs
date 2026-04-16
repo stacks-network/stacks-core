@@ -545,15 +545,17 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for PreEpoc
         let is_naka = state.current_epoch.uses_nakamoto_blocks();
 
         // Block 1: Originator mode rejected pre-Epoch34.
+        let nft_id_1 = state.nft_next_id;
+        state.nft_next_id += 1;
+
         let tx_originator = ConsensusUtils::new_call_tx_with_postconds(
             state.next_nonce,
             "nft",
             "mint",
-            &[Value::UInt(state.nft_next_id as u128)],
+            &[Value::UInt(nft_id_1 as u128)],
             TransactionPostConditionMode::Originator,
             vec![],
         );
-        state.nft_next_id += 1;
 
         let block1 = TestBlock {
             transactions: vec![tx_originator],
