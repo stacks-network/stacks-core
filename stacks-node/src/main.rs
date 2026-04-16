@@ -17,12 +17,12 @@ pub mod monitoring;
 
 pub mod burnchains;
 pub mod event_dispatcher;
+pub mod genesis;
 pub mod genesis_data;
 pub mod globals;
 pub mod keychain;
 pub mod nakamoto_node;
 pub mod neon_node;
-pub mod genesis;
 pub mod operations;
 pub mod run_loop;
 pub mod syncctl;

@@ -311,7 +311,6 @@ impl ConfigFile {
             ..ConfigFile::default()
         }
     }
-
 }
 
 #[derive(Clone, Debug)]
