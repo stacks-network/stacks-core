@@ -428,7 +428,7 @@ pub fn apply_evaluated(
     // SpecialFunctions require unevaluated SymbolicExpressions. They cannot appear as
     // fold/map step functions after type-checking, so this branch is unreachable in practice.
     if matches!(function, CallableType::SpecialFunction(..)) {
-        return Err(VmInternalError::Expect(
+        return Err(RuntimeCheckErrorKind::Unreachable(
             "apply_evaluated: SpecialFunction cannot receive pre-evaluated args".into(),
         )
         .into());
