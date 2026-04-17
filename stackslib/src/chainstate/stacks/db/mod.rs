@@ -2955,6 +2955,7 @@ pub mod test {
     }
 
     pub fn chainstate_path(test_name: &str) -> String {
+        let test_name = test_name.replace("::", "-");
         format!("/tmp/stacks-node-tests/cs-{}", test_name)
     }
 
