@@ -2920,11 +2920,15 @@ pub mod test {
     use std::{env, fs};
 
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
+    use clarity::vm::ClarityVersion;
     use stx_genesis::GenesisData;
 
     use super::*;
+    use crate::chainstate::stacks::boot::{
+        BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
+    };
     use crate::chainstate::stacks::*;
-    use crate::util_lib::boot::boot_code_test_addr;
+    use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
 
     pub fn instantiate_chainstate(
         mainnet: bool,
@@ -2968,6 +2972,84 @@ pub mod test {
             .0
     }
 
+    /// Like [`instantiate_chainstate`] but also deploys `costs-2`, `costs-3`
+    /// and `costs-4` during genesis so that [`LimitedCostTracker`] can load cost
+    /// contracts for any epoch.
+    pub fn instantiate_chainstate_with_all_costs(test_name: &str) -> StacksChainState {
+        instantiate_chainstate_with_all_costs_and_balances(test_name, vec![])
+    }
+
+    /// Like [`instantiate_chainstate_with_balances`] but also deploys
+    /// `costs-2`, `costs-3` and `costs-4` during genesis.
+    pub fn instantiate_chainstate_with_all_costs_and_balances(
+        test_name: &str,
+        balances: Vec<(StacksAddress, u64)>,
+    ) -> StacksChainState {
+        let is_mainnet = false;
+        let chain_id = 0x80000000;
+
+        let path = chainstate_path(test_name);
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
+        };
+
+        let initial_balances = balances
+            .into_iter()
+            .map(|(addr, balance)| (PrincipalData::from(addr), balance))
+            .collect();
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            post_flight_callback: Some(Box::new(move |clarity_tx| {
+                let conn = clarity_tx.connection();
+
+                // Temporarily set the epoch to Epoch33 so Clarity2 contracts
+                // (costs-3, costs-4) can be analyzed and deployed.
+                conn.set_epoch(StacksEpochId::Epoch33);
+
+                let contracts: &[(&str, ClarityVersion, &str)] = &[
+                    (COSTS_2_NAME, ClarityVersion::Clarity1, BOOT_CODE_COSTS_2),
+                    (COSTS_3_NAME, ClarityVersion::Clarity2, BOOT_CODE_COSTS_3),
+                    (COSTS_4_NAME, ClarityVersion::Clarity2, BOOT_CODE_COSTS_4),
+                ];
+
+                for (name, version, code) in contracts {
+                    conn.as_transaction(|clarity_db| {
+                        let (ast, _) = clarity_db
+                            .analyze_smart_contract(&boot_code_id(name, is_mainnet), *version, code)
+                            .unwrap();
+                        clarity_db
+                            .initialize_smart_contract(
+                                &boot_code_id(name, is_mainnet),
+                                *version,
+                                &ast,
+                                code,
+                                None,
+                                |_, _| None,
+                                None,
+                            )
+                            .unwrap();
+                    });
+                }
+
+                // restore genesis epoch
+                conn.set_epoch(GENESIS_EPOCH);
+            })),
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::testnet_default(),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
+        };
+
+        StacksChainState::open_and_exec(is_mainnet, chain_id, &path, Some(&mut boot_data), None)
+            .unwrap()
+            .0
+    }
+
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
         StacksChainState::open(mainnet, chain_id, &path, None)
@@ -2976,6 +3058,7 @@ pub mod test {
     }
 
     pub fn chainstate_path(test_name: &str) -> String {
+        let test_name = test_name.replace("::", "-");
         format!("/tmp/stacks-node-tests/cs-{}", test_name)
     }
 

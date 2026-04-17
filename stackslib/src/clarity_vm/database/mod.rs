@@ -1193,7 +1193,7 @@ impl MemoryBackingStore {
     }
 
     pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
-        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB, None)
     }
 
     /// Returns a new ClarityDatabase with underlying databases `headers_db` and
@@ -1203,7 +1203,7 @@ impl MemoryBackingStore {
         headers_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, headers_db, burn_state_db)
+        ClarityDatabase::new(self, headers_db, burn_state_db, None)
     }
 
     pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {

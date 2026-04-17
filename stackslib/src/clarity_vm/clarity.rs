@@ -148,7 +148,21 @@ pub trait ClarityMarfStore: ClarityBackingStore {
     where
         Self: Sized,
     {
-        ClarityDatabase::new(self, headers_db, burn_state_db)
+        ClarityDatabase::new(self, headers_db, burn_state_db, None)
+    }
+
+    /// Same as [`Self::as_clarity_db`], but pre-populates the epoch cache,
+    /// avoiding a MARF read on the first [`ClarityDatabase::get_clarity_epoch_version`] call.
+    fn as_clarity_db_with_epoch<'b>(
+        &'b mut self,
+        headers_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+        epoch: StacksEpochId,
+    ) -> ClarityDatabase<'b>
+    where
+        Self: Sized,
+    {
+        ClarityDatabase::new(self, headers_db, burn_state_db, Some(epoch))
     }
 
     /// Instantiate an `AnalysisDatabase` out of this MARF store.
@@ -356,17 +370,8 @@ impl ClarityBlockConnection<'_, '_> {
 
     /// Load the epoch ID from the clarity DB.
     /// Used to sanity-check epoch transitions.
-    pub fn get_clarity_db_epoch_version(
-        &mut self,
-        burn_state_db: &dyn BurnStateDB,
-    ) -> Result<StacksEpochId, ClarityError> {
-        let mut db = self.datastore.as_clarity_db(self.header_db, burn_state_db);
-        // NOTE: the begin/roll_back shouldn't be necessary with how this gets used in practice,
-        // but is put here defensively.
-        db.begin();
-        let result = db.get_clarity_epoch_version();
-        db.roll_back()?;
-        Ok(result?)
+    pub fn get_clarity_db_epoch_version(&mut self) -> Result<StacksEpochId, ClarityError> {
+        Ok(ClarityDatabase::read_epoch_from_store(&mut self.datastore)?)
     }
 }
 
@@ -423,7 +428,11 @@ impl ClarityInstance {
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
-            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            let mut clarity_db = datastore.as_clarity_db_with_epoch(
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+                epoch.epoch_id,
+            );
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
@@ -677,7 +686,11 @@ impl ClarityInstance {
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
 
         let cost_track = {
-            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            let mut clarity_db = datastore.as_clarity_db_with_epoch(
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+                epoch.epoch_id,
+            );
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
@@ -717,7 +730,11 @@ impl ClarityInstance {
 
         let epoch = Self::get_epoch_of(base_tip, header_db, burn_state_db);
         let cost_track = {
-            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            let mut clarity_db = datastore.as_clarity_db_with_epoch(
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
+                epoch.epoch_id,
+            );
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
@@ -762,13 +779,7 @@ impl ClarityInstance {
         burn_state_db: &'a dyn BurnStateDB,
     ) -> Result<ClarityReadOnlyConnection<'a>, ClarityError> {
         let mut datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
-        let epoch = {
-            let mut db = datastore.as_clarity_db(header_db, burn_state_db);
-            db.begin();
-            let result = db.get_clarity_epoch_version();
-            db.roll_back()?;
-            result
-        }?;
+        let epoch = ClarityDatabase::read_epoch_from_store(&mut datastore)?;
 
         Ok(ClarityReadOnlyConnection {
             datastore,
@@ -794,13 +805,9 @@ impl ClarityInstance {
         program: &str,
     ) -> Result<Value, ClarityError> {
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
-        let mut clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
-        let epoch_id = {
-            clarity_db.begin();
-            let result = clarity_db.get_clarity_epoch_version();
-            clarity_db.roll_back()?;
-            result
-        }?;
+        let epoch_id = ClarityDatabase::read_epoch_from_store(&mut read_only_conn)?;
+        let clarity_db =
+            read_only_conn.as_clarity_db_with_epoch(header_db, burn_state_db, epoch_id);
 
         let mut env = OwnedEnvironment::new_free(self.mainnet, self.chain_id, clarity_db, epoch_id);
         env.eval_read_only(contract, program)
@@ -819,7 +826,12 @@ impl ClarityConnection for ClarityBlockConnection<'_, '_> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
-        let mut db = ClarityDatabase::new(&mut self.datastore, self.header_db, self.burn_state_db);
+        let mut db = ClarityDatabase::new(
+            &mut self.datastore,
+            self.header_db,
+            self.burn_state_db,
+            Some(self.epoch),
+        );
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -850,9 +862,9 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
-        let mut db = self
-            .datastore
-            .as_clarity_db(self.header_db, self.burn_state_db);
+        let mut db =
+            self.datastore
+                .as_clarity_db_with_epoch(self.header_db, self.burn_state_db, self.epoch);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -2024,6 +2036,7 @@ impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
                 rollback_wrapper,
                 self.header_db,
                 self.burn_state_db,
+                Some(self.epoch),
             );
             db.begin();
             let (r, mut db) = to_do(db);
@@ -2089,6 +2102,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     rollback_wrapper,
                     self.header_db,
                     self.burn_state_db,
+                    Some(self.epoch),
                 );
 
                 // wrap the whole contract-call in a claritydb transaction,
@@ -2161,6 +2175,7 @@ impl ClarityTransactionConnection<'_, '_> {
                 rollback_wrapper,
                 self.header_db,
                 self.burn_state_db,
+                Some(self.epoch),
             );
 
             db.begin();

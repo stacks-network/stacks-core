@@ -52,6 +52,10 @@ harness = false
 name = "sequence_higher_order"
 harness = false
 
+[[bench]]
+name = "epoch_cache"
+harness = false
+
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 serde_stacker = "0.1"
 

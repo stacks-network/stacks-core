@@ -136,6 +136,11 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
+    /// Cached epoch version. Pre-populated from the constructor when the
+    /// caller knows the epoch, otherwise lazily filled on the first
+    /// [`Self::get_clarity_epoch_version`] read. Invalidated by [`Self::roll_back`]
+    /// and [`Self::set_block_hash`]; updated by [`Self::set_clarity_epoch_version`].
+    cached_epoch: Option<StacksEpochId>,
 }
 
 pub trait HeadersDB {
@@ -444,11 +449,13 @@ impl<'a> ClarityDatabase<'a> {
         store: &'a mut dyn ClarityBackingStore,
         headers_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
+        cached_epoch: Option<StacksEpochId>,
     ) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store: RollbackWrapper::new(store),
             headers_db,
             burn_state_db,
+            cached_epoch,
         }
     }
 
@@ -456,11 +463,13 @@ impl<'a> ClarityDatabase<'a> {
         store: RollbackWrapper<'a>,
         headers_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
+        cached_epoch: Option<StacksEpochId>,
     ) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store,
             headers_db,
             burn_state_db,
+            cached_epoch,
         }
     }
 
@@ -481,15 +490,19 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Drop current key-value wrapper layer
+    /// and invalidate the epoch cache.
     pub fn roll_back(&mut self) -> Result<(), VmExecutionError> {
+        self.cached_epoch = None;
         self.store.rollback().map_err(|e| e.into())
     }
 
+    /// Set a block context and invalidate the epoch cache.
     pub fn set_block_hash(
         &mut self,
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> Result<StacksBlockId, VmExecutionError> {
+        self.cached_epoch = None;
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
@@ -858,26 +871,61 @@ impl<'a> ClarityDatabase<'a> {
         "_stx-data::ustx_liquid_supply"
     }
 
-    /// Returns the epoch version currently applied in the stored Clarity state.
-    /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
-    /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
-    /// Clarity is updated in that epoch.
-    pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId, VmExecutionError> {
-        let out = match self.get_data(Self::clarity_state_epoch_key())? {
+    /// Converts an optional stored `u32` epoch value into a [`StacksEpochId`].
+    ///
+    /// If stored is [`None`], defaults to [`StacksEpochId::Epoch20`], since Clarity
+    /// was not available in Stacks 1.0.
+    fn parse_epoch(stored: Option<u32>) -> Result<StacksEpochId, VmExecutionError> {
+        match stored {
             Some(x) => u32::try_into(x).map_err(|_| {
                 VmInternalError::Expect("Bad Clarity epoch version in stored Clarity state".into())
-            })?,
-            None => StacksEpochId::Epoch20,
+                    .into()
+            }),
+            None => Ok(StacksEpochId::Epoch20),
+        }
+    }
+
+    /// Read the epoch version directly from a backing store, without needing
+    /// a fully constructed `ClarityDatabase`. Useful when the caller needs to
+    /// discover the epoch before constructing the database (e.g., read-only
+    /// connections where the epoch is not known in advance).
+    pub fn read_epoch_from_store(
+        store: &mut dyn ClarityBackingStore,
+    ) -> Result<StacksEpochId, VmExecutionError> {
+        let raw = match store.get_data(Self::clarity_state_epoch_key())? {
+            Some(x) => Some(u32::deserialize(&x)?),
+            None => None,
         };
+        Self::parse_epoch(raw)
+    }
+
+    /// Returns the epoch version currently applied in the stored Clarity state.
+    ///
+    /// The result is cached after the first store read. The cache is:
+    /// - invalidated by: [`Self::roll_back`] and [`Self::set_block_hash`]
+    /// - updated by: [`Self::set_clarity_epoch_version`]
+    ///
+    /// Since Clarity did not exist in stacks 1.0, this will never return an
+    /// epoch earlier than [`StacksEpochId::Epoch20`]. If no epoch is stored,
+    /// it defaults to that value.
+    pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId, VmExecutionError> {
+        if let Some(epoch) = self.cached_epoch {
+            return Ok(epoch);
+        }
+        let out = Self::parse_epoch(self.get_data(Self::clarity_state_epoch_key())?)?;
+        self.cached_epoch = Some(out);
         Ok(out)
     }
 
-    /// Should be called _after_ all of the epoch's initialization has been invoked
+    /// Write the epoch version to the store and update the epoch cache.
+    /// Note: Should be called _after_ all of the epoch's initialization has been invoked
     pub fn set_clarity_epoch_version(
         &mut self,
         epoch: StacksEpochId,
     ) -> Result<(), VmExecutionError> {
-        self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
+        self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))?;
+        self.cached_epoch = Some(epoch);
+        Ok(())
     }
 
     /// Setup block metadata at the beginning of a block

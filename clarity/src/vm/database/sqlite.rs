@@ -16,6 +16,8 @@
 
 use clarity_types::errors::IncomparableError;
 use rusqlite::{Connection, OptionalExtension, params};
+#[cfg(test)]
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db::tx_busy_handler;
@@ -300,7 +302,7 @@ impl MemoryBackingStore {
     }
 
     pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
-        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB, None)
     }
 
     pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {
@@ -423,4 +425,130 @@ fn trigger_bad_block_height() {
         ),
         "Expected BadBlockHeight. Got {err}"
     );
+}
+
+#[test]
+fn epoch_cache_recovers_after_rollback() {
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    assert!(
+        matches!(
+            db.get_clarity_epoch_version().unwrap_err(),
+            VmExecutionError::Internal(VmInternalError::Expect(_))
+        ),
+        "Expected error when getting clarity epoch version is accessed in a non-nested context"
+    );
+
+    // Outer nest — simulates a block-level transaction
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+
+    // Inner nest — simulates a clarity transaction that bumps the epoch then rolls back
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30
+    );
+
+    db.roll_back().unwrap();
+
+    // After rollback the epoch should revert to the outer layer's stored value,
+    // not remain at Epoch30.
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch25,
+        "epoch should have reverted after rollback"
+    );
+    db.roll_back().unwrap();
+}
+
+#[test]
+fn epoch_cache_pre_populated_from_constructor() {
+    let mut store = MemoryBackingStore::default();
+    let mut db = ClarityDatabase::new(
+        &mut store,
+        &NULL_HEADER_DB,
+        &NULL_BURN_STATE_DB,
+        Some(StacksEpochId::Epoch30),
+    );
+
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+    );
+}
+
+#[test]
+fn epoch_cache_survives_commit() {
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    db.commit().unwrap();
+
+    // After commit the cache should still serve Epoch30
+    // without needing a store read.
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+    );
+}
+
+#[test]
+fn epoch_cache_constructor_overrides_store() {
+    let mut store = MemoryBackingStore::default();
+
+    // Write Epoch25 to the store
+    let mut db = store.as_clarity_db();
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+    db.commit().unwrap();
+
+    // Construct with Epoch30: the cache takes precedence over the store
+    let mut db = ClarityDatabase::new(
+        &mut store,
+        &NULL_HEADER_DB,
+        &NULL_BURN_STATE_DB,
+        Some(StacksEpochId::Epoch30),
+    );
+    db.begin();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+        "constructor epoch should override the stored value"
+    );
+
+    // After rollback the cache is cleared and the store value surfaces
+    db.roll_back().unwrap();
+    db.begin();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch25,
+        "stored value should surface after cache invalidation"
+    );
+}
+
+#[test]
+fn read_epoch_from_store_returns_committed_value() {
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    db.commit().unwrap();
+
+    let epoch = ClarityDatabase::read_epoch_from_store(&mut store).unwrap();
+    assert_eq!(epoch, StacksEpochId::Epoch30);
 }
