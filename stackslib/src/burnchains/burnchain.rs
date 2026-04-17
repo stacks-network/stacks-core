@@ -1302,7 +1302,7 @@ impl Burnchain {
                             });
 
                     let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
+                    let burnchain_block = parser.parse(ipc_block, cur_epoch.epoch_id)?;
                     let parse_end = get_epoch_time_ms();
 
                     debug!(
@@ -1682,7 +1682,7 @@ impl Burnchain {
                             });
 
                     let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
+                    let burnchain_block = parser.parse(ipc_block, cur_epoch.epoch_id)?;
                     let parse_end = get_epoch_time_ms();
 
                     debug!(
