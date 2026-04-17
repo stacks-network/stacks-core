@@ -10695,6 +10695,32 @@ fn test_shadow_recovery() {
     assert!(has_epoch_3_recovery);
     assert!(has_shadow_blocks);
     assert!(has_epoch_3_failure);
+
+    // make sure we can still mine, even across reward cycles
+    for _i in 0..(burnchain.pox_constants.reward_cycle_length + 1) {
+        let chain_info = get_chain_info(&naka_conf);
+        let target_burn_height = chain_info.burn_block_height + 1;
+        let target_stacks_height = chain_info.stacks_tip_height + 1;
+        btc_regtest_controller.build_next_block(1);
+        wait_for(30, || {
+            let chain_info = get_chain_info(&naka_conf);
+            if chain_info.burn_block_height >= target_burn_height
+                && chain_info.stacks_tip_height >= target_stacks_height
+            {
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .unwrap();
+
+        // must have gotten a block-commit
+        let burnchain = naka_conf.get_burnchain();
+        let sortdb = burnchain.open_sortition_db(true).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let ops =
+            SortitionDB::get_block_commits_by_block(sortdb.conn(), &tip.sortition_id).unwrap();
+        assert!(!ops.is_empty());
+    }
 }
 
 #[test]
