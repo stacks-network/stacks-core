@@ -790,9 +790,9 @@ impl<T: MarfTrieId> MARF<T> {
 
         // store it in this trie
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
-        let child_disk_ptr = storage.last_ptr()?;
-        let child_ptr = TriePtr::new(child_ptr.id(), chr, child_disk_ptr);
-        storage.write_nodetype(child_disk_ptr, &child_node, child_hash)?;
+        let child_array_ptr = storage.last_ptr()?;
+        let child_ptr = TriePtr::new(child_ptr.id(), chr, child_array_ptr.into());
+        storage.write_nodetype(child_array_ptr, &child_node, child_hash)?;
 
         trace!(
             "Copied child 0x{:02x} to {:?}: ptr={:?} child={:?}",
@@ -830,7 +830,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
 
-        let root_ptr = storage.root_ptr();
+        let root_ptr = u32::try_from(storage.root_ptr()).map_err(|_| Error::OverflowError)?;
         storage.write_nodetype(root_ptr, &prev_root, new_root_hash)?;
         Ok(())
     }
@@ -853,7 +853,7 @@ impl<T: MarfTrieId> MARF<T> {
             storage.extend_to_block(new_bhh)?;
             let node = TrieNode256::new(&[]);
             let hash = get_node_hash(&node, &[], storage.deref_mut());
-            let root_ptr = storage.root_ptr();
+            let root_ptr = u32::try_from(storage.root_ptr()).map_err(|_| Error::OverflowError)?;
             storage.write_nodetype(root_ptr, &TrieNodeType::Node256(Box::new(node)), hash)?;
             Ok(())
         } else {
@@ -1097,7 +1097,7 @@ impl<T: MarfTrieId> MARF<T> {
         storage.extend_to_block(first_block_hash)?;
         let node = TrieNode256::new(&[]);
         let hash = get_node_hash(&node, &[], storage.deref_mut());
-        let root_ptr = storage.root_ptr();
+        let root_ptr = u32::try_from(storage.root_ptr()).map_err(|_| Error::OverflowError)?;
         let node_type = TrieNodeType::Node256(Box::new(node));
         storage.write_nodetype(root_ptr, &node_type, hash)
     }
