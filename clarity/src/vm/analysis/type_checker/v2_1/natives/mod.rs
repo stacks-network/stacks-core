@@ -224,7 +224,7 @@ fn check_special_merge(
         update.len(),
     )?;
 
-    base.shallow_merge(&mut update);
+    base.shallow_merge(&mut update)?;
     Ok(TypeSignature::TupleType(base))
 }
 

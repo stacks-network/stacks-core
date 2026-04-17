@@ -21,7 +21,7 @@ use stacks_common::types::StacksEpochId;
 use crate::ClarityName;
 use crate::errors::ClarityTypeError;
 use crate::types::{
-    ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
+    ASCIIData, BuffData, CallableData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
     QualifiedContractIdentifier, RetainValuesError, SequenceData, SequenceSubtype,
     SequencedValue as _, StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature,
     TypeSignature, UTF8Data, Value,
@@ -155,6 +155,161 @@ fn test_constructors() {
 #[test]
 fn simple_size_test() {
     assert_eq!(Value::Int(10).size().unwrap(), 16);
+}
+
+#[test]
+fn value_size_matches_type_signature_size() {
+    let contract_id = QualifiedContractIdentifier::local("test-contract").unwrap();
+    let trait_id = TraitIdentifier {
+        name: "test-trait".into(),
+        contract_identifier: contract_id.clone(),
+    };
+
+    let values: Vec<(&str, Value)> = vec![
+        ("int", Value::Int(42)),
+        ("uint", Value::UInt(42)),
+        ("bool_true", Value::Bool(true)),
+        ("bool_false", Value::Bool(false)),
+        (
+            "principal_standard",
+            Value::from(
+                PrincipalData::parse_standard_principal(
+                    "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G",
+                )
+                .unwrap(),
+            ),
+        ),
+        (
+            "principal_contract",
+            Value::from(PrincipalData::Contract(contract_id.clone())),
+        ),
+        (
+            "callable_no_trait",
+            Value::CallableContract(CallableData {
+                contract_identifier: contract_id.clone(),
+                trait_identifier: None,
+            }),
+        ),
+        (
+            "callable_with_trait",
+            Value::CallableContract(CallableData {
+                contract_identifier: contract_id,
+                trait_identifier: Some(trait_id),
+            }),
+        ),
+        // Sequences
+        ("buffer_empty", Value::buff_from(vec![]).unwrap()),
+        ("buffer_5", Value::buff_from(vec![1, 2, 3, 4, 5]).unwrap()),
+        (
+            "ascii_empty",
+            Value::string_ascii_from_bytes(vec![]).unwrap(),
+        ),
+        (
+            "ascii_hello",
+            Value::string_ascii_from_bytes("hello".as_bytes().to_vec()).unwrap(),
+        ),
+        ("utf8_empty", Value::string_utf8_from_bytes(vec![]).unwrap()),
+        (
+            "utf8_hello",
+            Value::string_utf8_from_bytes("hello".as_bytes().to_vec()).unwrap(),
+        ),
+        (
+            "utf8_multibyte",
+            Value::string_utf8_from_string_utf8_literal("hello \\u{1F600}".into()).unwrap(),
+        ),
+        // Tuples
+        (
+            "tuple_1f",
+            TupleData::from_data(vec![("a".into(), Value::Int(1))])
+                .unwrap()
+                .into(),
+        ),
+        (
+            "tuple_3f",
+            TupleData::from_data(vec![
+                ("a".into(), Value::Int(1)),
+                ("b".into(), Value::Bool(true)),
+                ("c".into(), Value::UInt(99)),
+            ])
+            .unwrap()
+            .into(),
+        ),
+        (
+            "tuple_nested",
+            TupleData::from_data(vec![(
+                "outer".into(),
+                TupleData::from_data(vec![("inner".into(), Value::Int(1))])
+                    .unwrap()
+                    .into(),
+            )])
+            .unwrap()
+            .into(),
+        ),
+        // Lists
+        (
+            "list_ints",
+            Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap(),
+        ),
+        (
+            "list_bools",
+            Value::list_from(vec![Value::Bool(true), Value::Bool(false)]).unwrap(),
+        ),
+        (
+            "list_of_tuples",
+            Value::list_from(vec![
+                TupleData::from_data(vec![("x".into(), Value::Int(1))])
+                    .unwrap()
+                    .into(),
+                TupleData::from_data(vec![("x".into(), Value::Int(2))])
+                    .unwrap()
+                    .into(),
+            ])
+            .unwrap(),
+        ),
+        // Optionals
+        ("none", Value::none()),
+        ("some_int", Value::some(Value::Int(42)).unwrap()),
+        ("some_bool", Value::some(Value::Bool(true)).unwrap()),
+        (
+            "some_tuple",
+            Value::some(
+                TupleData::from_data(vec![("a".into(), Value::Int(1))])
+                    .unwrap()
+                    .into(),
+            )
+            .unwrap(),
+        ),
+        (
+            "some_nested",
+            Value::some(Value::some(Value::Int(1)).unwrap()).unwrap(),
+        ),
+        // Responses
+        ("ok_int", Value::okay(Value::Int(1)).unwrap()),
+        ("ok_bool", Value::okay(Value::Bool(true)).unwrap()),
+        (
+            "ok_tuple",
+            Value::okay(
+                TupleData::from_data(vec![
+                    ("a".into(), Value::Int(1)),
+                    ("b".into(), Value::Bool(false)),
+                ])
+                .unwrap()
+                .into(),
+            )
+            .unwrap(),
+        ),
+        ("err_int", Value::error(Value::Int(1)).unwrap()),
+        ("err_uint", Value::error(Value::UInt(99)).unwrap()),
+    ];
+
+    for (label, value) in &values {
+        let new_size = value.size().unwrap();
+        let old_size = TypeSignature::type_of(value).unwrap().size().unwrap();
+        assert_eq!(
+            new_size, old_size,
+            "{label}: Value::size() = {new_size}, type_of().size() = {old_size}"
+        );
+    }
 }
 
 #[test]
