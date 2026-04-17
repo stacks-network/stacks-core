@@ -29,7 +29,7 @@ CHANGELOG.md.
    ```
 
 3. That's it. The fragment will be assembled into `CHANGELOG.md` at release time
-   using `contrib/assemble-changelog.sh`.
+   using `contrib/tools/assemble-changelog.sh`.
 
 ## Notes
 
