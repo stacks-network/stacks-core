@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -55,9 +55,14 @@ fn setup_tracked_cost_test(
                           (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
+    let other_contract_id = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("contract-other"),
+    );
+    let trait_contract_id = QualifiedContractIdentifier::new(
+        p1_principal,
+        ContractName::from_literal("contract-trait"),
+    );
 
     let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
     clarity_instance

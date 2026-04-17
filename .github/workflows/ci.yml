@@ -369,5 +369,6 @@ jobs:
         with:
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
           compare-ref: ${{ github.base_ref }} # defaults to master if this isn't supplied
+          build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
           fail-on-error: true
       

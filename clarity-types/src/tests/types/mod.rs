@@ -18,6 +18,7 @@ mod signatures;
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
+use crate::ClarityName;
 use crate::errors::ClarityTypeError;
 use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
@@ -28,7 +29,6 @@ use crate::types::{
 
 mod utils {
     use super::*;
-    use crate::representations::SymbolicExpression;
 
     /// build a list SequenceData from integer values.
     pub fn make_int_sequence(values: &[i128]) -> SequenceData {
@@ -40,12 +40,12 @@ mod utils {
     }
 
     /// always-true predicate (keep everything).
-    pub fn keep_all(_: SymbolicExpression) -> Result<bool, ()> {
+    pub fn keep_all(_: Value) -> Result<bool, ()> {
         Ok(true)
     }
 
     /// always-false predicate (discard everything).
-    pub fn keep_none(_: SymbolicExpression) -> Result<bool, ()> {
+    pub fn keep_none(_: Value) -> Result<bool, ()> {
         Ok(false)
     }
 
@@ -117,7 +117,7 @@ fn test_constructors() {
     };
     let inner_value = cons().unwrap();
     assert_eq!(
-        TupleData::from_data(vec![("a".into(), inner_value.clone())]),
+        TupleData::from_data(vec![(ClarityName::from_literal("a"), inner_value.clone())]),
         Err(ClarityTypeError::TypeSignatureTooDeep)
     );
 
@@ -159,7 +159,7 @@ fn simple_size_test() {
 
 #[test]
 fn simple_tuple_get_test() {
-    let t = TupleData::from_data(vec![("abc".into(), Value::Int(0))]).unwrap();
+    let t = TupleData::from_data(vec![(ClarityName::from_literal("abc"), Value::Int(0))]).unwrap();
     assert_eq!(t.get("abc"), Ok(&Value::Int(0)));
     // should error!
     t.get("abcd").unwrap_err();
@@ -203,7 +203,10 @@ fn test_some_displays() {
     assert_eq!(
         &format!(
             "{}",
-            Value::from(TupleData::from_data(vec![("a".into(), Value::Int(2))]).unwrap())
+            Value::from(
+                TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(2))])
+                    .unwrap()
+            )
         ),
         "(tuple (a 2))"
     );
@@ -394,11 +397,14 @@ fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding() {
 
 #[test]
 fn test_tuple_data_from_data_typed_returns_clarity_type_error() {
-    let tuple_type =
-        TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)]).unwrap();
+    let tuple_type = TupleTypeSignature::try_from(vec![(
+        ClarityName::from_literal("a"),
+        TypeSignature::IntType,
+    )])
+    .unwrap();
     let err = TupleData::from_data_typed(
         &StacksEpochId::Epoch32,
-        vec![("a".into(), Value::UInt(1))],
+        vec![(ClarityName::from_literal("a"), Value::UInt(1))],
         &tuple_type,
     )
     .unwrap_err();

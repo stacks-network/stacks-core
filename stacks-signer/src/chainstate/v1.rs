@@ -460,6 +460,7 @@ impl SortitionsView {
         client: &StacksClient,
     ) -> Result<(), RejectReason> {
         // Check that the tenure change's prev_tenure matches the sortition's known parent tenure.
+        // This catches block commits with bad parent_block_ptr (e.g., vtxindex=0 exploit).
         let parent_tenure_id = &proposed_by.state().data.parent_tenure_id;
         if &tenure_change.prev_tenure_consensus_hash != parent_tenure_id {
             warn!(

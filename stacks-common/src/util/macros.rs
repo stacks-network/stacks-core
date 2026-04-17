@@ -233,6 +233,20 @@ macro_rules! guarded_string {
             pub fn is_empty(&self) -> bool {
                 self.len() == 0
             }
+
+            /// The caller must guarantee that the conversion will succeed, because the method
+            /// will panic otherwise. This is made for converting `&str` into things
+            /// like `ClarityName`s, where the source value is hardcoded and thus it's visible
+            /// at a glance that the conversion will succeed.
+            ///
+            /// # Panics
+            ///
+            /// If the value is not a legal instance of this guarded string, this method will
+            /// panic. Only pass hardcoded known-good values. For anything else, use `try_from`
+            /// and deal with errors.
+            pub fn from_literal(value: &'static str) -> Self {
+                Self::try_from(value).expect("Expected from_literal to never fail")
+            }
         }
 
         impl Deref for $Name {
@@ -254,9 +268,10 @@ macro_rules! guarded_string {
             }
         }
 
-        impl From<&'_ str> for $Name {
-            fn from(value: &str) -> Self {
-                Self::try_from(value.to_string()).unwrap()
+        impl TryFrom<&str> for $Name {
+            type Error = $ErrorType;
+            fn try_from(value: &str) -> Result<Self, Self::Error> {
+                Self::try_from(value.to_string())
             }
         }
 
