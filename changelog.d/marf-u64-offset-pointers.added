@@ -1,0 +1,1 @@
+Add support for u64 children pointer offsets in the MARF trie, using a mixed u32/u64 encoding with a 0x20 bit flag for backward compatibility
