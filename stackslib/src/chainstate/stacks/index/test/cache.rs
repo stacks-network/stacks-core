@@ -16,6 +16,7 @@
 
 use clarity::types::chainstate::TrieHash;
 
+use crate::chainstate::stacks::index::cache::ArrayLru;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::test::{make_test_insert_data, opts};
 use crate::chainstate::stacks::index::MARFValue;
@@ -329,4 +330,74 @@ fn test_marf_patch_expansion(#[case] marf_opts: &MARFOpenOpts) {
         "aa05b16d1c59a9cb019efeac1276dfdec41f932072d2254d35675c691f79214e",
         root_hash.to_hex()
     );
+}
+
+#[test]
+fn lru_get_promotes_and_affects_eviction() {
+    let mut cache = ArrayLru::<u32, &'static str, 3>::new();
+    cache.put(1, "one");
+    cache.put(2, "two");
+    cache.put(3, "three");
+    // State: [3(MRU), 2, 1(LRU)]
+
+    // Promote key 1 to MRU via rotate_right: [3,2,1] -> [1,3,2].
+    assert_eq!(cache.get(&1), Some(&"one"));
+    // State: [1(MRU), 3, 2(LRU)]
+
+    // Next insert evicts the true LRU (key 2), leaving 1 and 3.
+    cache.put(4, "four");
+    assert_eq!(cache.get(&2), None);
+    assert_eq!(cache.get(&1), Some(&"one"));
+    assert_eq!(cache.get(&3), Some(&"three"));
+    assert_eq!(cache.get(&4), Some(&"four"));
+}
+
+#[test]
+fn lru_put_existing_updates_and_promotes() {
+    let mut cache = ArrayLru::<u32, u32, 3>::new();
+    cache.put(1, 10);
+    cache.put(2, 20);
+    cache.put(3, 30);
+
+    // Update key 2 and promote it to MRU.
+    cache.put(2, 200);
+    assert_eq!(cache.get(&2), Some(&200));
+
+    // LRU should now be key 1.
+    cache.put(4, 40);
+    assert_eq!(cache.get(&1), None);
+    assert_eq!(cache.get(&2), Some(&200));
+    assert_eq!(cache.get(&3), Some(&30));
+    assert_eq!(cache.get(&4), Some(&40));
+}
+
+#[test]
+fn lru_clear_resets_state() {
+    let mut cache = ArrayLru::<u32, u32, 3>::new();
+    cache.put(1, 10);
+    cache.put(2, 20);
+    cache.put(3, 30);
+    cache.clear();
+
+    assert_eq!(cache.get(&1), None);
+    assert_eq!(cache.get(&2), None);
+    assert_eq!(cache.get(&3), None);
+
+    // Reusable after clear.
+    cache.put(9, 90);
+    assert_eq!(cache.get(&9), Some(&90));
+}
+
+#[test]
+fn lru_capacity_one() {
+    let mut cache = ArrayLru::<u8, u8, 1>::new();
+    cache.put(1, 10);
+    assert_eq!(cache.get(&1), Some(&10));
+
+    cache.put(2, 20);
+    assert_eq!(cache.get(&1), None);
+    assert_eq!(cache.get(&2), Some(&20));
+
+    cache.put(2, 22);
+    assert_eq!(cache.get(&2), Some(&22));
 }

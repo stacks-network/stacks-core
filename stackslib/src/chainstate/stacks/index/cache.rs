@@ -328,3 +328,123 @@ impl<T: MarfTrieId> TrieCache<T> {
         self.state_ref().load_block_id(block_hash)
     }
 }
+
+/// A small array-backed (fixed-capacity, stack-allocated) Least-Recently-Used (LRU) cache.
+///
+/// Entries are stored in MRU-to-LRU order:
+///
+/// * Index 0 is the most recently accessed entry.
+/// * The last occupied slot is the least-recently-used entry.
+/// * On lookup or update, a hit is promoted to index 0.
+/// * On insert when full, the least-recently-used entry is evicted.
+///
+/// ## Notes
+///
+/// The value of `N` must be greater than zero, which is enforced by a compile-time assertion in
+/// [`ArrayLru::new()`]. The following will fail to compile:
+///
+/// ```compile_fail
+/// # use crate::chainstate::stacks::index::cache::ArrayLru;
+/// let _cache = ArrayLru::<u8, u8, 0>::new();
+/// ```
+#[derive(Debug, Clone)]
+pub struct ArrayLru<K, V, const N: usize> {
+    entries: [Option<(K, V)>; N],
+    len: usize,
+}
+
+impl<K: Eq, V, const N: usize> ArrayLru<K, V, N> {
+    pub fn new() -> Self {
+        const {
+            assert!(N > 0, "ArrayLru capacity must be greater than zero");
+        }
+
+        Self {
+            entries: core::array::from_fn(|_| None),
+            len: 0,
+        }
+    }
+
+    /// Look up by key.
+    ///
+    /// On hit, promotes the entry to MRU position.
+    pub fn get(&mut self, key: &K) -> Option<&V> {
+        let pos = self.entries[..self.len]
+            .iter()
+            .position(|entry| matches!(entry, Some((k, _)) if k == key))?;
+
+        if pos > 0 {
+            // Shift entries [0..pos] right by one and move the hit to position 0, preserving
+            // recency order of all other entries (true LRU).
+            self.entries[..=pos].rotate_right(1);
+        }
+
+        debug_assert!(
+            self.entries[0].is_some(),
+            "entry promoted to position 0 should always be Some"
+        );
+
+        self.entries[0].as_ref().map(|(_, v)| v)
+    }
+
+    /// Insert a key-value pair.
+    ///
+    /// If the key is already present, updates the value and promotes it. Otherwise, inserts at MRU
+    /// position, evicting the LRU entry if at capacity.
+    pub fn put(&mut self, key: K, value: V) {
+        // Update existing entry
+        if let Some(pos) = self.entries[..self.len]
+            .iter()
+            .position(|entry| matches!(entry, Some((k, _)) if k == &key))
+        {
+            debug_assert!(
+                pos < self.entries.len(),
+                "search position should always be within array bounds"
+            );
+
+            if let Some(slot) = self.entries.get_mut(pos) {
+                *slot = Some((key, value));
+            }
+
+            if pos > 0 {
+                // Shift entries [0..pos] right by one and move the updated entry to position 0,
+                // preserving recency order of all other entries (true LRU).
+                self.entries[..=pos].rotate_right(1);
+            }
+
+            return;
+        }
+
+        // Grow if not at capacity
+        if self.len < N {
+            self.len += 1;
+        }
+
+        // Rotate right: moves the current LRU (last position) to index 0, then overwrite it
+        // with the new entry. Entries [0..len-1] shift right by one, preserving their order.
+        self.entries[..self.len].rotate_right(1);
+        self.entries[0] = Some((key, value));
+    }
+
+    /// Clear all entries from the cache and reset length to zero.
+    pub fn clear(&mut self) {
+        for entry in &mut self.entries[..self.len] {
+            *entry = None;
+        }
+        self.len = 0;
+    }
+
+    /// Get the number of entries currently in the cache.
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Check if the cache contains the specified key.
+    #[cfg(test)]
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.entries[..self.len]
+            .iter()
+            .any(|entry| matches!(entry, Some((k, _)) if k == key))
+    }
+}

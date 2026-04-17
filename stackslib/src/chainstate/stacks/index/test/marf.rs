@@ -30,7 +30,8 @@ use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
 };
 use crate::chainstate::stacks::index::test::{
-    make_node4_path, make_node_path, merkle_test_marf, merkle_test_marf_key_value, opts,
+    assert_get_eq, initialize_marf_with_tip, insert_unconfirmed_transactional, make_node4_path,
+    make_node_path, make_test_marf_path, merkle_test_marf, merkle_test_marf_key_value, opts,
 };
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue, TrieLeaf};
 
@@ -2542,4 +2543,44 @@ fn test_for_each_leaf_callback_error_propagates() {
         1,
         "callback should have been called exactly once"
     );
+}
+
+#[test]
+fn marf_unconfirmed_reflush_keeps_latest_state() {
+    let (_tmp_dir, marf_path) =
+        make_test_marf_path("test_marf_unconfirmed_reflush_keeps_latest_state");
+
+    let confirmed_tip = StacksBlockId([0x55; 32]);
+    initialize_marf_with_tip(&marf_path, &confirmed_tip);
+
+    let storage =
+        TrieFileStorage::<StacksBlockId>::open_unconfirmed(&marf_path, MARFOpenOpts::default())
+            .unwrap();
+    let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+
+    let key_1 = "unconfirmed-key-1";
+    let key_2 = "unconfirmed-key-2";
+    let key_3 = "unconfirmed-key-3";
+    let value_1 = MARFValue::from_value("unconfirmed-value-1");
+    let value_2 = MARFValue::from_value("unconfirmed-value-2");
+    let value_3 = MARFValue::from_value("unconfirmed-value-3");
+
+    let unconfirmed_tip =
+        insert_unconfirmed_transactional(&mut marf, &confirmed_tip, key_1, &value_1);
+
+    // Prime read path against unconfirmed state.
+    assert_get_eq(&mut marf, &unconfirmed_tip, key_1, &value_1);
+
+    // Re-flush the same logical unconfirmed tip (same block_id row updated in place).
+    insert_unconfirmed_transactional(&mut marf, &confirmed_tip, key_2, &value_2);
+
+    assert_get_eq(&mut marf, &unconfirmed_tip, key_1, &value_1);
+    assert_get_eq(&mut marf, &unconfirmed_tip, key_2, &value_2);
+
+    // Do one more cycle to make stale-root regressions obvious.
+    insert_unconfirmed_transactional(&mut marf, &confirmed_tip, key_3, &value_3);
+
+    assert_get_eq(&mut marf, &unconfirmed_tip, key_1, &value_1);
+    assert_get_eq(&mut marf, &unconfirmed_tip, key_2, &value_2);
+    assert_get_eq(&mut marf, &unconfirmed_tip, key_3, &value_3);
 }

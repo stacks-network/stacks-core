@@ -1634,6 +1634,18 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
 
     /// Does this trie represent unconfirmed state?
     unconfirmed: bool,
+
+    /// Small MRU-ordered LRU cache of recently-accessed root nodes of committed blocks.
+    ///
+    /// Keyed by `block_id`, stores owned tuples of ([`TrieNodeType`], [`TrieHash`]).
+    ///
+    /// ## Notes
+    ///
+    /// * `TrieNode256` and `TrieNode48` are large (~3KiB/~1KiB), but `TrieNodeType` boxes them,
+    ///   limiting the size impact of this field.
+    /// * The size of `4` was chosen arbitrarily to be large enough to capture a few
+    ///   recently-accessed blocks, but small enough to avoid significant memory overhead.
+    root_node_cache: ArrayLru<u32, (TrieNodeType, TrieHash), 4>,
 }
 
 // disk-backed Trie.
@@ -1768,6 +1780,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
             readonly: true,
             unconfirmed: self.unconfirmed(),
+
+            root_node_cache: self.data.root_node_cache.clone(),
         };
         // perf note: should we attempt to clone the cache
         let cache = TrieCache::default();
@@ -1929,6 +1943,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
                 readonly,
                 unconfirmed,
+
+                root_node_cache: ArrayLru::new(),
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -2019,6 +2035,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
                 readonly: true,
                 unconfirmed: self.unconfirmed(),
+
+                root_node_cache: self.data.root_node_cache.clone(),
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -2089,6 +2107,8 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
                 readonly: true,
                 unconfirmed: self.unconfirmed(),
+
+                root_node_cache: self.data.root_node_cache.clone(),
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -2190,6 +2210,9 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     if !self.unconfirmed() {
                         return Err(Error::UnconfirmedError);
                     }
+                    // Defensive: clear root node cache since unconfirmed blobs are updated in-place
+                    // (same block_id, new data).
+                    self.data.root_node_cache.clear();
                     trie_sql::write_trie_blob_to_unconfirmed(&self.db, &bhh, &buffer)?
                 }
             };
@@ -2233,6 +2256,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             self.data.uncommitted_writes = None;
             self.data.clear_block_id();
             self.data.trie_ancestor_hash_bytes_cache = None;
+            self.data.root_node_cache.clear();
         }
     }
 
@@ -2247,6 +2271,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             self.data.uncommitted_writes = None;
             self.data.clear_block_id();
             self.data.trie_ancestor_hash_bytes_cache = None;
+            self.data.root_node_cache.clear();
         }
     }
 
@@ -2371,6 +2396,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
         self.data.uncommitted_writes = None;
         self.clear_cached_ancestor_hashes_bytes();
+        self.data.root_node_cache.clear();
 
         Ok(())
     }
@@ -2461,6 +2487,13 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         None
     }
 
+    /// Recover from partially-written state -- i.e. blow it away.
+    /// Doesn't get called automatically.
+    pub fn recover(db_path: &String) -> Result<(), Error> {
+        let conn = marf_sqlite_open(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE, false)?;
+        trie_sql::clear_lock_data(&conn)
+    }
+
     #[cfg(test)]
     pub fn stats(&mut self) -> (u64, u64) {
         let r = self.data.read_count;
@@ -2494,11 +2527,19 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         (lr, lw)
     }
 
-    /// Recover from partially-written state -- i.e. blow it away.
-    /// Doesn't get called automatically.
-    pub fn recover(db_path: &String) -> Result<(), Error> {
-        let conn = marf_sqlite_open(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE, false)?;
-        trie_sql::clear_lock_data(&conn)
+    /// Return the number of entries in the root node cache.
+    #[cfg(test)]
+    pub fn root_node_cache_len(&self) -> usize {
+        self.data.root_node_cache.len()
+    }
+
+    /// Return true if the root node cache contains an entry for the current block.
+    #[cfg(test)]
+    pub fn root_node_cache_has_current_block(&self) -> bool {
+        self.data
+            .cur_block_id
+            .map(|id| self.data.root_node_cache.contains_key(&id))
+            .unwrap_or(false)
     }
 
     /// Read the Trie root node's hash from the block table.
@@ -3086,6 +3127,56 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         return Err(Error::NodeTooDeep);
     }
 
+    /// Attempt to read the root node via the root-node cache (`Noop` cache mode only), falling back
+    /// to a normal disk read if the node isn't cacheable or upon cache miss.
+    ///
+    /// ## Returns
+    ///
+    /// * `Ok(None)` if this read is ineligible for the root cache (wrong ptr, unconfirmed block,
+    /// non-`Noop` cache mode), or
+    /// * `Ok(Some(TrieNodeType, TrieHash))` on cache hit/successful cache-miss population.
+    /// * `Err` if an error occurs during cache-miss path's disk read.
+    fn try_read_root_via_cache(
+        &mut self,
+        block_id: u32,
+        clear_ptr: TriePtr,
+    ) -> Result<Option<(TrieNodeType, TrieHash)>, Error> {
+        // Disabled for cache modes other than 'noop' as the main cache will contain these nodes
+        // in other modes.
+        if !matches!(&self.cache, TrieCache::Noop(_)) {
+            return Ok(None);
+        }
+
+        // Is this the root node ptr for this block?
+        let is_root_ptr = clear_ptr == self.root_trieptr();
+
+        // If not, or if this block is unconfirmed (i.e. the root node may still be mutating), then
+        // don't use the root cache.
+        if !is_root_ptr || self.unconfirmed_block_id == Some(block_id) {
+            return Ok(None);
+        }
+
+        // Consult the LRU root-node cache.
+        let maybe_cached = self.data.root_node_cache.get(&block_id);
+        let (node, hash) = match maybe_cached {
+            // Cache hit
+            Some((node, hash)) => (node.clone(), *hash),
+            // Cache miss
+            None => {
+                // Read the node+hash from disk and populate the cache.
+                let (node, hash) =
+                    self.inner_read_patched_persisted_nodetype(block_id, clear_ptr, true)?;
+                self.data
+                    .root_node_cache
+                    .put(block_id, (node.clone(), hash));
+
+                (node, hash)
+            }
+        };
+
+        Ok(Some((node, hash)))
+    }
+
     /// Read a node and optionally its hash.  If `read_hash` is false, then an empty hash will be
     /// returned
     /// NOTE: ptr will not be treated as a backptr -- the node returned will be from the
@@ -3122,14 +3213,21 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         match self.data.cur_block_id {
             Some(id) => {
                 self.bench.read_nodetype_start();
+
+                // Try the root-node cache first, which is a noop for non-eligible/non-root nodes.
+                if let Some(result) = self.try_read_root_via_cache(id, clear_ptr)? {
+                    self.bench.read_nodetype_finish(false);
+                    return Ok(result);
+                }
+
                 let (node_inst, node_hash) = if read_hash {
                     if let Some((node_inst, node_hash)) =
                         self.cache.load_node_and_hash(id, &clear_ptr)
                     {
-                        trace!("Cache hit: {:?} {} {:?}", ptr, node_hash, node_inst);
+                        trace!("Cache hit: {ptr:?} {node_hash} {node_inst:?}");
                         (node_inst, node_hash)
                     } else {
-                        trace!("Cache miss: {:?}", ptr);
+                        trace!("Cache miss: {ptr:?}");
                         let (node_inst, node_hash) =
                             self.inner_read_patched_persisted_nodetype(id, clear_ptr, read_hash)?;
                         self.cache
@@ -3137,10 +3235,10 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                         (node_inst, node_hash)
                     }
                 } else if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
-                    trace!("Cache hit: {:?}", ptr);
+                    trace!("Cache hit: {ptr:?}");
                     (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                 } else {
-                    trace!("Cache miss: {:?}", ptr);
+                    trace!("Cache miss: {ptr:?}");
                     let (node_inst, _) =
                         self.inner_read_patched_persisted_nodetype(id, clear_ptr, read_hash)?;
                     self.cache.store_node(id, clear_ptr, node_inst.clone());

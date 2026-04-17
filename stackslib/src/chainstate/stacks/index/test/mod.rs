@@ -22,13 +22,16 @@ use std::collections::HashMap;
 use clarity::util::hash::Sha512Trunc256Sum;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::to_hex;
+use tempfile::{tempdir, TempDir};
 
 use crate::chainstate::stacks::index::bits::*;
 use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::trie::*;
-use crate::chainstate::stacks::index::{MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
+use crate::chainstate::stacks::index::{
+    ClarityMarfTrieId as _, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
+};
 use crate::chainstate::stacks::{BlockHeaderHash, TrieHash};
 
 pub mod cache;
@@ -354,6 +357,118 @@ pub fn make_test_insert_data(
         ret.push(block_data);
     }
     ret
+}
+
+/// Creates a temporary directory and returns it alongside a MARF database path within it.
+///
+/// **Note:** The [`TempDir`] must be kept alive for the duration of the test.
+#[track_caller]
+pub fn make_test_marf_path(test_name: &str) -> (TempDir, String) {
+    let tmp_dir = tempdir().unwrap_or_else(|e| panic!("failed to create temp dir: {e:?}"));
+    let marf_path = tmp_dir.path().join(format!("{test_name}.sqlite"));
+    (tmp_dir, marf_path.to_string_lossy().into_owned())
+}
+
+/// Commits `block_count` sequential blocks into `marf`, each with a single key-value insertion.
+/// Returns the list of block tips in order.
+#[track_caller]
+pub fn create_minimal_confirmed_chain(
+    marf: &mut MARF<StacksBlockId>,
+    block_count: usize,
+) -> Vec<StacksBlockId> {
+    debug_assert!(
+        block_count < (u32::MAX as usize) - 1,
+        "block_count must be less than 2^32-1 to fit in tip generation scheme"
+    );
+
+    let block_count_u32 = block_count as u32;
+    let mut tips = Vec::with_capacity(block_count);
+    let mut parent_tip = StacksBlockId::sentinel();
+
+    for i in 0..block_count_u32 {
+        let mut tip_bytes = [0u8; 32];
+        let counter = i.to_be_bytes();
+
+        for chunk in tip_bytes.chunks_mut(4) {
+            chunk.copy_from_slice(&counter);
+        }
+
+        let next_tip = StacksBlockId(tip_bytes);
+        let insert_key = format!("confirmed-chain-key-{i}");
+        let insert_value = MARFValue::from(i);
+
+        marf.begin(&parent_tip, &next_tip)
+            .unwrap_or_else(|e| panic!("failed to begin block {next_tip:?}: {e:?}"));
+        marf.insert(&insert_key, insert_value)
+            .unwrap_or_else(|e| panic!("failed to insert key '{insert_key}': {e:?}"));
+        marf.commit()
+            .unwrap_or_else(|e| panic!("failed to commit block {next_tip:?}: {e:?}"));
+
+        tips.push(next_tip.clone());
+        parent_tip = next_tip;
+    }
+
+    tips
+}
+
+/// Opens a fresh MARF at `path` and commits an empty block for `tip`.
+#[track_caller]
+fn initialize_marf_with_tip(path: &str, tip: &StacksBlockId) {
+    let opts = MARFOpenOpts::default();
+    let storage = TrieFileStorage::<StacksBlockId>::open(path, opts)
+        .unwrap_or_else(|e| panic!("failed to open confirmed storage at '{path}': {e:?}"));
+    let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+    marf.begin(&StacksBlockId::sentinel(), tip)
+        .unwrap_or_else(|e| panic!("failed to begin tip {tip:?}: {e:?}"));
+    marf.commit()
+        .unwrap_or_else(|e| panic!("failed to commit tip {tip:?}: {e:?}"));
+}
+
+/// Runs a single begin-insert-commit cycle against the unconfirmed trie rooted at `confirmed_tip`.
+/// Returns the unconfirmed tip block ID.
+#[track_caller]
+fn insert_unconfirmed_transactional(
+    marf: &mut MARF<StacksBlockId>,
+    confirmed_tip: &StacksBlockId,
+    key: &str,
+    value: &MARFValue,
+) -> StacksBlockId {
+    let begin_result = marf.begin_unconfirmed(confirmed_tip);
+    let unconfirmed_tip = begin_result.unwrap_or_else(|e| {
+        panic!("begin_unconfirmed failed: confirmed_tip={confirmed_tip:?}, err={e:?}")
+    });
+
+    let insert_result = marf.insert(key, value.clone());
+    insert_result.unwrap_or_else(|e| {
+        panic!(
+            "insert failed: confirmed_tip={confirmed_tip:?}, key='{key}', value={value}, err={e:?}"
+        )
+    });
+
+    let commit_result = marf.commit();
+    commit_result.unwrap_or_else(|e| {
+        panic!("commit failed: confirmed_tip={confirmed_tip:?}, key='{key}', err={e:?}")
+    });
+
+    unconfirmed_tip
+}
+
+/// Asserts that `marf.get(tip, key)` returns `Some(expected)`.
+#[track_caller]
+pub fn assert_get_eq(
+    marf: &mut MARF<StacksBlockId>,
+    tip: &StacksBlockId,
+    key: &str,
+    expected: &MARFValue,
+) {
+    let got = marf
+        .get(tip, key)
+        .unwrap_or_else(|e| panic!("failed to get key '{key}' at tip {tip:?}: {e:?}"));
+    assert_eq!(
+        got,
+        Some(expected.clone()),
+        "expected to get {expected:?} for key {key} at tip {tip:?}",
+    );
 }
 
 pub mod opts {
