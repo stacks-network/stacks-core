@@ -18,12 +18,13 @@ use clarity_types::types::MAX_TO_ASCII_BUFFER_LEN;
 use pinny::tag;
 use proptest::prelude::*;
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::to_hex;
 
 pub use crate::vm::analysis::errors::RuntimeCheckErrorKind;
 use crate::vm::tests::proptest_utils::{
-    contract_name_strategy, execute_versioned, standard_principal_strategy,
-    to_ascii_buffer_snippet_strategy, utf8_string_ascii_only_snippet_strategy,
-    utf8_string_snippet_strategy,
+    clarity_values_no_response, consensus_buff_type_strategy, contract_name_strategy,
+    execute_versioned, standard_principal_strategy, to_ascii_buffer_snippet_strategy,
+    utf8_string_ascii_only_snippet_strategy, utf8_string_snippet_strategy,
 };
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::BufferType;
@@ -769,5 +770,297 @@ proptest! {
         } else {
             prop_assert_eq!(Value::err_uint(1), evaluation);
         }
+    }
+
+    // Empty buffer must return none for every type. Forces the corner case
+    // that random generation would almost never produce.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_from_consensus_buff_empty_buffer_returns_none(
+        type_name in consensus_buff_type_strategy()
+    ) {
+        let program = format!("(from-consensus-buff? {type_name} 0x)");
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(
+            Value::none(), result,
+            "Empty buffer must return none for type {}",
+            type_name
+        );
+    }
+
+    // Random garbage bytes must never crash/runtime error. Any byte sequence
+    // should produce either none or a valid value, never a panic/runtime error.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_from_consensus_buff_random_bytes_never_crash(
+        garbage in proptest::collection::vec(any::<u8>(), 0..1024),
+        type_name in consensus_buff_type_strategy()
+    ) {
+        let hex = to_hex(&garbage);
+        let program = format!("(from-consensus-buff? {type_name} 0x{hex})");
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false
+        );
+
+        // Must not panic/runtime error. With the free cost tracker we bypass
+        // cost errors, so we only check that execution doesn't crash.
+        prop_assert!(
+            result.is_ok(),
+            "Random bytes must not crash from-consensus-buff? for type {}: {:?}",
+            type_name, result.err()
+        );
+    }
+
+    // Principal version >= 32 is invalid per StandardPrincipalData::new().
+    // Epoch34 returns none; pre-Epoch34 triggers a rejectable error.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_from_consensus_buff_invalid_principal_version_returns_none(
+        version in 32u8..=255,
+        hash_bytes in any::<[u8; 20]>()
+    ) {
+        // Consensus bytes: 0x05 (PrincipalStandard) + version + hash160.
+        let mut serialized = Vec::with_capacity(22);
+        serialized.push(0x05);
+        serialized.push(version);
+        serialized.extend_from_slice(&hash_bytes);
+
+        let hex = to_hex(&serialized);
+        let program = format!("(from-consensus-buff? principal 0x{hex})");
+
+        // Epoch34: returns none.
+        let result_none = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false
+        )
+        .expect("Epoch34 should not error")
+        .expect("should return a value");
+
+        prop_assert_eq!(
+            Value::none(), result_none,
+            "Invalid principal version {} must return none at Epoch34",
+            version
+        );
+
+        // Pre-Epoch34: returns rejectable error.
+        let result_err = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false
+        );
+
+        prop_assert!(
+            result_err.is_err(),
+            "Invalid principal version {} must error at Epoch33",
+            version
+        );
+    }
+
+    // Epoch governs error handling for unexpected serialization, not
+    // ClarityVersion. Clarity4 at Epoch34 returns none; Clarity4 at Epoch33
+    // returns a rejectable error.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_from_consensus_buff_invalid_principal_epoch_governs(
+        version in 32u8..,
+        hash_bytes in any::<[u8; 20]>()
+    ) {
+        let mut serialized = Vec::with_capacity(22);
+        serialized.push(0x05);
+        serialized.push(version);
+        serialized.extend_from_slice(&hash_bytes);
+
+        let hex = to_hex(&serialized);
+        let program = format!(
+            "(from-consensus-buff? principal 0x{hex})"
+        );
+
+        // Clarity4 at Epoch34: epoch forces none.
+        let result_none = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34,
+            false
+        )
+        .expect("Clarity4 at Epoch34 should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(
+            Value::none(), result_none,
+            "Clarity4 at Epoch34 must return none for invalid version {}", version
+        );
+
+        // Clarity4 at Epoch33: epoch forces rejectable error.
+        let result_err = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false
+        );
+
+        prop_assert!(
+            result_err.is_err(),
+            "Clarity4@Epoch33 must error for invalid version {}", version
+        );
+    }
+
+    // Consensus serialization round-trip: Rust-level encoding fed back through
+    // from-consensus-buff? must recover the original value.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_from_consensus_buff_roundtrip(
+        value in clarity_values_no_response()
+    ) {
+        let type_sig = TypeSignature::type_of(&value)
+            .expect("generated value must have a type");
+        let type_str = type_sig.to_string();
+        // Bare none yields NoType which has no Clarity syntax.
+        prop_assume!(!type_str.contains("UnknownType"));
+
+        let bytes = value
+            .serialize_to_vec()
+            .expect("generated value must be serializable");
+        let hex = to_hex(&bytes);
+
+        let program = format!(
+            "(from-consensus-buff? {type_str} 0x{hex})"
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        let expected = Value::some(value.clone())
+            .expect("wrapping in some should succeed");
+        prop_assert_eq!(
+            expected, result,
+            "Round-trip failed for type {}",
+            type_str
+        );
+    }
+
+    // Type safety: bytes serialized as one type and deserialized as a
+    // different top-level constructor must return none.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_from_consensus_buff_type_mismatch_returns_none(
+        (type_str, bytes, wrong_type) in
+            clarity_values_no_response()
+                .prop_filter_map(
+                    "serializable with concrete type",
+                    |value| {
+                        let type_signature = TypeSignature::type_of(&value).ok()?;
+                        let signature = type_signature.to_string();
+                        if signature.contains("UnknownType") {
+                            return None;
+                        }
+                        let bytes = value.serialize_to_vec().ok()?;
+                        Some((signature, bytes))
+                    },
+                )
+                .prop_flat_map(|(type_str, bytes)| {
+                    let constructor = type_str
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or(&type_str)
+                        .to_owned();
+                    let wrong = consensus_buff_type_strategy()
+                        .prop_filter(
+                            "different constructor",
+                            move |wrong_type| {
+                                wrong_type.split_whitespace()
+                                    .next()
+                                    .unwrap_or(wrong_type)
+                                    != constructor
+                            },
+                        );
+                    (Just(type_str), Just(bytes), wrong)
+                })
+    ) {
+        let hex = to_hex(&bytes);
+
+        let program = format!(
+            "(from-consensus-buff? {wrong_type} 0x{hex})"
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(
+            Value::none(), result,
+            "Type mismatch must return none: \
+             serialized as {}, deserialized as {}",
+            type_str, wrong_type
+        );
+    }
+
+    // Partial data must never decode: slicing a valid encoding at any interior
+    // byte must return none.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_from_consensus_buff_truncated_returns_none(
+        (type_str, bytes, cut_point) in
+            clarity_values_no_response()
+                .prop_filter_map(
+                    "serializable with concrete type",
+                    |value| {
+                        let type_signature = TypeSignature::type_of(&value).ok()?;
+                        let signature = type_signature.to_string();
+                        if signature.contains("UnknownType") {
+                            return None;
+                        }
+                        let bytes = value.serialize_to_vec().ok()?;
+                        if bytes.len() <= 1 { return None; }
+                        Some((signature, bytes))
+                    },
+                )
+                .prop_flat_map(|(type_str, bytes)| {
+                    let len = bytes.len();
+                    (Just(type_str), Just(bytes), 1..len)
+                })
+    ) {
+        let hex = to_hex(&bytes[..cut_point]);
+
+        let program = format!(
+            "(from-consensus-buff? {type_str} 0x{hex})"
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(
+            Value::none(), result,
+            "Truncated buffer (cut at {}/{}) must \
+             return none for type {}",
+            cut_point, bytes.len(), type_str
+        );
     }
 }

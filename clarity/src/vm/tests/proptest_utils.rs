@@ -825,3 +825,169 @@ pub fn utf8_string_literal(data: &UTF8Data) -> String {
     literal.push('"');
     literal
 }
+
+/// (type_signature, default_literal) pairs for trait method params and return
+/// values.
+const TRAIT_TYPES: [(&str, &str); 6] = [
+    ("int", "0"),
+    ("uint", "u0"),
+    ("bool", "false"),
+    ("principal", "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR"),
+    ("(buff 1)", "0x00"),
+    ("(string-ascii 1)", "\"a\""),
+];
+
+/// Evaluate the default literal for a given type index.
+pub fn trait_default_value(idx: usize) -> Value {
+    super::execute(TRAIT_TYPES[idx].1)
+}
+
+/// Single method in a randomly generated trait.
+/// Indices refer to `TRAIT_TYPES`.
+#[derive(Debug, Clone)]
+struct MethodSpec {
+    /// Indices into `TRAIT_TYPES` for each parameter.
+    arg_types: Vec<usize>,
+    /// Index into `TRAIT_TYPES` for the ok branch of the response.
+    ok_type: usize,
+    /// Index into `TRAIT_TYPES` for the err branch of the response.
+    err_type: usize,
+}
+
+/// Randomly generated Clarity trait shape (1–4 methods, 0–3 args each).
+#[derive(Debug, Clone)]
+pub struct TraitShape {
+    methods: Vec<MethodSpec>,
+}
+
+impl TraitShape {
+    /// Ok-type index of method-0 (for expected-value assertions).
+    pub fn first_ok_idx(&self) -> usize {
+        self.methods[0].ok_type
+    }
+
+    /// Render a `(define-trait ...)` expression.
+    fn define_trait_source(&self, name: &str) -> String {
+        let mut s = format!("(define-trait {name} (\n");
+        for (i, m) in self.methods.iter().enumerate() {
+            let arg_list = m
+                .arg_types
+                .iter()
+                .map(|&j| TRAIT_TYPES[j].0)
+                .collect::<Vec<_>>()
+                .join(" ");
+            s.push_str(&format!(
+                "  (method-{i} ({arg_list}) (response {} {}))\n",
+                TRAIT_TYPES[m.ok_type].0, TRAIT_TYPES[m.err_type].0
+            ));
+        }
+        s.push_str("))");
+        s
+    }
+
+    /// Trait definition + dispatch function in one contract.
+    pub fn combined_contract_source(&self, trait_name: &str) -> String {
+        let def = self.define_trait_source(trait_name);
+        let call = self.dispatch_call();
+        format!("{def}\n(define-public (dispatch (callee <{trait_name}>))\n  {call})\n")
+    }
+
+    /// All methods implemented correctly.
+    pub fn impl_functions_source(&self) -> String {
+        self.methods
+            .iter()
+            .enumerate()
+            .map(|(i, m)| render_method(i, m, TRAIT_TYPES[m.ok_type].1))
+            .collect()
+    }
+
+    /// All methods except method-0.
+    pub fn impl_functions_missing_first(&self) -> String {
+        self.methods[1..]
+            .iter()
+            .enumerate()
+            .map(|(i, m)| render_method(i + 1, m, TRAIT_TYPES[m.ok_type].1))
+            .collect()
+    }
+
+    /// All methods, but method-0 returns the wrong type.
+    pub fn impl_functions_wrong_return_first(&self) -> String {
+        let wrong = (self.methods[0].ok_type + 1) % TRAIT_TYPES.len();
+        std::iter::once(render_method(0, &self.methods[0], TRAIT_TYPES[wrong].1))
+            .chain(
+                self.methods[1..]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, m)| render_method(i + 1, m, TRAIT_TYPES[m.ok_type].1)),
+            )
+            .collect()
+    }
+
+    fn dispatch_call(&self) -> String {
+        let args = self.methods[0]
+            .arg_types
+            .iter()
+            .map(|&i| TRAIT_TYPES[i].1)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if args.is_empty() {
+            "(contract-call? callee method-0)".to_string()
+        } else {
+            format!("(contract-call? callee method-0 {args})")
+        }
+    }
+}
+
+fn render_method(idx: usize, m: &MethodSpec, ok_val: &str) -> String {
+    let params = m
+        .arg_types
+        .iter()
+        .enumerate()
+        .map(|(j, &i)| format!("(a{j} {})", TRAIT_TYPES[i].0))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("(define-public (method-{idx} {params}) (ok {ok_val}))\n")
+}
+
+/// Strategy that generates a random `TraitShape` with 1–4 methods.
+pub fn trait_shape_strategy() -> BoxedStrategy<TraitShape> {
+    let n = TRAIT_TYPES.len();
+    proptest::collection::vec(
+        (
+            proptest::collection::vec(0usize..n, 0..=3usize),
+            0usize..n,
+            0usize..n,
+        )
+            .prop_map(|(arg_types, ok_type, err_type)| MethodSpec {
+                arg_types,
+                ok_type,
+                err_type,
+            }),
+        1..=4,
+    )
+    .prop_map(|methods| TraitShape { methods })
+    .boxed()
+}
+
+/// A strategy that generates valid Clarity type signature strings suitable for
+/// `from-consensus-buff?`. Parameterized types get randomized lengths up to
+/// 128.
+pub fn consensus_buff_type_strategy() -> BoxedStrategy<String> {
+    let len_range = 1u32..=128;
+
+    prop_oneof![
+        Just("int".to_string()),
+        Just("uint".to_string()),
+        Just("bool".to_string()),
+        Just("principal".to_string()),
+        len_range.clone().prop_map(|n| format!("(buff {n})")),
+        len_range
+            .clone()
+            .prop_map(|n| format!("(string-ascii {n})")),
+        len_range.clone().prop_map(|n| format!("(string-utf8 {n})")),
+        Just("(optional int)".to_string()),
+        len_range.prop_map(|n| format!("(list {n} int)")),
+        Just("(response int int)".to_string()),
+    ]
+    .boxed()
+}
