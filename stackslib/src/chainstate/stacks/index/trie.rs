@@ -257,22 +257,20 @@ impl Trie {
         cursor: &mut TrieCursor<T>,
         value: &mut TrieLeaf,
     ) -> Result<TriePtr, Error> {
-        let (cur_leaf, _) = storage.read_nodetype(&cursor.ptr())?;
+        let leaf_ptr = cursor.ptr();
+
+        let (cur_leaf, _) = storage.read_nodetype(&leaf_ptr)?;
         if !cur_leaf.is_leaf() {
-            return Err(Error::CorruptionError(format!(
-                "Not a leaf: {:?}",
-                &cursor.ptr()
-            )));
+            return Err(Error::CorruptionError(format!("Not a leaf: {leaf_ptr:?}")));
         }
 
         value.path.clone_from(cur_leaf.path_bytes());
 
         let leaf_hash = get_leaf_hash(value);
 
-        let leaf_ptr = cursor.ptr();
         storage.write_node(leaf_ptr.ptr(), value, leaf_hash)?;
 
-        trace!("replace_leaf: wrote {:?} at {:?}", &value, &cursor.ptr());
+        trace!("replace_leaf: wrote {value:?} at {leaf_ptr:?}");
         Ok(cursor.ptr())
     }
 
@@ -721,11 +719,9 @@ impl Trie {
             // Either tack the leaf on (possibly promoting the node), or splice the leaf in.
             if cursor.eonp(&node) {
                 trace!(
-                    "eop = {}, eonp = {}, c = {:?}, node = {:?}",
+                    "eop = {}, eonp = {}, c = {cursor:?}, node = {node:?}",
                     cursor.eop(),
                     cursor.eonp(&node),
-                    cursor,
-                    &node
                 );
                 Trie::insert_leaf(storage, cursor, value, &mut node)
             } else {
@@ -860,9 +856,11 @@ impl Trie {
         }
     }
 
-    /// Unwind a TrieCursor to update the Merkle root of the trie.
-    /// The root hashes of each trie form a Merkle skip-list -- the hash of Trie i is calculated
-    /// from the hash of its children, plus the hash Tries i-1, i-2, i-4, i-8, ..., i-2**j, ...
+    /// Unwind a [`TrieCursor`] to update the Merkle root of the trie.
+    ///
+    /// The root hashes of each trie form a Merkle skip-list -- the hash of trie `i` is calculated
+    /// from the hash of its children, plus the hash tries `i-1`, `i-2`, `i-4`, `i-8`, ..., `i-2**j`, ...
+    ///
     /// This is required for Merkle proofs to work (specifically, the shunt proofs).
     fn recalculate_root_hash<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
@@ -872,12 +870,12 @@ impl Trie {
         assert!(!cursor.node_ptrs.is_empty());
 
         let mut ptrs = cursor.node_ptrs.clone();
-        trace!("update_root_hash: ptrs = {:?}", &ptrs);
+        trace!("update_root_hash: ptrs = {ptrs:?}");
         let mut child_ptr = ptrs.pop().unwrap();
 
         if ptrs.is_empty() {
-            // root node was already updated by trie operations, but it will have the wrong hash.
-            // we need to "fix" the root node so it mixes in its ancestor hashes.
+            // Root node was already updated by trie operations, but it will have the wrong hash.
+            // We need to "fix" the root node so it mixes in its ancestor hashes.
             trace!("Fix up root node so it mixes in its ancestor hashes");
             let (node, _cur_hash) = storage.read_nodetype(&child_ptr)?;
             if !node.is_node256() {
@@ -902,66 +900,57 @@ impl Trie {
                 my_hash
             };
 
-            // for debug purposes
+            // For debug purposes
             if cfg!(test) && is_trace() {
                 let node_hash = my_hash;
                 let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)
                     .map(|_hs| {
                         storage.clear_cached_ancestor_hashes_bytes();
-                        trace!("update_root_hash: Updated {:?} with {:?} from {} to {} + {:?} = {} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs.get(1..), &h);
+                        trace!("update_root_hash: Updated {node:?} with {child_ptr:?} from {_cur_hash} to {node_hash} + {:?} = {h} (fixed root)", &_hs.get(1..));
                     });
             }
 
-            debug!(
-                "Next root hash is {} (update_skiplist={})",
-                h, update_skiplist
-            );
+            debug!("Next root hash is {h} (update_skiplist={update_skiplist})");
 
             storage.write_nodetype(child_ptr.ptr(), &node, h)?;
         } else {
             while let Some(ptr) = ptrs.pop() {
                 if is_backptr(ptr.id()) {
-                    // this node was not altered, but instead queued to the cursor as part of walking a
-                    // backptr skiplist.  Do nothing.
+                    // This node was not altered, but instead queued to the cursor as part of walking a
+                    // backptr skiplist. Do nothing.
                     continue;
                 }
 
                 let (mut node, _cur_hash) = storage.read_nodetype(&ptr)?;
                 assert!(!node.is_leaf());
 
-                // this child_ptr _must_ be in the node.
+                // This child_ptr MUST be in the node.
                 let updated = node.replace(&child_ptr);
                 if !updated {
-                    trace!(
-                        "FAILED TO UPDATE {:?} WITH {:?}: {:?}",
-                        &node,
-                        &child_ptr,
-                        cursor
-                    );
+                    trace!("FAILED TO UPDATE {node:?} WITH {child_ptr:?}: {cursor:?}");
                     assert!(updated);
                 }
 
                 let content_hash = get_nodetype_hash(storage, &node)?;
+                let root_ptr = storage.root_trieptr();
+                let is_root_node = ptr == root_ptr;
+                let root_node_preflush = is_root_node && update_skiplist;
 
-                // flush the current node to storage --
-                //  necessary because computing ancestor hashes requires that the trie's pointers
-                //  all be intact, since it does ancestor lookups!
-                // however, since we're going to update the hash in the next write anyways, just write an empty buff
-                storage.write_nodetype(ptr.ptr(), &node, TrieHash([0; 32]))?;
+                if root_node_preflush {
+                    // Flush the root node's pointers before calculating the skiplist hash.
+                    // Root hash derivation performs ancestor lookups that expect the current
+                    // trie structure to be materialized. Not needed when skipping the skiplist.
+                    storage.write_nodetype(ptr.ptr(), &node, TrieHash::ZERO)?;
+                }
 
-                let h = if !node.is_node256() {
+                let node_hash = if !node.is_node256() {
                     trace!(
-                        "update_root_hash: Updated {:?} with {:?} from {:?} to {:?}",
-                        node,
-                        &child_ptr,
-                        &_cur_hash,
-                        &content_hash
+                        "update_root_hash: Updated {node:?} with {child_ptr:?} from {_cur_hash:?} to {content_hash:?}",
                     );
                     content_hash
                 } else {
-                    let root_ptr = storage.root_trieptr();
-                    let node_hash = if ptr == root_ptr {
-                        let h = if update_skiplist {
+                    let node_hash = if is_root_node {
+                        let root_hash = if update_skiplist {
                             Trie::get_trie_root_hash(storage, &content_hash)?
                         } else {
                             content_hash
@@ -969,37 +958,36 @@ impl Trie {
 
                         if cfg!(test) && is_trace() {
                             let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)
-                                        .map(|_hs| {
-                                            storage.clear_cached_ancestor_hashes_bytes();
-                                            trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &_hs.get(1..), &h);
-                                        });
+                                .map(|_hs| {
+                                    storage.clear_cached_ancestor_hashes_bytes();
+                                    trace!("update_root_hash: Updated {node:?} with {child_ptr:?} from {_cur_hash:?} to {content_hash:?} + {:?} = {root_hash:?}", &_hs.get(1..));
+                                });
                         }
 
-                        debug!(
-                            "Next root hash is {} (update_skiplist={})",
-                            h, update_skiplist
-                        );
-                        h
+                        debug!("Next root hash is {root_hash} (update_skiplist={update_skiplist})");
+                        root_hash
                     } else {
                         trace!(
-                            "update_root_hash: Updated {:?} with {:?} from {:?} to {:?}",
-                            &node,
-                            &child_ptr,
-                            &_cur_hash,
-                            &content_hash
+                            "update_root_hash: Updated {node:?} with {child_ptr:?} from {_cur_hash:?} to {content_hash:?}",
                         );
                         content_hash
                     };
                     node_hash
                 };
 
-                storage.write_nodetype(ptr.ptr(), &node, h)?;
+                if root_node_preflush {
+                    // Root was already flushed with updated pointers above.
+                    storage.write_node_hash(ptr.ptr(), node_hash)?;
+                } else {
+                    storage.write_nodetype(ptr.ptr(), &node, node_hash)?;
+                }
 
                 child_ptr = ptr;
                 child_ptr.id = clear_backptr(child_ptr.id);
             }
         }
-        // must be at the root
+
+        // Must be at the root
         assert_eq!(child_ptr, storage.root_trieptr());
         Ok(())
     }
