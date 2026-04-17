@@ -44,9 +44,7 @@ pub use stacks::config::{Config, ConfigFile};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
-pub use self::burnchains::{
-    BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
-};
+pub use self::burnchains::{BitcoinRegtestController, BurnchainController, BurnchainTip};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
@@ -301,10 +299,6 @@ fn main() {
     }
 
     let config_file = match subcommand.as_str() {
-        "mocknet" => {
-            args.finish();
-            ConfigFile::mocknet()
-        }
         "helium" => {
             args.finish();
             ConfigFile::helium()
@@ -429,7 +423,7 @@ fn main() {
 
     let num_round: u64 = 0; // Infinite number of rounds
 
-    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
+    if conf.burnchain.mode == "helium" {
         let mut run_loop = helium::RunLoop::new(conf);
         if let Err(e) = run_loop.start(num_round) {
             warn!("Helium runloop exited: {e}");
@@ -465,8 +459,6 @@ stacks-node <SUBCOMMAND>
 SUBCOMMANDS:
 
 mainnet\t\tStart a node that will join and stream blocks from the public mainnet.
-
-mocknet\t\tStart a node based on a fast local setup emulating a burnchain. Ideal for smart contract development.
 
 helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
 \t\tThe following bitcoin.conf is expected:

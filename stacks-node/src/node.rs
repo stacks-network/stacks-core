@@ -150,7 +150,7 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
     )
 }
 
-// This function is called for helium and mocknet.
+// This function is called for helium.
 #[allow(clippy::too_many_arguments)]
 fn spawn_peer(
     is_mainnet: bool,
@@ -276,7 +276,7 @@ pub fn use_test_genesis_chainstate(config: &Config) -> bool {
 impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx)>) -> Self {
-        let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
+        let use_test_genesis_data = if config.burnchain.mode == "helium" {
             use_test_genesis_chainstate(&config)
         } else {
             USE_TEST_GENESIS_CHAINSTATE
@@ -396,7 +396,7 @@ impl Node {
         .unwrap()
     }
 
-    // This function is used for helium and mocknet.
+    // This function is used for helium.
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
