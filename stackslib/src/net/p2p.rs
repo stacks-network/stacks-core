@@ -326,7 +326,10 @@ impl DropReason {
             | Self::OrgTooManyMembers
             | Self::OrgDominatesPeerTable
             | Self::TooManyConnections => true,
-            _ => false,
+            Self::Unknown
+            | Self::Unresponsive { .. }
+            | Self::DeadConnection(..)
+            | Self::ReplacedConnection => false,
         }
     }
 }
