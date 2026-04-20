@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::ClarityName;
 use clarity_types::types::CallableData;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
@@ -102,14 +103,30 @@ pub fn special_contract_call(
                 .contract_context
                 .lookup_variable(contract_ref)
                 .and_then(|value| {
-                    if let Value::CallableContract(callable) = value {
-                        Some(callable)
-                    } else {
-                        None
+                    if !invoke_ctx
+                        .contract_context
+                        .get_clarity_version()
+                        .supports_callables()
+                    {
+                        return None;
                     }
+                    if !exec_state.epoch().supports_call_with_constant() {
+                        return None;
+                    }
+                    if invoke_ctx.contract_context.is_deploying {
+                        return None;
+                    }
+                    let Value::Principal(PrincipalData::Contract(contract_identifier)) = value
+                    else {
+                        return None;
+                    };
+                    Some(CallableData {
+                        contract_identifier: contract_identifier.clone(),
+                        trait_identifier: None,
+                    })
                 })
                 // If not, check if the atom references a callable variable
-                .or_else(|| context.lookup_callable_contract(contract_ref));
+                .or_else(|| context.lookup_callable_contract(contract_ref).cloned());
 
             match callable {
                 Some(CallableData {
@@ -125,7 +142,7 @@ pub fn special_contract_call(
                     trait_identifier: Some(trait_identifier),
                 }) => {
                     // Ensure that contract-call is used for inter-contract calls only
-                    if contract_identifier == &invoke_ctx.contract_context.contract_identifier {
+                    if contract_identifier == invoke_ctx.contract_context.contract_identifier {
                         return Err(RuntimeCheckErrorKind::CircularReference(vec![
                             contract_identifier.name.to_string(),
                         ])
@@ -135,7 +152,7 @@ pub fn special_contract_call(
                     let contract_to_check = exec_state
                         .global_context
                         .database
-                        .get_contract(contract_identifier)
+                        .get_contract(&contract_identifier)
                         .map_err(|_e| {
                             RuntimeCheckErrorKind::NoSuchContract(contract_identifier.to_string())
                         })?;
@@ -144,7 +161,7 @@ pub fn special_contract_call(
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
-                    if contract_context_to_check.is_explicitly_implementing_trait(trait_identifier)
+                    if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier)
                     {
                         (contract_identifier.clone(), None)
                     } else {
@@ -192,7 +209,7 @@ pub fn special_contract_call(
                         function_to_check.check_trait_expectations(
                             exec_state.epoch(),
                             &contract_context_defining_trait,
-                            trait_identifier,
+                            &trait_identifier,
                         )?;
 
                         // Retrieve the expected method signature
@@ -1155,7 +1172,7 @@ pub fn special_get_burn_block_info(
                 Some((addrs, payout)) => Ok(Value::some(Value::Tuple(
                     TupleData::from_data(vec![
                         (
-                            "addrs".into(),
+                            ClarityName::from_literal("addrs"),
                             Value::cons_list(
                                 addrs.into_iter().map(Value::Tuple).collect(),
                                 exec_state.epoch(),
@@ -1166,7 +1183,7 @@ pub fn special_get_burn_block_info(
                                 )
                             })?,
                         ),
-                        ("payout".into(), Value::UInt(payout)),
+                        (ClarityName::from_literal("payout"), Value::UInt(payout)),
                     ])
                     .map_err(|_| {
                         VmInternalError::Expect(

@@ -25,7 +25,7 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, ContractName, Value};
 use lazy_static::lazy_static;
 use rusqlite::Connection;
 use stacks_common::address;
@@ -4627,7 +4627,7 @@ fn atlas_stop_start() {
          })
          (var-set attachment-index (+ u1 current-index))
          (ok true)))";
-    let atlas_name: clarity::vm::ContractName = "atlas-test".into();
+    let atlas_name = ContractName::from_literal("atlas-test");
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::random()).collect();
@@ -4706,7 +4706,7 @@ fn atlas_stop_start() {
                     TransactionPayload::ContractCall(TransactionContractCall {
                         address: signer_pk.clone(),
                         contract_name: atlas_name.clone(),
-                        function_name: "make-attach".into(),
+                        function_name: ClarityName::from_literal("make-attach"),
                         function_args: vec![Value::buff_from(vec![ix; 20]).unwrap()],
                     }),
                 ),

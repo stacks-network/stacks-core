@@ -16,6 +16,7 @@
 
 use std::cmp::Ordering;
 use std::fmt;
+use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -29,6 +30,7 @@ use crate::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use crate::consts::{
     MICROSTACKS_PER_STACKS, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
@@ -461,7 +463,7 @@ impl StacksEpochId {
     /// Highest epoch enabled in release builds.
     /// Keep this in sync with `versions.toml` and `PEER_NETWORK_EPOCH`
     /// (validated in tests and `validate_epochs()`)
-    pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
+    pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch34;
 
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
@@ -1305,5 +1307,67 @@ impl<L: Clone> Deref for EpochList<L> {
 impl<L: Clone> DerefMut for EpochList<L> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Copy)]
+pub enum MiningReason {
+    BlockFound = 0,
+    Extended = 1,
+    ReadCountExtend = 2,
+}
+
+impl TryFrom<u8> for MiningReason {
+    type Error = CodecError;
+
+    fn try_from(value: u8) -> Result<Self, CodecError> {
+        match value {
+            x if x == MiningReason::BlockFound as u8 => Ok(MiningReason::BlockFound),
+            x if x == MiningReason::Extended as u8 => Ok(MiningReason::Extended),
+            x if x == MiningReason::ReadCountExtend as u8 => Ok(MiningReason::ReadCountExtend),
+            _ => Err(CodecError::DeserializeError(format!(
+                "unknown mining reason {value}"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MinerDiagnosticData {
+    pub burnchain_tip_height: u64,
+    pub burnchain_tip_consensus_hash: chainstate::ConsensusHash,
+    pub burnchain_tip_header_hash: chainstate::BurnchainHeaderHash,
+    pub tenure_extend_time_stamp: u64,
+    pub read_count_extend_timestamp: u64,
+    pub mining_reason: MiningReason,
+}
+
+impl StacksMessageCodec for MinerDiagnosticData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.burnchain_tip_height)?;
+        write_next(fd, &self.burnchain_tip_consensus_hash)?;
+        write_next(fd, &self.burnchain_tip_header_hash)?;
+        write_next(fd, &self.tenure_extend_time_stamp)?;
+        write_next(fd, &self.read_count_extend_timestamp)?;
+        write_next(fd, &(self.mining_reason as u8))?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let burnchain_tip_height = read_next(fd)?;
+        let burnchain_tip_consensus_hash = read_next(fd)?;
+        let burnchain_tip_header_hash = read_next(fd)?;
+        let tenure_extend_time_stamp = read_next(fd)?;
+        let read_count_extend_timestamp = read_next(fd)?;
+        let mining_reason = read_next::<u8, _>(fd)?.try_into()?;
+
+        Ok(MinerDiagnosticData {
+            burnchain_tip_height,
+            burnchain_tip_consensus_hash,
+            burnchain_tip_header_hash,
+            tenure_extend_time_stamp,
+            read_count_extend_timestamp,
+            mining_reason,
+        })
     }
 }

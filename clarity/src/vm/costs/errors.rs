@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
-use crate::execution_cost::ExecutionCost;
+use crate::vm::costs::execution_cost::ExecutionCost;
 
 /// Errors related to cost tracking and resource accounting in the Clarity VM.
 ///
