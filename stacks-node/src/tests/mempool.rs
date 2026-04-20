@@ -1,3 +1,18 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::sync::Mutex;
 
 use clarity::vm::costs::ExecutionCost;
@@ -911,7 +926,7 @@ fn mempool_setup_chainstate() {
 
                 let contract_id = QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(contract_addr.clone()),
-                    ContractName::from("implement-trait-contract"),
+                    ContractName::from_literal("implement-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id);
 
@@ -939,7 +954,7 @@ fn mempool_setup_chainstate() {
 
                 let contract_id = QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(contract_addr.clone()),
-                    ContractName::from("bad-trait-contract"),
+                    ContractName::from_literal("bad-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id);
 

@@ -2,7 +2,7 @@ FROM rust:bookworm
 
 WORKDIR /src
 
-COPY ./rust-toolchain .
+COPY ./rust-toolchain.toml .
 COPY ./Cargo.toml .
 COPY ./.cargo .
 

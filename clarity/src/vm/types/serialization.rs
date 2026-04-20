@@ -279,23 +279,23 @@ pub mod tests {
     #[apply(test_clarity_versions)]
     fn test_sanitization(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let v_1 = Value::list_from(vec![
-            TupleData::from_data(vec![("b".into(), Value::Int(2))])
+            TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::Int(2))])
                 .unwrap()
                 .into(),
             TupleData::from_data(vec![
-                ("a".into(), Value::Int(1)),
-                ("b".into(), Value::Int(4)),
-                ("c".into(), Value::Int(3)),
+                (ClarityName::from_literal("a"), Value::Int(1)),
+                (ClarityName::from_literal("b"), Value::Int(4)),
+                (ClarityName::from_literal("c"), Value::Int(3)),
             ])
             .unwrap()
             .into(),
         ])
         .unwrap();
         let v_1_good = Value::list_from(vec![
-            TupleData::from_data(vec![("b".into(), Value::Int(2))])
+            TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::Int(2))])
                 .unwrap()
                 .into(),
-            TupleData::from_data(vec![("b".into(), Value::Int(4))])
+            TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::Int(4))])
                 .unwrap()
                 .into(),
         ])
@@ -308,15 +308,15 @@ pub mod tests {
 
         let v_2 = TupleData::from_data(vec![
             (
-                "list-1".into(),
+                ClarityName::from_literal("list-1"),
                 Value::list_from(vec![
-                    TupleData::from_data(vec![("b".into(), Value::Int(2))])
+                    TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::Int(2))])
                         .unwrap()
                         .into(),
                     TupleData::from_data(vec![
-                        ("a".into(), Value::Int(1)),
-                        ("b".into(), Value::Int(4)),
-                        ("c".into(), Value::Int(3)),
+                        (ClarityName::from_literal("a"), Value::Int(1)),
+                        (ClarityName::from_literal("b"), Value::Int(4)),
+                        (ClarityName::from_literal("c"), Value::Int(3)),
                     ])
                     .unwrap()
                     .into(),
@@ -324,15 +324,15 @@ pub mod tests {
                 .unwrap(),
             ),
             (
-                "list-2".into(),
+                ClarityName::from_literal("list-2"),
                 Value::list_from(vec![
-                    TupleData::from_data(vec![("c".into(), Value::Int(2))])
+                    TupleData::from_data(vec![(ClarityName::from_literal("c"), Value::Int(2))])
                         .unwrap()
                         .into(),
                     TupleData::from_data(vec![
-                        ("a".into(), Value::Int(1)),
-                        ("b".into(), Value::Int(4)),
-                        ("c".into(), Value::Int(3)),
+                        (ClarityName::from_literal("a"), Value::Int(1)),
+                        (ClarityName::from_literal("b"), Value::Int(4)),
+                        (ClarityName::from_literal("c"), Value::Int(3)),
                     ])
                     .unwrap()
                     .into(),
@@ -345,24 +345,24 @@ pub mod tests {
 
         let v_2_good = TupleData::from_data(vec![
             (
-                "list-1".into(),
+                ClarityName::from_literal("list-1"),
                 Value::list_from(vec![
-                    TupleData::from_data(vec![("b".into(), Value::Int(2))])
+                    TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::Int(2))])
                         .unwrap()
                         .into(),
-                    TupleData::from_data(vec![("b".into(), Value::Int(4))])
+                    TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::Int(4))])
                         .unwrap()
                         .into(),
                 ])
                 .unwrap(),
             ),
             (
-                "list-2".into(),
+                ClarityName::from_literal("list-2"),
                 Value::list_from(vec![
-                    TupleData::from_data(vec![("c".into(), Value::Int(2))])
+                    TupleData::from_data(vec![(ClarityName::from_literal("c"), Value::Int(2))])
                         .unwrap()
                         .into(),
-                    TupleData::from_data(vec![("c".into(), Value::Int(3))])
+                    TupleData::from_data(vec![(ClarityName::from_literal("c"), Value::Int(3))])
                         .unwrap()
                         .into(),
                 ])
@@ -390,9 +390,9 @@ pub mod tests {
 
         let v_3 = Value::some(
             TupleData::from_data(vec![
-                ("a".into(), Value::Int(1)),
-                ("b".into(), Value::Int(4)),
-                ("c".into(), Value::Int(3)),
+                (ClarityName::from_literal("a"), Value::Int(1)),
+                (ClarityName::from_literal("b"), Value::Int(4)),
+                (ClarityName::from_literal("c"), Value::Int(3)),
             ])
             .unwrap()
             .into(),
@@ -401,8 +401,8 @@ pub mod tests {
 
         let v_3_good = Value::some(
             TupleData::from_data(vec![
-                ("a".into(), Value::Int(1)),
-                ("b".into(), Value::Int(4)),
+                (ClarityName::from_literal("a"), Value::Int(1)),
+                (ClarityName::from_literal("b"), Value::Int(4)),
             ])
             .unwrap()
             .into(),
@@ -417,23 +417,35 @@ pub mod tests {
             TypeSignature::from_string("(optional (tuple (d int) (b int)))", version, epoch);
 
         let v_4 = Value::list_from(vec![
-            TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
-                .unwrap()
-                .into(),
+            TupleData::from_data(vec![(
+                ClarityName::from_literal("b"),
+                Value::some(Value::Int(2)).unwrap(),
+            )])
+            .unwrap()
+            .into(),
             TupleData::from_data(vec![
-                ("a".into(), Value::some(Value::Int(1)).unwrap()),
-                ("b".into(), Value::none()),
-                ("c".into(), Value::some(Value::Int(3)).unwrap()),
+                (
+                    ClarityName::from_literal("a"),
+                    Value::some(Value::Int(1)).unwrap(),
+                ),
+                (ClarityName::from_literal("b"), Value::none()),
+                (
+                    ClarityName::from_literal("c"),
+                    Value::some(Value::Int(3)).unwrap(),
+                ),
             ])
             .unwrap()
             .into(),
         ])
         .unwrap();
         let v_4_good = Value::list_from(vec![
-            TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
-                .unwrap()
-                .into(),
-            TupleData::from_data(vec![("b".into(), Value::none())])
+            TupleData::from_data(vec![(
+                ClarityName::from_literal("b"),
+                Value::some(Value::Int(2)).unwrap(),
+            )])
+            .unwrap()
+            .into(),
+            TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::none())])
                 .unwrap()
                 .into(),
         ])
@@ -451,13 +463,22 @@ pub mod tests {
 
         let v_5 = Value::okay(
             Value::list_from(vec![
-                TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
-                    .unwrap()
-                    .into(),
+                TupleData::from_data(vec![(
+                    ClarityName::from_literal("b"),
+                    Value::some(Value::Int(2)).unwrap(),
+                )])
+                .unwrap()
+                .into(),
                 TupleData::from_data(vec![
-                    ("a".into(), Value::some(Value::Int(1)).unwrap()),
-                    ("b".into(), Value::none()),
-                    ("c".into(), Value::some(Value::Int(3)).unwrap()),
+                    (
+                        ClarityName::from_literal("a"),
+                        Value::some(Value::Int(1)).unwrap(),
+                    ),
+                    (ClarityName::from_literal("b"), Value::none()),
+                    (
+                        ClarityName::from_literal("c"),
+                        Value::some(Value::Int(3)).unwrap(),
+                    ),
                 ])
                 .unwrap()
                 .into(),
@@ -467,10 +488,13 @@ pub mod tests {
         .unwrap();
         let v_5_good = Value::okay(
             Value::list_from(vec![
-                TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
-                    .unwrap()
-                    .into(),
-                TupleData::from_data(vec![("b".into(), Value::none())])
+                TupleData::from_data(vec![(
+                    ClarityName::from_literal("b"),
+                    Value::some(Value::Int(2)).unwrap(),
+                )])
+                .unwrap()
+                .into(),
+                TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::none())])
                     .unwrap()
                     .into(),
             ])
@@ -516,13 +540,22 @@ pub mod tests {
 
         let v_6 = Value::error(
             Value::list_from(vec![
-                TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
-                    .unwrap()
-                    .into(),
+                TupleData::from_data(vec![(
+                    ClarityName::from_literal("b"),
+                    Value::some(Value::Int(2)).unwrap(),
+                )])
+                .unwrap()
+                .into(),
                 TupleData::from_data(vec![
-                    ("a".into(), Value::some(Value::Int(1)).unwrap()),
-                    ("b".into(), Value::none()),
-                    ("c".into(), Value::some(Value::Int(3)).unwrap()),
+                    (
+                        ClarityName::from_literal("a"),
+                        Value::some(Value::Int(1)).unwrap(),
+                    ),
+                    (ClarityName::from_literal("b"), Value::none()),
+                    (
+                        ClarityName::from_literal("c"),
+                        Value::some(Value::Int(3)).unwrap(),
+                    ),
                 ])
                 .unwrap()
                 .into(),
@@ -532,10 +565,13 @@ pub mod tests {
         .unwrap();
         let v_6_good = Value::error(
             Value::list_from(vec![
-                TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
-                    .unwrap()
-                    .into(),
-                TupleData::from_data(vec![("b".into(), Value::none())])
+                TupleData::from_data(vec![(
+                    ClarityName::from_literal("b"),
+                    Value::some(Value::Int(2)).unwrap(),
+                )])
+                .unwrap()
+                .into(),
+                TupleData::from_data(vec![(ClarityName::from_literal("b"), Value::none())])
                     .unwrap()
                     .into(),
             ])

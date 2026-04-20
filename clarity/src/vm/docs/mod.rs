@@ -1410,11 +1410,12 @@ but in Clarity 5 and later, the `message-hash` is used directly without addition
 High-S signatures are allowed.
 Note that this is NOT the Bitcoin (or default Stacks) signature scheme, secp256k1, but rather the
 NIST P-256 curve (also known as secp256r1).",
-    example: "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8
-    0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd310eac59293c23e6d6aa8b0c5d9e4e48fa4c4fdf1ace2ba618dc0263b5e90a0903 0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e) ;; Returns true
+    example: "(secp256r1-verify 0x44acf6b7e36c1342c2c5897204fe09504e1e2efb1a900377dbc4e7a6a133ec56
+    0xf3ac8061b514795b8843e3d6629527ed2afd6b1f6a555a7acabb5e6f79c8c2ac8bf77819ca05a6b2786c76262bf7371cef97b218e96f175a3ccdda2acc058903
+    0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns true
 (secp256r1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
     0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-    0x037a6b62e3c8b14f1b5933f5d5ab0509a8e7d95a111b8d3b264d95bfa753b00296) ;; Returns false"
+    0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns false"
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
@@ -3009,6 +3010,7 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ClarityName;
     use clarity_types::types::StandardPrincipalData;
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
     use stacks_common::types::StacksEpochId;
@@ -3226,9 +3228,12 @@ mod test {
             Some((
                 vec![
                     TupleData::from_data(vec![
-                        ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
                         (
-                            "hashbytes".into(),
+                            ClarityName::from_literal("version"),
+                            Value::buff_from(vec![0u8]).unwrap(),
+                        ),
+                        (
+                            ClarityName::from_literal("hashbytes"),
                             Value::buff_from(
                                 hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap(),
                             )
@@ -3237,9 +3242,12 @@ mod test {
                     ])
                     .unwrap(),
                     TupleData::from_data(vec![
-                        ("version".into(), Value::buff_from(vec![1u8]).unwrap()),
                         (
-                            "hashbytes".into(),
+                            ClarityName::from_literal("version"),
+                            Value::buff_from(vec![1u8]).unwrap(),
+                        ),
+                        (
+                            ClarityName::from_literal("hashbytes"),
                             Value::buff_from(
                                 hex_bytes("7c6775e20e3e938d2d7e9d79ac310108ba501ddb").unwrap(),
                             )

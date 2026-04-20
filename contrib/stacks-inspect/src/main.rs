@@ -215,7 +215,7 @@ impl P2PSession {
             peer_addr.port(),
             Some(StacksPrivateKey::random()),
             u64::MAX,
-            UrlString::from(format!("http://127.0.0.1:{data_port}",).as_str()),
+            UrlString::try_from(format!("http://127.0.0.1:{data_port}",)).unwrap(),
             vec![],
         );
 
@@ -990,7 +990,7 @@ fn main() {
                 0,
                 None,
                 0,
-                UrlString::from("abc"),
+                UrlString::from_literal("abc"),
                 vec![],
             );
 
