@@ -28,7 +28,7 @@ use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{
     execute, execute_on_network, generate_test_burn_state_db, symbols_from_values,
-    TEST_BURN_STATE_DB, TEST_BURN_STATE_DB_21, TEST_HEADER_DB,
+    TEST_BURN_STATE_DB, TEST_BURN_STATE_DB_205, TEST_BURN_STATE_DB_21, TEST_HEADER_DB,
 };
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::types::{
@@ -229,8 +229,12 @@ where
 
     let mut tip = first_block.clone();
 
+    // An epoch-transition block must open under the previous epoch, that's
+    // the epoch the MARF is still in (its cost contract is what's deployed).
+    // The new epoch and its cost contract are installed inside the block.
+    // with the related `initialize_epoch_X_Y()` invocation.
     if epoch >= StacksEpochId::Epoch2_05 {
-        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch2_05);
+        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch20);
         let next_block = StacksBlockId([1; 32]);
         let mut clarity_conn =
             clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
@@ -240,7 +244,7 @@ where
     }
 
     if epoch >= StacksEpochId::Epoch21 {
-        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch21);
+        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch2_05);
         let next_block = StacksBlockId([2; 32]);
         let mut clarity_conn =
             clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
@@ -250,7 +254,7 @@ where
     }
 
     if epoch >= StacksEpochId::Epoch30 {
-        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch30);
+        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch21);
         let next_block = StacksBlockId([3; 32]);
         let mut clarity_conn =
             clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
@@ -260,7 +264,7 @@ where
     }
 
     if epoch >= StacksEpochId::Epoch33 {
-        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch33);
+        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch30);
         let next_block = StacksBlockId([4; 32]);
         let mut clarity_conn =
             clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
@@ -1235,9 +1239,30 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
             &StacksBlockId::sentinel(),
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &TEST_HEADER_DB,
-            burn_db,
+            &TEST_BURN_STATE_DB,
         )
         .commit_block();
+
+    // For Clarity2 tests we need to reach Epoch21 so costs-3 is deployed.
+    // Each transition block opens under the *previous* epoch.
+    let tip = if clarity_version == ClarityVersion::Clarity2 {
+        let tip = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+        let next = StacksBlockId([0xfd; 32]);
+        let mut conn =
+            clarity_instance.begin_block(&tip, &next, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        conn.initialize_epoch_2_05().unwrap();
+        conn.commit_block();
+
+        let tip = next;
+        let next = StacksBlockId([0xfe; 32]);
+        let mut conn =
+            clarity_instance.begin_block(&tip, &next, &TEST_HEADER_DB, &TEST_BURN_STATE_DB_205);
+        conn.initialize_epoch_2_1().unwrap();
+        conn.commit_block();
+        next
+    } else {
+        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+    };
 
     let marf_kv = clarity_instance.destroy();
 
@@ -1265,12 +1290,8 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
 
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
-        let mut block_conn = clarity_inst.begin_block(
-            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &StacksBlockId([1; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        );
+        let mut block_conn =
+            clarity_inst.begin_block(&tip, &StacksBlockId([1; 32]), &TEST_HEADER_DB, burn_db);
 
         let cost_definer_src = "
     (define-read-only (cost-definition (size uint))
@@ -1484,9 +1505,30 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             &StacksBlockId::sentinel(),
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &TEST_HEADER_DB,
-            burn_db,
+            &TEST_BURN_STATE_DB,
         )
         .commit_block();
+
+    // For Clarity2 tests we need to reach Epoch21 so costs-3 is deployed.
+    // Each transition block opens under the previous epoch.
+    let tip = if clarity_version == ClarityVersion::Clarity2 {
+        let tip = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+        let next = StacksBlockId([0xfd; 32]);
+        let mut conn =
+            clarity_instance.begin_block(&tip, &next, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        conn.initialize_epoch_2_05().unwrap();
+        conn.commit_block();
+
+        let tip = next;
+        let next = StacksBlockId([0xfe; 32]);
+        let mut conn =
+            clarity_instance.begin_block(&tip, &next, &TEST_HEADER_DB, &TEST_BURN_STATE_DB_205);
+        conn.initialize_epoch_2_1().unwrap();
+        conn.commit_block();
+        next
+    } else {
+        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+    };
 
     let marf_kv = clarity_instance.destroy();
 
@@ -1524,12 +1566,8 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
-        let mut block_conn = clarity_inst.begin_block(
-            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &StacksBlockId([1; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        );
+        let mut block_conn =
+            clarity_inst.begin_block(&tip, &StacksBlockId([1; 32]), &TEST_HEADER_DB, burn_db);
 
         let cost_definer_src = "
     (define-read-only (cost-definition (size uint))
@@ -1757,11 +1795,18 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             tracker.contract_call_circuits().is_empty(),
             "No contract call circuits should have been processed"
         );
+        // Matches the `burn_db` selection above: Clarity1 uses Epoch20
+        // (`costs` / Costs1), Clarity2 uses Epoch21 (`costs-3` / Costs3).
+        let expected_default = if clarity_version == ClarityVersion::Clarity2 {
+            DefaultVersion::Costs3
+        } else {
+            DefaultVersion::Costs1
+        };
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
             assert!(
                 matches!(
                     referenced_function,
-                    ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs1)
+                    ClarityCostFunctionEvaluator::Default(_, _, v) if v == expected_default
                 ),
                 "All cost functions should still point to the boot costs"
             );
@@ -1833,6 +1878,13 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     }
 
     {
+        // Matches the `burn_db` selection above: Clarity1 uses Epoch20
+        // (`costs` / Costs1), Clarity2 uses Epoch21 (`costs-3` / Costs3).
+        let expected_default = if clarity_version == ClarityVersion::Clarity2 {
+            DefaultVersion::Costs3
+        } else {
+            DefaultVersion::Costs1
+        };
         let mut store = marf_kv.begin(&StacksBlockId([4; 32]), &StacksBlockId([5; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&TEST_HEADER_DB, burn_db),
@@ -1888,7 +1940,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                 assert!(
                     matches!(
                         referenced_function,
-                        ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs1)
+                        ClarityCostFunctionEvaluator::Default(_, _, v) if v == expected_default
                     ),
                     "Cost function should still point to the boot costs"
                 );
