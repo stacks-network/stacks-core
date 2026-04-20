@@ -1063,9 +1063,9 @@ fn test_least_supertype() {
 #[test]
 fn test_tuple_type_signature_serde_roundtrip_flat() {
     let mut fields = BTreeMap::new();
-    fields.insert("a".into(), TypeSignature::IntType);
-    fields.insert("b".into(), TypeSignature::BoolType);
-    fields.insert("c".into(), TypeSignature::UIntType);
+    fields.insert(ClarityName::from_literal("a"), TypeSignature::IntType);
+    fields.insert(ClarityName::from_literal("b"), TypeSignature::BoolType);
+    fields.insert(ClarityName::from_literal("c"), TypeSignature::UIntType);
     let original = TupleTypeSignature::try_from(fields).unwrap();
 
     let json: serde_json::Value = serde_json::to_value(&original).unwrap();
@@ -1087,12 +1087,15 @@ fn test_tuple_type_signature_serde_roundtrip_flat() {
 #[test]
 fn test_tuple_type_signature_serde_roundtrip_nested() {
     let mut inner_fields = BTreeMap::new();
-    inner_fields.insert("x".into(), TypeSignature::IntType);
+    inner_fields.insert(ClarityName::from_literal("x"), TypeSignature::IntType);
     let inner = TupleTypeSignature::try_from(inner_fields).unwrap();
 
     let mut outer_fields = BTreeMap::new();
-    outer_fields.insert("nested".into(), TypeSignature::TupleType(inner));
-    outer_fields.insert("flag".into(), TypeSignature::BoolType);
+    outer_fields.insert(
+        ClarityName::from_literal("nested"),
+        TypeSignature::TupleType(inner),
+    );
+    outer_fields.insert(ClarityName::from_literal("flag"), TypeSignature::BoolType);
     let original = TupleTypeSignature::try_from(outer_fields).unwrap();
 
     let json: serde_json::Value = serde_json::to_value(&original).unwrap();
@@ -1174,8 +1177,8 @@ fn test_tuple_type_signature_serde_deserialize_too_large_fails() {
 #[test]
 fn test_tuple_type_signature_try_from_ok() {
     let mut map = BTreeMap::new();
-    map.insert("a".into(), TypeSignature::BoolType);
-    map.insert("b".into(), TypeSignature::IntType);
+    map.insert(ClarityName::from_literal("a"), TypeSignature::BoolType);
+    map.insert(ClarityName::from_literal("b"), TypeSignature::IntType);
     let result = TupleTypeSignature::try_from(map);
     assert!(result.is_ok());
 }
@@ -1193,11 +1196,11 @@ fn test_tuple_type_signature_try_from_too_deep_fails() {
     let mut nested = TypeSignature::BoolType;
     for _ in 0..(MAX_TYPE_DEPTH - 1) {
         let mut map = BTreeMap::new();
-        map.insert("field".into(), nested);
+        map.insert(ClarityName::from_literal("field"), nested);
         nested = TypeSignature::TupleType(TupleTypeSignature::try_from(map).unwrap());
     }
     let mut map = BTreeMap::new();
-    map.insert("field".into(), nested);
+    map.insert(ClarityName::from_literal("field"), nested);
     let result = TupleTypeSignature::try_from(map);
     assert_eq!(ClarityTypeError::TypeSignatureTooDeep, result.unwrap_err());
 }
@@ -1208,7 +1211,7 @@ fn test_tuple_type_signature_try_from_too_large_fails() {
     let num_fields = (MAX_VALUE_SIZE / 16) + 1;
     for i in 0..num_fields {
         map.insert(
-            ClarityName::from(format!("a{}", i).as_str()),
+            ClarityName::try_from(format!("a{i}")).unwrap(),
             TypeSignature::BoolType,
         );
     }
@@ -1236,8 +1239,8 @@ fn test_list_type_data_serde_roundtrip_ints() {
 #[test]
 fn test_list_type_data_serde_roundtrip_tuples() {
     let mut fields = BTreeMap::new();
-    fields.insert("a".into(), TypeSignature::IntType);
-    fields.insert("b".into(), TypeSignature::BoolType);
+    fields.insert(ClarityName::from_literal("a"), TypeSignature::IntType);
+    fields.insert(ClarityName::from_literal("b"), TypeSignature::BoolType);
     let tuple_type = TupleTypeSignature::try_from(fields).unwrap();
 
     let original = ListTypeData::new_list(TypeSignature::TupleType(tuple_type), 5).unwrap();
@@ -1264,8 +1267,8 @@ fn test_list_type_data_serde_roundtrip_tuples() {
 #[test]
 fn test_type_signature_serde_roundtrip_tuple() {
     let mut fields = BTreeMap::new();
-    fields.insert("a".into(), TypeSignature::IntType);
-    fields.insert("b".into(), TypeSignature::PrincipalType);
+    fields.insert(ClarityName::from_literal("a"), TypeSignature::IntType);
+    fields.insert(ClarityName::from_literal("b"), TypeSignature::PrincipalType);
     let original = TypeSignature::TupleType(TupleTypeSignature::try_from(fields).unwrap());
 
     let json: serde_json::Value = serde_json::to_value(&original).unwrap();
@@ -1307,8 +1310,8 @@ fn test_type_signature_serde_roundtrip_list() {
 #[test]
 fn test_type_signature_serde_roundtrip_list_of_tuples() {
     let mut fields = BTreeMap::new();
-    fields.insert("id".into(), TypeSignature::UIntType);
-    fields.insert("active".into(), TypeSignature::BoolType);
+    fields.insert(ClarityName::from_literal("id"), TypeSignature::UIntType);
+    fields.insert(ClarityName::from_literal("active"), TypeSignature::BoolType);
     let tuple_type = TupleTypeSignature::try_from(fields).unwrap();
 
     let original = TypeSignature::list_of(TypeSignature::TupleType(tuple_type), 10).unwrap();

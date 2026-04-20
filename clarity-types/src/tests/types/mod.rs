@@ -161,7 +161,7 @@ fn simple_size_test() {
 fn value_size_matches_type_signature_size() {
     let contract_id = QualifiedContractIdentifier::local("test-contract").unwrap();
     let trait_id = TraitIdentifier {
-        name: "test-trait".into(),
+        name: ClarityName::from_literal("test-trait"),
         contract_identifier: contract_id.clone(),
     };
 
@@ -220,16 +220,16 @@ fn value_size_matches_type_signature_size() {
         // Tuples
         (
             "tuple_1f",
-            TupleData::from_data(vec![("a".into(), Value::Int(1))])
+            TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(1))])
                 .unwrap()
                 .into(),
         ),
         (
             "tuple_3f",
             TupleData::from_data(vec![
-                ("a".into(), Value::Int(1)),
-                ("b".into(), Value::Bool(true)),
-                ("c".into(), Value::UInt(99)),
+                (ClarityName::from_literal("a"), Value::Int(1)),
+                (ClarityName::from_literal("b"), Value::Bool(true)),
+                (ClarityName::from_literal("c"), Value::UInt(99)),
             ])
             .unwrap()
             .into(),
@@ -237,8 +237,8 @@ fn value_size_matches_type_signature_size() {
         (
             "tuple_nested",
             TupleData::from_data(vec![(
-                "outer".into(),
-                TupleData::from_data(vec![("inner".into(), Value::Int(1))])
+                ClarityName::from_literal("outer"),
+                TupleData::from_data(vec![(ClarityName::from_literal("inner"), Value::Int(1))])
                     .unwrap()
                     .into(),
             )])
@@ -257,10 +257,10 @@ fn value_size_matches_type_signature_size() {
         (
             "list_of_tuples",
             Value::list_from(vec![
-                TupleData::from_data(vec![("x".into(), Value::Int(1))])
+                TupleData::from_data(vec![(ClarityName::from_literal("x"), Value::Int(1))])
                     .unwrap()
                     .into(),
-                TupleData::from_data(vec![("x".into(), Value::Int(2))])
+                TupleData::from_data(vec![(ClarityName::from_literal("x"), Value::Int(2))])
                     .unwrap()
                     .into(),
             ])
@@ -273,7 +273,7 @@ fn value_size_matches_type_signature_size() {
         (
             "some_tuple",
             Value::some(
-                TupleData::from_data(vec![("a".into(), Value::Int(1))])
+                TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(1))])
                     .unwrap()
                     .into(),
             )
@@ -290,8 +290,8 @@ fn value_size_matches_type_signature_size() {
             "ok_tuple",
             Value::okay(
                 TupleData::from_data(vec![
-                    ("a".into(), Value::Int(1)),
-                    ("b".into(), Value::Bool(false)),
+                    (ClarityName::from_literal("a"), Value::Int(1)),
+                    (ClarityName::from_literal("b"), Value::Bool(false)),
                 ])
                 .unwrap()
                 .into(),
