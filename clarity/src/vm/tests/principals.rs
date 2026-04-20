@@ -39,8 +39,11 @@ fn test_simple_is_standard_check_inputs() {
             true
         )
         .unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(PrincipalType), Box::new(Value::UInt(10)),)
-            .into()
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(PrincipalType),
+            Value::UInt(10).to_error_string()
+        )
+        .into()
     );
 }
 
@@ -922,9 +925,10 @@ fn test_principal_construct_runtime_check_errors() {
     assert_eq!(
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("590493").unwrap()
-            }))),
+            }))
+            .to_error_string(),
         )
         .into()),
         execute_with_parameters(
@@ -941,7 +945,7 @@ fn test_principal_construct_runtime_check_errors() {
     assert_eq!(
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(Value::UInt(22)),
+            Value::UInt(22).to_error_string(),
         )
         .into()),
         execute_with_parameters(
@@ -965,9 +969,10 @@ fn test_principal_construct_runtime_check_errors() {
         .unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_20),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
-            }))),
+            }))
+            .to_error_string(),
         )
         .into()
     );
@@ -977,13 +982,12 @@ fn test_principal_construct_runtime_check_errors() {
     assert_eq!(
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                        .as_bytes()
-                        .to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    .as_bytes()
+                    .to_vec()
+            })))
+            .to_error_string()
         )
         .into()),
         execute_with_parameters(

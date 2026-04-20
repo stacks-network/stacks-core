@@ -235,20 +235,22 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             sender,
                             sponsor,
                             cost_track,
-                            |env| {
+                            |exec_state, invoke_ctx| {
                                 // we want to execute any function as long as no actual writes are made as
                                 // opposed to be limited to purely calling `define-read-only` functions,
                                 // so use `read_only = false`.  This broadens the number of functions that
                                 // can be called, and also circumvents limitations on `define-read-only`
                                 // functions that can not use `contrac-call?`, even when calling other
                                 // read-only functions
-                                env.execute_contract(
-                                    &contract_identifier,
-                                    function.as_str(),
-                                    &args,
-                                    false,
-                                )
-                                .map_err(ClarityEvalError::from)
+                                exec_state
+                                    .execute_contract(
+                                        invoke_ctx,
+                                        &contract_identifier,
+                                        function.as_str(),
+                                        &args,
+                                        false,
+                                    )
+                                    .map_err(ClarityEvalError::from)
                             },
                         )
                     },

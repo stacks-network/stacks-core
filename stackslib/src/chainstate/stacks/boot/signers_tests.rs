@@ -473,14 +473,16 @@ pub fn readonly_call_with_sortdb(
                         PrincipalData::from(boot_code_addr(false)),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| {
-                            env.execute_contract_allow_private(
-                                &boot_code_id(&boot_contract, false),
-                                &function_name,
-                                &symbols_from_values(args),
-                                true,
-                            )
-                            .map_err(ClarityEvalError::from)
+                        |exec_state, invoke_ctx| {
+                            exec_state
+                                .execute_contract_allow_private(
+                                    &invoke_ctx,
+                                    &boot_code_id(&boot_contract, false),
+                                    &function_name,
+                                    &symbols_from_values(args),
+                                    true,
+                                )
+                                .map_err(ClarityEvalError::from)
                         },
                     )
                     .unwrap()

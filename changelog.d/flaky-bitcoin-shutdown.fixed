@@ -1,0 +1,1 @@
+Fixed flakiness in Bitcoin integration tests due to shutdown timing.

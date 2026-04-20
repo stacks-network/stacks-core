@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -3852,8 +3852,9 @@ fn test_get_pox_addrs() {
                                     PrincipalData::Standard(StandardPrincipalData::transient()),
                                     None,
                                     LimitedCostTracker::new_free(),
-                                    |env| {
-                                        env.eval_read_only(
+                                    |exec_state, invoke_ctx| {
+                                        exec_state.eval_read_only(
+                                            invoke_ctx,
                                             &boot_code_id("pox-2", false),
                                             &format!(
                                                 "(get-burn-block-info? pox-addrs u{})",
@@ -4150,8 +4151,9 @@ fn test_stack_with_segwit() {
                                     PrincipalData::Standard(StandardPrincipalData::transient()),
                                     None,
                                     LimitedCostTracker::new_free(),
-                                    |env| {
-                                        env.eval_read_only(
+                                    |exec_state, invoke_ctx| {
+                                        exec_state.eval_read_only(
+                                            invoke_ctx,
                                             &boot_code_id("pox-2", false),
                                             &format!(
                                                 "(get-burn-block-info? pox-addrs u{})",

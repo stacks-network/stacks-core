@@ -1,17 +1,28 @@
+# ============================================================
+# STACKS MINER - TESTNET REFERENCE CONFIGURATION
+# ============================================================
+#
+# Testnet miner configuration. See mainnet-miner-conf.toml for
+# comprehensive documentation of all settings.
+
 [node]
 # working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 bootstrap_node = "029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444"
-prometheus_bind = "0.0.0.0:9153" 
+prometheus_bind = "0.0.0.0:9153"
+seed = "<YOUR_SEED>"
+miner = true
+mine_microblocks = false
+stacker = true
 
 [burnchain]
 mode = "krypton"
 peer_host = "127.0.0.1"
 username = "<Bitcoin RPC username>"
 password = "<Bitcoin RPC password>"
-rpc_port = 12345 # Bitcoin RPC port
-peer_port = 6789 # Bitcoin P2P port
+rpc_port = 18443 # Bitcoin regtest RPC port
+peer_port = 18444 # Bitcoin regtest P2P port
 pox_prepare_length = 100
 pox_reward_length = 900
 # Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
@@ -22,6 +33,56 @@ satoshis_per_byte = 25
 rbf_fee_increment = 5
 # Maximum percentage to RBF bitcoin tx (default: 150% of satsv/B)
 max_rbf = 150
+
+# ============================================================
+# [miner] - Nakamoto Mining Settings
+# ============================================================
+# See mainnet-miner-conf.toml for full documentation of all options.
+[miner]
+# mining_key = "<HEX_PRIVATE_KEY>"
+
+# Time limit for assembling a Nakamoto block.
+# Default: 5_000 ms
+# nakamoto_attempt_time_ms = 5000
+
+# WARNING: Must be >= 1000. Blocks with same-second timestamps are rejected.
+# Default: 1_000 ms
+# min_time_between_blocks_ms = 1000
+
+# WARNING: Must be >= signer's block_proposal_timeout_ms (default 120_000ms).
+# If lower, miner extends before signer invalidates new winner -> rejections.
+# Default: 120_000 ms
+# tenure_extend_wait_timeout_ms = 120000
+
+# WARNING: Should be > tenure_extend_wait_timeout_ms and > signer's
+# tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs (default 62s).
+# Default: 180 seconds
+# tenure_timeout_secs = 180
+
+# Default: 40_000 ms
+# block_commit_delay_ms = 40000
+
+# ============================================================
+# [connection_options] - Authentication for signer communication
+# ============================================================
+[connection_options]
+# WARNING: Must match the signer's auth_password.
+auth_token = "<YOUR_AUTH_TOKEN>"
+
+# ============================================================
+# [[events_observer]] - Signer event subscription
+# ============================================================
+
+# WARNING: endpoint must match your signer's endpoint config.
+[[events_observer]]
+endpoint = "127.0.0.1:30000"
+events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
+
+# Optional: API event observer
+# [[events_observer]]
+# endpoint = "localhost:3700"
+# events_keys = ["*"]
+# timeout_ms = 60_000
 
 [[ustx_balance]]
 address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"

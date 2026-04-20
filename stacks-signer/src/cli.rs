@@ -29,7 +29,7 @@ use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
-use libsigner::VERSION_STRING;
+use libsigner::VERSION_ONLY_STRING;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -43,7 +43,7 @@ extern crate alloc;
 
 /// The CLI arguments for the stacks signer
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_version = VERSION_STRING.as_str())]
+#[command(author, version, about, long_version = VERSION_ONLY_STRING.as_str())]
 pub struct Cli {
     /// Subcommand action to take
     #[command(subcommand)]

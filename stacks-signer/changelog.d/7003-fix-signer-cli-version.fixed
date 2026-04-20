@@ -1,0 +1,1 @@
+Fix duplicated binary name when running `stacks-signer --version` cli command

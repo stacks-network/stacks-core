@@ -82,9 +82,10 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let (mut exec_state, invoke_ctx) =
+                owned_env.get_exec_environment(None, None, &placeholder_context);
             let command = "(var-get datum)";
-            let value = env.eval_read_only(&c, command).unwrap();
+            let value = exec_state.eval_read_only(&invoke_ctx, &c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -178,9 +179,10 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let (mut exec_state, invoke_ctx) =
+                owned_env.get_exec_environment(None, None, &placeholder_context);
             let command = "(var-get datum)";
-            let value = env.eval_read_only(&c, command).unwrap();
+            let value = exec_state.eval_read_only(&invoke_ctx, &c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -401,9 +403,12 @@ fn branched_execution(
     eprintln!("Branched execution...");
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         let command = format!("(get-balance {})", p1_str);
-        let balance = env.eval_read_only(&contract_identifier, &command).unwrap();
+        let balance = exec_state
+            .eval_read_only(&invoke_ctx, &contract_identifier, &command)
+            .unwrap();
         let expected = if expect_success { 10 } else { 0 };
         assert_eq!(balance, Value::UInt(expected));
     }

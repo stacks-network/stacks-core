@@ -28,7 +28,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
 use crate::vm::callables::DefinedFunction;
-use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::contexts::{ExecutionState, InvocationContext, OwnedEnvironment};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{
@@ -41,8 +41,8 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    CallStack, ClarityVersion, ContractContext, CostErrors, Environment, GlobalContext,
-    LocalContext, Value, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, CostErrors, GlobalContext, LocalContext, Value,
+    ValueRef, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
     execute_with_parameters,
 };
@@ -86,14 +86,11 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
-
+        let (mut exec_state, invoke_ctx) =
+            env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
-            Ok(Value::Int(7)),
-            eval(
-                &parsed_program[0],
-                &mut env.get_exec_environment(None, None, &placeholder_context),
-                &context
-            )
+            Ok(ValueRef::Owned(Value::Int(7))),
+            eval(&parsed_program[0], &mut exec_state, &invoke_ctx, &context)
         );
     } else {
         panic!("Failed to parse program.");
@@ -307,7 +304,7 @@ fn test_from_consensus_buff_type_checks() {
         ),
         (
             "(from-consensus-buff? uint 1)",
-            "RuntimeCheck(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), Int(1)))",
+            "RuntimeCheck(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), \"Int(1)\"))",
         ),
         (
             "(from-consensus-buff? 2 0x10)",
@@ -621,14 +618,14 @@ fn test_secp256k1_errors() {
     ];
 
     let expectations: &[ClarityEvalError] = &[
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })).to_error_string()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
 
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_33), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_33), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })).to_error_string()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
 
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
@@ -746,19 +743,30 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             .insert("without_else".into(), user_function2);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
         if let Ok(tests) = evals {
-            assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
-            assert_eq!(Ok(Value::Int(3)), eval(&tests[1], &mut env, &context));
-            assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(1))),
+                eval(&tests[0], &mut exec_state, &invoke_ctx, &context)
+            );
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(3))),
+                eval(&tests[1], &mut exec_state, &invoke_ctx, &context)
+            );
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(0))),
+                eval(&tests[2], &mut exec_state, &invoke_ctx, &context)
+            );
         } else {
             panic!("Failed to parse function bodies.");
         }
@@ -921,38 +929,34 @@ fn test_sequence_comparisons_clarity1() {
     let error_expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
     ];
@@ -1032,12 +1036,12 @@ fn test_sequence_comparisons_mismatched_types() {
     let v1_error_expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
     ];
@@ -1059,7 +1063,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1070,7 +1074,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
     ];
@@ -1093,11 +1097,10 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1108,11 +1111,10 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
     ];
@@ -1157,7 +1159,7 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::IntType),
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeError::DivisionByZero.into(),
@@ -1209,12 +1211,12 @@ fn test_unsigned_arithmetic() {
         RuntimeError::ArithmeticUnderflow.into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::UInt(10)),
+            Value::UInt(10).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(Value::Int(80)),
+            Value::Int(80).to_error_string(),
         )
         .into(),
         RuntimeError::ArithmeticUnderflow.into(),
@@ -1558,7 +1560,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1567,7 +1569,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1576,7 +1578,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1585,7 +1587,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
@@ -1595,7 +1597,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),

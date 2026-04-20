@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -561,156 +561,179 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract(contract_identifier, tokens_contract)
+        exec_state
+            .initialize_contract(&invoke_ctx, contract_identifier, tokens_contract)
             .unwrap();
 
         let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
-        env.initialize_contract(contract_identifier, names_contract)
+        exec_state
+            .initialize_contract(&invoke_ctx, contract_identifier, names_contract)
             .unwrap();
     }
 
     {
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
 
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    false
+                )
+                .unwrap(),
             1
         ));
     }
 
     {
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
+                    false
+                )
+                .unwrap(),
             2
         ));
     }
 
     {
         // shouldn't be able to register a name you didn't preorder!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    false
+                )
+                .unwrap(),
             4
         ));
     }
 
     {
         // should work!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    false
+                )
+                .unwrap()
         ));
     }
 
     {
         // try to underpay!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
+                    false
+                )
+                .unwrap(),
             4
         ));
 
         // register a cheap name!
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                    false
+                )
+                .unwrap()
         ));
 
         // preorder must exist!
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
+                    false
+                )
+                .unwrap(),
             5
         ));
     }

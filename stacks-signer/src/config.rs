@@ -276,66 +276,199 @@ pub struct GlobalConfig {
     pub supported_signer_protocol_version: u64,
 }
 
-/// Internal struct for loading up the config file
+/// Internal struct for loading up the config file.
+///
+/// This struct represents the TOML configuration file format for the
+/// `stacks-signer` binary. All fields with `Option` types will use their
+/// documented defaults when omitted.
 #[derive(Deserialize, Debug)]
 struct RawConfigFile {
-    /// endpoint to stacks node
+    /// The Stacks node RPC endpoint that this signer will connect to.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - Format: `"host:port"` (e.g., `"127.0.0.1:20443"`).
+    ///   - Must point to the `rpc_bind` address of the Stacks node.
     pub node_host: String,
-    /// endpoint to event receiver
+    /// The local endpoint the signer will listen on for events from the Stacks node.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - Format: `"host:port"` (e.g., `"0.0.0.0:30000"`).
+    ///   - Must match the `endpoint` in the node's `[[events_observer]]` section.
     pub endpoint: String,
     /// The hex representation of the signer's Stacks private key used for communicating
     /// with the Stacks Node, including writing to the Stacker DB instance.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - 64 or 66 hex characters (with optional `01` compression suffix).
+    ///   - This key determines the signer's on-chain identity and address.
     pub stacks_private_key: String,
-    /// The network to use. One of "mainnet" or "testnet".
+    /// The network to use. One of `"mainnet"`, `"testnet"`, or `"mocknet"`.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - Determines address version and transaction version.
     pub network: Network,
-    /// The time to wait (in millisecs) for a response from the stacker-db instance
+    /// The time to wait for a response from the stacker-db instance.
+    /// ---
+    /// @default: `5_000`
+    /// @units: milliseconds
     pub event_timeout_ms: Option<u64>,
-    /// The authorization password for the block proposal endpoint
+    /// The authorization password for the block proposal endpoint.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - WARNING: Must match the `auth_token` in the Stacks node's
+    ///     `[connection_options]` section. If these do not match, the signer
+    ///     cannot communicate with the node.
     pub auth_password: String,
-    /// The path to the signer's database file or :memory: for an in-memory database
+    /// The path to the signer's database file or `:memory:` for an in-memory database.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - Use an absolute path for production (e.g., `"/var/lib/stacks-signer/signerdb.sqlite"`).
+    ///   - Use `":memory:"` only for testing.
     pub db_path: String,
-    /// Metrics endpoint
+    /// Optional Prometheus metrics endpoint.
+    /// ---
+    /// @default: `None` (disabled)
+    /// @notes:
+    ///   - Format: `"host:port"` (e.g., `"0.0.0.0:9090"`).
     pub metrics_endpoint: Option<String>,
-    /// How much time (in secs) must pass between the first block proposal in a tenure and the next bitcoin block
-    /// before a subsequent miner isn't allowed to reorg the tenure
+    /// Reorg protection window. Measures the time between when a tenure's first block
+    /// was signed and when the next burn block arrived.
+    ///
+    /// If `(burn_block_received - first_block_signed) < this value`, the signer allows
+    /// a new miner to reorg the tenure. Otherwise, the tenure is considered established
+    /// and the reorg is denied.
+    /// ---
+    /// @default: `60`
+    /// @units: seconds
+    /// @notes:
+    ///   - WARNING: Setting too low allows reorgs of established tenures.
+    ///     Setting too high blocks legitimate miner handoffs.
     pub first_proposal_burn_block_timing_secs: Option<u64>,
-    /// How much time (in millisecs) to wait for a miner to propose a block following a sortition
+    /// How long to wait for the current sortition winner to propose a block before
+    /// the signer marks that miner as inactive (`InvalidatedBeforeFirstBlock`).
+    ///
+    /// This is one of two gates for accepting tenure extends from the previous miner.
+    /// The signer will not accept a tenure extend until both this timeout fires
+    /// (invalidating the unresponsive new winner) AND `tenure_idle_timeout + buffer`
+    /// has passed since the last block.
+    /// ---
+    /// @default: `120_000`
+    /// @units: milliseconds
+    /// @notes:
+    ///   - WARNING: Interacts with miner's `tenure_extend_wait_timeout_ms` (default 120_000ms).
+    ///     If the miner's value is lower, the miner extends before the signer invalidates
+    ///     the new sortition winner, causing the extend to be rejected.
     pub block_proposal_timeout_ms: Option<u64>,
-    /// An optional custom Chain ID
+    /// An optional custom Chain ID. Overrides the default for the selected network.
+    /// ---
+    /// @default: `0x00000001` (mainnet) or `0x80000000` (testnet)
+    /// @notes:
+    ///   - Only set this for custom/private networks.
     pub chain_id: Option<u32>,
-    /// Time in seconds to wait for the last block of a tenure to be globally accepted or rejected
+    /// Time to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
     pub tenure_last_block_proposal_timeout_secs: Option<u64>,
-    /// How long to wait (in millisecs) for a response from a block proposal validation response from the node
-    /// before marking that block as invalid and rejecting it
+    /// How long to wait for a response from a block proposal validation response from
+    /// the node before marking that block as invalid and rejecting it.
+    /// ---
+    /// @default: `120_000`
+    /// @units: milliseconds
     pub block_proposal_validation_timeout_ms: Option<u64>,
-    /// How much idle time (in seconds) must pass before a tenure extend is allowed
+    /// How much time since the last block in a tenure must pass before the signer
+    /// will allow a tenure extend.
+    ///
+    /// The signer computes: `extend_timestamp = last_block_time + this + buffer`
+    /// and includes it in the `BlockAccepted` response. The miner cannot extend
+    /// until `current_time >= extend_timestamp`.
+    ///
+    /// This is one of two gates for tenure extends (the other is
+    /// `block_proposal_timeout` for new-winner invalidation).
+    /// ---
+    /// @default: `60`
+    /// @units: seconds
+    /// @notes:
+    ///   - WARNING: Must coordinate with miner's `tenure_timeout` (default 180s,
+    ///     must be > this + buffer) and `tenure_extend_wait_timeout_ms`
+    ///     (default 120_000ms, should be >= this + buffer).
     pub tenure_idle_timeout_secs: Option<u64>,
-    /// How much idle time (in seconds) must pass before a read-count tenure extend is allowed
+    /// How much idle time must pass before allowing a read-count tenure extend.
+    /// A read-count tenure extend is triggered when the read count budget is nearly
+    /// exhausted.
+    /// ---
+    /// @default: `20`
+    /// @units: seconds
     pub read_count_idle_timeout_secs: Option<u64>,
-    /// Number of seconds of buffer to add to the tenure extend time sent to miners to allow for
-    /// clock skew
+    /// Buffer time added to the tenure extend time sent to miners to account for
+    /// clock skew between signer and miner nodes.
+    /// ---
+    /// @default: `2`
+    /// @units: seconds
+    /// @notes:
+    ///   - Increase if signer and miner clocks are poorly synchronized.
     pub tenure_idle_timeout_buffer_secs: Option<u64>,
-    /// The maximum age of a block proposal (in secs) that will be processed by the signer.
+    /// The maximum age of a block proposal that will be processed by the signer.
+    /// Proposals older than this are ignored.
+    /// ---
+    /// @default: `600`
+    /// @units: seconds
     pub block_proposal_max_age_secs: Option<u64>,
-    /// Time (in millisecs) following a block's global acceptance that a signer will consider an attempt by a miner
-    /// to reorg the block as valid towards miner activity
+    /// Time following a block's global acceptance during which a signer will consider
+    /// a miner's attempt to reorg it as valid miner activity.
+    /// ---
+    /// @default: `200_000`
+    /// @units: milliseconds
     pub reorg_attempts_activity_timeout_ms: Option<u64>,
-    /// Time to wait (in millisecs) before submitting a block proposal to the stacks-node
+    /// Time to wait before submitting a block proposal to the stacks-node if we cannot
+    /// determine that the stacks-node has processed the parent block.
+    /// ---
+    /// @default: `15`
+    /// @units: seconds
     pub proposal_wait_for_parent_time_secs: Option<u64>,
-    /// Is this signer binary going to be running in dry-run mode?
+    /// Run in dry-run mode. In dry-run mode, the signer will not submit
+    /// StackerDB messages or participate in signing, but will log what it
+    /// would have done.
+    /// ---
+    /// @default: `false`
     pub dry_run: Option<bool>,
-    /// Whether or not to validate blocks with replay transactions
+    /// Whether to validate blocks by replaying transactions.
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Experimental feature. Provides additional validation but increases
+    ///     resource usage.
     pub validate_with_replay_tx: Option<bool>,
-    /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism
+    /// Number of blocks after a fork to reset the replay set as a failsafe mechanism.
+    /// ---
+    /// @default: `2`
+    /// @units: blocks
     pub reset_replay_set_after_fork_blocks: Option<u64>,
-    /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
+    /// Time to wait between updating the local state machine view and capitulating
+    /// to other signers' tenure view.
+    /// ---
+    /// @default: `20`
+    /// @units: seconds
+    /// @notes:
+    ///   - Controls how quickly a signer will adopt the consensus view when its
+    ///     local view differs from the majority.
     pub capitulate_miner_view_timeout_secs: Option<u64>,
-    /// Time to wait (in secs) before timing out an HTTP request with StackerDB.
+    /// HTTP timeout for read/write operations with StackerDB.
+    /// ---
+    /// @default: `120`
+    /// @units: seconds
     pub stackerdb_timeout_secs: Option<u64>,
     #[cfg(any(test, feature = "testing"))]
-    /// Only used for testing to enable specific signer protocol versions
+    /// Only used for testing to enable specific signer protocol versions.
+    /// ---
+    /// @default: `SUPPORTED_SIGNER_PROTOCOL_VERSION`
     pub supported_signer_protocol_version: Option<u64>,
 }
 
@@ -690,6 +823,28 @@ chain_id = {chain_id}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_example_confs() {
+        // Validate that all sample signer config files in sample/conf/signer/ parse as valid TOML.
+        // Uses RawConfigFile (not GlobalConfig) since reference configs have placeholder values.
+        let conf_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sample/conf/signer");
+        println!("Reading signer config files from: {conf_dir:?}");
+        let conf_files = fs::read_dir(&conf_dir).unwrap();
+
+        for entry in conf_files {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_file() {
+                let file_name = path.file_name().unwrap().to_str().unwrap();
+                if file_name.ends_with(".toml") {
+                    let data = fs::read_to_string(&path).unwrap();
+                    RawConfigFile::load_from_str(&data)
+                        .unwrap_or_else(|e| panic!("Failed to parse {file_name}: {e}"));
+                }
+            }
+        }
+    }
 
     #[test]
     fn build_signer_config_tomls_should_produce_deserializable_strings() {

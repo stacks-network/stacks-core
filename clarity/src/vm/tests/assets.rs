@@ -1049,9 +1049,15 @@ fn test_simple_naming_system(
     assert!(is_committed(&result));
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
-            env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 1)")
+            exec_state
+                .eval_read_only(
+                    &invoke_ctx,
+                    &names_contract_id.clone(),
+                    "(nft-get-owner? names 1)"
+                )
                 .unwrap(),
             Value::some(p2.clone()).unwrap()
         );
@@ -1320,9 +1326,15 @@ fn test_simple_naming_system(
     assert!(asset_map.to_table().is_empty());
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
-            env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 5)")
+            exec_state
+                .eval_read_only(
+                    &invoke_ctx,
+                    &names_contract_id.clone(),
+                    "(nft-get-owner? names 5)"
+                )
                 .unwrap(),
             Value::some(p1).unwrap()
         );

@@ -164,7 +164,7 @@ fn test_walk_ring_15_plain() {
 #[ignore]
 fn test_walk_ring_15_pingback() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(900, || {
         // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let peer_count: usize = 15;

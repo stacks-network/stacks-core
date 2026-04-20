@@ -50,7 +50,7 @@ impl Contract {
         Ok(Contract { contract_context })
     }
 
-    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
-        self.contract_context.canonicalize_types(epoch);
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) -> Result<(), VmExecutionError> {
+        self.contract_context.canonicalize_types(epoch)
     }
 }

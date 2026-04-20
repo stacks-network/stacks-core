@@ -1,31 +1,53 @@
+# ============================================================
+# STACKS FOLLOWER NODE - TESTNET CONFIGURATION
+# ============================================================
+#
+# A follower is a read-only node that syncs the Stacks chain without
+# mining or signing. This config uses the Hiro-hosted testnet (krypton).
+#
+# For testnet mining, see testnet-miner-conf.toml.
+# For testnet signing, see testnet-signer.toml.
+
 [node]
-# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
+# IMPORTANT: For persistent state, set this to a stable path.
+# The default (/tmp/stacks-node-<timestamp>) is lost on reboot.
+# working_dir = "/stacks-data/testnet"
+
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 bootstrap_node = "029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444"
-prometheus_bind = "0.0.0.0:9153" 
+prometheus_bind = "0.0.0.0:9153"
+
+# Explicitly not a miner or signer.
+miner = false
+stacker = false
 
 [burnchain]
 mode = "krypton"
 peer_host = "bitcoin.regtest.hiro.so"
+rpc_port = 18443
 peer_port = 18444
 pox_prepare_length = 100
 pox_reward_length = 900
 
-# Used for sending events to a local stacks-blockchain-api service
+# Optional: stacks-blockchain-api event observer.
 # [[events_observer]]
 # endpoint = "localhost:3700"
 # events_keys = ["*"]
 # timeout_ms = 60_000
 
-# Used if running a local stacks-signer service
+# To upgrade this node to also serve a signer, you need:
+#   1. Set stacker = true in [node]
+#   2. Uncomment the signer events_observer below
+#   3. Uncomment the [connection_options] auth_token below
+#   4. See testnet-signer.toml for the full signer node config
+#
 # [[events_observer]]
 # endpoint = "127.0.0.1:30000"
 # events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
-
-# Used if running a local stacks-signer service
+#
 # [connection_options]
-# auth_token = "" # fill with a unique password
+# auth_token = "your-secret-token"
 
 [[ustx_balance]]
 address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"

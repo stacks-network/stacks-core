@@ -72,7 +72,7 @@ fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
         Ok(Some(Value::Int(10))),
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::from_string("(optional int)", version, epoch)),
-            Box::new(Value::some(Value::Bool(true)).unwrap()),
+            Value::some(Value::Bool(true)).unwrap().to_error_string(),
         )
         .into()),
     ];

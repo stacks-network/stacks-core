@@ -66,17 +66,25 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
    - Add cherry-picked commits to the `feat/X.Y.Z.A.n-pr_number` branch
    - Merge `feat/X.Y.Z.A.n-pr_number` into `release/X.Y.Z.A.n`.
 
-5. If necessary, open a PR to update the [CHANGELOG](../CHANGELOG.md) in the `release/X.Y.Z.A.n` branch.
+5. Open a PR to assemble the changelog and update versions in the `release/X.Y.Z.A.n` branch.
 
    - Create a chore branch from `release/X.Y.Z.A.n`, ex: `chore/X.Y.Z.A.n-changelog`.
    - Update [versions.toml](../versions.toml) to match this release:
      - Update the `stacks_node_version` string to match this release version.
      - Update the `stacks_signer_version` string to match `stacks_node_version`, with an appending `0` for this release version.
-   - Add summaries of all Pull Requests to the `Added`, `Changed` and `Fixed` sections.
+   - Assemble changelog fragments into `CHANGELOG.md` and `stacks-signer/CHANGELOG.md`:
 
-     - Pull requests merged into `develop` can be found [here](https://github.com/stacks-network/stacks-core/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc).
+     ```bash
+     ./contrib/assemble-changelog.sh X.Y.Z.A.n
+     ```
 
-       **Note**: GitHub does not allow sorting by _merge time_, so, when sorting by some proxy criterion, some care should be used to understand which PR's were _merged_ after the last release.
+     This will collect all fragment files from `changelog.d/` and `stacks-signer/changelog.d/`,
+     group them by category (Added/Changed/Fixed/Removed), insert them as a new version section
+     in the respective `CHANGELOG.md`, and delete the assembled fragments. For a signer-only
+     release, the flag `--signer` can be passed to only process the signer fragments and upate
+     `stacks-signer/CHANGELOG.md`.
+
+     Review the assembled changelog for accuracy and make any manual adjustments if needed.
 
    - This PR must be merged before continuing to the next steps
 

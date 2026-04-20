@@ -1,0 +1,2 @@
+`/v3/blocks/simulate/{block_id}` and `/v3/block/replay ` no longer emit transaction events for post condition aborted transactions.
+`EventDispatcher` no longer emits transaction events for post condition aborted transactions.

@@ -17,16 +17,17 @@ use std::env;
 use libsigner::v0::messages::{BlockResponse, SignerMessage};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::TenureChangeCause;
-use stacks::codec::StacksMessageCodec;
 use stacks::net::api::postblock_proposal::TEST_VALIDATE_STALL;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
+use crate::nakamoto_node::miner::TEST_BROADCAST_PROPOSAL_STALL;
 use crate::tests::nakamoto_integrations::wait_for;
-use crate::tests::neon_integrations::test_observer;
 use crate::tests::signer::v0::{
-    wait_for_block_pre_commits_from_signers, wait_for_block_pushed_by_miner_key, MultipleMinerTest,
+    get_stackerdb_signer_messages, wait_for_block_pre_commits_from_signers,
+    wait_for_block_pushed_by_miner_key, wait_for_state_machine_update_by_miner_tenure_id,
+    MultipleMinerTest,
 };
 
 #[test]
@@ -112,10 +113,6 @@ fn signer_waits_for_validation_before_signing() {
     miners.pause_commits_miner_2();
     miners.boot_to_epoch_3();
 
-    // Make sure we know which miner will win in the stalled block
-    miners.pause_commits_miner_1();
-    info!("------------------------- Mine First Block N -------------------------");
-
     let sortdb = SortitionDB::open(
         &conf_1.get_burn_db_file_path(),
         false,
@@ -123,11 +120,15 @@ fn signer_waits_for_validation_before_signing() {
         None,
     )
     .unwrap();
+    // Make sure we know which miner will win in the stalled block
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
+    info!("------------------------- Mine First Block N -------------------------");
     // Mine an initial block to establish state
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
         .expect("Failed to mine BTC block followed by tenure change tx");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
     miners.signer_test.check_signer_states_normal();
 
     let info_before = miners.get_peer_info();
@@ -137,8 +138,29 @@ fn signer_waits_for_validation_before_signing() {
     TEST_VALIDATE_STALL.set(vec![Some(node_2_auth)]);
 
     info!("------------------------- Mine Block N+1 with Stalled Validation -------------------------");
+    // Stall the miner's block proposal broadcast so that we can wait for
+    // state machine updates to propagate between the two nodes' stackerdbs
+    // before the proposal reaches signers. Without this, the signer on
+    // miner 2 may reject the proposal with NoSignerConsensus because it
+    // hasn't yet received state machine updates from the other signers.
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
+
     // Mine a new tenure which will issue a block proposal to all signers for its tenure change.
     miners.signer_test.mine_bitcoin_block();
+
+    // Wait for signers to broadcast state machine updates for the new tenure.
+    // This ensures that by the time we unstall the proposal, the signer on
+    // miner 2 will have received enough updates to establish global state.
+    let chain_info = miners.get_peer_info();
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &chain_info.pox_consensus,
+        &miners.signer_test.signer_addresses_versions(),
+    )
+    .expect("Timed out waiting for state machine updates from signers");
+
+    // Now let the proposal through
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
     // The 4 signers on miner 1 should have validated and sent pre-commits
     // The 1 signer on miner 2 should be waiting for validation and should NOT have issued a signature
@@ -153,13 +175,7 @@ fn signer_waits_for_validation_before_signing() {
     let stalled_pk = stalled_signer[0].clone();
     assert!(
         wait_for(15, || {
-            for chunk in test_observer::get_stackerdb_chunks()
-                .into_iter()
-                .flat_map(|chunk| chunk.modified_slots)
-            {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
-
+            for (chunk, message) in get_stackerdb_signer_messages() {
                 let pk = chunk.recover_pk().expect("Failed to recover pk");
                 if stalled_pk != pk {
                     continue;
@@ -202,13 +218,7 @@ fn signer_waits_for_validation_before_signing() {
     let mut found_commit = false;
     let mut found_accept = false;
     wait_for(15, || {
-        for chunk in test_observer::get_stackerdb_chunks()
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
-
+        for (chunk, message) in get_stackerdb_signer_messages() {
             let pk = chunk.recover_pk().expect("Failed to recover pk");
             if stalled_pk != pk {
                 continue;
