@@ -81,3 +81,4 @@ coverage.lcov
 
 # proptest regression files
 proptest-regressions/
+*.proptest-regressions

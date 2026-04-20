@@ -305,6 +305,7 @@ impl GlobalStateView {
         config: &ProposalEvalConfig,
     ) -> Result<(), RejectReason> {
         // Check that the tenure change's prev_tenure matches the signer's known parent tenure.
+        // This catches block commits with bad parent_block_ptr (e.g., vtxindex=0 exploit).
         if &tenure_change.prev_tenure_consensus_hash != parent_tenure_id {
             warn!(
                 "Block commit parent tenure mismatch: the block commit's parent_block_ptr does not correspond to the actual parent tenure";
