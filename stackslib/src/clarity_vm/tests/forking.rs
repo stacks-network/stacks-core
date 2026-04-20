@@ -476,19 +476,20 @@ fn epoch_updates_on_set_block_hash() {
         );
 
         // Time-shift to block_0 which has Epoch21 stored
-        db.set_block_hash(block_0, false).unwrap();
+        let prior_bhh = db.set_block_hash(block_0, false).unwrap();
         assert_eq!(
             db.get_clarity_epoch_version().unwrap(),
             StacksEpochId::Epoch21,
             "epoch should reflect the target block after set_block_hash"
         );
 
-        db.roll_back().unwrap();
-
+        // Explicitly restore the original block context — this also
+        // invalidates the cached epoch so the next read picks up Epoch25.
+        db.set_block_hash(prior_bhh, true).unwrap();
         assert_eq!(
             db.get_clarity_epoch_version().unwrap(),
             StacksEpochId::Epoch25,
-            "epoch should revert to the original value after rollback"
+            "epoch should revert to the original value after restoring the block hash"
         );
     }
 }
