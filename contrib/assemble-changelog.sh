@@ -60,8 +60,11 @@ assemble_changelog() {
             found_any=true
             while IFS= read -r line || [ -n "$line" ]; do
                 [ -z "$line" ] && continue
-                if [[ "$line" != "- "* ]]; then
-                    line="- $line"
+                # Normalise to * bullets (- triggers GPG dash-escaping)
+                if [[ "$line" == "- "* ]]; then
+                    line="* ${line#- }"
+                elif [[ "$line" != "* "* ]]; then
+                    line="* $line"
                 fi
                 case "$ext" in
                     added)   ADDED+=("$line") ;;

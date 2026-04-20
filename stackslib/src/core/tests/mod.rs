@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2021 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ use std::time::Duration;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::Value;
+use clarity::vm::{ContractName, Value};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::params;
@@ -1624,7 +1624,7 @@ fn mempool_db_test_rbf() {
     let payload = TransactionPayload::TokenTransfer(
         PrincipalData::from(QualifiedContractIdentifier {
             issuer: stx_address.clone().into(),
-            name: "hello-contract-name".into(),
+            name: ContractName::from_literal("hello-contract-name"),
         }),
         123,
         TokenTransferMemo([0u8; 34]),

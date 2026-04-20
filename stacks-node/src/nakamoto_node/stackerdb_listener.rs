@@ -22,18 +22,19 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use libsigner::v0::messages::{
-    BlockAccepted, BlockResponse, MessageSlotID, SignerMessage as SignerMessageV0,
+    BlockAccepted, BlockResponse, MessageSlotID, RejectCode, SignerMessage as SignerMessageV0,
     StateMachineUpdate,
 };
 use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
 use libsigner::{SignerEntries, SignerEvent, SignerSession, StackerDBSession};
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::nakamoto::NakamotoBlockHeader;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, SIGNERS_NAME};
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
+use stacks::net::api::postblock_proposal::ValidateRejectCode;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -55,6 +56,16 @@ pub static TEST_IGNORE_SIGNERS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFla
 /// waking up to check timeouts?
 pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
+/// Tracks per-txid rejection data from signers
+#[derive(Debug, Clone, Default)]
+pub struct FailedTxInfo {
+    /// The total weight of signers who reported this txid as failed
+    pub total_weight: u32,
+    /// The weight of signers who specifically reported this txid as
+    /// genuinely problematic (e.g. DDoS vector, parse error, Clarity crash)
+    pub problematic_weight: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockStatus {
     /// Set of the slot ids of signers who have responded
@@ -65,6 +76,8 @@ pub struct BlockStatus {
     pub total_weight_approved: u32,
     /// Total weight of signers who have rejected the block
     pub total_weight_rejected: u32,
+    /// Per-txid rejection tracking from signers
+    pub failed_txids: HashMap<Txid, FailedTxInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -401,8 +414,7 @@ impl StackerDBListener {
                         if !block.gathered_signatures.contains_key(&slot_id) {
                             block.total_weight_approved = block
                                 .total_weight_approved
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight signed exceeds u32::MAX");
+                                .saturating_add(signer_entry.weight);
 
                             info!("StackerDBListener: Signature Added to block";
                                 "signer_signature_hash" => %block_sighash,
@@ -474,8 +486,35 @@ impl StackerDBListener {
                         if block.responded_signers.insert(slot_id) {
                             block.total_weight_rejected = block
                                 .total_weight_rejected
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight rejected exceeds u32::MAX");
+                                .saturating_add(signer_entry.weight);
+
+                            // Track transactions that failed validation, accumulating
+                            // per-txid signer weight and whether any signer flagged
+                            // the tx as genuinely problematic.
+                            if let Some(txid) = &rejected_data.response_data.failed_txid {
+                                match &rejected_data.reason_code {
+                                    RejectCode::ValidationFailed(
+                                        ValidateRejectCode::BadTransaction
+                                        | ValidateRejectCode::ProblematicTransaction,
+                                    ) => {
+                                        let info =
+                                            block.failed_txids.entry(txid.clone()).or_default();
+                                        info.total_weight =
+                                            info.total_weight.saturating_add(signer_entry.weight);
+                                        if matches!(
+                                            rejected_data.reason_code,
+                                            RejectCode::ValidationFailed(
+                                                ValidateRejectCode::ProblematicTransaction
+                                            )
+                                        ) {
+                                            info.problematic_weight = info
+                                                .problematic_weight
+                                                .saturating_add(signer_entry.weight);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
 
                             info!("StackerDBListener: Signer rejected block";
                                 "signer_signature_hash" => %rejected_data.signer_signature_hash,
@@ -491,6 +530,7 @@ impl StackerDBListener {
                                 "reason" => rejected_data.reason,
                                 "reason_code" => ?rejected_data.reason_code,
                                 "tenure_extend_timestamp" => rejected_data.response_data.tenure_extend_timestamp,
+                                "failed_txid" => ?rejected_data.response_data.failed_txid,
                                 "server_version" => rejected_data.metadata.server_version,
                             );
                         }
@@ -629,6 +669,7 @@ impl StackerDBListenerComms {
             gathered_signatures: BTreeMap::new(),
             total_weight_approved: 0,
             total_weight_rejected: 0,
+            failed_txids: HashMap::new(),
         };
         blocks.insert(block.signer_signature_hash(), block_status);
     }

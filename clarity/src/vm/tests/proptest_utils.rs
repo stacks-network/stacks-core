@@ -54,7 +54,7 @@ fn initialize_balances(
     let sender_principal = PrincipalData::Standard(sender.clone());
     let contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender.clone(),
-        "contract".into(),
+        ContractName::from_literal("contract"),
     ));
     let balance = STXBalance::initial(INITIAL_BALANCE);
 
@@ -92,7 +92,8 @@ pub fn execute_versioned(
 ) -> Result<Option<Value>, ClarityEvalError> {
     let sender_pk = StacksPrivateKey::random();
     let sender: StandardPrincipalData = (&sender_pk).into();
-    let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+    let contract_id =
+        QualifiedContractIdentifier::new(sender.clone(), ContractName::from_literal("contract"));
     let sender_for_init = sender.clone();
     execute_with_parameters_and_call_in_global_context(
         snippet,

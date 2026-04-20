@@ -1,39 +1,40 @@
 #!/bin/bash
 set -o pipefail
 
+#
+# ** Recommendations
+#   - Run this script in screen or tmux
+#   - Use an existing chainstate on a disk formatted using XFS, Btrfs, ZFS or APFS (for XFS, reflink support must be enabled at fs-creation time; this is the default in recent OS versions)
+#   - If using a filesystem which doesn't support reflink (e.g. ext4), ensure that the SCRATCH_DIR volume has multiple TBs of free space - each allocated CPU will require its own chainstate copy.
+#   - If using LOCAL_CHAINSTATE on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the SCRATCH_DIR.
+#   - Depending on how many CPU cores you have available, a full run will take several hours. More CPUs = faster execution time.
+#     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled paritition, full validation took ~14 hours.
 
-## Using 10 cpu cores, a full validation will take between 12-14 hours (assuming there are no other cpu/io bound processes running at the same time)
-##
-## ** Recommend to run this script in screen or tmux **
-##
-## We'll need ~283GB per slice, plus an extra ~560GB for the marf DB and ~450GB for the chainstate (if not using a local chainstate)
-## as of 12/2025:
-##   for 10 slices, this is about 3.5TB
+NETWORK="mainnet"                                 # network to validate
+REPO_DIR="$HOME/stacks-core"                      # where to build the source
+REMOTE_REPO="stacks-network/stacks-core"          # remote git repo to build stacks-inspect from
+SCRATCH_DIR="${HOME}/scratch"                     # root folder for the validation slices
+TIMESTAMP=$(date +%Y-%m-%d-%s)                    # use a simple date format year-month-day-epoch
+LOG_DIR="${HOME}/block-validation_${TIMESTAMP}"   # location of logfiles for the validation
+SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
+TMUX_SESSION="validation"                         # tmux session name to run the validation
+TERM_OUT=false                                    # terminal friendly output
+TESTING=false                                     # only run a validation on a few thousand blocks
+BRANCH="develop"                                  # default branch to build stacks-inspect from
+CORES=$(nproc)                                    # retrieve total number of CORES on the system
+RESERVED=8                                        # reserve this many CORES for other processes as default
+LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
+REFLINK=0                                         # assume reflink is not enabled by default
 
-NETWORK="mainnet"                               ## network to validate
-REPO_DIR="$HOME/stacks-core"                    ## where to build the source
-REMOTE_REPO="stacks-network/stacks-core"        ## remote git repo to build stacks-inspect from
-SCRATCH_DIR="$HOME/scratch"                     ## root folder for the validation slices
-TIMESTAMP=$(date +%Y-%m-%d-%s)                  ## use a simple date format year-month-day-epoch
-LOG_DIR="$HOME/block-validation_${TIMESTAMP}"   ## location of logfiles for the validation
-SLICE_DIR="${SCRATCH_DIR}/slice"                ## location of slice dirs
-TMUX_SESSION="validation"                       ## tmux session name to run the validation
-TERM_OUT=false                                  ## terminal friendly output
-TESTING=false                                   ## only run a validation on a few thousand blocks
-BRANCH="develop"                                ## default branch to build stacks-inspect from
-CORES=$(grep -c processor /proc/cpuinfo)        ## retrieve total number of CORES on the system
-RESERVED=8                                      ## reserve this many CORES for other processes as default
-LOCAL_CHAINSTATE=                               ## path to local chainstate to use instead of snapshot download
+# ANSI color codes for terminal output
+COLRED=$'\033[31m'    # Red
+COLGREEN=$'\033[32m'  # Green
+COLYELLOW=$'\033[33m' # Yellow
+COLCYAN=$'\033[36m'   # Cyan
+COLBOLD=$'\033[1m'    # Bold Text
+COLRESET=$'\033[0m'   # reset color/formatting
 
-## ansi color codes for terminal output
-COLRED=$'\033[31m'    ## Red
-COLGREEN=$'\033[32m'  ## Green
-COLYELLOW=$'\033[33m' ## Yellow
-COLCYAN=$'\033[36m'   ## Cyan
-COLBOLD=$'\033[1m'    ## Bold Text
-COLRESET=$'\033[0m'   ## reset color/formatting
-
-## verify that cargo is installed in the expected path, not only $PATH
+# Verify that cargo is installed in the expected path, not only $PATH
 install_cargo() {
     command -v "$HOME/.cargo/bin/cargo" >/dev/null 2>&1 || {
         echo "Installing Rust via rustup"
@@ -48,13 +49,14 @@ install_cargo() {
     return 0
 }
 
-## build stacks-inspect binary from specified repo/branch
+# Build release stacks-inspect binary from specified repo/branch
 build_stacks_inspect() {
     if [ -d "${REPO_DIR}" ];then
         echo "Found ${COLYELLOW}${REPO_DIR}${COLRESET}. checking out ${COLGREEN}${BRANCH}${COLRESET} and resetting to ${COLBOLD}HEAD${COLRESET}"
         cd "${REPO_DIR}" && git fetch
         echo "Checking out ${BRANCH} and resetting to HEAD"
-        git stash ## stash any local changes to prevent checking out $BRANCH
+        # Git stash any local changes to prevent checking out $BRANCH
+        git stash
         (git checkout "${BRANCH}" && git reset --hard HEAD) || {
             echo "${COLRED}Error${COLRESET} checking out ${BRANCH}"
             exit 1
@@ -67,7 +69,7 @@ build_stacks_inspect() {
         }
     fi
     git pull
-    ## build stacks-inspect to: ${REPO_DIR}/target/release/stacks-inspect
+    # Build stacks-inspect to: ${REPO_DIR}/target/release/stacks-inspect
     echo "Building stacks-inspect binary"
     cd contrib/stacks-inspect && cargo build --bin=stacks-inspect --release || {
         echo "${COLRED}Error${COLRESET} building stacks-inspect binary"
@@ -76,95 +78,129 @@ build_stacks_inspect() {
     echo "Done building. continuing"
 }
 
-## create the slice dirs from an chainstate archive (symlinking marf.sqlite.blobs), 1 dir per CPU
+# Create the slice dirs from an chainstate archive (symlinking marf.sqlite.blobs), 1 dir per CPU
 configure_validation_slices() {
-    if [ -d "$HOME/scratch" ]; then
-        echo "Deleting existing scratch dir: ${COLYELLOW}$HOME/scratch${COLRESET}"
-        rm -rf "${HOME}/scratch" || {
-            echo "${COLRED}Error${COLRESET} deleting dir $HOME/scratch"
+    # LOCAL_CHAINSTATE is defined, check if the disk for the chainstate folder has reflink enabled
+    if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
+        local LOCAL_CHAINSTATE_ROOT
+        LOCAL_CHAINSTATE_ROOT=$(dirname "$LOCAL_CHAINSTATE")
+        echo "${COLYELLOW}Using local chainstate. Overriding scratch dir to: ${LOCAL_CHAINSTATE_ROOT}/scratch${COLRESET}"
+        # reset SCRATCH_DIR and SLICE_DIR global variables
+        SCRATCH_DIR="${LOCAL_CHAINSTATE_ROOT}/scratch"
+        SLICE_DIR="${SCRATCH_DIR}/slice"
+    fi
+
+    if [ -d "${SCRATCH_DIR}" ]; then
+        echo "Deleting existing scratch dir contents: ${COLYELLOW}${SCRATCH_DIR}${COLRESET}"
+        find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P $(( CORES - RESERVED )) -n 500 rm -rf || {
+            echo "${COLRED}Error${COLRESET} deleting dir contents: ${SCRATCH_DIR}"
             exit 1
         }
     fi
     echo "Creating scratch and slice dirs"
     (mkdir -p "${SLICE_DIR}0" && cd "${SCRATCH_DIR}") || {
-        echo "${COLRED}Error${COLRESET} creating dir ${SLICE_DIR}"
+        echo "${COLRED}Error${COLRESET} creating dir ${SLICE_DIR}0"
         exit 1
     }
-
     if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
-       echo "Copying local chainstate '${LOCAL_CHAINSTATE}'"
-       cp -r "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0"
+        if [ ! -d "$LOCAL_CHAINSTATE" ]; then
+            echo "${COLRED}Error${COLRESET} Chainstate not found at ${LOCAL_CHAINSTATE}"
+            exit 1
+        fi
+        echo "Copying local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
+        cp -r --reflink=always "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0" 2>/dev/null && REFLINK=1 || cp -r "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0"
     else
-       echo "Downloading latest ${NETWORK} chainstate archive ${COLYELLOW}https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz${COLRESET}"
-       ## curl had some random issues retrying the download when network issues arose. wget has resumed more consistently, so we'll use that binary
-       # curl -L --proto '=https' --tlsv1.2 https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz -o ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz || {
-       wget -O  "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz" "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz"  || {
-           echo "${COLRED}Error${COLRESET} downlaoding latest ${NETWORK} chainstate archive"
+       echo "Downloading latest ${NETWORK} chainstate archive ${COLYELLOW}https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst${COLRESET}"
+       ## curl had some random issues retrying the download when network issues arose. wget has resumed more consistently, so we'll use that for now, and leave the curl option commented
+       # curl -L --proto '=https' --tlsv1.2 https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst -o ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst || {
+       wget -O  "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst"  || {
+           echo "${COLRED}Error${COLRESET} downloading latest ${NETWORK} chainstate archive"
            exit 1
        }
-       ## extract downloaded archive
-       echo "Extracting downloaded archive: ${COLYELLOW}${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz${COLRESET}"
-       tar --strip-components=1 -xzf "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz" -C "${SLICE_DIR}0" || {
+       # Extract downloaded archive
+       echo "Extracting downloaded archive: ${COLYELLOW}${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst${COLRESET}"
+       if [ ! -f "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" ]; then
+           echo "${COLRED}Error${COLRESET} ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst not found"
+           exit 1
+       fi
+       tar --strip-components=1 --zstd -xvf "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" -C "${SLICE_DIR}0" || {
            echo "${COLRED}Error${COLRESET} extracting ${NETWORK} chainstate archive"
-           exit
+           exit 1
        }
     fi
-    echo "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> ${COLYELLOW}${SCRATCH_DIR}/marf.sqlite.blobs${COLRESET}"
-    mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/
-    echo "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${COLYELLOW}${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs${COLRESET}"
-    ln -s "${SCRATCH_DIR}"/marf.sqlite.blobs "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs || {
-        echo "${COLRED}Error${COLRESET} creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
-        exit 1
-    }
+    # Check if reflink is enabled for the filesystem by copying a test file
+    touch "${SCRATCH_DIR}/reflink_test"
+    cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null && REFLINK=1 || echo "${COLYELLOW}Warning${COLRESET}: reflink is not enabled for this filesystem, chainstate copy will be slower"
+    # Remove the test files, silently failing if the file(s) don't exist
+    rm "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy"  2>/dev/null
 
-    ## create a copy of the linked db with <number of CORES><number of RESERVED CORES>
-    ##   decrement by 1 since we already have ${SLICE_DIR}0
+    # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
+    if [[ ${REFLINK} -ne "1" ]]; then
+        echo "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> ${COLYELLOW}${SCRATCH_DIR}/marf.sqlite.blobs${COLRESET}"
+        mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/ || {
+            echo "${COLRED}Error${COLRESET} moving marg database"
+            exit 1
+        }
+        echo "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${COLYELLOW}${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs${COLRESET}"
+        ln -s "${SCRATCH_DIR}"/marf.sqlite.blobs "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs || {
+            echo "${COLRED}Error${COLRESET} creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
+            exit 1
+        }
+    fi
+
+    # Sanity check that the chainstate db exists in slice0 before copying
+    if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
+        echo "${COLRED}Error${COLRESET}: chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
+        exit 1
+    fi
+
+    # Create a copy of the linked db with <number of CORES><number of RESERVED CORES>
+    #   - Decrement by 1 since we already have ${SLICE_DIR}0
     for ((i=1;i<=$(( CORES - RESERVED - 1));i++)); do
         echo "Copying ${SLICE_DIR}0 -> ${COLYELLOW}${SLICE_DIR}${i}${COLRESET}"
-        cp -R "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
+        if [[ ${REFLINK} -eq "1" ]]; then
+            local cp_arg="--reflink=always"
+        fi
+        cp -r "${cp_arg}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
             echo "${COLRED}Error${COLRESET} copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
             exit 1
         }
     done
 }
 
-## setup the tmux sessions and create the logdir for storing output
+# Setup the tmux sessions and create the logdir for storing output
 setup_logs() {
-	## if there is an existing folder, rm it
-	if [ -d "${LOG_DIR}" ];then
-		echo "Removing logdir ${LOG_DIR}"
-		rm -rf "${LOG_DIR}"
-	fi
-	## create LOG_DIR to store output files
-	if  [ ! -d "${LOG_DIR}" ]; then
-		echo "Creating logdir ${LOG_DIR}"
-		mkdir -p "${LOG_DIR}"
-	fi
-
+    # If there is an existing folder, rm it
+    if [ -d "${LOG_DIR}" ]; then
+        echo "Removing logdir ${LOG_DIR}"
+        rm -rf "${LOG_DIR}"
+    fi
+    # Create LOG_DIR to store output files
+    if  [ ! -d "${LOG_DIR}" ]; then
+        echo "Creating logdir ${LOG_DIR}"
+        mkdir -p "${LOG_DIR}"
+        echo "${LOG_DIR}" > /tmp/block-validation.logdir
+    fi
 }
 
+# Delete any existing tmux session and recreate
 setup_tmux() {
-	## if tmux session "$TMUX_SESSION" exists, kill it and start anew
-	if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
-		echo "Killing existing tmux session: ${TMUX_SESSION}"
-		eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
-	fi
-	local slice_counter=0
+    # If tmux session "$TMUX_SESSION" exists, kill it and start anew
+    if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
+        echo "Killing existing tmux session: ${TMUX_SESSION}"
+        eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
+    fi
+    local slice_counter=0
 
-	## create tmux session named ${TMUX_SESSION} with a window named slice0
-	tmux new-session -d -s ${TMUX_SESSION} -n slice${slice_counter} || {
-		echo "${COLRED}Error${COLRESET} creating tmux session ${COLYELLOW}${TMUX_SESSION}${COLRESET}"
-		exit 1
-	}
-
-	if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
-		echo "${COLRED}Error${COLRESET}: chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
-		exit 1
-	fi
-	return 0
+    # Create tmux session named ${TMUX_SESSION} with a window named slice0
+    tmux new-session -d -s ${TMUX_SESSION} -n slice${slice_counter} || {
+        echo "${COLRED}Error${COLRESET} creating tmux session ${COLYELLOW}${TMUX_SESSION}${COLRESET}"
+        exit 1
+    }
+    return 0
 }
 
-## run the block validation
+# Run the block validation
 start_validation() {
     local mode=$1
     local total_blocks=0
@@ -178,28 +214,30 @@ start_validation() {
 
     case "$mode" in
         nakamoto)
-            ## nakamoto blocks
+            # Epoch 3.X
             echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
             log_append="_${mode}"
             range_command="naka-index-range"
-            starting_block=0 # for the block counter, start at this block
-            ## use these values if `--testing` arg is provided (only validate 1_000 blocks)
+            # Use these values if `--testing` arg is provided (only validate 1_000 blocks)
             ${TESTING} && total_blocks=301883
             ${TESTING} && starting_block=300883
             ;;
         *)
-            ## pre-nakamoto blocks
+            # Epoch 2.X
             echo "Mode: ${COLYELLOW}pre-nakamoto${COLRESET}"
             log_append=""
             range_command="index-range"
-            starting_block=0 # for the block counter, start at this block
-            ## use these values if `--testing` arg is provided (only validate 1_000 blocks) Note:  2.5 epoch is at 153106
+            # Use these values if `--testing` arg is provided (only validate 1_000 blocks) Note:  2.5 epoch is at 153106
             ${TESTING} && total_blocks=162200
             ${TESTING} && starting_block=161200
+            # Testnet Epoch 3.0 starts at block 320. Hardcode to the first 300 blocks
+            if [ "${NETWORK}" == "testnet" ]; then
+                ${TESTING} && total_blocks=300
+                ${TESTING} && starting_block=1
+            fi
             ;;
     esac
-
-    # get the total number of blocks by running the command without args
+    # Get the total number of blocks
     if [ "${total_blocks}" -eq 0 ]; then
         local count_output
         local count_cmd="${inspect_prefix} ${SLICE_DIR}0 ${range_command}"
@@ -207,20 +245,22 @@ start_validation() {
             echo "${COLRED}Error${COLRESET} retrieving total number of blocks from chainstate"
             exit 1
         fi
-        total_blocks=$(printf '%s\n' "${count_output}" | awk '/Total available entries: / {print $4}')
+        # Retrieve the total number of blocks from the stacks-inspect output as the last field
+        total_blocks=$(printf '%s\n' "${count_output}" | awk -F " " '{print $NF}')
+        echo "total_blocks: ${total_blocks}"
         if [ -z "${total_blocks}" ]; then
             echo "${COLRED}Error${COLRESET} parsing block count from stacks-inspect output"
             exit 1
         fi
     fi
-    local block_diff=$((total_blocks - starting_block)) ## how many blocks are being validated
-    local slices=$((CORES - RESERVED))                  ## how many validation slices to use
-    local slice_blocks=$((block_diff / slices))         ## how many blocks to validate per slice
+    local block_diff=$((total_blocks - starting_block)) # How many blocks are being validated
+    local slices=$((CORES - RESERVED))                  # How many validation slices to use
+    local slice_blocks=$((block_diff / slices))         # How many blocks to validate per slice
     ${TESTING} && echo "${COLRED}Testing: ${TESTING}${COLRESET}"
     echo "Total blocks: ${COLYELLOW}${total_blocks}${COLRESET}"
     echo "Starting Block: ${COLYELLOW}$starting_block${COLRESET}"
     echo "Block diff: ${COLYELLOW}$block_diff${COLRESET}"
-    echo "******************************************************"
+    echo "************************************************************************"
     echo "Total slices: ${COLYELLOW}${slices}${COLRESET}"
     echo "Blocks per slice: ${COLYELLOW}${slice_blocks}${COLRESET}"
     local end_block_count=$starting_block
@@ -230,7 +270,7 @@ start_validation() {
         if [[ "${end_block_count}" -gt "${total_blocks}"  ]] ||  [[ "${slice_counter}" -eq $((slices - 1))  ]]; then
             end_block_count="${total_blocks}"
         fi
-        if [ "${mode}" != "nakamoto" ]; then ## don't create the tmux windows if we're validating nakamoto blocks (they should already exist). TODO: check if it does exist in case the function call order changes
+        if [ "${mode}" != "nakamoto" ]; then # don't create the tmux windows if we're validating nakamoto blocks (they should already exist). TODO: check if it does exist in case the function call order changes
             if [ "${slice_counter}" -gt 0 ];then
                 tmux new-window -t "${TMUX_SESSION}" -d -n "slice${slice_counter}" || {
                     echo "${COLRED}Error${COLRESET} creating tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
@@ -242,15 +282,15 @@ start_validation() {
         local log_file="${LOG_DIR}/slice${slice_counter}${log_append}.log"
         local log=" | tee -a ${log_file}"
         local cmd="${inspect_prefix} ${slice_path} ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
-        echo "  Creating tmux window: ${COLGREEN}${TMUX_SESSION}:slice${slice_counter}${COLRESET} :: Blocks: ${COLYELLOW}${start_block_count}-${end_block_count}${COLRESET} || Logging to: ${log_file}"
+        echo "  Creating tmux window: ${COLGREEN}${TMUX_SESSION}:slice${slice_counter}${COLRESET} :: Blocks: ${COLYELLOW}${start_block_count}-${end_block_count}${COLRESET} :: Logging to: ${log_file}"
         echo "Command: ${cmd}" > "${log_file}" ## log the command being run for the slice
         echo "Validating indexed blocks: ${start_block_count}-${end_block_count} (out of ${total_blocks})" >> "${log_file}"
-        ## send `cmd` to the tmux window where the validation will run
+        # Send `cmd` to the tmux window where the validation will run
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "${cmd}${log}" Enter || {
             echo "${COLRED}Error${COLRESET} sending stacks-inspect command to tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
             exit 1
         }
-        ## log the return code as the last line
+        # Log the return code as the last line in the logfile
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "echo \${PIPESTATUS[0]} >> ${log_file}" Enter  || {
             echo "${COLRED}Error${COLRESET} sending return status command to tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
             exit 1
@@ -260,10 +300,9 @@ start_validation() {
     check_progress
 }
 
-
-## pretty print the status output (simple spinner while pids are active)
+# Pretty print the status output (simple spinner while pids are active)
 check_progress() {
-    # give the pids a few seconds to show up in process table before checking if they're running
+    # Give the pids a few seconds to show up in process table before checking if they're running
     local sleep_duration=5
     local progress=1
     local sp="/-\|"
@@ -289,109 +328,71 @@ check_progress() {
 }
 
 
-## store the results in an aggregated logfile and an html file
+# Store the results in an aggregated logfile and an html file
 store_results() {
-    ## text file to store results
+    # Text file to store results
     local results="${LOG_DIR}/results.log"
-    ## html file to store results
-    local results_html="${LOG_DIR}/results.html"
     local failed=0;
+    local block_failure=0;
+    local failure_count=0;
     local return_code=0;
-    local failure_count
+    local count_one=0
     echo "Results: ${COLYELLOW}${results}${COLRESET}"
     cd "${LOG_DIR}" || {
         echo "${COLRED}Error${COLRESET} Logdir ${COLYELLOW}${LOG_DIR}${COLRESET} doesn't exist"
         exit 1
     }
-    ## retrieve the count of all lines with `Failed processing block`
-    failure_count=$(grep -rc "Failed processing block" slice*.log | awk -F: '$NF >= 0 {x+=$NF; $NF=""} END{print x}')
-    if [ "${failure_count}" -gt 0 ]; then
-        echo "Failures: ${COLRED}${failure_count}${COLRESET}"
-    else
-        echo "Failures: ${COLGREEN}${failure_count}${COLRESET}"
-    fi
-    echo "Failures: ${failure_count}" > "${results}"
-    ## check the return codes to see if we had a panic
+    # Retrieve the count of all lines with `Failed processing block`
+    # Check the return codes to see if we had a panic
     for file in $(find . -name "slice*.log" -printf '%P\n' | sort); do
-    # for file in $(ls  slice*.log | sort); do
         echo "Checking file: ${COLYELLOW}$file${COLRESET}"
         return_code=$(tail -1 "${file}")
         case ${return_code} in
             0)
-                # block validation ran successfully
+                # Block validation ran successfully
+                echo "$file return code: $return_code" >> "${results}" # ok to continue if this write fails
                 ;;
             1)
-                # block validation had some block failures
-                failed=1
+                # Block validation had some block failures
+                block_failure=1
+                ((count_one=count_one+1))
+                echo "$file return code: $return_code" >> "${results}" # ok to continue if this write fails
                 ;;
             *)
-                # return code likely indicates a panic
-                failed=1
+                # Return code likely indicates a panic
+                ((failed=failed+1))
                 echo "$file return code: $return_code" >> "${results}" # ok to continue if this write fails
                 ;;
         esac
     done
 
-    ## Store the results as HTML:
-    cat <<- _EOF_ > "${results_html}"
-    <body>
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap');
-            .container {
-                border: 1px outset black;
-                padding: 5px;
-                border-radius: 5px;
-                background-color: #eae9e8;
-            }
-            .fail {
-                background-color: #ffffff;
-                border: 1px outset black;
-                border-radius: 5px;
-                font-weight: 350;
-            }
-            .pass {
-                background-color: #eae9e8;
-            }
-            .result {
-                text-align: left;
-                padding-left: 10px;
-                padding-top: 10px;
-                padding-bottom: 10px;
-                margin: 5px;
-            }
-            body {
-                font-family: "Source Code Pro", monospace;
-                font-optical-sizing: auto;
-                font-style: normal;
-            }
-        </style>
-        <h2>$(date -u)</h2>
-        <hr/>
-        <h2>Failures: ${failure_count}</h2>
-        <div class="container">
-_EOF_
+    if [ "${failed}" != "0" ]; then
+        failure_count=$failed
+        echo "Panic: ${COLRED}$failure_count${COLRESET}"
+    fi
 
-    ## use the $failed var here in case there is a panic, then $failure_count may show zero, but the validation was not successful
-    if [ ${failed} == "1" ];then
+    # Use the $failed var here in case there is a panic, then $failure_count may show zero, but the validation was not successful
+    if [ ${block_failure} != "0" ];then
+        ## retrieve the count of all lines with `Failed processing block`
+        failure_count=$(grep -rc "Failed processing block" slice*.log | awk -F: '$NF >= 0 {x+=$NF; $NF=""} END{print x}')
         output=$(grep -r -h "Failed processing block" slice*.log)
         IFS=$'\n'
-        for line in ${output}; do
-            echo "        <div class=\"result fail\">${line}</div>" >> "${results_html}" || {
-                echo "${COLRED}Error${COLRESET} writing failure to: ${results_html}"
-            }
-            echo "${line}" >> "${results}" || {
-                echo "${COLRED}Error${COLRESET} writing failure to: ${results}"
-            }
-        done
-    else
-        echo "        <div class=\"result\">Test Passed</div>" >> "${results_html}"
+        if [ "${failure_count}" -gt 0 ]; then
+            for line in ${output}; do
+                echo "${line}" >> "${results}" || {
+                    echo "${COLRED}Error${COLRESET} writing failure to: ${results}"
+                }
+            done
+        else
+            ## failures, but not block failures (binary panic for example)
+            failure_count=$count_one
+        fi
     fi
-    echo "    </div>" >> "${results_html}"
-    echo "</body>" >> "${results_html}"
+    echo "Failures: ${failure_count}"
+    sed  -i "1i Failures: ${failure_count}" "${results}"
 }
 
-
-## show usage and exit
+# Show usage and exit
 usage() {
     echo
     echo "Usage:"
@@ -399,22 +400,23 @@ usage() {
     echo "        ${COLYELLOW}--testing${COLRESET}: only check a small number of blocks"
     echo "        ${COLYELLOW}-t|--terminal${COLRESET}: more terminal friendly output"
     echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
+    echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${HOME}/scratch)"
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
-    echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstaet snapshot"
+    echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
     echo "        ${COLYELLOW}-l|--logdir${COLRESET}: use existing log directory"
     echo "        ${COLYELLOW}-r|--reserved${COLRESET}: how many cpu cores to reserve for system tasks"
     echo
-    echo "    ex: ${COLCYAN}${0} -t -u ${COLRESET}"
+    echo "    ex: ${COLCYAN}${0} -t -c /data/stacks/mainnet ${COLRESET}"
     echo
     exit 0
 }
 
 
-## install missing dependencies
+# Install missing dependencies
 HAS_APT=1
 HAS_SUDO=1
 for cmd in apt-get sudo curl tmux git wget tar gzip grep cargo pgrep tput find; do
-    # in Alpine, `find` might be linked to `busybox` and won't work
+    # In Alpine, `find` might be linked to `busybox` and won't work
     if [ "${cmd}" == "find" ] && [ -L "${cmd}" ]; then
         rp=
         rp="$(readlink "$(command -v "${cmd}" || echo "NOTLINK")")"
@@ -459,19 +461,24 @@ for cmd in apt-get sudo curl tmux git wget tar gzip grep cargo pgrep tput find; 
 done
 
 
-## parse cmd-line args
+# Parse cmd-line args
 while [ ${#} -gt 0 ]; do
     case ${1} in
         --testing)
-            # only validate 1_000 blocks
+            # Only validate a small subset blocks
             TESTING=true
             ;;
+        -s|--scratchdir)
+            # Filesytem location to store the chainstate slice data used by stacks-inspect
+            SCRATCH_DIR="${2}"
+            SLICE_DIR="${SCRATCH_DIR}/slice"
+            ;;
         -t|--terminal)
-            # update terminal with progress (it's just printf to show in real-time that the validations are running)
+            # Update terminal with progress (it's just printf to show in real-time that the validations are running)
             TERM_OUT=true
             ;;
         -n|--network)
-            # required if not mainnet
+            # Required if not mainnet
             if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
                 exit 1
@@ -480,7 +487,7 @@ while [ ${#} -gt 0 ]; do
             shift
             ;;
         -b|--branch)
-            # build from specific branch
+            # Build from aspecific branch
             if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
                 exit 1
@@ -489,7 +496,7 @@ while [ ${#} -gt 0 ]; do
             shift
             ;;
         -c|--chainstate)
-            # use a local chainstate
+            # uUse a local chainstate
             if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
                 exit 1
@@ -498,7 +505,7 @@ while [ ${#} -gt 0 ]; do
             shift
             ;;
         -l|--logdir)
-            # use a given logdir
+            # Use a specified logdir
             if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
                 exit 1
@@ -506,10 +513,11 @@ while [ ${#} -gt 0 ]; do
             LOG_DIR="${2}"
             shift
             ;;
-        -r|--RESERVED)
-            # reserve this many cpus for the system (default is 10)
+        -r|--reserved)
+            # Reserve this many cpus for the system
             if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
+                exit 1
             fi
             if ! [[ "$2" =~ ^[0-9]+$ ]]; then
                 echo "ERROR: arg ($2) is not a number." >&2
@@ -527,14 +535,15 @@ while [ ${#} -gt 0 ]; do
 done
 
 
-## clear display before starting
+# Clear display before starting
 tput reset
 echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
-build_stacks_inspect        ## comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
-configure_validation_slices ## comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
-setup_logs                  ## configure logdir
-setup_tmux                  ## configure tmux sessions
-start_validation            ## validate pre-nakamoto blocks (2.x)
-start_validation nakamoto   ## validate nakamoto blocks
-store_results               ## store aggregated results of validation
+build_stacks_inspect        # comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
+configure_validation_slices # comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
+setup_logs                  # configure logdir
+setup_tmux                  # configure tmux sessions
+start_validation            # validate Epoch 2 blocks 
+start_validation nakamoto   # validate Epoch 3 blocks
+store_results               # store aggregated results of validation
 echo "Validation finished: $(date)"
+exit 0

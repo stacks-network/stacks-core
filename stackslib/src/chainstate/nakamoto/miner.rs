@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::clarity::ClarityError;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
@@ -853,13 +854,12 @@ impl BlockBuilder for NakamotoBlockBuilder {
         };
 
         let quiet = !cfg!(test);
+        let is_mainnet = clarity_tx.config.mainnet;
         let result = {
             // preemptively skip problematic transactions
-            if let Err(e) = Relayer::static_check_problematic_relayed_tx(
-                clarity_tx.config.mainnet,
-                clarity_tx.get_epoch(),
-                tx,
-            ) {
+            if let Err(e) =
+                Relayer::static_check_problematic_relayed_tx(is_mainnet, clarity_tx.get_epoch(), tx)
+            {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
                     tx.txid()
@@ -874,6 +874,19 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 quiet,
                 max_execution_time,
                 |receipt| {
+                    if !receipt.post_condition_aborted {
+                        let all_events_valid = receipt.events.iter().all(|event| {
+                            crate::net::api::postblock_proposal::is_event_pox_addr_valid(
+                                is_mainnet, event,
+                            )
+                        });
+                        if !all_events_valid {
+                            return Err(Error::ClarityError(ClarityError::BadTransaction(
+                                "All PoX events were not valid".into(),
+                            )));
+                        }
+                    };
+
                     let size = receipt.size().ok_or_else(|| {
                         Error::InvalidStacksBlock("Could not calculate receipt size".into())
                     })?;

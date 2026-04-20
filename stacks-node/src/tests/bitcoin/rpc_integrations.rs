@@ -24,6 +24,7 @@
 //! CI uses this mechanism to automate checks across
 //! the relevant set of Bitcoin Core versions.
 
+use pinny::tag;
 use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
@@ -118,6 +119,7 @@ mod utils {
     }
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
@@ -133,6 +135,7 @@ fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
     );
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
@@ -148,6 +151,7 @@ fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
     );
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_blockchain_info_ok() {
@@ -166,6 +170,7 @@ fn test_get_blockchain_info_ok() {
     );
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_wallet_listing_and_creation_ok() {
@@ -195,6 +200,7 @@ fn test_wallet_listing_and_creation_ok() {
     assert_eq!("mywallet2", wallets[1]);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_wallet_creation_fails_if_already_exists() {
@@ -222,6 +228,7 @@ fn test_wallet_creation_fails_if_already_exists() {
     }
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_new_address_for_each_address_type() {
@@ -270,6 +277,7 @@ fn test_get_new_address_for_each_address_type() {
     assert!(default.expect_segwit().is_p2wpkh());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_generate_to_address_ok() {
@@ -290,6 +298,7 @@ fn test_generate_to_address_ok() {
     assert_eq!(102, blocks.len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_list_unspent_empty_with_empty_wallet() {
@@ -307,6 +316,7 @@ fn test_list_unspent_empty_with_empty_wallet() {
     assert_eq!(0, utxos.len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_list_unspent_with_defaults() {
@@ -332,6 +342,7 @@ fn test_list_unspent_with_defaults() {
     assert_eq!(2, utxos.len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_list_unspent_one_address_ok() {
@@ -379,6 +390,7 @@ fn test_list_unspent_one_address_ok() {
     assert_eq!(address, max1_utxos[0].address);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_list_unspent_two_addresses_ok() {
@@ -452,6 +464,7 @@ fn test_list_unspent_two_addresses_ok() {
     assert_eq!(3, all2_utxos.len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_generate_block_ok() {
@@ -474,6 +487,7 @@ fn test_generate_block_ok() {
     assert_eq!(64, block_hash.to_hex().len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_raw_transaction_ok() {
@@ -508,6 +522,7 @@ fn test_get_raw_transaction_ok() {
     assert_eq!(txid.to_hex(), raw_tx.txid().to_string());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_transaction_ok() {
@@ -540,6 +555,7 @@ fn test_get_transaction_ok() {
     assert_eq!(0, resp.confirmations);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_descriptor_ok() {
@@ -563,6 +579,7 @@ fn test_get_descriptor_ok() {
     assert_eq!(checksum, info.checksum);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_import_descriptor_ok() {
@@ -594,6 +611,7 @@ fn test_import_descriptor_ok() {
     assert_eq!(None, response[0].error);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_import_descriptor_twice_ok() {
@@ -629,6 +647,7 @@ fn test_import_descriptor_twice_ok() {
     assert_eq!(None, response[0].error);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_stop_bitcoind_ok() {
@@ -640,6 +659,7 @@ fn test_stop_bitcoind_ok() {
     assert_eq!("Bitcoin Core stopping", msg);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_invalidate_block_ok() {
@@ -672,6 +692,7 @@ fn test_invalidate_block_ok() {
         .expect_err("Invalidate nonexistent hash should fail!");
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_block_hash_ok() {
@@ -686,6 +707,7 @@ fn test_get_block_hash_ok() {
     assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, bhh.to_hex());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_send_raw_transaction_rebroadcast_ok() {

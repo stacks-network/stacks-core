@@ -1,3 +1,18 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -788,6 +803,30 @@ pub fn next_block_and_wait_with_timeout(
         blocks_processed.load(Ordering::SeqCst)
     );
     true
+}
+
+/// Mine blocks until `check` returns `true`, up to `max_blocks` blocks.
+/// Each block is mined with `next_block_and_wait`, waiting up to
+/// `block_timeout_secs` for it to be processed before moving on.
+pub fn mine_blocks_until<F>(
+    btc_controller: &BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    max_blocks: u64,
+    block_timeout_secs: u64,
+    mut check: F,
+) -> Result<(), String>
+where
+    F: FnMut() -> Result<bool, String>,
+{
+    for _ in 0..max_blocks {
+        next_block_and_wait_with_timeout(btc_controller, blocks_processed, block_timeout_secs);
+        if check()? {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "Condition not met after mining {max_blocks} blocks"
+    ))
 }
 
 /// Returns `false` on a timeout, true otherwise.
@@ -4302,8 +4341,7 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &call_le_tx);
 
     // Mine blocks until both txs are confirmed (nonces 3 and 4)
-    wait_for(120, || {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let res = get_account(&http_origin, &spender_princ);
         Ok(res.nonce >= 5)
     })
@@ -4353,8 +4391,7 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &confirm_proposal);
 
     // Mine blocks until early confirm-miners is confirmed (nonce 5)
-    wait_for(120, || {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let res = get_account(&http_origin, &spender_princ);
         Ok(res.nonce >= 6)
     })
@@ -4404,8 +4441,7 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &confirm_proposal);
 
     // Mine blocks until confirm-miners after maturation is confirmed (nonce 6)
-    wait_for(120, || {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let res = get_account(&http_origin, &spender_princ);
         Ok(res.nonce >= 7)
     })
@@ -4450,8 +4486,7 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &call_le_tx);
 
     // Mine blocks until execute-2 with new cost is confirmed (nonce 7)
-    wait_for(120, || {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let res = get_account(&http_origin, &spender_princ);
         Ok(res.nonce >= 8)
     })
@@ -7280,7 +7315,12 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             max_contract_src,
         ),
     );
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
+    // Mine blocks until the contract publish (nonce 0) is confirmed.
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
+        let account = get_account(&http_origin, &spender_addr);
+        Ok(account.nonce >= 1)
+    })
+    .expect("Timed out waiting for contract publish to confirm");
 
     // Loop 20 times. Each time, execute the same transaction, but increase the amount *paid*.
     // This will exercise the window size.
@@ -7300,12 +7340,12 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
                 &[],
             ),
         );
-        run_until_burnchain_height(
-            &mut btc_regtest_controller,
-            &blocks_processed,
-            212 + 2 * i,
-            &conf,
-        );
+        // Mine blocks until this transaction (nonce i) is confirmed.
+        mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
+            let account = get_account(&http_origin, &spender_addr);
+            Ok(account.nonce > i)
+        })
+        .unwrap_or_else(|_| panic!("Timed out waiting for tx nonce {i} to confirm"));
 
         {
             // Read from the fee estimation endpoin.
@@ -7313,8 +7353,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 
             let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
                 address: spender_addr.clone(),
-                contract_name: ContractName::from("increment-contract"),
-                function_name: ClarityName::from("increment-many"),
+                contract_name: ContractName::from_literal("increment-contract"),
+                function_name: ClarityName::from_literal("increment-many"),
                 function_args: vec![],
             });
 
@@ -7337,19 +7377,13 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
         }
     }
 
-    // Wait two extra blocks to be sure.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
     assert_eq!(response_estimated_costs.len(), response_top_fee_rates.len());
 
     // Check that:
     // 1) The cost is always the same.
-    // 2) Fee rate trends upward overall. With 2 blocks mined per transaction the
-    //    estimator window contains a mix of transaction-bearing and empty blocks.
-    //    Empty blocks contribute fee_rate=1.0 (the minimum), which can cause
-    //    intermediate dips in the median — so we verify the overall trend rather
-    //    than strict monotonicity at every step.
+    // 2) Fee rate trends upward overall. The estimator window may contain empty
+    //    blocks (fee_rate=1.0 minimum) which can cause intermediate dips in the
+    //    median — so we verify the overall trend rather than strict monotonicity.
     for i in 1..response_estimated_costs.len() {
         let curr_cost = response_estimated_costs[i];
         let last_cost = response_estimated_costs[i - 1];
@@ -8502,7 +8536,7 @@ pub fn make_expensive_tx_chain(
                 nonce,
                 1049230 + nonce + fee_plus,
                 chain_id,
-                &contract_name,
+                contract_name.as_str(),
                 &make_runtime_sized_contract(num_index_of, nonce, &addr_prefix),
             )
         } else {

@@ -254,22 +254,22 @@ fn test_set_tuple_variable() {
     let expected = Value::list_from(vec![
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(1)),
-                ("v1".into(), Value::Int(1)),
+                (ClarityName::from_literal("k1"), Value::Int(1)),
+                (ClarityName::from_literal("v1"), Value::Int(1)),
             ])
             .unwrap(),
         ),
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(2)),
-                ("v1".into(), Value::Int(0)),
+                (ClarityName::from_literal("k1"), Value::Int(2)),
+                (ClarityName::from_literal("v1"), Value::Int(0)),
             ])
             .unwrap(),
         ),
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(2)),
-                ("v1".into(), Value::Int(0)),
+                (ClarityName::from_literal("k1"), Value::Int(2)),
+                (ClarityName::from_literal("v1"), Value::Int(0)),
             ])
             .unwrap(),
         ),
@@ -713,31 +713,34 @@ fn test_combines_tuples() {
 
     let expected = [
         make_tuple(vec![
-            ("a".into(), Value::Int(5)),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (ClarityName::from_literal("a"), Value::Int(5)),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), make_tuple(vec![("x".into(), Value::Int(5))])),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (
+                ClarityName::from_literal("a"),
+                make_tuple(vec![(ClarityName::from_literal("x"), Value::Int(5))]),
+            ),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::none()),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (ClarityName::from_literal("a"), Value::none()),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(4)),
-            ("b".into(), Value::Int(5)),
-            ("c".into(), Value::Int(6)),
+            (ClarityName::from_literal("a"), Value::Int(4)),
+            (ClarityName::from_literal("b"), Value::Int(5)),
+            (ClarityName::from_literal("c"), Value::Int(6)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(4)),
-            ("d".into(), Value::Int(5)),
-            ("e".into(), Value::Int(6)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(4)),
+            (ClarityName::from_literal("d"), Value::Int(5)),
+            (ClarityName::from_literal("e"), Value::Int(6)),
         ]),
     ];
 
