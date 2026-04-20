@@ -662,7 +662,15 @@ pub struct StaticCheckError {
 
 impl RuntimeCheckErrorKind {
     /// This check indicates that the transaction should be rejected.
+    /// Currently identical to `is_unreachable()` since `Unreachable` is the only
+    /// rejectable variant, but they answer different questions and may diverge.
     pub fn rejectable(&self) -> bool {
+        matches!(self, RuntimeCheckErrorKind::Unreachable(_))
+    }
+
+    /// Returns true if this error is an unreachable error, indicating a potential bug.
+    /// Used only for monitoring (logging + prometheus counter), not for business logic.
+    pub fn is_unreachable(&self) -> bool {
         matches!(self, RuntimeCheckErrorKind::Unreachable(_))
     }
 }
@@ -675,6 +683,12 @@ impl StaticCheckErrorKind {
             StaticCheckErrorKind::Unreachable(_) => true,
             _ => false,
         }
+    }
+
+    /// Returns true if this error is an unreachable error, indicating a potential bug.
+    /// Used only for monitoring (logging + prometheus counter), not for business logic.
+    pub fn is_unreachable(&self) -> bool {
+        matches!(self, StaticCheckErrorKind::Unreachable(_))
     }
 }
 
