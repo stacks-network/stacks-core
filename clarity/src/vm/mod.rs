@@ -414,24 +414,39 @@ pub fn apply(
 /// Like [`apply`], but takes pre-evaluated [`Value`]s, skipping the `eval` + `clone_with_cost`
 /// round-trip for every argument.
 ///
-/// `fold` and `map` already have the element value and accumulator as owned `Value`s; wrapping
+/// `fold`, `map`, and `filter` already have the element values as owned `Value`s; wrapping
 /// them in `SymbolicExpression::atom_value` just to have `eval` clone them back out wastes N
 /// allocations per step.  This function performs the same recursion/stack/memory bookkeeping
 /// as `apply` while bypassing the eval pass entirely.
+///
+/// For [`CallableType::SpecialFunction`]s (e.g. comparison operators `>=`, `<=`, `<`, `>`,
+/// or boolean operators `and`, `or`), the values are wrapped back into
+/// `SymbolicExpression::atom_value` so the special function can evaluate them normally
+/// with `eval`.
 pub fn apply_evaluated(
     function: &CallableType,
     args: Vec<Value>,
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
+    context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let (identifier, track_recursion) = check_call_preconditions(function, exec_state)?;
-    // SpecialFunctions require unevaluated SymbolicExpressions. They cannot appear as
-    // fold/map step functions after type-checking, so this branch is unreachable in practice.
-    if matches!(function, CallableType::SpecialFunction(..)) {
-        return Err(VmInternalError::Expect(
-            "apply_evaluated: SpecialFunction cannot receive pre-evaluated args".into(),
-        )
-        .into());
+
+    // SpecialFunctions require unevaluated SymbolicExpressions. They evaluate their own
+    // arguments (e.g. short-circuit in `and`/`or`). Wrap the pre-evaluated Values back
+    // into atom_value expressions so the special function dispatch works correctly.
+    // This path is hit when built-in operators like >=, <=, <, >, and, or are used as
+    // step functions in fold/map/filter. Note: In this case it works like `apply`.
+    if let CallableType::SpecialFunction(_, function) = function {
+        let sym_args: Vec<SymbolicExpression> = args
+            .into_iter()
+            .map(SymbolicExpression::atom_value)
+            .collect();
+        exec_state.call_stack.insert(&identifier, track_recursion);
+        let mut resp = function(&sym_args, exec_state, invoke_ctx, context);
+        add_stack_trace(&mut resp, exec_state);
+        exec_state.call_stack.remove(&identifier, track_recursion)?;
+        return resp;
     }
 
     let mut used_memory = 0;
