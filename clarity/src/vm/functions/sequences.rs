@@ -89,8 +89,13 @@ pub fn special_filter(
             sequence = Value::Sequence(
                 sequence_data
                     .try_retain(&mut |value: Value| -> Result<bool, VmExecutionError> {
-                        let filter_eval =
-                            apply_evaluated(&function, vec![value], exec_state, invoke_ctx)?;
+                        let filter_eval = apply_evaluated(
+                            &function,
+                            vec![value],
+                            exec_state,
+                            invoke_ctx,
+                            context,
+                        )?;
                         if let Value::Bool(include) = filter_eval {
                             Ok(include)
                         } else {
@@ -163,7 +168,13 @@ pub fn special_fold(
         let element = element_result.map_err(|_| {
             VmInternalError::Expect("ERROR: Invalid sequence data successfully constructed".into())
         })?;
-        acc = apply_evaluated(&function, vec![element, acc], exec_state, invoke_ctx)?;
+        acc = apply_evaluated(
+            &function,
+            vec![element, acc],
+            exec_state,
+            invoke_ctx,
+            context,
+        )?;
     }
     Ok(acc)
 }
@@ -226,7 +237,7 @@ pub fn special_map(
                 })?;
             call_args.push(value);
         }
-        let res = apply_evaluated(&function, call_args, exec_state, invoke_ctx)?;
+        let res = apply_evaluated(&function, call_args, exec_state, invoke_ctx, context)?;
         mapped_results.push(res);
     }
 
