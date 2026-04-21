@@ -13,12 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity_types::ClarityName;
+#[cfg(any(test, feature = "testing"))]
+use clarity_types::types::QualifiedContractIdentifier;
+#[cfg(any(test, feature = "testing"))]
+use rusqlite::Connection;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     PEER_VERSION_EPOCH_2_0,
 };
 use stacks_common::types::StacksEpochId;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksAddress,
     StacksBlockId, VRFSeed,
@@ -27,6 +33,12 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
+#[cfg(any(test, feature = "testing"))]
+use crate::vm::database::{
+    ClarityBackingStore, ClarityDatabase, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
+#[cfg(any(test, feature = "testing"))]
+use crate::vm::errors::{RuntimeError, VmExecutionError};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, Value};
 use crate::vm::{StacksEpoch, execute as vm_execute, execute_on_network as vm_execute_on_network};
@@ -327,5 +339,145 @@ impl BurnStateDB for UnitTestBurnStateDB {
             ],
             123,
         ))
+    }
+}
+
+/// Test-only [`ClarityBackingStore`] that wraps one [`MemoryBackingStore`]
+/// per logical block and supports `set_block_hash` to switch between them.
+///
+/// Main purpose is to support unit-testing for [`ClarityDatabase`] and
+/// allow tests exercise time-shifted reads without spinning up a real MARF.
+///
+/// # Notes
+///
+/// Each block is fully isolated: writes in one block are not visible in
+/// another. This means:
+/// - No begin/commit semantics at the store level.
+/// - No trie inheritance: child blocks do NOT see the parent block's keys.
+/// - Metadata is per-block (each inner store has its own SQLite side
+///   store);
+#[cfg(any(test, feature = "testing"))]
+pub struct TestBackingStore {
+    blocks: std::collections::HashMap<StacksBlockId, MemoryBackingStore>,
+    current_block: StacksBlockId,
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl TestBackingStore {
+    /// Create a store with a single active block identified by `genesis_block`.
+    pub fn new(genesis_block: StacksBlockId) -> Self {
+        let mut store = TestBackingStore {
+            blocks: std::collections::HashMap::new(),
+            current_block: genesis_block.clone(),
+        };
+        store.register_block(genesis_block);
+        store
+    }
+
+    /// Register a new block that can be switched to via `set_block_hash`.
+    pub fn register_block(&mut self, block: StacksBlockId) {
+        self.blocks.entry(block).or_default();
+    }
+
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB, None)
+    }
+
+    fn block_store(&mut self) -> &mut MemoryBackingStore {
+        self.blocks
+            .get_mut(&self.current_block)
+            .expect("BUG: current_block not registered in the store!")
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl ClarityBackingStore for TestBackingStore {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError> {
+        if !self.blocks.contains_key(&bhh) {
+            return Err(RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into());
+        }
+        let prior = self.current_block.clone();
+        self.current_block = bhh;
+        Ok(prior)
+    }
+
+    fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
+        self.block_store().get_data(key)
+    }
+
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>, VmExecutionError> {
+        self.block_store().get_data_from_path(hash)
+    }
+
+    fn get_data_with_proof(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+        self.block_store().get_data_with_proof(key)
+    }
+
+    fn get_data_with_proof_from_path(
+        &mut self,
+        hash: &TrieHash,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+        self.block_store().get_data_with_proof_from_path(hash)
+    }
+
+    fn get_side_store(&mut self) -> &Connection {
+        self.block_store().get_side_store()
+    }
+
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+        self.block_store().get_block_at_height(height)
+    }
+
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        self.current_block.clone()
+    }
+
+    fn get_open_chain_tip_height(&mut self) -> u32 {
+        self.block_store().get_open_chain_tip_height()
+    }
+
+    fn get_current_block_height(&mut self) -> u32 {
+        self.block_store().get_current_block_height()
+    }
+
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
+        self.block_store().put_all_data(items)
+    }
+
+    fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
+        self.block_store().get_contract_hash(contract)
+    }
+
+    fn insert_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+        value: &str,
+    ) -> Result<(), VmExecutionError> {
+        self.block_store().insert_metadata(contract, key, value)
+    }
+
+    fn get_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>, VmExecutionError> {
+        self.block_store().get_metadata(contract, key)
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>, VmExecutionError> {
+        self.block_store()
+            .get_metadata_manual(at_height, contract, key)
     }
 }

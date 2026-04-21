@@ -2641,3 +2641,178 @@ fn trigger_no_such_token_rust() {
         "Expected NoSuchToken. Got: {err}"
     );
 }
+
+#[test]
+fn epoch_cache_recovers_after_rollback() {
+    use crate::vm::database::MemoryBackingStore;
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    assert!(
+        matches!(
+            db.get_clarity_epoch_version().unwrap_err(),
+            VmExecutionError::Internal(VmInternalError::Expect(_))
+        ),
+        "Expected error when getting clarity epoch version is accessed in a non-nested context"
+    );
+
+    // Outer nest — simulates a block-level transaction
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+
+    // Inner nest — simulates a clarity transaction that bumps the epoch then rolls back
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30
+    );
+
+    db.roll_back().unwrap();
+
+    // After rollback the epoch should revert to the outer layer's stored value,
+    // not remain at Epoch30.
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch25,
+        "epoch should have reverted after rollback"
+    );
+    db.roll_back().unwrap();
+}
+
+#[test]
+fn epoch_cache_pre_populated_from_constructor() {
+    use crate::vm::database::MemoryBackingStore;
+    let mut store = MemoryBackingStore::default();
+    let mut db = ClarityDatabase::new(
+        &mut store,
+        &NULL_HEADER_DB,
+        &NULL_BURN_STATE_DB,
+        Some(StacksEpochId::Epoch30),
+    );
+
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+    );
+}
+
+#[test]
+fn epoch_cache_survives_commit() {
+    use crate::vm::database::MemoryBackingStore;
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    db.commit().unwrap();
+
+    // After commit the cache should still serve Epoch30
+    // without needing a store read.
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+    );
+}
+
+#[test]
+fn read_epoch_from_store_returns_committed_value() {
+    use crate::vm::database::MemoryBackingStore;
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    db.commit().unwrap();
+
+    let epoch = ClarityDatabase::read_epoch_from_store(&mut store).unwrap();
+    assert_eq!(epoch, StacksEpochId::Epoch30);
+}
+
+#[test]
+fn epoch_cache_constructor_overrides_store() {
+    use crate::vm::database::MemoryBackingStore;
+    let mut store = MemoryBackingStore::default();
+
+    // Write Epoch25 to the store
+    let mut db = store.as_clarity_db();
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+    db.commit().unwrap();
+
+    // Construct with Epoch30: the cache takes precedence over the store
+    let mut db = ClarityDatabase::new(
+        &mut store,
+        &NULL_HEADER_DB,
+        &NULL_BURN_STATE_DB,
+        Some(StacksEpochId::Epoch30),
+    );
+    db.begin();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+        "constructor epoch should override the stored value"
+    );
+
+    // After rollback the cache is cleared and the store value surfaces
+    db.roll_back().unwrap();
+    db.begin();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch25,
+        "stored value should surface after cache invalidation"
+    );
+}
+
+#[test]
+fn epoch_cache_updates_on_set_block_hash() {
+    use crate::vm::tests::TestBackingStore;
+
+    let block_0 = StacksBlockId([0; 32]);
+    let block_1 = StacksBlockId([1; 32]);
+
+    let mut store = TestBackingStore::new(block_0.clone());
+    store.register_block(block_1.clone());
+
+    let mut db = store.as_clarity_db();
+    // Write Epoch21 into block_0
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch21)
+        .unwrap();
+    db.commit().unwrap();
+
+    // Switch the context to block_1 and write Epoch25
+    let prior = db.set_block_hash(block_1.clone(), false).unwrap();
+    assert_eq!(prior, block_0, "set_block_hash must return the prior block");
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+    db.commit().unwrap();
+
+    // block_1 reads its own Epoch25
+    db.begin();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch25
+    );
+    db.roll_back().unwrap();
+
+    // Switch back to block_0 and its originally-written Epoch21 must still be there
+    let prior = db.set_block_hash(block_0.clone(), false).unwrap();
+    assert_eq!(prior, block_1, "set_block_hash must return the prior block");
+    db.begin();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch21,
+        "block_0 must still read the value it was originally written with"
+    );
+}
