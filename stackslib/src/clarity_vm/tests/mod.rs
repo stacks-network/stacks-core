@@ -16,6 +16,7 @@
 
 pub mod analysis_costs;
 pub mod ast;
+pub mod block_context;
 pub mod contracts;
 pub mod costs;
 pub mod ephemeral;
