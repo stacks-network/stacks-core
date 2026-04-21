@@ -584,8 +584,8 @@ impl TriePtr {
 
     #[inline]
     #[allow(clippy::indexing_slicing)]
-    /// Deserialize a pointer from raw bytes using the encoded width bit.
-    pub fn from_bytes(bytes: &[u8]) -> TriePtr {
+    /// Deserialize a pointer from raw bytes and return it with bytes consumed.
+    pub fn from_bytes(bytes: &[u8]) -> (TriePtr, usize) {
         let encoded_id = bytes[0];
         let min_len = TriePtr::encoded_size_for_id(encoded_id);
         assert!(bytes.len() >= min_len);
@@ -603,12 +603,15 @@ impl TriePtr {
             (ptr, back_block)
         };
 
-        TriePtr {
-            id,
-            chr,
-            ptr,
-            back_block,
-        }
+        (
+            TriePtr {
+                id,
+                chr,
+                ptr,
+                back_block,
+            },
+            min_len,
+        )
     }
 
     /// Load up this TriePtr from a slice of bytes, assuming that they represent a compressed

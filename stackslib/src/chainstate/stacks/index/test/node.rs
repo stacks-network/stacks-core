@@ -29,7 +29,7 @@ fn trieptr_to_bytes() {
     let mut buf = Vec::new();
     t.write_bytes(&mut buf).unwrap();
     assert_eq!(buf, t_bytes);
-    assert_eq!(TriePtr::from_bytes(&t_bytes[..]), t);
+    assert_eq!(TriePtr::from_bytes(&t_bytes[..]), (t, t_bytes.len()));
 }
 
 #[test]
@@ -5102,7 +5102,7 @@ fn trieptr_uncompressed_roundtrip_boundaries() {
         expected.extend_from_slice(&0u32.to_be_bytes());
 
         assert_eq!(expected, bytes);
-        assert_eq!(ptr, TriePtr::from_bytes(&bytes));
+        assert_eq!(TriePtr::from_bytes(&bytes), (ptr, bytes.len()));
     }
 }
 
