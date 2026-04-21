@@ -53,7 +53,7 @@ impl error::Error for CursorError {
 }
 
 // All numeric values of a Trie node when encoded.
-// They are all 4-bit numbers (values 0-6)
+// The low 5 bits encode the base TrieNodeID value (0-6).
 // * the 8th bit (0x80) indicates a back-pointer to be followed
 // * the 7th bit (0x40) indicates the ptrs are compressed. Cleared on read.
 // * the 6th bit (0x20) indicates the ptr offset is encoded as u64, instead of u32. Cleared on read.
@@ -627,8 +627,8 @@ impl TriePtr {
 
     #[inline]
     #[allow(clippy::indexing_slicing)]
-    /// Deserialize a pointer from raw bytes using the encoded width bit.
-    pub fn from_bytes(bytes: &[u8]) -> TriePtr {
+    /// Deserialize a pointer from raw bytes and return it with bytes consumed.
+    pub fn from_bytes(bytes: &[u8]) -> (TriePtr, usize) {
         let encoded_id = bytes[0];
         let min_len = TriePtr::encoded_size_for_id(encoded_id);
         assert!(bytes.len() >= min_len);
@@ -646,12 +646,15 @@ impl TriePtr {
             (ptr, back_block)
         };
 
-        TriePtr {
-            id,
-            chr,
-            ptr,
-            back_block,
-        }
+        (
+            TriePtr {
+                id,
+                chr,
+                ptr,
+                back_block,
+            },
+            min_len,
+        )
     }
 
     /// Load up this TriePtr from a slice of bytes, assuming that they represent a compressed
@@ -1495,6 +1498,12 @@ impl TrieNodePatch {
                 ret.push(*new_ptr);
             }
         }
+        debug_assert!(
+            ret.len() <= new_ptrs.len(),
+            "TrieNodePatch has {} diffs for {} pointer slots",
+            ret.len(),
+            new_ptrs.len()
+        );
         ret
     }
 

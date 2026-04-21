@@ -1,0 +1,1 @@
+When checking tenure change blocks, ensure there are no locally accepted blocks in the tenure, not just globally accepted blocks.

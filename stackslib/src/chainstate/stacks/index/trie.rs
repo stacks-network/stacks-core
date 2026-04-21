@@ -270,7 +270,7 @@ impl Trie {
         let leaf_hash = get_leaf_hash(value);
 
         let leaf_ptr = cursor.ptr();
-        storage.write_node(leaf_ptr.ptr(), value, leaf_hash)?;
+        storage.write_node(leaf_ptr.ptr_as_u32()?, value, leaf_hash)?;
 
         trace!("replace_leaf: wrote {:?} at {:?}", &value, &cursor.ptr());
         Ok(cursor.ptr())
@@ -297,7 +297,7 @@ impl Trie {
             .to_vec();
 
         let leaf_hash = get_leaf_hash(value);
-        let leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, chr, ptr);
+        let leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, chr, ptr.into());
         storage.write_node(ptr, value, leaf_hash)?;
 
         trace!("append_leaf: append {:?} at {:?}", value, &leaf_ptr);
@@ -371,19 +371,23 @@ impl Trie {
         let cur_leaf_hash = get_leaf_hash(cur_leaf_data);
 
         // NOTE: this is safe since the current leaf's byte representation has gotten shorter
-        storage.write_node(cur_leaf_ptr.ptr(), cur_leaf_data, cur_leaf_hash)?;
+        storage.write_node(cur_leaf_ptr.ptr_as_u32()?, cur_leaf_data, cur_leaf_hash)?;
 
-        // append the new leaf and the end of the file.
-        let new_leaf_disk_ptr = storage.last_ptr()?;
+        // append the new leaf at the end of the trie.
+        let new_leaf_array_ptr = storage.last_ptr()?;
         let new_leaf_chr = cursor.path[cursor.tell()]; // NOTE: this is safe because !cursor.eop()
         new_leaf_data.path =
             cursor.path[std::cmp::min(cursor.tell() + 1, cursor.path.len())..].to_vec();
         let new_leaf_hash = get_leaf_hash(new_leaf_data);
 
         // put new leaf at the end of this Trie
-        let new_leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, new_leaf_chr, new_leaf_disk_ptr);
+        let new_leaf_ptr = TriePtr::new(
+            TrieNodeID::Leaf as u8,
+            new_leaf_chr,
+            new_leaf_array_ptr.into(),
+        );
 
-        storage.write_node(new_leaf_disk_ptr, new_leaf_data, new_leaf_hash)?;
+        storage.write_node(new_leaf_array_ptr, new_leaf_data, new_leaf_hash)?;
 
         // append the Node4 that points to both of them, and put it after the new leaf
         let mut node4_data = TrieNode4::new(&node4_path);
@@ -405,10 +409,10 @@ impl Trie {
         let node4 = TrieNodeType::Node4(node4_data);
 
         // append the node4 to the end of the trie
-        let node4_disk_ptr = storage.last_ptr()?;
+        let node4_array_ptr = storage.last_ptr()?;
 
-        let ret = TriePtr::new(TrieNodeID::Node4 as u8, node4_chr, node4_disk_ptr);
-        storage.write_nodetype(node4_disk_ptr, &node4, node4_hash)?;
+        let ret = TriePtr::new(TrieNodeID::Node4 as u8, node4_chr, node4_array_ptr.into());
+        storage.write_nodetype(node4_array_ptr, &node4, node4_hash)?;
 
         // update cursor to point to this node4 as the last-node-visited, and set the newly-created
         // ptr as the last ptr traversed (so the cursor still points to this leaf, but accurately
@@ -494,7 +498,7 @@ impl Trie {
 
         let new_node_hash = get_nodetype_hash(storage, node)?;
 
-        storage.write_nodetype(cursor.ptr().ptr(), node, new_node_hash)?;
+        storage.write_nodetype(cursor.ptr().ptr_as_u32()?, node, new_node_hash)?;
 
         Ok(Some(cursor.ptr()))
     }
@@ -550,10 +554,10 @@ impl Trie {
         let new_node_hash = get_nodetype_hash(storage, &new_node)?;
 
         // append this leaf to the Trie
-        let new_node_disk_ptr = storage.last_ptr()?;
+        let new_node_array_ptr = storage.last_ptr()?;
 
-        let ret = TriePtr::new(new_node.id(), node_ptr.chr(), new_node_disk_ptr);
-        storage.write_nodetype(new_node_disk_ptr, &new_node, new_node_hash)?;
+        let ret = TriePtr::new(new_node.id(), node_ptr.chr(), new_node_array_ptr.into());
+        storage.write_nodetype(new_node_array_ptr, &new_node, new_node_hash)?;
 
         // update the cursor so its path of nodes and ptrs accurately reflects that we would have
         // visited this leaf on its path.
@@ -625,18 +629,18 @@ impl Trie {
         // store leaf
         leaf.path = leaf_path;
         let leaf_chr = cursor.path[cursor.tell()];
-        let leaf_disk_ptr = storage.last_ptr()?;
+        let leaf_array_ptr = storage.last_ptr()?;
         let leaf_hash = get_leaf_hash(leaf);
-        let leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, leaf_chr, leaf_disk_ptr);
-        storage.write_node(leaf_disk_ptr, leaf, leaf_hash)?;
+        let leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, leaf_chr, leaf_array_ptr.into());
+        storage.write_node(leaf_array_ptr, leaf, leaf_hash)?;
 
         // update current node (node-X) and make a new path and ptr for it
         let cur_node_cur_ptr = cursor.ptr();
-        let new_cur_node_disk_ptr = storage.last_ptr()?;
+        let new_cur_node_array_ptr = storage.last_ptr()?;
         let new_cur_node_ptr = TriePtr::new(
             cur_node_cur_ptr.id(),
             new_cur_node_chr,
-            new_cur_node_disk_ptr,
+            new_cur_node_array_ptr.into(),
         );
 
         node.set_path(new_cur_node_path);
@@ -672,10 +676,10 @@ impl Trie {
         };
 
         // store node4 where node-X used to be
-        storage.write_nodetype(cur_node_cur_ptr.ptr(), &new_node, new_node_hash)?;
+        storage.write_nodetype(cur_node_cur_ptr.ptr_as_u32()?, &new_node, new_node_hash)?;
 
         // store node-X at the end
-        storage.write_nodetype(new_cur_node_disk_ptr, node, new_cur_node_hash)?;
+        storage.write_nodetype(new_cur_node_array_ptr, node, new_cur_node_hash)?;
 
         let ret = TriePtr::new(
             new_node_id as u8,
@@ -917,7 +921,7 @@ impl Trie {
                 h, update_skiplist
             );
 
-            storage.write_nodetype(child_ptr.ptr(), &node, h)?;
+            storage.write_nodetype(child_ptr.ptr_as_u32()?, &node, h)?;
         } else {
             while let Some(ptr) = ptrs.pop() {
                 if is_backptr(ptr.id()) {
@@ -947,7 +951,7 @@ impl Trie {
                 //  necessary because computing ancestor hashes requires that the trie's pointers
                 //  all be intact, since it does ancestor lookups!
                 // however, since we're going to update the hash in the next write anyways, just write an empty buff
-                storage.write_nodetype(ptr.ptr(), &node, TrieHash([0; 32]))?;
+                storage.write_nodetype(ptr.ptr_as_u32()?, &node, TrieHash([0; 32]))?;
 
                 let h = if !node.is_node256() {
                     trace!(
@@ -993,7 +997,7 @@ impl Trie {
                     node_hash
                 };
 
-                storage.write_nodetype(ptr.ptr(), &node, h)?;
+                storage.write_nodetype(ptr.ptr_as_u32()?, &node, h)?;
 
                 child_ptr = ptr;
                 child_ptr.id = clear_backptr(child_ptr.id);

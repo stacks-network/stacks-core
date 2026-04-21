@@ -473,6 +473,11 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
+        Ok(self.get_reward_set(reward_cycle)?.stacker_set.signers)
+    }
+
+    /// Get the reward set signers from the stacks node for the given reward cycle
+    pub fn get_reward_set(&self, reward_cycle: u64) -> Result<GetStackersResponse, ClientError> {
         debug!("StacksClient: Getting reward set signers";
             "reward_cycle" => reward_cycle,
         );
@@ -506,7 +511,7 @@ impl StacksClient {
         let stackers_response =
             retry_with_exponential_backoff::<_, ClientError, GetStackersResponse>(send_request)?;
         timer.stop_and_record();
-        Ok(stackers_response.stacker_set.signers)
+        Ok(stackers_response)
     }
 
     /// Retrieve the current pox data from the stacks node

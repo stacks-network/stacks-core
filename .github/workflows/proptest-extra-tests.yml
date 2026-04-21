@@ -363,7 +363,9 @@ jobs:
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: "**/proptest-regressions/"
+          path: |
+            **/proptest-regressions/
+            **/*.proptest-regressions
           if-no-files-found: ignore
           overwrite: true
 

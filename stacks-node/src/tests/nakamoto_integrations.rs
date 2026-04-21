@@ -92,6 +92,7 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks::types::{MinerDiagnosticData, MiningReason};
 use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -509,7 +510,7 @@ pub fn blind_signer_multinode(
 pub fn get_latest_block_proposal(
     conf: &Config,
     sortdb: &SortitionDB,
-) -> Result<(NakamotoBlock, StacksPublicKey), String> {
+) -> Result<(NakamotoBlock, StacksPublicKey, Option<MinerDiagnosticData>), String> {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let (stackerdb_conf, miner_info) =
         NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip)
@@ -529,38 +530,48 @@ pub fn get_latest_block_proposal(
         .enumerate()
         .zip(miner_ranges)
         .filter_map(|((miner_ix, (miner_addr, _)), miner_slot_id)| {
-            let proposed_block = {
+            let (proposed_block, miner_diagnostic_data) = {
                 let message: SignerMessageV0 =
                     miners_stackerdb.get_latest(miner_slot_id.start).ok()??;
                 let SignerMessageV0::BlockProposal(block_proposal) = message else {
                     warn!("Expected a block proposal. Got {message:?}");
                     return None;
                 };
-                block_proposal.block
+                (
+                    block_proposal.block,
+                    block_proposal.block_proposal_data.miner_diagnostic_data,
+                )
             };
-            Some((proposed_block, miner_addr, miner_ix == latest_miner))
+            Some((
+                proposed_block,
+                miner_addr,
+                miner_ix == latest_miner,
+                miner_diagnostic_data,
+            ))
         })
         .collect();
 
-    proposed_blocks.sort_by(|(block_a, _, is_latest_a), (block_b, _, is_latest_b)| {
-        let res = block_a
-            .header
-            .chain_length
-            .cmp(&block_b.header.chain_length);
-        if res != std::cmp::Ordering::Equal {
-            return res;
-        }
-        // the heights are tied, tie break with the latest miner
-        if *is_latest_a {
-            return std::cmp::Ordering::Greater;
-        }
-        if *is_latest_b {
-            return std::cmp::Ordering::Less;
-        }
-        std::cmp::Ordering::Equal
-    });
+    proposed_blocks.sort_by(
+        |(block_a, _, is_latest_a, _), (block_b, _, is_latest_b, _)| {
+            let res = block_a
+                .header
+                .chain_length
+                .cmp(&block_b.header.chain_length);
+            if res != std::cmp::Ordering::Equal {
+                return res;
+            }
+            // the heights are tied, tie break with the latest miner
+            if *is_latest_a {
+                return std::cmp::Ordering::Greater;
+            }
+            if *is_latest_b {
+                return std::cmp::Ordering::Less;
+            }
+            std::cmp::Ordering::Equal
+        },
+    );
 
-    for (b, _, is_latest) in proposed_blocks.iter() {
+    for (b, _, is_latest, _) in proposed_blocks.iter() {
         info!("Consider block";
             "signer_signature_hash" => %b.header.signer_signature_hash(),
             "is_latest_sortition" => is_latest,
@@ -568,7 +579,7 @@ pub fn get_latest_block_proposal(
         );
     }
 
-    let Some((proposed_block, miner_addr, _)) = proposed_blocks.pop() else {
+    let Some((proposed_block, miner_addr, _, miner_diagnostic_data)) = proposed_blocks.pop() else {
         return Err("No block proposals found".into());
     };
 
@@ -586,7 +597,7 @@ pub fn get_latest_block_proposal(
         ));
     }
 
-    Ok((proposed_block, pubkey))
+    Ok((proposed_block, pubkey, miner_diagnostic_data))
 }
 
 pub fn read_and_sign_block_proposal(
@@ -767,6 +778,10 @@ where
     Ok(())
 }
 
+/// Wait until check returns Ok(true), if check ever returns an Err(), this
+///  method will immediately return that Err().
+///
+/// After timeout_seconds have passed, this function returns `Err("Timed out")`
 pub fn wait_for<F>(timeout_secs: u64, mut check: F) -> Result<(), String>
 where
     F: FnMut() -> Result<bool, String>,
@@ -3611,10 +3626,10 @@ fn miner_writes_proposed_block_to_stackerdb() {
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
+    let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn());
 
-    let proposed_block = get_latest_block_proposal(&naka_conf, &sortdb)
-        .expect("Expected to find a proposed block in the StackerDB")
-        .0;
+    let (proposed_block, _, miner_diagnostic_data) = get_latest_block_proposal(&naka_conf, &sortdb)
+        .expect("Expected to find a proposed block in the StackerDB");
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
 
     let mut proposed_zero_block = proposed_block.clone();
@@ -3654,6 +3669,19 @@ fn miner_writes_proposed_block_to_stackerdb() {
         format!("0x{}", observed_block.block_hash),
         proposed_zero_block_hash,
         "Observed miner hash should match the proposed block read from StackerDB (after zeroing signatures)"
+    );
+
+    let miner_diagnostic_data = miner_diagnostic_data
+        .expect("miner should have attached diagnostics data to block proposal");
+
+    assert_eq!(
+        miner_diagnostic_data.mining_reason,
+        MiningReason::BlockFound,
+    );
+
+    assert_eq!(
+        miner_diagnostic_data.burnchain_tip_height,
+        burn_tip.unwrap().block_height,
     );
 }
 

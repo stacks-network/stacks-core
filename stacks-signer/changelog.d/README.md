@@ -1,8 +1,15 @@
 # Changelog Fragments (Signer)
 
+The changelog helps developers keep track of the changes happening across the
+codebase. All PRs, other than those which are purely "chore" tasks (e.g.
+formatting, typos) should include a changelog entry. The changelog is NOT
+limited to only user-facing changes.
+
 Instead of editing `CHANGELOG.md` directly, each PR should add a **fragment
 file** to this directory. This avoids merge conflicts and makes the release
-process clearer.
+process clearer. Each fragment should be one or more complete sentences. Each
+line in the fragment file will become a separate bullet point in the final
+CHANGELOG.md.
 
 ## How to add a changelog entry
 
