@@ -802,6 +802,14 @@ mod tests {
         }
 
         #[test]
+        fn sequence_data_buffer_variant() {
+            let seq = SequenceData::Buffer(BuffData {
+                data: vec![0u8; 64],
+            });
+            assert!(seq.heap_bytes() >= 64);
+        }
+
+        #[test]
         fn sequence_ascii() {
             let v = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: vec![b'a', b'b', b'c'],
@@ -824,6 +832,15 @@ mod tests {
                 type_signature: ListTypeData::new_list(TypeSignature::IntType, 10).unwrap(),
             };
             assert!(list.heap_bytes() > 0);
+        }
+
+        #[test]
+        fn sequence_data_list_variant() {
+            let seq = SequenceData::List(ListData {
+                data: vec![Value::Int(1), Value::Int(2)],
+                type_signature: ListTypeData::new_list(TypeSignature::IntType, 10).unwrap(),
+            });
+            assert!(seq.heap_bytes() > 0);
         }
 
         #[test]
@@ -862,6 +879,14 @@ mod tests {
                 data: Some(Box::new(Value::Int(42))),
             };
             assert!(opt.heap_bytes() > 0);
+        }
+
+        #[test]
+        fn value_optional_variant() {
+            let value = Value::Optional(OptionalData {
+                data: Some(Box::new(Value::Int(42))),
+            });
+            assert!(value.heap_bytes() >= size_of::<Value>());
         }
 
         #[test]

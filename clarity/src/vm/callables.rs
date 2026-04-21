@@ -430,6 +430,34 @@ impl DefinedFunction {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resident_bytes_defined_function_counts_all_heap_fields() {
+        let function = DefinedFunction {
+            identifier: FunctionIdentifier::new_native_function("map"),
+            name: ClarityName::try_from("resident-bytes-fn".to_string()).unwrap(),
+            arg_types: vec![TypeSignature::OptionalType(Box::new(
+                TypeSignature::UIntType,
+            ))],
+            define_type: DefineType::Private,
+            arguments: vec![ClarityName::try_from("arg".to_string()).unwrap()],
+            body: SymbolicExpression::atom_value(Value::Bool(true)),
+        };
+
+        let expected = function.identifier.heap_bytes()
+            + function.name.heap_bytes()
+            + function.arg_types.heap_bytes()
+            + function.arguments.heap_bytes()
+            + function.body.heap_bytes();
+
+        assert_eq!(function.heap_bytes(), expected);
+        assert!(function.heap_bytes() > 0);
+    }
+}
+
 impl CallableType {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
