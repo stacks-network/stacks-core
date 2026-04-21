@@ -1440,6 +1440,12 @@ impl TrieNodePatch {
                 ret.push(*new_ptr);
             }
         }
+        debug_assert!(
+            ret.len() <= new_ptrs.len(),
+            "TrieNodePatch has {} diffs for {} pointer slots",
+            ret.len(),
+            new_ptrs.len()
+        );
         ret
     }
 

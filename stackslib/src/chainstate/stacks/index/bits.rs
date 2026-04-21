@@ -239,6 +239,8 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
     );
 
     let max_ptr_size = TriePtr::max_encoded_size();
+    // A patch can encode at most one diff per child slot in this node, so its
+    // diff list is bounded by `num_ptrs`.
     let patch_overhead = max_ptr_size + 1;
     let mut bytes = vec![0u8; 1 + num_ptrs * max_ptr_size + patch_overhead];
     let mut offset = 0;
