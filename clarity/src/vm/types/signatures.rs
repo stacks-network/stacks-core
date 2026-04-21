@@ -100,28 +100,6 @@ impl FunctionArgSignature {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resident_bytes_function_signature_counts_args_and_return() {
-        let signature = FunctionSignature {
-            args: vec![
-                TypeSignature::PrincipalType,
-                TypeSignature::OptionalType(Box::new(TypeSignature::UIntType)),
-            ],
-            returns: TypeSignature::OptionalType(Box::new(TypeSignature::BoolType)),
-        };
-
-        assert_eq!(
-            signature.heap_bytes(),
-            signature.args.heap_bytes() + signature.returns.heap_bytes()
-        );
-        assert!(signature.heap_bytes() > 0);
-    }
-}
-
 impl FunctionReturnsSignature {
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> FunctionReturnsSignature {
         match self {
@@ -838,5 +816,27 @@ mod test {
         for desc in okay_types.iter() {
             let _ = TypeSignature::from_string(desc, version, epoch); // panics on failed types.
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resident_bytes_function_signature_counts_args_and_return() {
+        let signature = FunctionSignature {
+            args: vec![
+                TypeSignature::PrincipalType,
+                TypeSignature::OptionalType(Box::new(TypeSignature::UIntType)),
+            ],
+            returns: TypeSignature::OptionalType(Box::new(TypeSignature::BoolType)),
+        };
+
+        assert_eq!(
+            signature.heap_bytes(),
+            signature.args.heap_bytes() + signature.returns.heap_bytes()
+        );
+        assert!(signature.heap_bytes() > 0);
     }
 }
