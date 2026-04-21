@@ -2966,7 +2966,12 @@ impl StacksChainState {
         let mut prior_microblock = first_microblock;
         for cur_microblock in signed_microblocks.iter().skip(1) {
             if prior_microblock.header.sequence > cur_microblock.header.sequence {
-                panic!("BUG: out-of-sequence microblock stream");
+                warn!(
+                    "Out-of-sequence microblock stream";
+                    "cur" => cur_microblock.header.sequence,
+                    "prior" => prior_microblock.header.sequence,
+                );
+                return None;
             }
             let cur_seq = u32::from(prior_microblock.header.sequence) + 1;
             if cur_seq < u32::from(cur_microblock.header.sequence) {
@@ -2984,14 +2989,13 @@ impl StacksChainState {
         // miner equivocated.
         let mut parent_hashes: HashMap<BlockHeaderHash, StacksMicroblockHeader> = HashMap::new();
         for (i, signed_microblock) in signed_microblocks.iter().enumerate() {
-            if parent_hashes.contains_key(&signed_microblock.header.prev_block) {
+            if let Some(conflicting_microblock_header) =
+                parent_hashes.get(&signed_microblock.header.prev_block)
+            {
                 debug!(
                     "Deliberate microblock fork: duplicate parent {}",
                     signed_microblock.header.prev_block
                 );
-                let conflicting_microblock_header = parent_hashes
-                    .get(&signed_microblock.header.prev_block)
-                    .unwrap();
 
                 return Some((
                     i - 1,
