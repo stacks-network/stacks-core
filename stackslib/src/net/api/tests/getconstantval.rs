@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use clarity::types::chainstate::StacksBlockId;
 use clarity::types::Address;
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ClarityName;
 use stacks_common::types::chainstate::StacksAddress;
 
 use super::test_rpc;
@@ -73,7 +74,10 @@ fn test_try_parse_request() {
             .unwrap()
         )
     );
-    assert_eq!(handler.constname, Some("test-const".into()));
+    assert_eq!(
+        handler.constname,
+        Some(ClarityName::from_literal("test-const"))
+    );
 
     assert_eq!(&preamble, request.preamble());
 

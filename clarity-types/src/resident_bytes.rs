@@ -103,6 +103,12 @@ mod hashmap {
     /// and implementation (4/8/16 bytes), so we use 16 as a conservative upper bound for
     /// control-byte padding overhead.
     pub const CONTROL_GROUP_PADDING: usize = 16;
+
+    /// Calculate the number of buckets for a given `HashMap` capacity, based on hashbrown's growth
+    /// strategy and load factor.
+    pub fn buckets_for_capacity(cap: usize) -> usize {
+        (cap * LOAD_FACTOR_INV_NUM).div_ceil(LOAD_FACTOR_INV_DEN)
+    }
 }
 
 /// Approximate in-memory footprint, in bytes.
@@ -178,7 +184,7 @@ impl<K: ResidentBytes, V: ResidentBytes> ResidentBytes for HashMap<K, V> {
             return 0;
         }
 
-        let buckets = (cap * hashmap::LOAD_FACTOR_INV_NUM).div_ceil(hashmap::LOAD_FACTOR_INV_DEN);
+        let buckets = hashmap::buckets_for_capacity(cap);
         let backing = buckets * size_of::<(K, V)>() + buckets + hashmap::CONTROL_GROUP_PADDING;
 
         // Children's heap allocations (only for occupied entries)
@@ -239,7 +245,7 @@ impl<T: ResidentBytes> ResidentBytes for HashSet<T> {
             return 0;
         }
 
-        let buckets = (cap * hashmap::LOAD_FACTOR_INV_NUM).div_ceil(hashmap::LOAD_FACTOR_INV_DEN);
+        let buckets = hashmap::buckets_for_capacity(cap);
         let backing = buckets * size_of::<T>() + buckets + hashmap::CONTROL_GROUP_PADDING;
         let children: usize = self.iter().map(|v| v.heap_bytes()).sum();
         backing + children
@@ -338,10 +344,7 @@ impl ResidentBytes for ASCIIData {
 
 impl ResidentBytes for UTF8Data {
     fn heap_bytes(&self) -> usize {
-        // Vec<Vec<u8>>: outer vec backing + each inner vec's backing
-        let outer = self.data.capacity() * size_of::<Vec<u8>>();
-        let inner: usize = self.data.iter().map(|v| v.capacity()).sum();
-        outer + inner
+        self.data.heap_bytes()
     }
 }
 
@@ -563,6 +566,18 @@ mod tests {
     mod std_containers {
         use super::*;
 
+        const HASHMAP_CAPACITY_TRANSITIONS: &[(usize, usize, usize)] = &[
+            (0, 0, 0),
+            (1, 3, 4),
+            (4, 7, 8),
+            (8, 14, 16),
+            (15, 28, 32),
+            (29, 56, 64),
+            (57, 112, 128),
+            (113, 224, 256),
+            (225, 448, 512),
+        ];
+
         #[test]
         fn string() {
             let s = String::from("hello world");
@@ -616,8 +631,7 @@ mod tests {
             m.insert("key2".into(), 2);
 
             let cap = m.capacity();
-            let buckets =
-                (cap * hashmap::LOAD_FACTOR_INV_NUM).div_ceil(hashmap::LOAD_FACTOR_INV_DEN);
+            let buckets = hashmap::buckets_for_capacity(cap);
             // Structural lower bound: buckets * entry_size + control bytes
             let min_structural = buckets * size_of::<(String, u64)>() + buckets;
             // Child heap: each key String has at least 4 bytes of heap
@@ -637,6 +651,61 @@ mod tests {
         }
 
         #[test]
+        fn hashmap_with_capacity_progression_matches_expected_boundaries() {
+            let mut observed = Vec::new();
+            let mut previous = None;
+
+            for requested in 0usize..=256 {
+                let map = HashMap::<u64, u64>::with_capacity(requested);
+                let cap = map.capacity();
+                let buckets = if cap == 0 {
+                    0
+                } else {
+                    hashmap::buckets_for_capacity(cap)
+                };
+
+                if previous != Some((cap, buckets)) {
+                    observed.push((requested, cap, buckets));
+                    previous = Some((cap, buckets));
+                }
+            }
+
+            assert_eq!(observed.as_slice(), HASHMAP_CAPACITY_TRANSITIONS);
+        }
+
+        #[test]
+        fn hashmap_capacity_boundaries_match_bucket_accounting() {
+            for (_, expected_cap, _) in HASHMAP_CAPACITY_TRANSITIONS.iter().copied().skip(1) {
+                let mut map = HashMap::with_capacity(expected_cap);
+
+                assert_eq!(
+                    map.capacity(),
+                    expected_cap,
+                    "HashMap::with_capacity({expected_cap}) returned capacity {cap}",
+                    cap = map.capacity(),
+                );
+
+                for entry in 0..expected_cap {
+                    map.insert(entry as u64, entry as u64);
+                    assert_eq!(
+                        map.capacity(),
+                        expected_cap,
+                        "HashMap grew before reaching capacity {expected_cap}; capacity is {cap} after {inserts} inserts",
+                        cap = map.capacity(),
+                        inserts = entry + 1,
+                    );
+                }
+
+                map.insert(expected_cap as u64, expected_cap as u64);
+                assert!(
+                    map.capacity() > expected_cap,
+                    "HashMap did not grow after exceeding capacity {expected_cap}; capacity remained {cap}",
+                    cap = map.capacity(),
+                );
+            }
+        }
+
+        #[test]
         fn hashset() {
             let mut s: HashSet<u64> = HashSet::new();
             for i in 0..10 {
@@ -644,8 +713,7 @@ mod tests {
             }
 
             let cap = s.capacity();
-            let buckets =
-                (cap * hashmap::LOAD_FACTOR_INV_NUM).div_ceil(hashmap::LOAD_FACTOR_INV_DEN);
+            let buckets = hashmap::buckets_for_capacity(cap);
             let min_structural = buckets * size_of::<u64>() + buckets;
             assert!(
                 s.heap_bytes() >= min_structural,
@@ -734,6 +802,14 @@ mod tests {
         }
 
         #[test]
+        fn sequence_data_buffer_variant() {
+            let seq = SequenceData::Buffer(BuffData {
+                data: vec![0u8; 64],
+            });
+            assert!(seq.heap_bytes() >= 64);
+        }
+
+        #[test]
         fn sequence_ascii() {
             let v = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: vec![b'a', b'b', b'c'],
@@ -756,6 +832,15 @@ mod tests {
                 type_signature: ListTypeData::new_list(TypeSignature::IntType, 10).unwrap(),
             };
             assert!(list.heap_bytes() > 0);
+        }
+
+        #[test]
+        fn sequence_data_list_variant() {
+            let seq = SequenceData::List(ListData {
+                data: vec![Value::Int(1), Value::Int(2)],
+                type_signature: ListTypeData::new_list(TypeSignature::IntType, 10).unwrap(),
+            });
+            assert!(seq.heap_bytes() > 0);
         }
 
         #[test]
@@ -794,6 +879,14 @@ mod tests {
                 data: Some(Box::new(Value::Int(42))),
             };
             assert!(opt.heap_bytes() > 0);
+        }
+
+        #[test]
+        fn value_optional_variant() {
+            let value = Value::Optional(OptionalData {
+                data: Some(Box::new(Value::Int(42))),
+            });
+            assert!(value.heap_bytes() >= size_of::<Value>());
         }
 
         #[test]

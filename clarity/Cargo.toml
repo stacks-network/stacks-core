@@ -50,6 +50,10 @@ name = "value_ref"
 harness = false
 
 [[bench]]
+name = "sequence_higher_order"
+harness = false
+
+[[bench]]
 name = "contract_cache"
 harness = false
 required-features = ["testing"]

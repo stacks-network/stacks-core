@@ -4484,8 +4484,8 @@ fn mempool_incorporate_pox_unlocks() {
                              Value::UInt(total_balance as u128 - 10_000),
                              Value::Tuple(
                                  TupleData::from_data(vec![
-                                     ("version".into(), Value::buff_from(vec![0x00]).unwrap()),
-                                     ("hashbytes".into(), Value::buff_from(vec![0; 20]).unwrap()),
+                                     (ClarityName::from_literal("version"), Value::buff_from(vec![0x00]).unwrap()),
+                                     (ClarityName::from_literal("hashbytes"), Value::buff_from(vec![0; 20]).unwrap()),
                                  ]).unwrap(),
                              ),
                              Value::UInt(my_height as u128),

@@ -1500,3 +1500,60 @@ impl STXBalance {
         )? >= amount)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn heap_allocating_type() -> TypeSignature {
+        TypeSignature::OptionalType(Box::new(TypeSignature::UIntType))
+    }
+
+    #[test]
+    fn resident_bytes_fungible_token_metadata_has_no_heap() {
+        let none = FungibleTokenMetadata { total_supply: None };
+        let some = FungibleTokenMetadata {
+            total_supply: Some(1),
+        };
+
+        assert_eq!(none.heap_bytes(), 0);
+        assert_eq!(some.heap_bytes(), 0);
+    }
+
+    #[test]
+    fn resident_bytes_non_fungible_token_metadata_counts_key_type() {
+        let metadata = NonFungibleTokenMetadata {
+            key_type: heap_allocating_type(),
+        };
+
+        assert_eq!(metadata.heap_bytes(), metadata.key_type.heap_bytes());
+        assert!(metadata.heap_bytes() > 0);
+    }
+
+    #[test]
+    fn resident_bytes_data_map_metadata_counts_key_and_value_types() {
+        let metadata = DataMapMetadata {
+            key_type: heap_allocating_type(),
+            value_type: TypeSignature::ResponseType(Box::new((
+                TypeSignature::BoolType,
+                TypeSignature::UIntType,
+            ))),
+        };
+
+        assert_eq!(
+            metadata.heap_bytes(),
+            metadata.key_type.heap_bytes() + metadata.value_type.heap_bytes()
+        );
+        assert!(metadata.heap_bytes() > 0);
+    }
+
+    #[test]
+    fn resident_bytes_data_variable_metadata_counts_value_type() {
+        let metadata = DataVariableMetadata {
+            value_type: heap_allocating_type(),
+        };
+
+        assert_eq!(metadata.heap_bytes(), metadata.value_type.heap_bytes());
+        assert!(metadata.heap_bytes() > 0);
+    }
+}

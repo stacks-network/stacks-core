@@ -1297,3 +1297,96 @@ fn test_expected_list_application() {
         RuntimeCheckErrorKind::Unreachable("Expected list application".to_string()).into();
     assert_eq!(e, execute(test1).unwrap_err());
 }
+
+#[test]
+fn test_map_with_special_functions() {
+    // special function: >=
+    let test = "(map >= (list 3 1 2) (list 1 2 2))";
+    let expected = Value::list_from(vec![
+        Value::Bool(true),  // (>= 3 1)
+        Value::Bool(false), // (>= 1 2)
+        Value::Bool(true),  // (>= 2 2)
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // special function: <=
+    let test = "(map <= (list 3 1 2) (list 1 2 2))";
+    let expected = Value::list_from(vec![
+        Value::Bool(false), // (<= 3 1)
+        Value::Bool(true),  // (<= 1 2)
+        Value::Bool(true),  // (<= 2 2)
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // special function: <
+    let test = "(map < (list 1 5 2) (list 3 3 3))";
+    let expected = Value::list_from(vec![
+        Value::Bool(true),  // (< 1 3)
+        Value::Bool(false), // (< 5 3)
+        Value::Bool(true),  // (< 2 3)
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // special function: >
+    let test = "(map > (list 5 1 3) (list 3 3 3))";
+    let expected = Value::list_from(vec![
+        Value::Bool(true),  // (> 5 3)
+        Value::Bool(false), // (> 1 3)
+        Value::Bool(false), // (> 3 3)
+    ])
+    .unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+}
+
+#[test]
+fn test_fold_with_special_functions() {
+    // special function: and
+    //   step 1: (and true true) => true
+    //   step 2: (and false true) => false
+    let test = "(fold and (list true false) true)";
+    assert_eq!(Value::Bool(false), execute(test).unwrap().unwrap());
+
+    // special function: or
+    //   step 1: (or false false) => false
+    //   step 2: (or true false) => true
+    let test = "(fold or (list false true) false)";
+    assert_eq!(Value::Bool(true), execute(test).unwrap().unwrap());
+
+    // Comparison SpecialFunctions (>=, <=, <, >) return bool so they can't
+    // fold over multi-element lists (type mismatch after step 1). Verify
+    // they work for a single-element list where only one step executes.
+
+    // special function: >=
+    let test = "(fold >= (list 3) 1)";
+    assert_eq!(Value::Bool(true), execute(test).unwrap().unwrap());
+
+    // special function: <=
+    let test = "(fold <= (list 1) 3)";
+    assert_eq!(Value::Bool(true), execute(test).unwrap().unwrap());
+
+    // special function: <
+    let test = "(fold < (list 1) 3)";
+    assert_eq!(Value::Bool(true), execute(test).unwrap().unwrap());
+
+    // special function: >
+    let test = "(fold > (list 3) 1)";
+    assert_eq!(Value::Bool(true), execute(test).unwrap().unwrap());
+}
+
+#[test]
+fn test_filter_with_special_functions() {
+    // special function: and
+    //   keeps elements where (and elem) => true
+    let test = "(filter and (list true false true false))";
+    let expected = Value::list_from(vec![Value::Bool(true), Value::Bool(true)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // special function: or
+    //   keeps elements where (or elem) => true
+    let test = "(filter or (list false true false true))";
+    let expected = Value::list_from(vec![Value::Bool(true), Value::Bool(true)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+}

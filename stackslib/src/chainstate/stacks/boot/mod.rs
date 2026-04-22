@@ -2132,8 +2132,8 @@ pub mod test {
         let key_opt = readonly_call(
             peer,
             latest_block_id,
-            SIGNERS_VOTING_NAME.into(),
-            "get-approved-aggregate-key".into(),
+            ContractName::from_literal(SIGNERS_VOTING_NAME),
+            ClarityName::from_literal("get-approved-aggregate-key"),
             vec![Value::UInt(reward_cycle)],
         )
         .expect_optional()

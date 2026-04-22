@@ -552,6 +552,8 @@ fn clarity2_implicit_cast(
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ContractName;
+
     use super::*;
     use crate::vm::types::{
         QualifiedContractIdentifier, StandardPrincipalData, TupleTypeSignature,
@@ -639,7 +641,7 @@ mod test {
         }
 
         // {a: principal} -> {a: <trait>}
-        let a_name = ClarityName::from("a");
+        let a_name = ClarityName::from_literal("a");
         let tuple_ty = TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty)]).unwrap(),
         );
@@ -764,17 +766,17 @@ mod test {
     fn test_canonicalize_defined_function() {
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".into(),
-            "my-trait".into(),
+            ContractName::from_literal("my-contract"),
+            ClarityName::from_literal("my-trait"),
         );
         let mut f = DefinedFunction::new(
             vec![(
-                "a".into(),
+                ClarityName::from_literal("a"),
                 TypeSignature::TraitReferenceType(trait_id.clone()),
             )],
             SymbolicExpression::atom_value(Value::Int(3)),
             DefineType::Public,
-            &"foo".into(),
+            &ClarityName::from_literal("foo"),
             "testing",
         );
         f.canonicalize_types(&StacksEpochId::Epoch21);
@@ -782,5 +784,28 @@ mod test {
             f.arg_types[0],
             TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
+    }
+
+    #[test]
+    fn resident_bytes_defined_function_counts_all_heap_fields() {
+        let function = DefinedFunction {
+            identifier: FunctionIdentifier::new_native_function("map"),
+            name: ClarityName::try_from("resident-bytes-fn".to_string()).unwrap(),
+            arg_types: vec![TypeSignature::OptionalType(Box::new(
+                TypeSignature::UIntType,
+            ))],
+            define_type: DefineType::Private,
+            arguments: vec![ClarityName::try_from("arg".to_string()).unwrap()],
+            body: SymbolicExpression::atom_value(Value::Bool(true)),
+        };
+
+        let expected = function.identifier.heap_bytes()
+            + function.name.heap_bytes()
+            + function.arg_types.heap_bytes()
+            + function.arguments.heap_bytes()
+            + function.body.heap_bytes();
+
+        assert_eq!(function.heap_bytes(), expected);
+        assert!(function.heap_bytes() > 0);
     }
 }

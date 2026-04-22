@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "stackslib",
     "stacks-common",
+    "stacks-codec",
     "pox-locking",
     "clarity-types",
     "clarity",
