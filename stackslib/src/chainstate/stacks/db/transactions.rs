@@ -30,6 +30,7 @@ use clarity::vm::types::{
 };
 
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
+use crate::chainstate::stacks::auth::TransactionAuthVerificationMode;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
@@ -604,11 +605,17 @@ impl StacksChainState {
         Ok(fee)
     }
 
-    /// Pre-check a transaction -- make sure it's well-formed
+    /// Pre-check a transaction -- make sure it's well-formed.
+    ///
+    /// If `auth_verificication_mode_override` is `Some(_)`, it specifies whether
+    /// transaction signatures should be verified to be the low-S variant, or if
+    /// high-S is allowed. If it's `None`, this decision is made based on consensus
+    /// rules for the specified epoch.
     pub fn process_transaction_precheck(
         config: &DBConfig,
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
+        auth_verificication_mode_override: Option<TransactionAuthVerificationMode>,
     ) -> Result<(), Error> {
         // valid auth?
         if !tx.auth.is_supported_in_epoch(epoch_id) {
@@ -620,7 +627,16 @@ impl StacksChainState {
 
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
-        tx.verify().map_err(Error::NetError)?;
+
+        let verification_mode = auth_verificication_mode_override.unwrap_or_else(|| {
+            if epoch_id.allows_tx_signatures_with_high_s() {
+                TransactionAuthVerificationMode::AllowHighS
+            } else {
+                TransactionAuthVerificationMode::VerifyLowS
+            }
+        });
+
+        tx.verify(verification_mode).map_err(Error::NetError)?;
 
         // destined for us?
         if config.chain_id != tx.chain_id {
@@ -1646,10 +1662,16 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
+        auth_verificication_mode_override: Option<TransactionAuthVerificationMode>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        Self::process_transaction_with_check(clarity_block, tx, quiet, max_execution_time, |_| {
-            Ok(())
-        })
+        Self::process_transaction_with_check(
+            clarity_block,
+            tx,
+            quiet,
+            max_execution_time,
+            auth_verificication_mode_override,
+            |_| Ok(()),
+        )
     }
 
     pub fn process_transaction_with_check<
@@ -1659,12 +1681,18 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
+        auth_verificication_mode_override: Option<TransactionAuthVerificationMode>,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
+        StacksChainState::process_transaction_precheck(
+            &clarity_block.config,
+            tx,
+            epoch,
+            auth_verificication_mode_override,
+        )?;
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
@@ -2133,7 +2161,8 @@ pub mod test {
             });
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let account_after =
                 StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2179,7 +2208,8 @@ pub mod test {
             assert_eq!(recv_account.nonce, 0);
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let account_after =
                 StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2367,7 +2397,8 @@ pub mod test {
                 assert_eq!(account.stx_balance.amount_unlocked(), 123);
                 assert_eq!(account.nonce, 0);
 
-                let res = StacksChainState::process_transaction(&mut conn, &signed_tx, false, None);
+                let res =
+                    StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None);
                 if let Err(Error::InvalidStacksTransaction(msg, false)) = res {
                     assert!(msg.contains(&err_frag), "{err_frag}");
                 } else {
@@ -2453,7 +2484,8 @@ pub mod test {
             });
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let account_after =
                 StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2528,7 +2560,8 @@ pub mod test {
             assert_eq!(account.nonce, 0);
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
             assert_eq!(account.nonce, 1);
@@ -2616,7 +2649,8 @@ pub mod test {
                     StacksChainState::get_account(&mut conn, &addr.to_account_principal());
                 assert_eq!(account.nonce, next_nonce);
 
-                let res = StacksChainState::process_transaction(&mut conn, &signed_tx, false, None);
+                let res =
+                    StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None);
                 if expected_behavior[i] {
                     assert!(res.is_ok());
 
@@ -2705,7 +2739,7 @@ pub mod test {
                 );
 
                 let (fee, receipt) =
-                    StacksChainState::process_transaction(&mut conn, &signed_tx, false, None)
+                    StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
                         .unwrap();
 
                 // Verify that the syntax error is recorded in the receipt
@@ -2805,7 +2839,7 @@ pub mod test {
 
                 // runtime error should be handled
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, &signed_tx, false, None)
+                    StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
                         .unwrap();
 
                 // account nonce should increment
@@ -2889,7 +2923,8 @@ pub mod test {
             assert_eq!(account.nonce, 0);
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
             assert_eq!(account.nonce, 1);
@@ -2997,14 +3032,15 @@ pub mod test {
             assert!(var_before_res.is_none());
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let var_before_set_res =
                 StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
             assert_eq!(var_before_set_res, Some(Value::Int(0)));
 
             let (fee_2, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None)
+                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None, None)
                     .unwrap();
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -3122,7 +3158,8 @@ pub mod test {
             assert!(var_before_res.is_none());
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let var_before_set_res =
                 StacksChainState::get_data_var(&mut conn, &contract_id, "savedContract").unwrap();
@@ -3132,7 +3169,7 @@ pub mod test {
             );
 
             let (fee_2, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None)
+                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None, None)
                     .unwrap();
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -3203,7 +3240,8 @@ pub mod test {
                 ContractName::from_literal("hello-world"),
             );
             let (_fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             // contract-calls that don't commit
             let contract_calls = vec![
@@ -3248,9 +3286,14 @@ pub mod test {
                     StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
                 assert_eq!(account_2.nonce, next_nonce);
 
-                let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None)
-                        .unwrap();
+                let (_fee, _) = StacksChainState::process_transaction(
+                    &mut conn,
+                    &signed_tx_2,
+                    false,
+                    None,
+                    None,
+                )
+                .unwrap();
 
                 // nonce should have incremented
                 next_nonce += 1;
@@ -3309,7 +3352,8 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
             let (_fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             conn.commit_block();
         }
@@ -3409,7 +3453,8 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
             let (_fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let next_nonce = 0;
 
@@ -3441,8 +3486,13 @@ pub mod test {
                 assert_eq!(account_2.nonce, next_nonce);
 
                 // transaction is invalid, and won't be mined
-                let res =
-                    StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None);
+                let res = StacksChainState::process_transaction(
+                    &mut conn,
+                    &signed_tx_2,
+                    false,
+                    None,
+                    None,
+                );
                 assert!(res.is_err());
 
                 // nonce should NOT have incremented
@@ -3469,7 +3519,8 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
         let (_fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+            StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                .unwrap();
 
         let mut next_nonce = 0;
 
@@ -3503,7 +3554,8 @@ pub mod test {
             assert_eq!(account_2.nonce, next_nonce);
 
             // this is expected to be mined
-            let res = StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None);
+            let res =
+                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None, None);
             assert!(res.is_ok());
 
             next_nonce += 1;
@@ -3624,7 +3676,8 @@ pub mod test {
             assert!(var_before_res.is_none());
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None, None)
+                    .unwrap();
 
             let account_publisher =
                 StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
@@ -3635,7 +3688,7 @@ pub mod test {
             assert_eq!(var_before_set_res, Some(Value::Int(0)));
 
             let (fee_2, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None)
+                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None, None)
                     .unwrap();
 
             let account_origin =
@@ -4141,9 +4194,14 @@ pub mod test {
             .unwrap_err();
 
             // publish contract
-            let _ =
-                StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                    .unwrap();
+            let _ = StacksChainState::process_transaction(
+                &mut conn,
+                &signed_contract_tx,
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
             // no initial stackaroos balance
             let account_stackaroos_balance = StacksChainState::get_account_ft(
@@ -4163,7 +4221,8 @@ pub mod test {
 
             for tx_pass in post_conditions_pass.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None, None)
+                        .unwrap();
                 expected_stackaroos_balance += 100;
                 expected_nonce += 1;
 
@@ -4188,7 +4247,8 @@ pub mod test {
 
             for tx_pass in post_conditions_pass_payback.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None, None)
+                        .unwrap();
                 expected_stackaroos_balance -= 100;
                 expected_payback_stackaroos_balance += 100;
                 expected_recv_nonce += 1;
@@ -4230,7 +4290,8 @@ pub mod test {
 
             for tx_pass in post_conditions_pass_nft.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None, None)
+                        .unwrap();
                 expected_nonce += 1;
 
                 let expected_value =
@@ -4255,7 +4316,8 @@ pub mod test {
 
             for tx_fail in post_conditions_fail.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None, None)
+                        .unwrap();
                 expected_nonce += 1;
 
                 // no change in balance
@@ -4293,7 +4355,8 @@ pub mod test {
 
             for tx_fail in post_conditions_fail_payback.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None, None)
+                        .unwrap();
                 expected_recv_nonce += 1;
 
                 // no change in balance
@@ -4336,7 +4399,8 @@ pub mod test {
 
             for tx_fail in post_conditions_fail_nft.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None, None)
+                        .unwrap();
                 expected_nonce += 1;
 
                 // nft shouldn't exist -- the nft-mint! should have been rolled back
@@ -4825,9 +4889,14 @@ pub mod test {
             .unwrap_err();
 
             // publish contract
-            let _ =
-                StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                    .unwrap();
+            let _ = StacksChainState::process_transaction(
+                &mut conn,
+                &signed_contract_tx,
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
             // no initial stackaroos balance
             let account_stackaroos_balance = StacksChainState::get_account_ft(
@@ -4846,7 +4915,8 @@ pub mod test {
 
             for tx_pass in post_conditions_pass.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None, None)
+                        .unwrap();
                 expected_stackaroos_balance += 100;
                 expected_nonce += 1;
 
@@ -4888,7 +4958,8 @@ pub mod test {
 
             for tx_pass in post_conditions_pass_payback.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None, None)
+                        .unwrap();
                 expected_stackaroos_balance -= 100;
                 expected_payback_stackaroos_balance += 100;
                 expected_recv_nonce += 1;
@@ -4949,7 +5020,8 @@ pub mod test {
 
             for tx_fail in post_conditions_fail.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None, None)
+                        .unwrap();
                 expected_nonce += 1;
 
                 // no change in balance
@@ -5002,7 +5074,8 @@ pub mod test {
             for tx_fail in post_conditions_fail_payback.iter() {
                 eprintln!("tx fail {tx_fail:?}");
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None, None)
+                        .unwrap();
                 expected_recv_nonce += 1;
 
                 // no change in balance
@@ -5162,13 +5235,23 @@ pub mod test {
             );
 
             // publish contract
-            let _ =
-                StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                    .unwrap();
+            let _ = StacksChainState::process_transaction(
+                &mut conn,
+                &signed_contract_tx,
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
-            let (_fee, receipt) =
-                StacksChainState::process_transaction(&mut conn, &contract_call_tx, false, None)
-                    .unwrap();
+            let (_fee, receipt) = StacksChainState::process_transaction(
+                &mut conn,
+                &contract_call_tx,
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
             assert!(receipt.post_condition_aborted);
             assert_eq!(receipt.result.to_string(), "(ok (err u1))");
@@ -8578,13 +8661,19 @@ pub mod test {
                 &ConsensusHash([(dbi + 1) as u8; 20]),
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
-            let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                    .unwrap();
+            let (fee, _) = StacksChainState::process_transaction(
+                &mut conn,
+                &signed_contract_tx,
+                false,
+                None,
+                None,
+            )
+            .unwrap();
             let err = StacksChainState::process_transaction(
                 &mut conn,
                 &signed_contract_call_tx,
                 false,
+                None,
                 None,
             )
             .unwrap_err();
@@ -8605,12 +8694,22 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_call_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
 
         assert_eq!(fee, 1);
         assert_eq!(
@@ -8756,6 +8855,7 @@ pub mod test {
                 &signed_tx_poison_microblock,
                 false,
                 None,
+                None,
             )
             .unwrap();
 
@@ -8876,6 +8976,7 @@ pub mod test {
                 &signed_tx_poison_microblock,
                 false,
                 None,
+                None,
             )
             .unwrap_err();
             let Error::ClarityError(ClarityError::BadTransaction(msg)) = &err else {
@@ -8994,6 +9095,7 @@ pub mod test {
                 &signed_tx_poison_microblock_1,
                 false,
                 None,
+                None,
             )
             .unwrap();
 
@@ -9007,6 +9109,7 @@ pub mod test {
                 &mut conn,
                 &signed_tx_poison_microblock_2,
                 false,
+                None,
                 None,
             )
             .unwrap();
@@ -9269,7 +9372,7 @@ pub mod test {
 
         // verify that 2.1 gating is applied for clarity2
         if let Err(Error::InvalidStacksTransaction(msg, ..)) =
-            StacksChainState::process_transaction(&mut conn, &smart_contract_v2, false, None)
+            StacksChainState::process_transaction(&mut conn, &smart_contract_v2, false, None, None)
         {
             assert!(msg
                 .find("asks for Clarity 2, but current epoch 2.05 only supports up to Clarity 1")
@@ -9558,14 +9661,24 @@ pub mod test {
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
         );
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 0);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_call_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         conn.commit_block();
@@ -9578,14 +9691,24 @@ pub mod test {
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
         );
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 0);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_call_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         conn.commit_block();
@@ -9598,14 +9721,24 @@ pub mod test {
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
         );
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 0);
 
-        let err =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap_err();
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_call_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap_err();
         conn.commit_block();
 
         assert!(matches!(err, Error::InvalidFee), "{err:?}");
@@ -9701,14 +9834,24 @@ pub mod test {
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
         );
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 0);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_call_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         conn.commit_block();
@@ -9721,14 +9864,24 @@ pub mod test {
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
         );
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 0);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_call_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         conn.commit_block();
@@ -9741,14 +9894,24 @@ pub mod test {
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
         );
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(fee, 0);
 
-        let err =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap_err();
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_contract_call_tx,
+            false,
+            None,
+            None,
+        )
+        .unwrap_err();
         conn.commit_block();
 
         assert!(matches!(err, Error::InvalidFee), "{err:?}");
@@ -9771,7 +9934,7 @@ pub mod test {
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
 
-        StacksChainState::process_transaction(clarity_block, tx, quiet, None)
+        StacksChainState::process_transaction(clarity_block, tx, quiet, None, None)
     }
 
     #[test]
@@ -10321,6 +10484,7 @@ pub mod test {
             &mut conn,
             &signed_runtime_checkerror_tx_clar1,
             false,
+            None,
             None,
         )
         .unwrap();
@@ -12106,6 +12270,7 @@ pub mod test {
                     &mut conn,
                     &tx_extend_sip034_signed,
                     false,
+                    None,
                     None,
                 )
                 .unwrap_err();

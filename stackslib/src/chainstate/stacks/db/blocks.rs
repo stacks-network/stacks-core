@@ -48,6 +48,7 @@ use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::auth::TransactionAuthVerificationMode;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
 use crate::chainstate::stacks::db::*;
@@ -3931,7 +3932,7 @@ impl StacksChainState {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, None)
+                    StacksChainState::process_transaction(clarity_tx, tx, false, None, None)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
@@ -4503,7 +4504,7 @@ impl StacksChainState {
         let mut total_size = 0u64;
         for tx in block_txs.iter() {
             let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false, None)?;
+                StacksChainState::process_transaction(clarity_tx, tx, false, None, None)?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
@@ -6578,7 +6579,9 @@ impl StacksChainState {
     }
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?
-    /// Used when determining whether a transaction can be added to the mempool.
+    /// Used when determining whether a transaction can be added to the mempool, NOT FOR
+    /// CONSENSUS LOGIC (which might technically allow things that we refuse to add to
+    /// the mempool).
     fn can_include_tx<T: ClarityConnection>(
         clarity_connection: &mut T,
         chainstate_config: &DBConfig,
@@ -6591,8 +6594,18 @@ impl StacksChainState {
         // 2: it must be validly signed.
         let epoch = clarity_connection.get_epoch();
 
-        StacksChainState::process_transaction_precheck(chainstate_config, tx, epoch)
-            .map_err(MemPoolRejection::FailedToValidate)?;
+        // Enforce low-S on the transaction signatures. While consensus allows high-S
+        // signatures at the time of writing, they are a concern because the ambiguity
+        // makes transaction ids malleable. That's why we don't admit them to the mempol,
+        // and signers reject blocks with them. In a future hard fork, they will also
+        // not be allowed by consensus anymore.
+        StacksChainState::process_transaction_precheck(
+            chainstate_config,
+            tx,
+            epoch,
+            Some(TransactionAuthVerificationMode::VerifyLowS),
+        )
+        .map_err(MemPoolRejection::FailedToValidate)?;
 
         // 3: it must pay a tx fee
         let fee = tx.get_tx_fee();

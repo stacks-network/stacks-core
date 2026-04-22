@@ -26,6 +26,7 @@ use stacks_common::util::hash::{MerkleHashFunc, MerkleTree};
 use stacks_common::util::retry::BoundReader;
 
 use crate::burnchains::Txid;
+use crate::chainstate::stacks::auth::TransactionAuthVerificationMode;
 use crate::chainstate::stacks::{TransactionPayloadID, *};
 use crate::net::Error as net_error;
 use crate::util_lib::boot::boot_code_addr;
@@ -988,14 +989,14 @@ impl StacksTransaction {
     }
 
     /// Verify this transaction's signatures
-    pub fn verify(&self) -> Result<(), net_error> {
-        self.auth.verify(&self.verify_begin())
+    pub fn verify(&self, mode: TransactionAuthVerificationMode) -> Result<(), net_error> {
+        self.auth.verify(&self.verify_begin(), mode)
     }
 
     /// Verify the transaction's origin signatures only.
     /// Used by sponsors to get the next sig-hash to sign.
-    pub fn verify_origin(&self) -> Result<Txid, net_error> {
-        self.auth.verify_origin(&self.verify_begin())
+    pub fn verify_origin(&self, mode: TransactionAuthVerificationMode) -> Result<Txid, net_error> {
+        self.auth.verify_origin(&self.verify_begin(), mode)
     }
 
     /// Get the origin account's address
@@ -1061,6 +1062,22 @@ impl StacksTransaction {
             false
         }
     }
+
+    /// Returns the identical transaction, but with the last signature
+    /// in the `auth` having its S negated mod n. Mathematically, that
+    /// is an equivalent signature, but we don't generally want to accept
+    /// them because this ambiguity means txid malleability.
+    ///
+    /// This function exists purely for testing the correct behavior for
+    /// such transactions; we never want to generate them in production.
+    ///
+    /// rust-secp256k1 always generates low-S signatures, so if `self` is
+    /// a transaction that was properly signed by our code, then
+    /// `self.with_negated_s_in_signature()` has high-S.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn with_negated_s_in_signature(&self) -> StacksTransaction {
+        high_s::tx_with_negated_s_in_signature(self)
+    }
 }
 
 impl StacksTransactionSigner {
@@ -1083,7 +1100,9 @@ impl StacksTransactionSigner {
         }
         let mut new_tx = tx.clone();
         new_tx.auth.set_sponsor(spending_condition)?;
-        let origin_sighash = new_tx.verify_origin().map_err(Error::NetError)?;
+        let origin_sighash = new_tx
+            .verify_origin(TransactionAuthVerificationMode::VerifyLowS)
+            .map_err(Error::NetError)?;
 
         Ok(StacksTransactionSigner {
             tx: new_tx,
@@ -1213,6 +1232,81 @@ impl StacksTransactionSigner {
         } else {
             None
         }
+    }
+}
+
+/// Helpers to convert a transaction signature to its non-normal high-S
+/// equivalent, for testing purposes. See [`StacksTransaction::with_negated_s_in_signature`]
+/// for more info.
+#[cfg(any(test, feature = "testing"))]
+mod high_s {
+    use crate::chainstate::stacks::{
+        StacksTransaction, TransactionAuth, TransactionAuthField, TransactionSpendingCondition,
+    };
+
+    /// Returns a copy of `fields` where the last field of type `Signature`
+    /// has been changed to its equivalent signature with S negated mod n.
+    fn auth_fields_with_negated_s_signature(
+        fields: Vec<TransactionAuthField>,
+    ) -> Vec<TransactionAuthField> {
+        let mut handled_one = false;
+        let mut result: Vec<_> = fields
+            .iter()
+            .rev()
+            .map(|f| {
+                if handled_one {
+                    return f.clone();
+                }
+                match f {
+                    TransactionAuthField::PublicKey(_) => f.clone(),
+                    TransactionAuthField::Signature(pubkey, sig) => {
+                        handled_one = true;
+                        TransactionAuthField::Signature(pubkey.clone(), sig.with_negated_s())
+                    }
+                }
+            })
+            .collect();
+        result.reverse();
+        result
+    }
+
+    fn spending_condition_with_negated_s_signature(
+        condition: &TransactionSpendingCondition,
+    ) -> TransactionSpendingCondition {
+        match condition {
+            TransactionSpendingCondition::Singlesig(c) => {
+                let mut c = c.clone();
+                c.signature = c.signature.with_negated_s();
+                TransactionSpendingCondition::Singlesig(c)
+            }
+            TransactionSpendingCondition::Multisig(c) => {
+                let mut c = c.clone();
+                c.fields = auth_fields_with_negated_s_signature(c.fields);
+                TransactionSpendingCondition::Multisig(c)
+            }
+            TransactionSpendingCondition::OrderIndependentMultisig(c) => {
+                let mut c = c.clone();
+                c.fields = auth_fields_with_negated_s_signature(c.fields);
+                TransactionSpendingCondition::OrderIndependentMultisig(c)
+            }
+        }
+    }
+
+    pub fn tx_with_negated_s_in_signature(tx: &StacksTransaction) -> StacksTransaction {
+        let new_auth = match tx.auth() {
+            TransactionAuth::Standard(condition) => {
+                TransactionAuth::Standard(spending_condition_with_negated_s_signature(condition))
+            }
+            // Only modify the sponsor signature, because changing the origin signature would
+            // invalidate the sponsor's.
+            TransactionAuth::Sponsored(condition1, condition2) => TransactionAuth::Sponsored(
+                condition1.clone(),
+                spending_condition_with_negated_s_signature(condition2),
+            ),
+        };
+        let mut result = tx.clone();
+        result.auth = new_auth;
+        result
     }
 }
 
@@ -1579,7 +1673,21 @@ mod test {
         corrupt_sponsor: bool,
     ) {
         // signature is well-formed otherwise
-        signed_tx.verify().unwrap();
+        signed_tx
+            .verify(TransactionAuthVerificationMode::VerifyLowS)
+            .unwrap();
+
+        let tx_with_high_s = signed_tx.with_negated_s_in_signature();
+        let lenient_result = tx_with_high_s.verify(TransactionAuthVerificationMode::AllowHighS);
+        let strict_result = tx_with_high_s.verify(TransactionAuthVerificationMode::VerifyLowS);
+        assert!(
+            lenient_result.is_ok(),
+            "lenient verification result should be ok but was {lenient_result:?}",
+        );
+        assert!(
+            strict_result.is_err(),
+            "strict verification result should be error but was {strict_result:?}",
+        );
 
         // mess with the auth hash code
         let mut corrupt_tx_hash_mode = signed_tx.clone();
@@ -1919,7 +2027,10 @@ mod test {
         // make sure all corrupted transactions fail
         for corrupt_tx in corrupt_transactions.iter() {
             assert!(
-                matches!(corrupt_tx.verify(), Err(net_error::VerifyingError(msg))),
+                matches!(
+                    corrupt_tx.verify(TransactionAuthVerificationMode::AllowHighS),
+                    Err(net_error::VerifyingError(msg))
+                ),
                 "corrupt_tx: {corrupt_tx:#?}"
             );
         }
@@ -1946,7 +2057,10 @@ mod test {
                     continue;
                 }
                 assert!(
-                    corrupt_tx.verify().is_err() || corrupt_tx == *signed_tx,
+                    corrupt_tx
+                        .verify(TransactionAuthVerificationMode::AllowHighS)
+                        .is_err()
+                        || corrupt_tx == *signed_tx,
                     "corrupt tx: {corrupt_tx:#?}\n signed_tx: {signed_tx:#?}"
                 );
             }
@@ -4099,7 +4213,9 @@ mod test {
         tx_signer.sign_origin(&privk).unwrap();
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+        let Err(net_error::VerifyingError(msg)) =
+            oversigned_tx.verify(TransactionAuthVerificationMode::AllowHighS)
+        else {
             panic!("Expected a verifying error");
         };
         if is_order_independent_multisig(&oversigned_tx) {
@@ -4135,7 +4251,9 @@ mod test {
 
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+        let Err(net_error::VerifyingError(msg)) =
+            oversigned_tx.verify(TransactionAuthVerificationMode::AllowHighS)
+        else {
             panic!("Expected a verifying error");
         };
         assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
@@ -4153,7 +4271,9 @@ mod test {
         tx_signer.sign_sponsor(&privk).unwrap();
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+        let Err(net_error::VerifyingError(msg)) =
+            oversigned_tx.verify(TransactionAuthVerificationMode::AllowHighS)
+        else {
             panic!("Expected a verifying error");
         };
         if is_order_independent_multisig(&oversigned_tx) {
@@ -4189,7 +4309,9 @@ mod test {
 
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+        let Err(net_error::VerifyingError(msg)) =
+            oversigned_tx.verify(TransactionAuthVerificationMode::AllowHighS)
+        else {
             panic!("Expected a verifying error");
         };
         assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");

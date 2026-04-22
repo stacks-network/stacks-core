@@ -29,6 +29,7 @@ use crate::chainstate::nakamoto::{
     MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::auth::TransactionAuthVerificationMode;
 use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MAX_RECEIPT_SIZES};
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
@@ -873,6 +874,10 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 tx,
                 quiet,
                 max_execution_time,
+                // Ensure no transaction has a signature with high S. While consensus allows them,
+                // the signers should reject them, and the miner should never mine a block with
+                // such a transaction (and because the mempool also rejects them, that shouldn't happen)
+                Some(TransactionAuthVerificationMode::VerifyLowS),
                 |receipt| {
                     if !receipt.post_condition_aborted {
                         let all_events_valid = receipt.events.iter().all(|event| {

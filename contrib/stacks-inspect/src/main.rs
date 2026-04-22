@@ -26,6 +26,7 @@ use stacks_inspect::{
     CommonOpts, command_contract_hash, command_replay_mock_mining, command_try_mine,
     command_validate_block,
 };
+use stackslib::chainstate::stacks::auth::TransactionAuthVerificationMode;
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
@@ -405,7 +406,16 @@ fn main() {
                 })
                 .unwrap();
 
-            println!("Verified: {:#?}", tx.verify());
+            let verified_strict = tx.verify(TransactionAuthVerificationMode::VerifyLowS);
+            if verified_strict.is_ok() {
+                println!("Verified: {:#?}", verified_strict);
+            } else {
+                let verified_lenient = tx.verify(TransactionAuthVerificationMode::AllowHighS);
+                println!("Verified: {:#?}", verified_lenient);
+                if verified_lenient.is_ok() {
+                    println!("WARNING: Transaction signature has high-S");
+                }
+            }
             let address = tx.auth.origin().get_address(tx.is_mainnet());
             println!("Address: {address}");
 

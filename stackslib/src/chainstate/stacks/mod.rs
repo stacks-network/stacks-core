@@ -497,19 +497,6 @@ impl TransactionAuthField {
             _ => None,
         }
     }
-
-    // TODO: enforce u8; 32
-    pub fn get_public_key(&self, sighash_bytes: &[u8]) -> Result<StacksPublicKey, net_error> {
-        match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Ok(pubk.clone()),
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
-                    .map_err(|e| net_error::VerifyingError(e.to_string()))?;
-                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
-                Ok(pubk)
-            }
-        }
-    }
 }
 
 // tag address hash modes as "singlesig" or "multisig" so we can't accidentally construct an

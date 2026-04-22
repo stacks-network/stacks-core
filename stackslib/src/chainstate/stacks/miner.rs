@@ -1083,7 +1083,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
 
         let quiet = !cfg!(test);
-        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, None) {
+        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, None, None) {
             Ok((_fee, receipt)) => TransactionResult::success(&tx, receipt),
             Err(e) => convert_clarity_error_to_transaction_result(clarity_tx, &tx, e),
         }
@@ -1644,7 +1644,7 @@ impl StacksBlockBuilder {
         let quiet = !cfg!(test);
         if !self.anchored_done {
             // save
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None, None) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 }
@@ -1655,7 +1655,7 @@ impl StacksBlockBuilder {
 
             self.txs.push(tx.clone());
         } else {
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None, None) {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 }
@@ -2485,7 +2485,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None, None) {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
                         return convert_clarity_error_to_transaction_result(clarity_tx, tx, e);
@@ -2528,7 +2528,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None, None) {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
                         return convert_clarity_error_to_transaction_result(clarity_tx, tx, e);

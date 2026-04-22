@@ -38,6 +38,15 @@ use crate::chainstate::stacks::{
 };
 use crate::net::Error as net_error;
 
+/// When validating transaction signatures, should low-S be enforced?
+/// (see https://docs.rs/secp256k1/latest/secp256k1/ecdsa/struct.Signature.html#method.normalize_s)
+#[repr(u8)]
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum TransactionAuthVerificationMode {
+    VerifyLowS,
+    AllowHighS,
+}
+
 impl StacksMessageCodec for TransactionAuthField {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
@@ -236,6 +245,7 @@ impl MultisigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, net_error> {
         let mut pubkeys = vec![];
         let mut cur_sighash = initial_sighash.clone();
@@ -261,6 +271,7 @@ impl MultisigSpendingCondition {
                         self.nonce,
                         pubkey_encoding,
                         sigbuf,
+                        mode,
                     )?;
                     cur_sighash = next_sighash;
                     num_sigs = num_sigs
@@ -426,6 +437,7 @@ impl OrderIndependentMultisigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, net_error> {
         let mut pubkeys = vec![];
         let mut num_sigs: u16 = 0;
@@ -450,6 +462,7 @@ impl OrderIndependentMultisigSpendingCondition {
                         self.nonce,
                         pubkey_encoding,
                         sigbuf,
+                        mode,
                     )?;
                     num_sigs = num_sigs
                         .checked_add(1)
@@ -592,6 +605,7 @@ impl SinglesigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, net_error> {
         let (pubkey, next_sighash) = TransactionSpendingCondition::next_verification(
             initial_sighash,
@@ -600,6 +614,7 @@ impl SinglesigSpendingCondition {
             self.nonce,
             &self.key_encoding,
             &self.signature,
+            mode,
         )?;
 
         let addr = StacksAddress::from_public_keys(
@@ -1067,6 +1082,7 @@ impl TransactionSpendingCondition {
         nonce: u64,
         key_encoding: &TransactionPublicKeyEncoding,
         sig: &MessageSignature,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<(StacksPublicKey, Txid), net_error> {
         let sighash_presign = TransactionSpendingCondition::make_sighash_presign(
             cur_sighash,
@@ -1076,8 +1092,16 @@ impl TransactionSpendingCondition {
         );
 
         // verify the current signature
-        let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_presign.as_bytes(), sig)
-            .map_err(|ve| net_error::VerifyingError(ve.to_string()))?;
+        let pubk = if mode == TransactionAuthVerificationMode::AllowHighS {
+            StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+                sighash_presign.as_bytes(),
+                sig,
+            )
+        } else {
+            StacksPublicKey::recover_to_pubkey(sighash_presign.as_bytes(), sig)
+        };
+
+        let mut pubk = pubk.map_err(|ve| net_error::VerifyingError(ve.to_string()))?;
 
         match key_encoding {
             TransactionPublicKeyEncoding::Compressed => pubk.set_compressed(true),
@@ -1095,16 +1119,17 @@ impl TransactionSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, net_error> {
         match *self {
             TransactionSpendingCondition::Singlesig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
             TransactionSpendingCondition::Multisig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
             TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
         }
     }
@@ -1333,23 +1358,31 @@ impl TransactionAuth {
         }
     }
 
-    pub fn verify_origin(&self, initial_sighash: &Txid) -> Result<Txid, net_error> {
+    pub fn verify_origin(
+        &self,
+        initial_sighash: &Txid,
+        mode: TransactionAuthVerificationMode,
+    ) -> Result<Txid, net_error> {
         match *self {
             TransactionAuth::Standard(ref origin_condition) => {
-                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard)
+                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard, mode)
             }
             TransactionAuth::Sponsored(ref origin_condition, _) => {
-                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard)
+                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard, mode)
             }
         }
     }
 
-    pub fn verify(&self, initial_sighash: &Txid) -> Result<(), net_error> {
-        let origin_sighash = self.verify_origin(initial_sighash)?;
+    pub fn verify(
+        &self,
+        initial_sighash: &Txid,
+        mode: TransactionAuthVerificationMode,
+    ) -> Result<(), net_error> {
+        let origin_sighash = self.verify_origin(initial_sighash, mode)?;
         match *self {
             TransactionAuth::Standard(_) => Ok(()),
             TransactionAuth::Sponsored(_, ref sponsor_condition) => sponsor_condition
-                .verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored)
+                .verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored, mode)
                 .map(|_sigh| ()),
         }
     }
@@ -2332,6 +2365,7 @@ mod test {
                     nonces[i],
                     &key_encoding,
                     &sig,
+                    TransactionAuthVerificationMode::VerifyLowS
                 )
                 .unwrap();
 
