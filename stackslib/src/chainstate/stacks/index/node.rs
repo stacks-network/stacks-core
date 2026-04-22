@@ -606,15 +606,14 @@ impl TriePtr {
         assert!(bytes.len() >= min_len);
         let id = clear_u64_ptr(encoded_id);
         let chr = bytes[1];
+        // Layout: [id(1)][chr(1)][ptr(4 or 8)][back_block(4)].
         let (ptr, back_block) = if is_u64_ptr(encoded_id) {
-            let ptr = u64::from_be_bytes([
-                bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-            ]);
-            let back_block = u32::from_be_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]);
+            let ptr = u64::from_be_bytes(bytes[2..10].try_into().unwrap());
+            let back_block = u32::from_be_bytes(bytes[10..14].try_into().unwrap());
             (ptr, back_block)
         } else {
-            let ptr = u64::from(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]));
-            let back_block = u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]);
+            let ptr = u64::from(u32::from_be_bytes(bytes[2..6].try_into().unwrap()));
+            let back_block = u32::from_be_bytes(bytes[6..10].try_into().unwrap());
             (ptr, back_block)
         };
 
@@ -639,24 +638,19 @@ impl TriePtr {
         assert!(bytes.len() >= TriePtr::encoded_size_compressed_for_id(encoded_id));
         let id = clear_u64_ptr(encoded_id);
         let chr = bytes[1];
+        // Layout: [id(1)][chr(1)][ptr(4 or 8)]; backptrs append [back_block(4)].
         let ptr = if is_u64_ptr(encoded_id) {
-            u64::from_be_bytes([
-                bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-            ])
+            u64::from_be_bytes(bytes[2..10].try_into().unwrap())
         } else {
-            u64::from(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]))
+            u64::from(u32::from_be_bytes(bytes[2..6].try_into().unwrap()))
         };
 
         let back_block = if is_backptr(id) {
             let back_block_offset = TriePtr::encoded_size_compressed_for_id(encoded_id);
+            let back_block_end = back_block_offset + 4;
             // Backpointers append a 4-byte `back_block` after the compressed ptr payload.
-            assert!(bytes.len() >= back_block_offset + 4);
-            u32::from_be_bytes([
-                bytes[back_block_offset],
-                bytes[back_block_offset + 1],
-                bytes[back_block_offset + 2],
-                bytes[back_block_offset + 3],
-            ])
+            assert!(bytes.len() >= back_block_end);
+            u32::from_be_bytes(bytes[back_block_offset..back_block_end].try_into().unwrap())
         } else {
             0
         };
