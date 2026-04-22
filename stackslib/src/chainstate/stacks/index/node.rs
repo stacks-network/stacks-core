@@ -551,7 +551,7 @@ impl TriePtr {
         if is_u64_ptr(encoded_id) {
             w.write_all(&self.ptr().to_be_bytes())?;
         } else {
-            let ptr32 = u32::try_from(self.ptr()).map_err(|_| Error::OverflowError)?;
+            let ptr32 = self.try_ptr_into_u32()?;
             w.write_all(&ptr32.to_be_bytes())?;
         }
         w.write_all(&self.back_block().to_be_bytes())?;
@@ -565,7 +565,7 @@ impl TriePtr {
         if is_u64_ptr(encoded_id) {
             w.write_all(&self.ptr().to_be_bytes())?;
         } else {
-            let ptr32 = u32::try_from(self.ptr()).map_err(|_| Error::OverflowError)?;
+            let ptr32 = self.try_ptr_into_u32()?;
             w.write_all(&ptr32.to_be_bytes())?;
         }
         if is_backptr(self.id()) {
