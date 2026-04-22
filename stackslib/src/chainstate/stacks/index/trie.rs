@@ -270,7 +270,7 @@ impl Trie {
         let leaf_hash = get_leaf_hash(value);
 
         let leaf_ptr = cursor.ptr();
-        storage.write_node(leaf_ptr.ptr_as_u32()?, value, leaf_hash)?;
+        storage.write_node(leaf_ptr.try_ptr_into_u32()?, value, leaf_hash)?;
 
         trace!("replace_leaf: wrote {:?} at {:?}", &value, &cursor.ptr());
         Ok(cursor.ptr())
@@ -371,7 +371,11 @@ impl Trie {
         let cur_leaf_hash = get_leaf_hash(cur_leaf_data);
 
         // NOTE: this is safe since the current leaf's byte representation has gotten shorter
-        storage.write_node(cur_leaf_ptr.ptr_as_u32()?, cur_leaf_data, cur_leaf_hash)?;
+        storage.write_node(
+            cur_leaf_ptr.try_ptr_into_u32()?,
+            cur_leaf_data,
+            cur_leaf_hash,
+        )?;
 
         // append the new leaf at the end of the trie.
         let new_leaf_array_ptr = storage.last_ptr()?;
@@ -498,7 +502,7 @@ impl Trie {
 
         let new_node_hash = get_nodetype_hash(storage, node)?;
 
-        storage.write_nodetype(cursor.ptr().ptr_as_u32()?, node, new_node_hash)?;
+        storage.write_nodetype(cursor.ptr().try_ptr_into_u32()?, node, new_node_hash)?;
 
         Ok(Some(cursor.ptr()))
     }
@@ -676,7 +680,11 @@ impl Trie {
         };
 
         // store node4 where node-X used to be
-        storage.write_nodetype(cur_node_cur_ptr.ptr_as_u32()?, &new_node, new_node_hash)?;
+        storage.write_nodetype(
+            cur_node_cur_ptr.try_ptr_into_u32()?,
+            &new_node,
+            new_node_hash,
+        )?;
 
         // store node-X at the end
         storage.write_nodetype(new_cur_node_array_ptr, node, new_cur_node_hash)?;
@@ -921,7 +929,7 @@ impl Trie {
                 h, update_skiplist
             );
 
-            storage.write_nodetype(child_ptr.ptr_as_u32()?, &node, h)?;
+            storage.write_nodetype(child_ptr.try_ptr_into_u32()?, &node, h)?;
         } else {
             while let Some(ptr) = ptrs.pop() {
                 if is_backptr(ptr.id()) {
@@ -951,7 +959,7 @@ impl Trie {
                 //  necessary because computing ancestor hashes requires that the trie's pointers
                 //  all be intact, since it does ancestor lookups!
                 // however, since we're going to update the hash in the next write anyways, just write an empty buff
-                storage.write_nodetype(ptr.ptr_as_u32()?, &node, TrieHash([0; 32]))?;
+                storage.write_nodetype(ptr.try_ptr_into_u32()?, &node, TrieHash([0; 32]))?;
 
                 let h = if !node.is_node256() {
                     trace!(
@@ -997,7 +1005,7 @@ impl Trie {
                     node_hash
                 };
 
-                storage.write_nodetype(ptr.ptr_as_u32()?, &node, h)?;
+                storage.write_nodetype(ptr.try_ptr_into_u32()?, &node, h)?;
 
                 child_ptr = ptr;
                 child_ptr.id = clear_backptr(child_ptr.id);

@@ -860,7 +860,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 continue;
             }
 
-            let child_idx = ptr.ptr_as_usize()?;
+            let child_idx = ptr.try_ptr_into_usize()?;
             let Some(&offset) = file_offsets.get(child_idx) else {
                 return Err(Error::CorruptionError("Child index out of range".into()));
             };
@@ -888,7 +888,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// and it is written last once all child offsets are known.
     pub(crate) fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
         let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr_as_u32()?;
+        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).try_ptr_into_u32()?;
 
         // Step 1: collect nodes in root-first DFS order.
         let write_order = {
@@ -900,7 +900,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 if !node.is_leaf() {
                     for child in node.ptrs().iter() {
                         if !child.is_empty() && !is_backptr(child.id) {
-                            stack.push(child.ptr_as_u32()?);
+                            stack.push(child.try_ptr_into_u32()?);
                         }
                     }
                 }
@@ -1072,7 +1072,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     ) -> Result<u64, Error> {
         let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
         let max_patch_depth = MAX_PATCH_DEPTH as usize;
-        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr_as_u32()?;
+        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).try_ptr_into_u32()?;
 
         // Step 1: collect nodes in root-first DFS order, computing patch
         // payloads along the way.
@@ -1141,7 +1141,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 if !node.is_leaf() {
                     for child in node.ptrs().iter() {
                         if !child.is_empty() && !is_backptr(child.id) {
-                            let idx = child.ptr_as_u32()?;
+                            let idx = child.try_ptr_into_u32()?;
                             stack.push(idx);
                         }
                     }
@@ -1354,7 +1354,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Read a node's hash from the TrieRAM.  ptr.ptr() is an array index.
     pub fn read_node_hash(&self, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let idx = ptr.ptr_as_usize()?;
+        let idx = ptr.try_ptr_into_usize()?;
         let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
@@ -1400,7 +1400,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             self.read_node_count += 1;
         }
 
-        let idx = ptr.ptr_as_usize()?;
+        let idx = ptr.try_ptr_into_usize()?;
         if let Some(node) = self.data.get(idx) {
             Ok(node.clone())
         } else {
@@ -1506,7 +1506,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
 impl<T: MarfTrieId> NodeHashReader for TrieRAM<T> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        let idx = ptr.ptr_as_usize()?;
+        let idx = ptr.try_ptr_into_usize()?;
         let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
