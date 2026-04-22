@@ -912,7 +912,7 @@ impl Trie {
 
             debug!("Next root hash is {h} (update_skiplist={update_skiplist})");
 
-            storage.write_nodetype(child_ptr.ptr(), &node, h)?;
+            storage.write_node_hash(child_ptr.ptr(), h)?;
         } else {
             while let Some(ptr) = ptrs.pop() {
                 if is_backptr(ptr.id()) {
