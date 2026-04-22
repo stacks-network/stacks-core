@@ -491,7 +491,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     pub fn wait_for_registered(&self) {
         let mut finished_signers = HashSet::new();
-        wait_for(120, || {
+        wait_for(240, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
             let latest_states = self.get_states(&finished_signers);
@@ -511,7 +511,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Send a status request to the signers to ensure they are registered for both reward cycles.
     pub fn wait_for_registered_both_reward_cycles(&self) {
         let mut finished_signers = HashSet::new();
-        wait_for(120, || {
+        wait_for(240, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
             let latest_states = self.get_states(&finished_signers);

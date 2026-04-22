@@ -323,21 +323,41 @@ impl SignerTest<SpawnedSigner> {
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle().wrapping_add(1);
+        let next_cycle_start = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_burnchain()
+            .nakamoto_first_block_of_cycle(reward_cycle);
         wait_for(240, || {
-            match self.stacks_client.get_reward_set_signers(reward_cycle) {
-                Ok(Some(reward_set)) => {
+            match self.stacks_client.get_reward_set_signers(reward_cycle).unwrap_or_default() {
+                Some(reward_set) => {
                     debug!("Signer set: {reward_set:?}");
                     Ok(true)
                 }
-                Ok(None) => Ok(false),
-                Err(e) => {
-                    // The node may return a 400 PoXAnchorBlockRequired while
-                    // the coordinator is still processing the prepare phase.
-                    // All prepare phase burn blocks have been mined; just wait
-                    // for the coordinator to catch up.
-                    debug!(
-                        "Reward set not yet available: {e}. Waiting for coordinator to catch up."
-                    );
+                None => {
+                    let burn_height = get_chain_info(&self.running_nodes.conf).burn_block_height;
+                    if burn_height < next_cycle_start {
+                        // Still in the prepare phase or before the cycle boundary.
+                        // Mining another burn block is safe and may be needed for the
+                        // anchor block to be determined.
+                        warn!(
+                            "Reward set not yet available (burn_height={burn_height}, \
+                             cycle_start={next_cycle_start}). Mining another block."
+                        );
+                        next_block_and_wait(
+                            &self.running_nodes.btc_regtest_controller,
+                            &self.running_nodes.counters.blocks_processed,
+                        );
+                    } else {
+                        // We've already crossed into the next cycle. Mining more burn
+                        // blocks won't help — the anchor block should have been determined
+                        // during the prepare phase. Just wait for the Stacks chain to
+                        // catch up and process the existing blocks.
+                        debug!(
+                            "Reward set not yet available but already at burn_height={burn_height} \
+                             (>= cycle_start={next_cycle_start}). Waiting for Stacks chain to catch up."
+                        );
+                    }
                     Ok(false)
                 }
             }
