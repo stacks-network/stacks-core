@@ -943,7 +943,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // Reverse-iterating `descendants` ensures each child's file offset is already
         // recorded by the time we write its parent.
         for &mem_ptr in descendants.iter().rev() {
-            let mem_idx = usize::try_from(mem_ptr).map_err(|_| Error::OverflowError)?;
+            let mem_idx = mem_ptr as usize;
             *file_offsets.get_mut(mem_idx).ok_or_else(|| {
                 Error::CorruptionError("Node index out of range in dump_consume".into())
             })? = f.stream_position()?;
@@ -962,10 +962,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let end_offset = f.stream_position()?;
 
         // Step 4: write the root node into its reserved space.
-        let root_idx = usize::try_from(root_mem_ptr).map_err(|_| Error::OverflowError)?;
         let entry = self
             .data
-            .get_mut(root_idx)
+            .get_mut(root_mem_ptr as usize)
             .ok_or_else(|| Error::CorruptionError("Invalid root pointer in dump_consume".into()))?;
 
         if !entry.0.is_leaf() {
@@ -1202,8 +1201,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                     Error::CorruptionError(format!("Failed to serialize patch: {e:?}"))
                 })?;
             } else {
-                let node_idx = usize::try_from(dp.ptr()).map_err(|_| Error::OverflowError)?;
-                let node = data.get(node_idx).ok_or_else(|| {
+                let node = data.get(dp.ptr() as usize).ok_or_else(|| {
                     Error::CorruptionError("node pointer invalid in compressed dump".into())
                 })?;
                 write_nodetype_bytes_compressed(f, &node.0, node.1)?;
@@ -1216,7 +1214,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // Reverse-iterating `descendants` ensures each child's file offset is already
         // recorded by the time we write its parent.
         for dp in descendants.iter_mut().rev() {
-            let dp_idx = usize::try_from(dp.ptr()).map_err(|_| Error::OverflowError)?;
+            let dp_idx = dp.ptr() as usize;
             *file_offsets.get_mut(dp_idx).ok_or_else(|| {
                 Error::CorruptionError("Node index out of range in dump_compressed_consume".into())
             })? = f.stream_position()?;
@@ -1239,8 +1237,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         if let Some(patch) = root_dp.patch_mut() {
             Self::update_inline_child_ptrs(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
         } else {
-            let root_idx = usize::try_from(root_dp.ptr()).map_err(|_| Error::OverflowError)?;
-            let entry = self.data.get_mut(root_idx).ok_or_else(|| {
+            let entry = self.data.get_mut(root_dp.ptr() as usize).ok_or_else(|| {
                 Error::CorruptionError("Invalid root pointer in dump_compressed_consume".into())
             })?;
             if !entry.0.is_leaf() {
@@ -1443,7 +1440,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             }
         }
 
-        let node_index = usize::try_from(node_array_ptr).map_err(|_| Error::NotFoundError)?;
+        let node_index = node_array_ptr as usize;
         if let Some(existing_node) = self.data.get_mut(node_index) {
             *existing_node = (node.clone(), hash);
             Ok(())
@@ -1474,7 +1471,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         );
 
         // can only set the hash of an existing node
-        let node_index = usize::try_from(node_array_ptr).map_err(|_| Error::NotFoundError)?;
+        let node_index = node_array_ptr as usize;
         if let Some(existing_node) = self.data.get_mut(node_index) {
             existing_node.1 = hash;
             Ok(())
