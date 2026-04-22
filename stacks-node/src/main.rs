@@ -286,7 +286,7 @@ fn cli_get_miner_spend(
 /// Pending events for observers that are no longer registered will be discarded.
 fn send_pending_event_payloads(conf: &Config) {
     // This dispatcher gets a queue size of 0 to ensure that it blocks. Technically
-    // process_pending_payloads() always blocks; this is just and additional safeguard.
+    // process_pending_payloads() always blocks; this is just an additional safeguard.
     let mut event_dispatcher =
         EventDispatcher::new_with_custom_queue_size(conf.get_working_dir(), 0);
     for observer in &conf.events_observers {

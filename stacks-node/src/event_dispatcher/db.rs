@@ -83,7 +83,7 @@ impl EventDispatcherDbConnection {
                 Err(db_error::SqliteError(rusqlite::Error::QueryReturnedNoRows)) => Ok(None),
                 Err(e) => Err(e),
             },
-            "Failed to retrieve payload {id} from event observer database",
+            &format!("Failed to retrieve payload {id} from event observer database"),
         )
     }
 

@@ -72,7 +72,7 @@ impl EventDispatcherResult {
         let Some(receiver) = self.receiver else {
             return;
         };
-        // There is no codepath that would drop the sender without sending the acknowledgenent
+        // There is no codepath that would drop the sender without sending the acknowledgement
         // first. And this method consumes `self`, so it can only be called once.
         // So if despite all that, `recv()` returns an error, that means the worker thread panicked.
         receiver
@@ -118,7 +118,7 @@ impl EventDispatcherWorker {
         // In other words, the channel's bound has to be one less than
         // the desired queue size. If the queue size is 0, then the bound
         // is also set to zero, and *in addition* we block until the
-        // request has happend.
+        // request has happened.
 
         let channel_bound = if queue_size > 0 { queue_size - 1 } else { 0 };
         let must_block = queue_size == 0;
@@ -216,7 +216,7 @@ impl EventDispatcherWorker {
         })?;
 
         // we're ignoring `must_block` here -- the only point of `noop()` is to call
-        // `wait_until_complete()` immedately anyway, so we'll let the caller do that.
+        // `wait_until_complete()` immediately anyway, so we'll let the caller do that.
 
         Ok(EventDispatcherResult {
             receiver: Some(receiver),
