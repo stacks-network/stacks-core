@@ -1,0 +1,1 @@
+Signers now include a `failed_txid` field in block rejection messages, reporting which transaction caused block validation to fail. This allows miners to skip problematic transactions in subsequent proposals rather than repeatedly proposing blocks that will be rejected.

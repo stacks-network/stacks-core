@@ -1,0 +1,34 @@
+type: object
+required:
+  - committed
+  - event_index
+  - ft_transfer_event
+  - txid
+  - type
+properties:
+  committed:
+    type: boolean
+  event_index:
+    type: integer
+  ft_transfer_event:
+    type: object
+    required:
+      - amount
+      - asset_identifier
+      - recipient
+      - sender
+    properties:
+      amount:
+        type: string
+      asset_identifier:
+        type: string
+      recipient:
+        type: string
+      sender:
+        type: string
+  txid:
+    type: string
+  type:
+    type: string
+    enum:
+      - ft_transfer_event
