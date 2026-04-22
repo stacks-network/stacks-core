@@ -771,8 +771,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         .bench
                         .write_children_hashes_empty_finish(start_time);
                 } else if !is_backptr(ptr.id()) {
+                    let child_idx = ptr.try_ptr_into_u32()?;
                     // hash is the hash of this node's children
-                    let node_hash = self.calculate_node_hashes(storage_tx, ptr.ptr_as_u32()?)?;
+                    let node_hash = self.calculate_node_hashes(storage_tx, child_idx)?;
 
                     // count the time taken to store the hash towards the
                     // write_children_hashes_same_benchmark
@@ -791,7 +792,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         && ptr.id() != TrieNodeID::Leaf as u8
                     {
                         // need to store this hash too, since we deferred calculation
-                        self.write_node_hash(ptr.ptr_as_u32()?, node_hash)?;
+                        self.write_node_hash(child_idx, node_hash)?;
                     }
 
                     storage_tx
