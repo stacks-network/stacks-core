@@ -1,0 +1,1 @@
+Fixed the miner reporting of the reason it stopped mining to prometheus metrics.
