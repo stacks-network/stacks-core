@@ -118,6 +118,7 @@ use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 pub mod capitulate_parent_tenure_view;
+pub mod failed_txs;
 pub mod late_block_proposal;
 pub mod missing_burn_block_proposal;
 pub mod reorg;

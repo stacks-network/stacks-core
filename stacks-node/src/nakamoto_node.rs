@@ -91,7 +91,12 @@ pub enum Error {
     StacksTipChanged,
     /// Signers rejected a block
     #[error("Signers rejected a block")]
-    SignersRejected,
+    SignersRejected {
+        /// Transaction IDs to exclude from the next block build (e.g., due to contextual rejections)
+        temporarily_excluded_txids: HashSet<Txid>,
+        /// Transaction IDs to permanently ban from the mempool
+        permanently_excluded_txids: HashSet<Txid>,
+    },
     /// Error while spawning a subordinate thread
     #[error("Error while spawning a subordinate thread: {0}")]
     SpawnError(std::io::Error),
