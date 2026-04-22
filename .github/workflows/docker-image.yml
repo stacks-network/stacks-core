@@ -57,7 +57,7 @@ jobs:
       ## Checkout the code
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.BRANCH }}
 
@@ -107,7 +107,6 @@ jobs:
         id: setup_rust_toolchain
         uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
         with:
-          toolchain: stable
           cache: false
           target: ${{ env.TARGET }}
 
@@ -200,7 +199,7 @@ jobs:
       ## Checkout the code
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.BRANCH }}
           sparse-checkout: |

@@ -13,13 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::errors::StaticCheckError;
-use clarity_types::errors::analysis::{
-    StaticCheckErrorKind, check_argument_count, check_arguments_at_least,
-};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{SequenceSubtype, TypeSignature};
 
+use crate::vm::analysis::errors::{
+    StaticCheckError, StaticCheckErrorKind, check_argument_count, check_arguments_at_least,
+};
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::analysis::type_checker::v2_1::TypeChecker;
 use crate::vm::costs::cost_functions::ClarityCostFunction;

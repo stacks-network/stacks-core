@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2021 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::types::TupleData;
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, Value};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Sha256Sum;
@@ -61,20 +61,25 @@ pub fn make_structured_data_domain(name: &str, version: &str, chain_id: u32) -> 
     Value::Tuple(
         TupleData::from_data(vec![
             (
-                "name".into(),
+                ClarityName::from_literal("name"),
                 Value::string_ascii_from_bytes(name.into()).unwrap(),
             ),
             (
-                "version".into(),
+                ClarityName::from_literal("version"),
                 Value::string_ascii_from_bytes(version.into()).unwrap(),
             ),
-            ("chain-id".into(), Value::UInt(chain_id.into())),
+            (
+                ClarityName::from_literal("chain-id"),
+                Value::UInt(chain_id.into()),
+            ),
         ])
         .unwrap(),
     )
 }
 
 pub mod pox4 {
+    use clarity::vm::ClarityName;
+
     use super::{
         make_structured_data_domain, structured_data_message_hash, MessageSignature, PoxAddress,
         PrivateKey, Sha256Sum, StacksPrivateKey, TupleData, Value,
@@ -105,21 +110,27 @@ pub mod pox4 {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "pox-addr".into(),
+                    ClarityName::from_literal("pox-addr"),
                     pox_addr
                         .clone()
                         .as_clarity_tuple()
                         .expect("Error creating signature hash - invalid PoX Address")
                         .into(),
                 ),
-                ("reward-cycle".into(), Value::UInt(reward_cycle)),
-                ("period".into(), Value::UInt(period)),
                 (
-                    "topic".into(),
+                    ClarityName::from_literal("reward-cycle"),
+                    Value::UInt(reward_cycle),
+                ),
+                (ClarityName::from_literal("period"), Value::UInt(period)),
+                (
+                    ClarityName::from_literal("topic"),
                     Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
                 ),
-                ("auth-id".into(), Value::UInt(auth_id)),
-                ("max-amount".into(), Value::UInt(max_amount)),
+                (ClarityName::from_literal("auth-id"), Value::UInt(auth_id)),
+                (
+                    ClarityName::from_literal("max-amount"),
+                    Value::UInt(max_amount),
+                ),
             ])
             .expect("Error creating signature hash"),
         );
@@ -197,7 +208,7 @@ pub mod pox4 {
                     sender.clone(),
                     None,
                     LimitedCostTracker::new_free(),
-                    |env| {
+                    |exec_state, invoke_ctx| {
                         let program = format!(
                             "(get-signer-key-message-hash {} u{} \"{}\" u{} u{} u{})",
                             Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p
@@ -207,7 +218,7 @@ pub mod pox4 {
                             max_amount,
                             auth_id,
                         );
-                        env.eval_read_only(&pox_contract_id, &program)
+                        exec_state.eval_read_only(invoke_ctx, &pox_contract_id, &program)
                     },
                 );
                 result
@@ -426,14 +437,17 @@ mod test {
         let domain = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "name".into(),
+                    ClarityName::from_literal("name"),
                     Value::string_ascii_from_bytes("Test App".into()).unwrap(),
                 ),
                 (
-                    "version".into(),
+                    ClarityName::from_literal("version"),
                     Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
                 ),
-                ("chain-id".into(), Value::UInt(CHAIN_ID_MAINNET.into())),
+                (
+                    ClarityName::from_literal("chain-id"),
+                    Value::UInt(CHAIN_ID_MAINNET.into()),
+                ),
             ])
             .unwrap(),
         );
@@ -457,14 +471,17 @@ mod test {
         let domain = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "name".into(),
+                    ClarityName::from_literal("name"),
                     Value::string_ascii_from_bytes("Test App".into()).unwrap(),
                 ),
                 (
-                    "version".into(),
+                    ClarityName::from_literal("version"),
                     Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
                 ),
-                ("chain-id".into(), Value::UInt(CHAIN_ID_MAINNET.into())),
+                (
+                    ClarityName::from_literal("chain-id"),
+                    Value::UInt(CHAIN_ID_MAINNET.into()),
+                ),
             ])
             .unwrap(),
         );

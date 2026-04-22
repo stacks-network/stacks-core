@@ -83,7 +83,9 @@ use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
     wait_for_runloop,
 };
-use crate::tests::signer::v0::wait_for_state_machine_update_by_miner_tenure_id;
+use crate::tests::signer::v0::{
+    wait_for_state_machine_update, wait_for_state_machine_update_by_miner_tenure_id,
+};
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 
@@ -566,6 +568,27 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         );
     }
 
+    /// Wait for >70% of signers to update their global state to the
+    /// current burn block tip. Call this after mining a bitcoin block
+    /// when you need signers to have the correct burn block view before
+    /// proceeding (e.g., before checking for specific block proposals).
+    /// Mining is skipped during the wait to prevent the miner from
+    /// proposing a block before signers have the correct view.
+    pub fn wait_for_signer_state_update(&self) {
+        let was_skipping = TEST_MINE_SKIP.get();
+        TEST_MINE_SKIP.set(true);
+        let peer_info = get_chain_info(&self.running_nodes.conf);
+        wait_for_state_machine_update(
+            30,
+            &peer_info.pox_consensus,
+            peer_info.burn_block_height,
+            None,
+            &self.signer_addresses_versions_majority(),
+        )
+        .expect("Signers failed to update to new burn block view");
+        TEST_MINE_SKIP.set(was_skipping);
+    }
+
     /// Fetch the local signer state machine for all the signers,
     ///  waiting until every signer has processed the latest burn block.
     /// Then, check that every signer's state machine corresponds to the
@@ -586,9 +609,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         info!("Latest sortition: {sortition_latest:?}");
         info!("Prior sortition: {sortition_prior:?}");
 
-        assert_eq!(
-            sortition_latest.last_sortition_ch,
-            sortition_latest.stacks_parent_ch
+        assert!(
+            std::env::var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL") == Ok("1".to_string())
+                || sortition_latest.last_sortition_ch == sortition_latest.stacks_parent_ch
         );
         let latest_block = self
             .stacks_client
@@ -623,9 +646,13 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                     panic!();
                 };
                 assert_eq!(Some(current_miner_pkh), sortition_latest.miner_pk_hash160);
-                assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
-                assert_eq!(parent_tenure_last_block, latest_block_id);
-                assert_eq!(parent_tenure_last_block_height, latest_block.height());
+                if std::env::var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL")
+                    != Ok("1".to_string())
+                {
+                    assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
+                    assert_eq!(parent_tenure_last_block, latest_block_id);
+                    assert_eq!(parent_tenure_last_block_height, latest_block.height());
+                }
             });
     }
 
@@ -1513,12 +1540,14 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .expect("Mutex poisoned")
             .stop_chains_coordinator();
 
-        self.running_nodes.btcd_controller.stop_bitcoind().unwrap();
-
         self.running_nodes
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
         self.running_nodes.run_loop_thread.join().unwrap();
+
+        // Stop bitcoind after the run loop is fully shut down,
+        // so the relayer doesn't hit ConnectionRefused.
+        self.running_nodes.btcd_controller.stop_bitcoind().unwrap();
 
         if needs_snapshot {
             Self::make_snapshot(
@@ -1771,6 +1800,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
             EventKeyType::BlockProposal,
             EventKeyType::MinedBlocks,
             EventKeyType::BurnchainBlocks,
+            EventKeyType::MemPoolTransactions,
         ],
         timeout_ms: 1000,
         disable_retries: false,

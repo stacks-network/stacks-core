@@ -1,24 +1,61 @@
+# ============================================================
+# STACKS FOLLOWER NODE - MAINNET CONFIGURATION
+# ============================================================
+#
+# A follower is a read-only node that syncs the Stacks chain without
+# mining or signing. Use this to run an API node, monitor the chain,
+# or serve RPC requests.
+#
+# For mining, see mainnet-miner-conf.toml.
+# For signing, see signer/mainnet-signer-conf.toml + mainnet-signer.toml.
+
 [node]
-# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
+# IMPORTANT: For production, set this to a persistent path.
+# The default (/tmp/stacks-node-<timestamp>) is lost on reboot.
+# working_dir = "/stacks-data/mainnet"
+
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
-prometheus_bind = "0.0.0.0:9153" 
+prometheus_bind = "0.0.0.0:9153"
+
+# Explicitly not a miner or signer.
+miner = false
+stacker = false
+
+# Mainnet bootstrap nodes (4 seeds) are auto-populated when mode = "mainnet".
+# Only override if you need custom seeds (replaces all 4 defaults):
+# bootstrap_node = "02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444"
+
+# Enable transaction indexing for API queries.
+# Required if running stacks-blockchain-api.
+# Default: false
+# txindex = true
 
 [burnchain]
 mode = "mainnet"
 peer_host = "127.0.0.1"
+# rpc_port = 8332  # Bitcoin mainnet RPC (default)
+# peer_port = 8333 # Bitcoin mainnet P2P (default)
 
-# Used for sending events to a local stacks-blockchain-api service
+# Bitcoin RPC credentials (required by most bitcoind instances).
+# username = "your-bitcoin-rpc-user"
+# password = "your-bitcoin-rpc-password"
+
+# Optional: stacks-blockchain-api event observer.
 # [[events_observer]]
 # endpoint = "localhost:3700"
 # events_keys = ["*"]
 # timeout_ms = 60_000
 
-# Used if running a local stacks-signer service
+# To upgrade this node to also serve a signer, you need:
+#   1. Set stacker = true in [node]
+#   2. Uncomment the signer events_observer below
+#   3. Uncomment the [connection_options] auth_token below
+#   4. See mainnet-signer.toml for the full signer node config
+#
 # [[events_observer]]
 # endpoint = "127.0.0.1:30000"
 # events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
-
-# Used if running a local stacks-signer service
+#
 # [connection_options]
-# auth_token = "" # fill with a unique password
+# auth_token = "your-secret-token"

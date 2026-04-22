@@ -14,15 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use ::libsecp256k1;
 use ::libsecp256k1::curve::Scalar;
 pub use ::libsecp256k1::Error;
-#[cfg(not(feature = "wasm-deterministic"))]
-use ::libsecp256k1::{Error as LibSecp256k1Error, Message as LibSecp256k1Message};
 use ::libsecp256k1::{
-    PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
+    self, PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
     SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature, ECMULT_GEN_CONTEXT,
 };
+#[cfg(not(feature = "wasm-deterministic"))]
+use ::libsecp256k1::{Error as LibSecp256k1Error, Message as LibSecp256k1Message};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
 

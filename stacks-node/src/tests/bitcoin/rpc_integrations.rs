@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,152 +13,152 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Integration tests for [`BitcoinRpcClient`]
+//! Integration tests for [`BitcoinRpcClient`].
+//!
+//! These tests run against a real `bitcoind` node in Docker (via
+//! `BitcoinCoreContainer`). Set `BITCOIN_IMAGE_TAG` to run the suite
+//! against a specific Bitcoin Core image tag (for example, `25` or `25.2`).
+//! If `BITCOIN_IMAGE_TAG` is not set (or is empty),
+//! tests fall back to `BITCOIN_DEFAULT_IMAGE_TAG`.
+//!
+//! CI uses this mechanism to automate checks across
+//! the relevant set of Bitcoin Core versions.
 
-use std::env;
-
+use pinny::tag;
 use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use stacks::types::chainstate::BurnchainHeaderHash;
 
-use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
-    BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
+    BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
 use crate::burnchains::rpc::rpc_transport::RpcError;
 
 mod utils {
-    use std::net::TcpListener;
-
-    use stacks::config::Config;
+    use std::env;
 
     use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
     use crate::burnchains::rpc::rpc_transport::RpcAuth;
-    use crate::util::get_epoch_time_ms;
+    use crate::tests::bitcoin::core_container::{
+        BitcoinCoreContainer, BITCOIN_DEFAULT_IMAGE_TAG, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME,
+    };
 
-    pub fn create_stx_config() -> Config {
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        // overriding default "0.0.0.0" because doesn't play nicely on Windows.
-        config.burnchain.peer_host = String::from("127.0.0.1");
-        // avoiding peer port biding to reduce the number of ports to bind to.
-        config.burnchain.peer_port = 0;
-        config.burnchain.wallet_name = "my_wallet".to_string();
+    const ENV_BITCOIN_IMAGE_TAG: &str = "BITCOIN_IMAGE_TAG";
+    const ENV_CI: &str = "CI";
 
-        //Ask the OS for a free port. Not guaranteed to stay free,
-        //after TcpListner is dropped, but good enough for testing
-        //and starting bitcoind right after config is created
-        let tmp_listener =
-            TcpListener::bind("127.0.0.1:0").expect("Failed to bind to get a free port");
-        let port = tmp_listener.local_addr().unwrap().port();
+    /// Retrieves the Bitcoin Docker image tag.
+    ///
+    /// - Returns the value of [`ENV_BITCOIN_IMAGE_TAG`] if it is set and non-empty.
+    /// - If running in CI (with [`ENV_CI`] set to true`) and the variable is missing or empty, the function panics.
+    /// - Otherwise, returns the default image tag [`BITCOIN_DEFAULT_IMAGE_TAG`].
+    fn get_bitcoin_image_tag_from_env() -> String {
+        let is_ci = env::var(ENV_CI).unwrap_or_default() == "true";
 
-        config.burnchain.rpc_port = port;
-
-        let now = get_epoch_time_ms();
-        let dir = format!("/tmp/rpc-client-{port}-{now}");
-        config.node.working_dir = dir;
-
-        config
+        match env::var(ENV_BITCOIN_IMAGE_TAG) {
+            Ok(tag) if !tag.trim().is_empty() => tag,
+            _ if is_ci => panic!(
+                "Environment variable `{ENV_BITCOIN_IMAGE_TAG}` is required when running in CI",
+            ),
+            _ => BITCOIN_DEFAULT_IMAGE_TAG.to_string(),
+        }
     }
 
-    pub fn create_client_no_auth_from_stx_config(config: &Config) -> BitcoinRpcClient {
+    /// Create a bitcoin container configured with RPC credentials
+    pub fn create_container_from_env() -> BitcoinCoreContainer {
+        let image_tag = get_bitcoin_image_tag_from_env();
+        BitcoinCoreContainer::new_with_defaults(&image_tag)
+    }
+
+    /// Create a bitcoin container configured without RPC credentials
+    pub fn create_container_no_auth_from_env() -> BitcoinCoreContainer {
+        let image_tag = get_bitcoin_image_tag_from_env();
+        let mut result = BitcoinCoreContainer::new(&image_tag);
+        result
+            .add_arg("-regtest=1")
+            .add_arg("-server=1")
+            .add_arg("-rest=1")
+            .add_arg("-rpcbind=0.0.0.0")
+            .add_arg("-rpcallowip=0.0.0.0/0")
+            .add_arg("-rpcallowip=::/0");
+        result
+    }
+
+    /// Create a bitcoin client from bitcoin container using basic auth
+    pub fn create_client_from_container(container: &BitcoinCoreContainer) -> BitcoinRpcClient {
+        create_client_from_container_and_auth(
+            container,
+            RpcAuth::Basic {
+                username: BITCOIN_RPC_USERNAME.into(),
+                password: BITCOIN_RPC_PASSWORD.into(),
+            },
+        )
+    }
+
+    /// Create a bitcoin client from bitcoin container without authentication
+    pub fn create_client_no_auth_from_container(
+        container: &BitcoinCoreContainer,
+    ) -> BitcoinRpcClient {
+        create_client_from_container_and_auth(container, RpcAuth::None)
+    }
+
+    /// Creates a Bitcoin RPC client from the given container using the provided authentication method.
+    fn create_client_from_container_and_auth(
+        container: &BitcoinCoreContainer,
+        auth: RpcAuth,
+    ) -> BitcoinRpcClient {
         BitcoinRpcClient::new(
-            config.burnchain.peer_host.clone(),
-            config.burnchain.rpc_port,
-            RpcAuth::None,
-            config.burnchain.timeout,
+            "127.0.0.1".to_string(),
+            container.get_host_rpc_port(),
+            auth,
+            300,
             "stacks".to_string(),
         )
         .expect("Rpc client creation should be ok!")
     }
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config_with_auth = utils::create_stx_config();
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config_with_auth);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = utils::create_client_no_auth_from_stx_config(&config_with_auth);
+    let client = utils::create_client_no_auth_from_container(&btc_container);
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
-
     assert!(
         matches!(err, BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_))),
         "Expected RpcError::Network, got: {err:?}"
     );
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_no_auth_from_env();
+    btc_container.start();
 
-    let mut config_no_auth = utils::create_stx_config();
-    config_no_auth.burnchain.username = None;
-    config_no_auth.burnchain.password = None;
-
-    let client = utils::create_client_no_auth_from_stx_config(&config_no_auth);
-
-    let mut btcd_controller =
-        BitcoinCoreController::from_stx_config_and_client(&config_no_auth, client.clone());
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_no_auth_from_container(&btc_container);
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
-
     assert!(
         matches!(err, BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_))),
         "Expected RpcError::Network, got: {err:?}"
     );
 }
 
-#[ignore]
-#[test]
-fn test_client_creation_fails_due_to_stx_config_missing_auth() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let mut config_no_auth = utils::create_stx_config();
-    config_no_auth.burnchain.username = None;
-    config_no_auth.burnchain.password = None;
-
-    let err = BitcoinRpcClient::from_stx_config(&config_no_auth).expect_err("Client should fail!");
-
-    assert!(matches!(err, BitcoinRpcClientError::MissingCredentials));
-}
-
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_blockchain_info_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
 
     let info = client.get_blockchain_info().expect("Should be ok!");
     assert_eq!(BitcoinNetworkType::Regtest, info.chain);
@@ -170,21 +170,14 @@ fn test_get_blockchain_info_ok() {
     );
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_wallet_listing_and_creation_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
 
     let wallets = client.list_wallets().unwrap();
     assert_eq!(0, wallets.len());
@@ -207,21 +200,14 @@ fn test_wallet_listing_and_creation_ok() {
     assert_eq!("mywallet2", wallets[1]);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_wallet_creation_fails_if_already_exists() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
 
     client
         .create_wallet("mywallet1", Some(false))
@@ -242,22 +228,16 @@ fn test_wallet_creation_fails_if_already_exists() {
     }
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_new_address_for_each_address_type() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(&wallet, Some(false)).expect("OK");
 
     // Check Legacy p2pkh type OK
@@ -297,22 +277,16 @@ fn test_get_new_address_for_each_address_type() {
     assert!(default.expect_segwit().is_p2wpkh());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_generate_to_address_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
@@ -324,22 +298,16 @@ fn test_generate_to_address_ok() {
     assert_eq!(102, blocks.len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_list_unspent_empty_with_empty_wallet() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
 
     let utxos = client
@@ -348,22 +316,16 @@ fn test_list_unspent_empty_with_empty_wallet() {
     assert_eq!(0, utxos.len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_list_unspent_with_defaults() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
 
     let address = client
@@ -380,22 +342,16 @@ fn test_list_unspent_with_defaults() {
     assert_eq!(2, utxos.len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_list_unspent_one_address_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
@@ -434,22 +390,16 @@ fn test_list_unspent_one_address_ok() {
     assert_eq!(address, max1_utxos[0].address);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_list_unspent_two_addresses_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
 
     let address1 = client
@@ -514,22 +464,16 @@ fn test_list_unspent_two_addresses_ok() {
     assert_eq!(3, all2_utxos.len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_generate_block_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
@@ -543,23 +487,16 @@ fn test_generate_block_ok() {
     assert_eq!(64, block_hash.to_hex().len());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_raw_transaction_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
@@ -585,23 +522,16 @@ fn test_get_raw_transaction_ok() {
     assert_eq!(txid.to_hex(), raw_tx.txid().to_string());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_transaction_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
@@ -625,22 +555,16 @@ fn test_get_transaction_ok() {
     assert_eq!(0, resp.confirmations);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_descriptor_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, None)
         .expect("create wallet ok!");
@@ -655,22 +579,16 @@ fn test_get_descriptor_ok() {
     assert_eq!(checksum, info.checksum);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_import_descriptor_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(true))
         .expect("create wallet ok!");
@@ -693,22 +611,16 @@ fn test_import_descriptor_ok() {
     assert_eq!(None, response[0].error);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_import_descriptor_twice_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(true))
         .expect("create wallet ok!");
@@ -735,41 +647,28 @@ fn test_import_descriptor_twice_ok() {
     assert_eq!(None, response[0].error);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_stop_bitcoind_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
     let msg = client.stop().expect("Should shutdown!");
     assert_eq!("Bitcoin Core stopping", msg);
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_invalidate_block_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
@@ -793,22 +692,14 @@ fn test_invalidate_block_ok() {
         .expect_err("Invalidate nonexistent hash should fail!");
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_get_block_hash_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
 
     let bhh = client
         .get_block_hash(0)
@@ -816,23 +707,16 @@ fn test_get_block_hash_ok() {
     assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, bhh.to_hex());
 }
 
+#[tag(ci_skip)]
 #[ignore]
 #[test]
 fn test_send_raw_transaction_rebroadcast_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let client = utils::create_client_from_container(&btc_container);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");

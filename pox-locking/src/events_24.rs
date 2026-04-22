@@ -384,24 +384,22 @@ pub fn synthesize_pox_2_or_3_event_info(
             sender.clone(),
             None,
             pox_2_contract.contract_context,
-            |env| {
-                let base_event_info =
-                    env.eval_read_only(contract_id, &code_snippet)
-                        .map_err(|e| {
-                            error!(
+            |exec_state, invoke_ctx| {
+                let base_event_info = exec_state
+                    .eval_read_only(invoke_ctx, contract_id, &code_snippet)
+                    .map_err(|e| {
+                        error!(
                             "Failed to run event-info code snippet for '{function_name}': {e:?}"
                         );
-                            e
-                        })?;
+                        e
+                    })?;
 
-                let data_event_info =
-                    env.eval_read_only(contract_id, &data_snippet)
-                        .map_err(|e| {
-                            error!(
-                                "Failed to run data-info code snippet for '{function_name}': {e:?}"
-                            );
-                            e
-                        })?;
+                let data_event_info = exec_state
+                    .eval_read_only(invoke_ctx, contract_id, &data_snippet)
+                    .map_err(|e| {
+                        error!("Failed to run data-info code snippet for '{function_name}': {e:?}");
+                        e
+                    })?;
 
                 // merge them
                 let base_event_tuple = base_event_info

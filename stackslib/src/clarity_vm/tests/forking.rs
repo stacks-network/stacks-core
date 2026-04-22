@@ -22,7 +22,7 @@ use clarity::vm::test_util::{
 use clarity::vm::tests::test_clarity_versions;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::version::ClarityVersion;
-use clarity::vm::ContractContext;
+use clarity::vm::{ContractContext, ContractName};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 
@@ -82,9 +82,10 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let (mut exec_state, invoke_ctx) =
+                owned_env.get_exec_environment(None, None, &placeholder_context);
             let command = "(var-get datum)";
-            let value = env.eval_read_only(&c, command).unwrap();
+            let value = exec_state.eval_read_only(&invoke_ctx, &c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -178,9 +179,10 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let (mut exec_state, invoke_ctx) =
+                owned_env.get_exec_environment(None, None, &placeholder_context);
             let command = "(var-get datum)";
-            let value = env.eval_read_only(&c, command).unwrap();
+            let value = exec_state.eval_read_only(&invoke_ctx, &c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -380,7 +382,8 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
 
     eprintln!("Initializing contract...");
 
-    let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".into());
+    let contract_identifier =
+        QualifiedContractIdentifier::new(p1_address, ContractName::from_literal("tokens"));
     owned_env
         .initialize_contract(contract_identifier, &contract, None)
         .unwrap();
@@ -394,16 +397,20 @@ fn branched_execution(
     let Value::Principal(PrincipalData::Standard(p1_address)) = execute(p1_str) else {
         panic!("Expected a standard principal data");
     };
-    let contract_identifier = QualifiedContractIdentifier::new(p1_address.clone(), "tokens".into());
+    let contract_identifier =
+        QualifiedContractIdentifier::new(p1_address.clone(), ContractName::from_literal("tokens"));
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     eprintln!("Branched execution...");
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         let command = format!("(get-balance {})", p1_str);
-        let balance = env.eval_read_only(&contract_identifier, &command).unwrap();
+        let balance = exec_state
+            .eval_read_only(&invoke_ctx, &contract_identifier, &command)
+            .unwrap();
         let expected = if expect_success { 10 } else { 0 };
         assert_eq!(balance, Value::UInt(expected));
     }

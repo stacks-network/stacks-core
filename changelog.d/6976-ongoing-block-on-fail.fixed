@@ -1,0 +1,1 @@
+Fix to clear ongoing block commits when a `send_transaction` call fails ([#6976](https://github.com/stacks-network/stacks-core/pull/6976))

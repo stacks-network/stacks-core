@@ -1,0 +1,1 @@
+Fixed flakiness in `signer_waits_for_validation_before_signing` by waiting for state machine updates to prevent the signer from rejecting immediately.
