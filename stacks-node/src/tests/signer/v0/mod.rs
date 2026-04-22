@@ -128,18 +128,14 @@ pub mod tenure_extend;
 pub mod tx_replay;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
-    /// Run the test until the epoch 3 boundary
-    pub fn boot_to_epoch_3(&self) {
-        TEST_MINE_SKIP.set(true);
-        boot_to_epoch_3_reward_set(
-            &self.running_nodes.conf,
-            &self.running_nodes.counters.blocks_processed,
-            &self.signer_stacks_private_keys,
-            &self.signer_stacks_private_keys,
-            &self.running_nodes.btc_regtest_controller,
-            Some(self.num_stacking_cycles),
-        );
-
+    /// Poll until the reward set for the next reward cycle is available.
+    ///
+    /// If the coordinator hasn't yet determined the PoX anchor block and the
+    /// burn chain is still short of the next cycle boundary, mine another
+    /// burn block to give it the nudge it needs. Once past the boundary,
+    /// just wait — the anchor block had to be chosen from blocks before the
+    /// boundary, so mining more won't help.
+    pub fn wait_for_next_reward_set_calculation(&self) {
         info!("Waiting for signer set calculation.");
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
@@ -184,8 +180,22 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             }
         })
         .expect("Timed out waiting for reward set calculation");
-
         info!("Signer set calculated");
+    }
+
+    /// Run the test until the epoch 3 boundary
+    pub fn boot_to_epoch_3(&self) {
+        TEST_MINE_SKIP.set(true);
+        boot_to_epoch_3_reward_set(
+            &self.running_nodes.conf,
+            &self.running_nodes.counters.blocks_processed,
+            &self.signer_stacks_private_keys,
+            &self.signer_stacks_private_keys,
+            &self.running_nodes.btc_regtest_controller,
+            Some(self.num_stacking_cycles),
+        );
+
+        self.wait_for_next_reward_set_calculation();
 
         // Manually consume one more block to ensure signers refresh their state
         info!("Waiting for signers to initialize.");
@@ -319,51 +329,7 @@ impl SignerTest<SpawnedSigner> {
             target_height,
             &self.running_nodes.conf,
         );
-        debug!("Waiting for signer set calculation.");
-        // Make sure the signer set is calculated before continuing or signers may not
-        // recognize that they are registered signers in the subsequent burn block event
-        let reward_cycle = self.get_current_reward_cycle().wrapping_add(1);
-        let next_cycle_start = self
-            .running_nodes
-            .btc_regtest_controller
-            .get_burnchain()
-            .nakamoto_first_block_of_cycle(reward_cycle);
-        wait_for(240, || {
-            match self.stacks_client.get_reward_set_signers(reward_cycle).unwrap_or_default() {
-                Some(reward_set) => {
-                    debug!("Signer set: {reward_set:?}");
-                    Ok(true)
-                }
-                None => {
-                    let burn_height = get_chain_info(&self.running_nodes.conf).burn_block_height;
-                    if burn_height < next_cycle_start {
-                        // Still in the prepare phase or before the cycle boundary.
-                        // Mining another burn block is safe and may be needed for the
-                        // anchor block to be determined.
-                        warn!(
-                            "Reward set not yet available (burn_height={burn_height}, \
-                             cycle_start={next_cycle_start}). Mining another block."
-                        );
-                        next_block_and_wait(
-                            &self.running_nodes.btc_regtest_controller,
-                            &self.running_nodes.counters.blocks_processed,
-                        );
-                    } else {
-                        // We've already crossed into the next cycle. Mining more burn
-                        // blocks won't help — the anchor block should have been determined
-                        // during the prepare phase. Just wait for the Stacks chain to
-                        // catch up and process the existing blocks.
-                        debug!(
-                            "Reward set not yet available but already at burn_height={burn_height} \
-                             (>= cycle_start={next_cycle_start}). Waiting for Stacks chain to catch up."
-                        );
-                    }
-                    Ok(false)
-                }
-            }
-        })
-        .expect("Failed to calculate reward set");
-        debug!("Signer set calculated");
+        self.wait_for_next_reward_set_calculation();
         // Manually consume one more block to ensure signers refresh their state
         debug!("Waiting for signers to initialize.");
         info!("Advancing to the first full Epoch 2.5 reward cycle boundary...");
