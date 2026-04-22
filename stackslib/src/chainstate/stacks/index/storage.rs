@@ -840,15 +840,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Compute the reserved on-disk size for a root written after its children.
     fn reserved_root_size(base_len: usize, ptrs: &[TriePtr]) -> Result<u64, Error> {
-        let base_len = u64::try_from(base_len).map_err(|_| Error::OverflowError)?;
-        let inline_ptr_growth = u64::try_from(
-            ptrs.iter()
-                .filter(|p| !p.is_empty() && !is_backptr(p.id))
-                .count(),
-        )
-        .map_err(|_| Error::OverflowError)?
-        .checked_mul(4)
-        .ok_or(Error::OverflowError)?;
+        let base_len = base_len as u64;
+        let inline_count = ptrs
+            .iter()
+            .filter(|p| !p.is_empty() && !is_backptr(p.id))
+            .count() as u64;
+        let inline_ptr_growth = inline_count.checked_mul(4).ok_or(Error::OverflowError)?;
         base_len
             .checked_add(inline_ptr_growth)
             .ok_or(Error::OverflowError)
