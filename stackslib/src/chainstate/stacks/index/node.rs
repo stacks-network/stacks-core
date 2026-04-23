@@ -420,12 +420,12 @@ impl Default for TriePtr {
 
 impl TriePtr {
     /// Serialized size of the node-ID byte.
-    const ID_BYTES: usize = 1;
+    const ID_BYTE_LEN: usize = 1;
     /// Serialized size of the path-char byte.
-    const CHR_BYTES: usize = 1;
+    const CHR_BYTE_LEN: usize = 1;
     /// Serialized size of the `back_block` field (only present in uncompressed
     /// form, or in compressed form when the pointer is a backptr).
-    const BACK_BLOCK_BYTES: usize = 4;
+    const BACK_BLOCK_BYTE_LEN: usize = 4;
 
     #[inline]
     pub fn new(id: u8, chr: u8, ptr: u64) -> TriePtr {
@@ -521,7 +521,7 @@ impl TriePtr {
     #[inline]
     pub const fn encoded_size_for_id(node_id: u8) -> usize {
         let ptr_bytes = if is_u64_ptr(node_id) { 8 } else { 4 };
-        Self::ID_BYTES + Self::CHR_BYTES + ptr_bytes + Self::BACK_BLOCK_BYTES
+        Self::ID_BYTE_LEN + Self::CHR_BYTE_LEN + ptr_bytes + Self::BACK_BLOCK_BYTE_LEN
     }
 
     /// Return the maximum possible uncompressed encoded size for any `TriePtr`.
@@ -541,7 +541,7 @@ impl TriePtr {
     #[inline]
     pub const fn encoded_size_compressed_for_id(node_id: u8) -> usize {
         let ptr_bytes = if is_u64_ptr(node_id) { 8 } else { 4 };
-        Self::ID_BYTES + Self::CHR_BYTES + ptr_bytes
+        Self::ID_BYTE_LEN + Self::CHR_BYTE_LEN + ptr_bytes
     }
 
     #[inline]
