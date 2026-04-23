@@ -38,8 +38,9 @@ jobs:
   #  - either node or signer tag is provided
   andon-cord:
     name: Andon Cord
-    if: |
-      ${{ github.repository == 'stacks-network/stacks-core' && (inputs.node_tag != '' || inputs.signer_tag != '') }}
+    if: >-
+      github.repository == 'stacks-network/stacks-core' &&
+      (inputs.node_tag != '' || inputs.signer_tag != '')
     runs-on: ubuntu-latest
     environment: "Build Release"
     steps:
