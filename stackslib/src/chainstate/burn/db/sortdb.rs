@@ -3081,6 +3081,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_10(&db_tx)?;
         SortitionDB::apply_schema_11(&db_tx)?;
+        SortitionDB::apply_schema_12(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3671,6 +3672,10 @@ impl SortitionDB {
                     } else if version == 10 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_11(tx.deref())?;
+                        tx.commit()?;
+                    } else if version == 11 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_12(tx.deref())?;
                         tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed

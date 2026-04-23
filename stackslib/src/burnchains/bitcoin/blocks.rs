@@ -525,7 +525,7 @@ impl BitcoinBlockParser {
         epoch_id: StacksEpochId,
     ) -> Option<BitcoinBlock> {
         // block header contents must match
-        if !BitcoinBlockParser::check_block(&block, header) {
+        if !BitcoinBlockParser::check_block(block, header) {
             error!(
                 "Expected block {} does not match received block {}",
                 header.header.bitcoin_hash(),
