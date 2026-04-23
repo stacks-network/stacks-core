@@ -5434,6 +5434,10 @@ impl PeerNetwork {
             // same tip
             return false;
         }
+        if last_stacks_tip_height == 0 {
+            // this is the first time this is being called. Skip
+            return false;
+        }
 
         if last_stacks_tip_height == stacks_tip_height && last_stacks_tip != stacks_tip {
             // last block is a sibling
