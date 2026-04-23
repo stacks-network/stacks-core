@@ -117,13 +117,11 @@ jobs:
     runs-on: ubuntu-latest
     # Run if test-archive is missing; tolerate cargo being skipped (cache already existed)
     #   - If the cargo target cache (or the test-archive cache) is missing, then we'll need to rebuild the test archive and cache both the archive and cargo target (cargo archive is required for code coverage).
-    if: |
-      always() &&
-      needs.cargo.result == 'success' || needs.cargo.result == 'skipped' &&
-      (
-        needs.check-caches.outputs.cargo-target-cache-hit != 'true' ||
-        needs.check-caches.outputs.test-archive-cache-hit != 'true'
-      )
+    if: >-
+      !cancelled() &&
+      (needs.cargo.result == 'success' || needs.cargo.result == 'skipped') &&
+      (needs.check-caches.outputs.cargo-target-cache-hit != 'true' ||
+      needs.check-caches.outputs.test-archive-cache-hit != 'true')
     steps:
       # Checkout the code
       - name: Checkout the latest code
