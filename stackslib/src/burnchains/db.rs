@@ -576,10 +576,15 @@ impl BurnchainDBTransaction<'_> {
         Ok(())
     }
 
-    /// Prune watched outputs whose block height is older than 1.5 reward cycles.
-    pub fn prune_watched_outputs(&self, reward_cycle_length: u32) -> Result<(), BurnchainError> {
-        // Use integer arithmetic: threshold = (3 * reward_cycle_length) / 2
-        let threshold = (3u64 * u64::from(reward_cycle_length)) / 2;
+    /// Prune watched outputs whose block height is older than 1.5 reward cycles
+    /// before `current_block_height`.
+    pub fn prune_watched_outputs(
+        &self,
+        reward_cycle_length: u32,
+        current_block_height: u64,
+    ) -> Result<(), BurnchainError> {
+        let window = (3u64 * u64::from(reward_cycle_length)) / 2;
+        let threshold = current_block_height.saturating_sub(window);
         let sql = "DELETE FROM watched_p2wsh_outputs WHERE block_height < ?1";
         let deleted = self.sql_tx.execute(sql, [u64_to_sql(threshold)?])?;
         if deleted > 0 {
@@ -1130,7 +1135,10 @@ impl BurnchainDB {
         db_tx.store_burnchain_db_entry(&header)?;
         db_tx.store_blockstack_ops(&header, &blockstack_ops)?;
         db_tx.store_watched_outputs(&header, watched_p2wsh_outputs)?;
-        db_tx.prune_watched_outputs(burnchain.pox_constants.reward_cycle_length)?;
+        db_tx.prune_watched_outputs(
+            burnchain.pox_constants.reward_cycle_length,
+            header.block_height,
+        )?;
         db_tx.commit()?;
 
         Ok(blockstack_ops)

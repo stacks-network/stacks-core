@@ -1408,12 +1408,14 @@ fn prune_watched_outputs() {
     let burnchain = Burnchain::regtest(":memory:");
     let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
 
-    // With reward_cycle_length = 10, the prune threshold is (3 * 10) / 2 = 15.
-    // Outputs at block heights < 15 should be deleted; those at >= 15 should survive.
+    // With reward_cycle_length = 10, the retention window is (3 * 10) / 2 = 15 blocks.
+    // Pruning against a tip at height 100 keeps outputs with block_height >= 85.
     let reward_cycle_length: u32 = 10;
-    let threshold: u64 = (3 * u64::from(reward_cycle_length)) / 2; // 15
+    let window: u64 = (3 * u64::from(reward_cycle_length)) / 2; // 15
+    let current_block_height: u64 = 100;
+    let threshold = current_block_height - window; // 85
 
-    let heights: &[u64] = &[1, 5, 10, 14, 15, 20];
+    let heights: &[u64] = &[1, 50, 80, 84, 85, 90, 100];
     let mut parent = first_bhh;
     for &height in heights {
         let hash_bytes = [(height as u8); 32];
@@ -1439,7 +1441,9 @@ fn prune_watched_outputs() {
     }
 
     let db_tx = db.tx_begin().unwrap();
-    db_tx.prune_watched_outputs(reward_cycle_length).unwrap();
+    db_tx
+        .prune_watched_outputs(reward_cycle_length, current_block_height)
+        .unwrap();
     db_tx.commit().unwrap();
 
     for &height in heights {
@@ -1457,5 +1461,23 @@ fn prune_watched_outputs() {
                 "Expected outputs at height {height} to survive (threshold={threshold})"
             );
         }
+    }
+
+    // When the tip is below the retention window, nothing should be pruned.
+    let early_tip: u64 = 5;
+    let db_tx = db.tx_begin().unwrap();
+    db_tx
+        .prune_watched_outputs(reward_cycle_length, early_tip)
+        .unwrap();
+    db_tx.commit().unwrap();
+
+    for &height in heights.iter().filter(|&&h| h >= threshold) {
+        let block_hash = BurnchainHeaderHash([(height as u8); 32]);
+        let remaining = BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash).unwrap();
+        assert_eq!(
+            remaining.len(),
+            1,
+            "Expected outputs at height {height} to survive a below-window prune"
+        );
     }
 }
