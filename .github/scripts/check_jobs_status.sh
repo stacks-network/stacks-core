@@ -31,12 +31,6 @@ done
 : "${JOBS:?JOBS env var is required}"
 SUMMARY_PRINT="${SUMMARY_PRINT:-true}"
 
-## ── Validate jq is available ────────────────────────────────────────────────
-if ! command -v jq > /dev/null 2>&1; then
-    error "$(hl "jq") is not installed or not in \$PATH"
-    exit 1
-fi
-
 ## ── Validate JOBS is parseable JSON ─────────────────────────────────────────
 if ! jq -e type <<< "${JOBS}" > /dev/null 2>&1; then
     error "JOBS env var is not valid JSON. Received: $(hl "${JOBS}")"
