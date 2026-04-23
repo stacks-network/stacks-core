@@ -1101,7 +1101,7 @@ impl StacksTransactionSigner {
         let mut new_tx = tx.clone();
         new_tx.auth.set_sponsor(spending_condition)?;
         let origin_sighash = new_tx
-            .verify_origin(TransactionAuthVerificationMode::VerifyLowS)
+            .verify_origin(TransactionAuthVerificationMode::EnforceLowS)
             .map_err(Error::NetError)?;
 
         Ok(StacksTransactionSigner {
@@ -1674,12 +1674,12 @@ mod test {
     ) {
         // signature is well-formed otherwise
         signed_tx
-            .verify(TransactionAuthVerificationMode::VerifyLowS)
+            .verify(TransactionAuthVerificationMode::EnforceLowS)
             .unwrap();
 
         let tx_with_high_s = signed_tx.with_negated_s_in_signature();
         let lenient_result = tx_with_high_s.verify(TransactionAuthVerificationMode::AllowHighS);
-        let strict_result = tx_with_high_s.verify(TransactionAuthVerificationMode::VerifyLowS);
+        let strict_result = tx_with_high_s.verify(TransactionAuthVerificationMode::EnforceLowS);
         assert!(
             lenient_result.is_ok(),
             "lenient verification result should be ok but was {lenient_result:?}",

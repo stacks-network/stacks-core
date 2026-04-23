@@ -406,7 +406,7 @@ fn main() {
                 })
                 .unwrap();
 
-            let verified_strict = tx.verify(TransactionAuthVerificationMode::VerifyLowS);
+            let verified_strict = tx.verify(TransactionAuthVerificationMode::EnforceLowS);
             if verified_strict.is_ok() {
                 println!("Verified: {:#?}", verified_strict);
             } else {

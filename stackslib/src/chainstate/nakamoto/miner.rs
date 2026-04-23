@@ -877,7 +877,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 // Ensure no transaction has a signature with high S. While consensus allows them,
                 // the signers should reject them, and the miner should never mine a block with
                 // such a transaction (and because the mempool also rejects them, that shouldn't happen)
-                Some(TransactionAuthVerificationMode::VerifyLowS),
+                Some(TransactionAuthVerificationMode::EnforceLowS),
                 |receipt| {
                     if !receipt.post_condition_aborted {
                         let all_events_valid = receipt.events.iter().all(|event| {

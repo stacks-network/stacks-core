@@ -43,7 +43,7 @@ use crate::net::Error as net_error;
 #[repr(u8)]
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TransactionAuthVerificationMode {
-    VerifyLowS,
+    EnforceLowS,
     AllowHighS,
 }
 
@@ -2365,7 +2365,7 @@ mod test {
                     nonces[i],
                     &key_encoding,
                     &sig,
-                    TransactionAuthVerificationMode::VerifyLowS
+                    TransactionAuthVerificationMode::EnforceLowS
                 )
                 .unwrap();
 

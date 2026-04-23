@@ -632,7 +632,7 @@ impl StacksChainState {
             if epoch_id.allows_tx_signatures_with_high_s() {
                 TransactionAuthVerificationMode::AllowHighS
             } else {
-                TransactionAuthVerificationMode::VerifyLowS
+                TransactionAuthVerificationMode::EnforceLowS
             }
         });
 

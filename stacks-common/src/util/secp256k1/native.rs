@@ -183,7 +183,7 @@ impl Secp256k1PublicKey {
     }
 
     /// Recover message and signature to public key (will be compressed), while
-    /// skippign validation that the signature is normalized to low-S. You shouldn't
+    /// skipping validation that the signature is normalized to low-S. You shouldn't
     /// use this in new code.
     pub fn recover_to_pubkey_without_validating_low_s(
         msg: &[u8],

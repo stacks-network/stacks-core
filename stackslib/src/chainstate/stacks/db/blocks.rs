@@ -6603,7 +6603,7 @@ impl StacksChainState {
             chainstate_config,
             tx,
             epoch,
-            Some(TransactionAuthVerificationMode::VerifyLowS),
+            Some(TransactionAuthVerificationMode::EnforceLowS),
         )
         .map_err(MemPoolRejection::FailedToValidate)?;
 
