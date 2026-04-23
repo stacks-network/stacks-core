@@ -135,7 +135,7 @@ impl FromRow<WatchedP2WSHOutput> for WatchedP2WSHOutput {
 
         Ok(WatchedP2WSHOutput {
             witness_script_hash,
-            amount: amount_i64 as u64,
+            amount: u64::try_from(amount_i64).expect("FATAL: more than 21M bitcoin exist"),
             txid,
             vout,
         })

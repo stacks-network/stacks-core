@@ -459,7 +459,7 @@ impl BitcoinBlockParser {
     /// or not to decode scriptSigs.
     pub fn parse_block(
         &self,
-        block: Block,
+        block: &Block,
         block_height: u64,
         epoch_id: StacksEpochId,
     ) -> BitcoinBlock {
@@ -497,7 +497,7 @@ impl BitcoinBlockParser {
                     txid: Txid::from_bitcoin_tx_hash(&tx.txid()),
                     vout: vout_index
                         .try_into()
-                        .expect("FATAL: parsed bitcoin tx with greater that u32::MAX outputs"),
+                        .expect("FATAL: parsed bitcoin tx with greater than u32::MAX outputs"),
                 });
             }
         }
@@ -519,7 +519,7 @@ impl BitcoinBlockParser {
     /// (in which case, we should re-start the conversation with the peer and try again).
     pub fn process_block(
         &self,
-        block: Block,
+        block: &Block,
         header: &LoneBlockHeader,
         height: u64,
         epoch_id: StacksEpochId,
@@ -549,7 +549,7 @@ impl BurnchainBlockParser for BitcoinBlockParser {
         epoch_id: StacksEpochId,
     ) -> Result<BurnchainBlock, burnchain_error> {
         match ipc_block.block_message {
-            btc_message::NetworkMessage::Block(block) => {
+            btc_message::NetworkMessage::Block(ref block) => {
                 match self.process_block(
                     block,
                     &ipc_block.header_data.block_header,
@@ -1263,7 +1263,7 @@ mod tests {
             let height = block_fixture.height;
 
             let parsed_block_opt =
-                parser.process_block(block, &header, height, StacksEpochId::Epoch2_05);
+                parser.process_block(&block, &header, height, StacksEpochId::Epoch2_05);
             assert_eq!(parsed_block_opt, block_fixture.result);
         }
     }
