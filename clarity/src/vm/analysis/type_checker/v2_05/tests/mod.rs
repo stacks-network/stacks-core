@@ -947,8 +947,25 @@ fn test_lists() {
         StaticCheckErrorKind::ExpectedSequence(Box::new(UIntType)),
         StaticCheckErrorKind::ExpectedSequence(Box::new(IntType)),
         StaticCheckErrorKind::TypeError(Box::new(IntType), Box::new(BoolType)),
+        StaticCheckErrorKind::UnionTypeError(
+            vec![IntType, UIntType],
+            Box::new(TypeSignature::NoType),
+        ),
+        StaticCheckErrorKind::UnionTypeError(
+            vec![IntType, UIntType],
+            Box::new(TypeSignature::NoType),
+        ),
+        StaticCheckErrorKind::TypeError(
+            Box::new(TypeSignature::IntType),
+            Box::new(TypeSignature::NoType),
+        ),
     ];
 
+    assert_eq!(
+        good.len(),
+        expected.len(),
+        "Good tests should match related expected count"
+    );
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
@@ -956,6 +973,11 @@ fn test_lists() {
         );
     }
 
+    assert_eq!(
+        bad.len(),
+        bad_expected.len(),
+        "Bad tests should match related expected count"
+    );
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
