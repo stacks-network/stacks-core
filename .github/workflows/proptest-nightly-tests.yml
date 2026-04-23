@@ -55,12 +55,13 @@ env:
   ## Test tag to filter for proptest tests
   TEST_TAG: t_prop
   ## Enable `madhouse-rs` tests to work with `PROPTEST_CASES`
-  MADHOUSE: 1 
+  MADHOUSE: 1
 
 
 jobs:
   proptests-nightly:
     name: Run All Proptest Tests
+    if: github.repository == 'stacks-network/stacks-core' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       ## Compute env variables depending on the workflow trigger (schedule vs dispatch)
