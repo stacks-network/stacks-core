@@ -1,12 +1,15 @@
-## Perform Clippy checks - currently set to defaults
-##   https://github.com/rust-lang/rust-clippy#usage
-##   https://rust-lang.github.io/rust-clippy/master/index.html
-##
+# Perform Clippy checks - currently set to defaults
+#   https://github.com/rust-lang/rust-clippy#usage
+#   https://rust-lang.github.io/rust-clippy/master/index.html
+#
 name: Clippy Checks
 
 # Only run when:
 #   - PRs are (re)opened against develop branch
+#   - commit is pushed to PR
+#   - PR is added to merge queue
 on:
+  workflow_dispatch:
   merge_group:
     types:
       - checks_requested
@@ -18,25 +21,37 @@ on:
       - reopened
       - synchronize
 
+# set default permissions
+permissions:
+  contents: read
+
+# configure concurrency
+concurrency:
+  group: clippy-${{ github.head_ref || github.ref || github.run_id }}
+  # Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  clippy_check:
+  clippy-checks:
     name: Clippy Check
     runs-on: ubuntu-latest
     steps:
+      # Checkout the code
       - name: Checkout the latest code
-        id: git_checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Rust Toolchain
-        id: setup_rust_toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
-          cache: false
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
+      # Setup the default rust toolchain with clippy
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          components: clippy
+
+      # Run clippy with clippy-stacks alias in .cargo/config.toml
       - name: Clippy
-        id: clippy
         run: cargo clippy-stacks
 
+      # Run clippy with clippy-stackslib alias in .cargo/config.toml
       - name: Clippy Stackslib
-        id: clippy-stackslib
         run: cargo clippy-stackslib

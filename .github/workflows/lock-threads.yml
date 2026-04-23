@@ -1,8 +1,8 @@
-## Workflow to lock closed PRs/issues/discussions
-## timeframe to lock defaults to:
-##    issues: 30 days
-##    prs: 30 days
-##    discussions: 365 days
+# Workflow to lock closed PRs/issues/discussions
+# timeframe to lock defaults to:
+#    issues: 30 days
+#    prs: 30 days
+#    discussions: 365 days
 
 name: "Lock Threads"
 
@@ -11,26 +11,26 @@ on:
     - cron: "0 0 * * *"
   workflow_dispatch:
 
+# set default permissions
 permissions:
   issues: write
   pull-requests: write
   discussions: write
 
+# configure concurrency
 concurrency:
   group: lock-threads
 
 jobs:
-  ## Lock closed issues/prs/discussions
+  # Lock closed issues/prs/discussions
   lock:
     name: Lock Threads
     runs-on: ubuntu-latest
     steps:
       - name: Lock Threads
-        id: lock_threads
-        uses: stacks-network/actions/lock-threads@main
+        uses: dessant/lock-threads@7266a7ce5c1df01b1c6db85bf8cd86c737dadbe7 # v6.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           issue-inactive-days: 7
-          pr-inactive-days: 7
+          pr-inactive-days: 14
           discussion-inactive-days: 7
-    
