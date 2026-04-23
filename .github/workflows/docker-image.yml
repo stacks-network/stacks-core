@@ -1,6 +1,4 @@
-## Github workflow to build a docker image from source
-#  - first builds the binaries from source for x86_64 and arm64
-#  - then builds the docker image from the binary artifacts
+# Github workflow to build a docker image from a branch
 
 name: Docker Image
 
@@ -8,6 +6,15 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "00 05 * * *" # 0500 UTC
+
+# set default permissions
+permissions:
+  contents: read
+
+# set default shell
+defaults:
+  run:
+    shell: bash
 
 env:
   # build for both x64 and arm64 arch
@@ -20,20 +27,19 @@ env:
   PROVENANCE: false
   # set the build target statically, since we only need to build for linux-glibc
   ARCH: linux-glibc
-
+# configure concurrency
 concurrency:
   group: docker-image-${{ github.head_ref || github.ref || github.run_id }}
-  ## Always cancel duplicate jobs
+  # Always cancel duplicate jobs
   cancel-in-progress: true
 
 jobs:
-  ## Build arch dependent binaries from source
+  # Build arch dependent binaries from source
   build-binaries:
     name: Build Binaries
+    # Only run this if it's the public repo or manually triggered
+    if: github.repository == 'stacks-network/stacks-core' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      attestations: write
     strategy:
       max-parallel: 2
       matrix:
@@ -42,247 +48,191 @@ jobs:
         cpu:
           - x86-64
           - arm64
+    permissions:
+      contents: read       # required for checkout
+      id-token: write      # required for attestation
+      attestations: write  # required for attestation
+    outputs:
+      branch: ${{ steps.set-vars.outputs.branch }}
     steps:
-      ## set local env vars
+      # Set local env vars.
+      #     - if the event is a schedule, use develop branch; otherwise use ref_name
       - name: Set Local Vars
-        id: set_vars
-        shell: bash
+        id: set-vars
         run: |
           var_branch="${{ github.ref_name }}"
           if [ "${{ github.event_name }}" == "schedule" ]; then
             var_branch="develop"
           fi
-          echo "BRANCH=${var_branch}" >> $GITHUB_ENV
+          echo "branch=${var_branch}" >> "$GITHUB_OUTPUT"
 
-      ## Checkout the code
+      # Checkout the code
+      #   - checkout a specified branch or develop for scheduled jobs
       - name: Checkout the latest code
-        id: git_checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ env.BRANCH }}
+          ref: ${{ steps.set-vars.outputs.branch }}
 
-      ## Set target env var based on the type of arch build
-      ##   - simplified from ./release-build.yml configure_target_platform step (only 2 target triples to build in this workflow)
-      - name: Configure Target Platform
-        id: configure_target_platform
-        shell: bash
-        run: |
-          case ${{ matrix.cpu }} in
-            x86-64*)
-              ARCHIVE_NAME="$(echo "${{ matrix.cpu }}" | sed -e 's|86-||g')" # if matrix.cpu ever changes to a different x86 version, this will set the archive naming appropriately.
-              # set the CPU to build for. if the matrix defines x86-64, default to -v3, else use what's defined in the matrix
-              case ${{ matrix.cpu }} in
-                x86-64)
-                  TARGET_CPU="${{ matrix.cpu }}-v3" # default to x86-64-v3 if generic x86-64 is used for the build
-                  ;;
-                *)
-                  TARGET_CPU="${{ matrix.cpu }}" # if matrix.cpu is specifically v3/v4, we should target that
-                  ;;
-              esac
-              # install dependencies for the x86-64 architecture, and set the rust target for the build step
-              sudo apt-get update && sudo apt-get install -y git libclang-dev llvm || exit 1
-              TARGET="x86_64-unknown-linux-gnu"
-              ;;
-            arm64)
-              # install dependencies for the arm64 architecture, and set the rust target for the build step
-              ARCHIVE_NAME=${{ matrix.cpu }}
-              sudo apt-get update && sudo apt-get install -y git gcc-aarch64-linux-gnu libclang-dev llvm || exit 1
-              TARGET="aarch64-unknown-linux-gnu"
-              ;;
-            *)
-              echo "Unsupported architecture: ${{ matrix.cpu }}"
-              exit 1
-              ;;
-          esac
-          if [[ -z "$TARGET" ]]; then
-            echo "[ERROR] TARGET Variable is empty for ${{ env.ARCH }}-${{ matrix.cpu }}";
-            exit 1
-          fi
-          echo "TARGET=${TARGET}" >> "$GITHUB_ENV"
-          echo "TARGET_CPU=${TARGET_CPU}" >> "$GITHUB_ENV"
-          echo "ZIPFILE_NAME=${{ env.ARCH }}-${ARCHIVE_NAME}" >> "$GITHUB_ENV"
-
-      ## Install rust toolchain for the target being built
-      - name: Setup Rust Toolchain
-        id: setup_rust_toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
+      # Setup Docker for the builds
+      - name: Docker setup
+        id: docker-setup
+        uses: ./.github/actions/docker
         with:
-          cache: false
-          target: ${{ env.TARGET }}
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      ## Build the binaries
+      # Configure target platform, install Rust toolchain, and build binaries
       - name: Build Binaries
-        id: build_binaries
-        shell: bash
-        run: |
-          #
-          # for each target, we will also echo the command being run so it's easier to see in the logs what command was run
-          #
-          case "${{ env.TARGET }}" in
-            # linux glibc aarch64
-            aarch64-unknown-linux-gnu)
-              LINKER=aarch64-linux-gnu-gcc
-              echo "$CMD --target $TARGET --config \"target.${TARGET}.linker=\\\"${LINKER}\\\"\" "
-              ${{ env.CMD }} --target $TARGET --config "target.${{ env.TARGET }}.linker=\"${LINKER}\"" || exit 1
-              ;;
-            # linux glibc x64
-            x86_64-unknown-linux-gnu)
-              # use the default linker
-              echo "$CMD --target $TARGET --config build.rustflags=\"\\\"-C target-cpu=${TARGET_CPU}\\\"\" "
-              ${{ env.CMD }} --target $TARGET --config build.rustflags="\"-C target-cpu=${TARGET_CPU}\"" || exit 1
-              ;;
-            *)
-              echo "No matrix match for build target ($TARGET). using defaults"
-              ${{ env.CMD }} || exit 1
-              ;;
-          esac
-          exit 0
+        id: build-binaries
+        env:
+          MATRIX_CPU: ${{ matrix.cpu }}
+          MATRIX_ARCH: ${{ env.ARCH }}
+          CMD: ${{ env.CMD }}
+          SIGNER_ONLY: "false"
+        run: bash ./.github/scripts/build_binaries.sh
 
-      ## Compress the binary artifacts
+      # Compress the binary artifacts
       - name: Compress binaries
-        id: compress_artifacts
-        shell: bash
         run: |
           # compress all binaries in the target directory for any architecture
-          file -0 ./target/${{ env.TARGET }}/release/* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{ env.ZIPFILE_NAME }}.zip -@
+          file -0 ./target/${{ steps.build-binaries.outputs.target }}/release/* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{ steps.build-binaries.outputs.zipfile_name }}.zip -@
 
-      ## Upload the binary archive using the commit sha as the key
+      # Upload the binary archive using the commit sha as the key
       - name: Upload Artifact
-        id: upload_artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: ${{ github.sha }}-${{ env.ZIPFILE_NAME }}
-          path: ${{ env.ZIPFILE_NAME }}.zip
+          name: ${{ github.sha }}-${{ steps.build-binaries.outputs.zipfile_name }}
+          path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
-      ## Attest the binary archive
+      # Attest the binary archive
       - name: Attest Artifact
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-path: ${{ env.ZIPFILE_NAME }}.zip
+          subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
+  # Build and publish the docker images using the binary archives
   image:
     name: Build Image
-    runs-on: ubuntu-latest
     needs:
       - build-binaries
+    # Only run this if it's the public repo or manually triggered
+    if: github.repository == 'stacks-network/stacks-core' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     permissions:
-      id-token: write
-      attestations: write
-      packages: write
+      contents: read       # required for checkout
+      id-token: write      # required for attestation
+      attestations: write  # required for attestation
+      packages: write      # required for image push
     steps:
-      ## Retrieve repository description for image annotation
+      # Retrieve repository description for image annotation
       - name: Get repository description
-        id: repo_desc
+        id: repo-desc
         run: |
           DESCRIPTION=$(gh api repos/${{ github.repository }} --jq '.description')
           echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ github.token }}
 
-      ## set local env vars
+      # Set local env vars
       - name: Set Local Vars
-        id: set_vars
-        shell: bash
+        id: set-vars
         run: |
-          var_branch="${{ github.ref_name }}"
-          var_annotation_pattern="${var_branch}" # default to use the branch name
+          var_annotation_pattern="${{ needs.build-binaries.outputs.branch }}" # default to use the branch name
           var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository }}"
           if [ "${{ github.event_name }}" == "schedule" ]; then
             var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/stacks-nightly"
-            var_branch="develop"
             var_annotation_pattern="Nightly" # for scheduled (nightly) builds, use 'Nightly'
           fi
-          echo "DOCKER_IMAGES=${var_default_image}" >> $GITHUB_ENV
-          echo "BRANCH=${var_branch}" >> $GITHUB_ENV
-          echo "ANNOTATION_PATTERN=${var_annotation_pattern}" >> $GITHUB_ENV
+          {
+            echo "docker_images=${var_default_image}"
+            echo "annotation_pattern=${var_annotation_pattern}"
+          } >> "${GITHUB_OUTPUT}"
 
-      ## Checkout the code
+      # Checkout the code
+      #   - only .github is required for this job
       - name: Checkout the latest code
-        id: git_checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ env.BRANCH }}
+          ref: ${{ needs.build-binaries.outputs.branch }} # use the output in case we're building a nightly image
           sparse-checkout: |
             .github
 
-      ## Download binary artifacts
+      # Download binary artifacts
       - name: Download Artifacts
-        id: download_artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: ${{ github.sha }}-* # linux-glibc variants are the only artifacts produced, download for both architectures (Dockerfile will choose specific architecture arhive)
+          # linux-glibc variants are the only artifacts produced, download for both architectures (Dockerfile will choose specific architecture archive)
+          pattern: ${{ github.sha }}-*
           path: /tmp/release
           merge-multiple: true
 
-      ## Setup Docker for the builds
+      # Setup Docker for the builds
       - name: Docker setup
-        id: docker_setup
-        uses: stacks-network/actions/docker@main
+        id: docker-setup
+        uses: ./.github/actions/docker
         with:
           registry: ${{ env.DOCKER_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      ## Set docker metatdata
+      # Set docker metadata
       - name: Docker Metadata
-        id: docker_metadata
-        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 #v5.9.0
+        id: docker-metadata
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf #v6.0.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
-          images: ${{ env.DOCKER_IMAGES }}
+          images: ${{ steps.set-vars.outputs.docker_images }}
           labels: |
             org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
             org.opencontainers.image.revision=${{ github.sha }}
           annotations: |
-            org.opencontainers.image.description=${{ steps.repo_desc.outputs.description }} | ${{ env.ANNOTATION_PATTERN}} Image
-            org.opencontainers.image.title=Stacks Core ${{ env.ANNOTATION_PATTERN}}
+            org.opencontainers.image.description=${{ steps.repo-desc.outputs.description }} | ${{ steps.set-vars.outputs.annotation_pattern }} Image
+            org.opencontainers.image.title=Stacks Core ${{ steps.set-vars.outputs.annotation_pattern }}
           tags: |
             # if trigger is workflow_dispatch
             type=ref,event=branch,enable=${{ github.event_name == 'workflow_dispatch' }}
             # if trigger is schedule, use a timestamp
             type=schedule,pattern={{date 'YYYYMMDD'}}
 
-      ## Build and push the docker image(s)
+      # Build and push the docker image(s)
       - name: Build and Push
-        id: docker_build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        id: docker-build
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           sbom: false
           provenance: ${{ env.PROVENANCE }}
           context: /tmp
-          file: ./.github/actions/dockerfiles/debian/Dockerfile
+          file: ./.github/dockerfiles/debian/Dockerfile
           platforms: ${{ env.DOCKER_PLATFORMS }}
-          tags: ${{ steps.docker_metadata.outputs.tags }}
-          labels: ${{ steps.docker_metadata.outputs.labels }}
-          annotations: ${{ steps.docker_metadata.outputs.annotations }} # Note: annotations are used for multi-architecture ghcr images
-          push: ${{ env.DOCKER_PUSH }}
+          tags: ${{ steps.docker-metadata.outputs.tags }}
+          labels: ${{ steps.docker-metadata.outputs.labels }}
+          annotations: ${{ steps.docker-metadata.outputs.annotations }} # Note: annotations are used for multi-architecture ghcr images
+          push: ${{ steps.docker-setup.outputs.docker_push }} # defined in .github/actions/docker composite
 
-      ## Generate docker image attestation(s)
+      # Generate docker image attestation(s)
       - name: Attest Image
         if: |
           env.PROVENANCE != true
-        id: attest_artifact
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-name: |
-            ${{ env.DOCKER_IMAGES }}
-          subject-digest: ${{ steps.docker_build.outputs.digest }}
-          push-to-registry: ${{ env.DOCKER_PUSH }}
+            ${{ steps.set-vars.outputs.docker_images }}
+          subject-digest: ${{ steps.docker-build.outputs.digest }}
+          push-to-registry: ${{ steps.docker-setup.outputs.docker_push }} # defined in .github/actions/docker composite
 
-      ## Sign the images with GitHub OIDC Token
-      ##   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
-      ##   - annotations show as null per https://github.com/sigstore/cosign/pull/4508 until a future release (or tagging this specific commit)
+      # Sign the images with GitHub OIDC Token
+      #   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
+      #   - annotations show as null per https://github.com/sigstore/cosign/pull/4508 until a future release (or tagging this specific commit)
       - name: Install Cosign
-        id: cosign_install
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.0
 
+      # Sign the images with Github OIDC token
       - name: Sign the images OIDC Token
-        id: cosign_image
-        shell: bash
         env:
-          DIGEST: ${{ steps.docker_build.outputs.digest }}
-          TAGS: ${{ steps.docker_metadata.outputs.tags }}
+          DIGEST: ${{ steps.docker-build.outputs.digest }}
+          TAGS: ${{ steps.docker-metadata.outputs.tags }}
         run: |
           images=""
           for tag in ${TAGS}; do
