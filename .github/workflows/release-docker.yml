@@ -160,7 +160,7 @@ jobs:
           tags: |
             # debian tags #
             #  latest tag
-            type=raw,value=latest,enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.artifact_pattern != 'true' && matrix.dist == 'debian' }}
+            type=raw,value=latest,enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
             #  latest-debian tag
             type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
             #  version tag
