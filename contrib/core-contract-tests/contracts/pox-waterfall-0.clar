@@ -54,8 +54,9 @@
         ;; target yield rate (apy) in basis points
         target-rate: uint,
         ;; representation of STX:BTC price
-        ;; this value is equal to "ustx per 1000 sats".
-        ;; used to determine bond seniority
+        ;; this value is equal to "ustx per 100 sats", which
+        ;; also translates to `(BTCUSD / STXUSD)`.
+        ;; used to determine bond priority
         stx-value-ratio: uint,
         ;; minimum amount of STX that must be locked
         ;; relative to BTC for this term.
@@ -334,8 +335,6 @@
                 sbtc-amount (lock-sbtc sbtc-amount)
             )))
             (bond (unwrap! (map-get? protocol-bonds bond-index) ERR_BOND_NOT_FOUND))
-            (ustx-value-of-sats (/ (* (get stx-value-ratio bond) sats-total) u1000))
-            (min-amount-ustx (/ (* ustx-value-of-sats (get min-ustx-ratio bond)) u10000))
             (allowance (unwrap!
                 (map-get? protocol-bond-allowances {
                     staker: tx-sender,
@@ -346,7 +345,13 @@
             (first-reward-cycle (bond-period-to-reward-cycle bond-index))
         )
         ;; Verify that they're sending enough STX
-        (asserts! (>= amount-ustx min-amount-ustx) ERR_INSUFFICIENT_STX)
+        (asserts!
+            (>= amount-ustx
+                (min-ustx-for-sats-amount sats-total (get stx-value-ratio bond)
+                    (get min-ustx-ratio bond)
+                ))
+            ERR_INSUFFICIENT_STX
+        )
 
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
@@ -836,6 +841,22 @@
         bond-index: bond-index,
         staker: staker,
     })
+)
+
+;; For a given `stx-value-ratio`, which represents "ustx per 100 sats",
+;; and a given `min-ustx-ratio`, which represents a minimum amount
+;; of STX that must be locked relative to BTC (in basis points),
+;; and a given `sats-amount`, calculate the minimum amount
+;; of STX needed to hit `min-ustx-ratio`.
+;;
+;; This is equal to the value-weighted amount of `sats-amount` multiplied
+;; by the percentage of `min-ustx-ratio` in STX terms.
+(define-read-only (min-ustx-for-sats-amount
+        (sats-amount uint)
+        (stx-value-ratio uint)
+        (min-ustx-ratio uint)
+    )
+    (/ (* (/ (* stx-value-ratio sats-amount) u100) min-ustx-ratio) u10000)
 )
 
 ;; Get the _current_ PoX staking principal information.  If the information

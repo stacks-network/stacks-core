@@ -4591,6 +4591,23 @@ export const contracts = {
         ],
         string | null
       >,
+      minUstxForSatsAmount: {
+        name: 'min-ustx-for-sats-amount',
+        access: 'read_only',
+        args: [
+          { name: 'sats-amount', type: 'uint128' },
+          { name: 'stx-value-ratio', type: 'uint128' },
+          { name: 'min-ustx-ratio', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          satsAmount: TypedAbiArg<number | bigint, 'satsAmount'>,
+          stxValueRatio: TypedAbiArg<number | bigint, 'stxValueRatio'>,
+          minUstxRatio: TypedAbiArg<number | bigint, 'minUstxRatio'>,
+        ],
+        bigint
+      >,
       rewardCycleToBurnHeight: {
         name: 'reward-cycle-to-burn-height',
         access: 'read_only',

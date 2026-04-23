@@ -65,7 +65,7 @@ test('scenario - setting up and starting a bond', () => {
   });
 
   const minUstxRatio = 1000n; // 10%
-  const stxValueRatio = 1000n; // 1 ustx = 1 sat
+  const stxValueRatio = 100n; // 1 ustx = 1 sat
   txOk(
     wf.setupBond({
       bondIndex: 0n,
