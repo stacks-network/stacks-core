@@ -750,17 +750,20 @@ impl StacksMicroblockHeader {
             .expect("BUG: failed to serialize to a vec");
         digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
-        let mut pubk =
-            StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature).map_err(|_ve| {
-                test_debug!(
-                    "Failed to verify signature: failed to recover public key from {:?}: {:?}",
-                    &self.signature,
-                    &_ve
-                );
-                net_error::VerifyingError(
-                    "Failed to verify signature: failed to recover public key".to_string(),
-                )
-            })?;
+        let mut pubk = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            &digest_bits,
+            &self.signature,
+        )
+        .map_err(|_ve| {
+            test_debug!(
+                "Failed to verify signature: failed to recover public key from {:?}: {:?}",
+                &self.signature,
+                &_ve
+            );
+            net_error::VerifyingError(
+                "Failed to verify signature: failed to recover public key".to_string(),
+            )
+        })?;
 
         pubk.set_compressed(true);
         Ok(StacksBlockHeader::pubkey_hash(&pubk))

@@ -1803,7 +1803,10 @@ impl BlockRejection {
             return Err("No signature to recover public key from");
         }
         let signature_hash = self.hash();
-        StacksPublicKey::recover_to_pubkey(signature_hash.as_bytes(), &self.signature)
+        StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            signature_hash.as_bytes(),
+            &self.signature,
+        )
     }
 }
 

@@ -3235,8 +3235,11 @@ fn signer_set_rollover() {
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(signer_test_public_keys.contains(&pk.to_bytes_compressed()));
         assert!(!new_signer_public_keys.contains(&pk.to_bytes_compressed()));
     }
@@ -3378,8 +3381,11 @@ fn signer_set_rollover() {
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(!signer_test_public_keys.contains(&pk.to_bytes_compressed()));
         assert!(new_signer_public_keys.contains(&pk.to_bytes_compressed()));
     }
@@ -3587,7 +3593,7 @@ fn duplicate_signers() {
         .into_iter()
         .filter(|accepted| accepted.signer_signature_hash == selected_sighash)
         .map(|accepted| {
-            let pubkey = Secp256k1PublicKey::recover_to_pubkey(
+            let pubkey = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
                 accepted.signer_signature_hash.bits(),
                 &accepted.signature,
             )
@@ -3724,8 +3730,11 @@ fn signer_multinode_rollover() {
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(signer_test_pks.contains(&pk.to_bytes_compressed()));
         assert!(!new_signer_pks.contains(&pk.to_bytes_compressed()));
     }
@@ -3855,8 +3864,11 @@ fn signer_multinode_rollover() {
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(!signer_test_pks.contains(&pk.to_bytes_compressed()));
         assert!(new_signer_pks.contains(&pk.to_bytes_compressed()));
     }

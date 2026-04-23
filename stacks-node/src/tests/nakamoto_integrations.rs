@@ -583,7 +583,7 @@ pub fn get_latest_block_proposal(
         return Err("No block proposals found".into());
     };
 
-    let pubkey = StacksPublicKey::recover_to_pubkey(
+    let pubkey = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
         proposed_block.header.miner_signature_hash().as_bytes(),
         &proposed_block.header.miner_signature,
     )
