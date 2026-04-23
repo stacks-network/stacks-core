@@ -4,7 +4,7 @@ name: Cargo Hack Check
 
 on:
   workflow_call:
-  workflow_dispatch:  # TESTING
+
 # set default permissions
 permissions:
   contents: read
