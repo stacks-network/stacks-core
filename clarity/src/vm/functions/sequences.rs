@@ -229,7 +229,11 @@ pub fn special_map(
         for iter in args_iterators.iter_mut() {
             let value = iter
                 .next()
-                .expect("infallible: iterator can't be shorter than min len")
+                .ok_or_else(|| {
+                    RuntimeCheckErrorKind::Unreachable(
+                        "iterator can't be shorter than min len".into(),
+                    )
+                })?
                 .map_err(|_| {
                     VmInternalError::Expect(
                         "ERROR: Invalid sequence data successfully constructed".into(),
