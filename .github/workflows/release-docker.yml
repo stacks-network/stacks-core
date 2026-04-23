@@ -156,7 +156,7 @@ jobs:
             org.opencontainers.image.title=${{ inputs.release_type }}
           annotations: |
             org.opencontainers.image.title=${{ inputs.release_type }}
-            org.opencontainers.image.description=${{ steps.repo-desc.outputs.description }} | ${{ steps.set-vars.outputs.annotatoin_pattern }} Image
+            org.opencontainers.image.description=${{ steps.repo-desc.outputs.description }} | ${{ steps.set-vars.outputs.annotation_pattern }} Image
           tags: |
             # debian tags #
             #  latest tag

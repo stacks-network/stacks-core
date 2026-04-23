@@ -3,7 +3,7 @@
 #
 # Required env vars (set by the calling workflow step):
 #   MATRIX_CPU   - CPU target from the build matrix  (e.g. x86-64, arm64)
-#   MATRIX_ARCH  - OS/ABI target from the build matrix (e.g. linux-glibc, inux-musl, macos, windows)
+#   MATRIX_ARCH  - OS/ABI target from the build matrix (e.g. linux-glibc, linux-musl, macos, windows)
 #   CMD          - Full cargo build command string
 #
 # Optional env vars:

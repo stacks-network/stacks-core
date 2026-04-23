@@ -15,7 +15,7 @@
 #   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stdout if unset
 set -euo pipefail
 
-# Load logging functions from loggin.sh for color and standardized output
+# Load logging functions from logging.sh for color and standardized output
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 
@@ -52,7 +52,7 @@ done
 
 ## --- List all ignored tests via nextest -------------------------------------
 info "Listing ignored tests from nextest archive..."
-cargo nextest list --archive-file ${nextest_archive} -Tjson > nextest_output.json || {
+cargo nextest list --archive-file "${nextest_archive}" -Tjson > nextest_output.json || {
     error "Error listing tests in $(hl ${nextest_archive})"
     exit 1
 }
