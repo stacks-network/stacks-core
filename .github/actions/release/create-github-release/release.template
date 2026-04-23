@@ -1,0 +1,19 @@
+This release contains bugfixes and improvements to the stacks-node and stacks-signer binaries, ensuring more consistent block production.
+This release is compatible with chainstate directories from ${node_epoch}.
+
+${companion_line}
+
+${changelog_section}
+
+Docker images have been published to GitHub Container Registry:
+
+* stacks-core: https://github.com/${repo}/pkgs/container/stacks-core
+  ```sh
+  docker pull ghcr.io/${repo_owner}/stacks-core:${node_tag}
+  ```
+* stacks-signer: https://github.com/${repo}/pkgs/container/stacks-signer
+  ```sh
+  docker pull ghcr.io/${repo_owner}/stacks-signer:${signer_tag}
+  ```
+
+This release is recommended for all Stacks node operators.

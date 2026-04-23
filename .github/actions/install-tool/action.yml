@@ -1,0 +1,19 @@
+# Install rust tool(s)
+
+name: Install Tools
+description: |
+  Wrapper for the `taiki-e/install-action` action to install required tools.
+inputs:
+  tool:
+    description: Comma-separated list of tools to install
+    required: true
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    # Install the defined input.tool
+    - name: Install cargo-nextest (testenv fallback)
+      uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6 # v2.56.8
+      with:
+        tool: ${{ inputs.tool }}

@@ -1,0 +1,69 @@
+# Store code coverage as build artifact
+
+name: Generate and Upload codecov artifact
+description: |
+    Generates code coverage data and uploads it to GitHub CI artifact storage
+
+inputs:
+  test-name:
+    description: "Test name for codecov"
+    required: true
+  binary-path:
+    description: "Binary path"
+    required: false
+    default: "./target/debug/"
+
+runs:
+  using: "composite"
+  steps:
+    # Modify test-name input to be a valid filename, since we use it to name the coverage file
+    - name: Generate sanitized test file name for grcov
+      id: generate_test_file_name
+      shell: bash
+      run: |
+        SANITIZED_FILE_NAME=$(echo "lcov_${{ inputs.test-name }}.info" | sed 's/[\\/:\*\?"<>|]/_/g')
+        echo "result=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
+
+    # Generate code coverage using grcov
+    #   - Resulting coverage filenames must be unique, so use test-name input to name the file
+    - name: Run grcov
+      shell: bash
+      run: |
+        grcov . \
+          -b ${{ inputs.binary-path }} \
+          -s . \
+          -t lcov \
+          --branch \
+          --ignore-not-existing \
+          --ignore "../*" \
+          --ignore "/*" \
+          --ignore ".github/**" \
+          --ignore ".vscode/**" \
+          --ignore "changelog.d/**" \
+          --ignore "contrib/**" \
+          --ignore "**/.cargo/**" \
+          --ignore "**/benches/**" \
+          --ignore "**/test{,s}/**" \
+          --ignore "**/test{,s}.rs" \
+          --ignore "**/*_test{,s}.rs" \
+          --ignore "**/*.clar" \
+          --ignore "**/*.json" \
+          --ignore "**/*.md" \
+          --ignore "**/*.sha256" \
+          --ignore "**/*.snap" \
+          --ignore "**/*.toml" \
+          --ignore "**/*.txt" \
+          --ignore "**/*.yml" \
+          -o ${{ steps.generate_test_file_name.outputs.result }} \
+        || exit 1
+
+    # Store coverage file in GitHub CI artifacts (with SHA prefix)
+    - name: Store Code Coverage as Artifact
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # 7.0.0
+      with:
+        name: ${{ github.sha }}-${{ steps.generate_test_file_name.outputs.result }}
+        path: ${{ steps.generate_test_file_name.outputs.result }}
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 9 # 0 (none) - 9 (most)
+        overwrite: true
