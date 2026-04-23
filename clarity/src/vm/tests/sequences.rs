@@ -440,38 +440,6 @@ fn test_variadic_map_list() {
 
     // Native functions
     // - 1 sequence: 1 empty, result empty.
-    let test = "(map pow (list))";
-    let expected = Value::list_from(vec![]).unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
-
-    // - 2 sequences: 2 empties, result empty.
-    let test = "(map pow (list) (list))";
-    let expected = Value::list_from(vec![]).unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
-
-    // - 2 sequences: 1 empty and 1 not, result empty.
-    let test = "(map pow (list) (list 10 20))";
-    let expected = Value::list_from(vec![]).unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
-
-    // - 3 sequences: 1 empty in between, result empty.
-    let test = "(map pow (list 1 2 3) (list) (list 10 20))";
-    let expected = Value::list_from(vec![]).unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
-
-    // - 2 sequences: last is longer, result contains 4 elements.
-    let test = "(map pow (list 2 2 2 2) (list 1 2 3 4 5 6 7))";
-    let expected = Value::list_from(vec![
-        Value::Int(2),
-        Value::Int(4),
-        Value::Int(8),
-        Value::Int(16),
-    ])
-    .unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
-
-    // Special Functions
-    // - 1 sequence: 1 empty, result empty.
     let test = "(map + (list))";
     let expected = Value::list_from(vec![]).unwrap();
     assert_eq!(expected, execute(test).unwrap().unwrap());
@@ -504,6 +472,32 @@ fn test_variadic_map_list() {
     // - 3 sequences: last is the shortest, result contains 1 element.
     let test = "(map + (list 1 2) (list 10 20 30) (list 100))";
     let expected = Value::list_from(vec![Value::Int(111)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // Special Functions
+    // - 1 sequence: 1 empty, result empty.
+    let test = "(map > (list))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // - 2 sequences: 2 empties, result empty.
+    let test = "(map > (list) (list))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // - 2 sequences: 1 empty and 1 not, result empty.
+    let test = "(map > (list) (list 10 20))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // - 3 sequences: 1 empty in between, result empty.
+    let test = "(map > (list 1 2 3) (list) (list 10 20))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // - 2 sequences: last is longer, result contains 2 elements.
+    let test = "(map > (list 1 10) (list 2 3 4 5))";
+    let expected = Value::list_from(vec![Value::Bool(false), Value::Bool(true)]).unwrap();
     assert_eq!(expected, execute(test).unwrap().unwrap());
 }
 
