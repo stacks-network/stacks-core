@@ -100,7 +100,7 @@ jobs:
             var_annotation_pattern="Stacks Core"
           fi
           # Set docker rc tag if branch is named `..-rc[0-9]`
-          if [[ "${docker_tag}" =~ -rc[0-9]*$ ]]; then
+          if [[ "${var_docker_tag}" =~ -rc[0-9]*$ ]]; then
             # is a release candidate
             var_docker_tag_rc=true
           fi
