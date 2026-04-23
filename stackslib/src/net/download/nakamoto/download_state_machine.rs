@@ -346,19 +346,44 @@ impl NakamotoDownloadStateMachine {
                 // This gets reached on boot-up, before `completed_tenures` and `attempted_tenures`
                 // are populated by the tenure downloader set.
                 let staging_blocks = chainstate.nakamoto_blocks_db();
-                if staging_blocks
-                    .has_nakamoto_block_with_index_hash(&tenure_start_end.start_block_id)
-                    .unwrap_or(false)
-                    && staging_blocks
-                        .has_nakamoto_block_with_index_hash(&tenure_start_end.end_block_id)
-                        .unwrap_or(false)
-                {
-                    debug!(
-                        "Tenure {} already downloaded and stored",
-                        &wt.tenure_id_consensus_hash
-                    );
-                    wt.processed = true;
-                    continue;
+                let start_block_header_optres =
+                    staging_blocks.get_nakamoto_block_header(&tenure_start_end.start_block_id);
+                let end_block_header_optres =
+                    staging_blocks.get_nakamoto_block_header(&tenure_start_end.end_block_id);
+                match (start_block_header_optres, end_block_header_optres) {
+                    (Ok(Some(start_hdr)), Ok(Some(end_hdr))) => {
+                        // see if there's at least one middle block, if these blocks aren't direct
+                        // descendants.  That would indicate that we got all the blocks in-between,
+                        // since the tenure downloader will only succeed if it fetches the full
+                        // tenure.
+                        if start_hdr.chain_length + 1 < end_hdr.chain_length {
+                            // check for a middle child (i.e. the parent of end_hdr)
+                            if staging_blocks
+                                .has_nakamoto_block_with_index_hash(&end_hdr.parent_block_id)
+                                .unwrap_or(false)
+                            {
+                                debug!(
+                                    "Tenure {} already downloaded and stored",
+                                    &wt.tenure_id_consensus_hash
+                                );
+                                wt.processed = true;
+                                continue;
+                            } else {
+                                info!("Tenure {} is not fully downloaded yet -- we have a start/end block but no middle block", &wt.tenure_id_consensus_hash);
+                            }
+                        } else {
+                            // this tenure has just the start/end blocks, so we're good
+                            debug!(
+                                "Tenure {} already downloaded and stored",
+                                &wt.tenure_id_consensus_hash
+                            );
+                            wt.processed = true;
+                            continue;
+                        }
+                    }
+                    _ => {
+                        // start and/or end blocks are missing, so this tenure is not downloaded
+                    }
                 }
             }
             if !attempted_tenures.contains_key(&wt.tenure_id_consensus_hash) {
