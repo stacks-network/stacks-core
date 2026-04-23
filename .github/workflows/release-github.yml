@@ -1,4 +1,4 @@
-## Github workflow to create a github release and upload binary artifacts
+# Github workflow to create a github release and upload binary artifacts
 
 name: Github Release
 
@@ -18,54 +18,67 @@ on:
         required: true
         type: string
 
+# set default permissions
+permissions:
+  contents: read
+
+# configure concurrency
 concurrency:
   group: release-github-${{ github.head_ref || github.ref }}
-  ## Always cancel duplicate jobs
+  # Always cancel duplicate jobs
   cancel-in-progress: true
 
 run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
 jobs:
-  ## Build arch dependent binaries from source
-  ##
-  ## Runs when the following is true:
-  ##  - either node or signer tag is provided
+
+  # Build arch dependent binaries from source
+  #
+  # Runs when the following is true:
+  #  - either node or signer tag is provided
   andon-cord:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
     name: Andon Cord
+    if: |
+      ${{ github.repository == 'stacks-network/stacks-core' && (inputs.node_tag != '' || inputs.signer_tag != '') }}
     runs-on: ubuntu-latest
     environment: "Build Release"
     steps:
       - name: Check Approval
-        id: check
         run: |
           exit 0
 
   build-binaries:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
     name: Build Binaries
     needs:
       - andon-cord
+    if: |
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
+    permissions:
+      contents: read       # required for checkout inside release-build.yml
+      id-token: write      # required for attestation inside release-build.yml
+      attestations: write  # required for attestation inside release-build.yml
     uses: ./.github/workflows/release-build.yml
     with:
       node_tag: ${{ inputs.node_tag }} # used to conditionally run step in release-build.yml
       signer_tag: ${{ inputs.signer_tag }} # used to conditionally run step in release-build.yml
 
   docker-images:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
     name: Build Docker Images
     needs:
       - andon-cord
       - build-binaries
+    if: |
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
+    permissions:
+      contents: read       # required for checkout inside release-docker.yml
+      id-token: write      # required for attestation inside release-docker.yml
+      attestations: write  # required for attestation inside release-docker.yml
+      packages: write      # required for image push inside release-docker.yml
     strategy:
       fail-fast: false
-      ## Build a maximum of 2 images concurrently based on matrix.dist
+      # Build a maximum of 2 images concurrently based on matrix.dist
       max-parallel: 2
       matrix:
         type:
@@ -73,34 +86,42 @@ jobs:
           - stacks-signer
         exclude:
           - type: ${{ inputs.is_node_release == 'false' && 'stacks-core' }} # exclude stacks-core if node release is false
-    ## Creates the node docker image
+    # Creates the node docker image
     uses: ./.github/workflows/release-docker.yml
     with:
       node_tag: ${{ inputs.node_tag }} # node_tag will contains the 5 char node version, i.e. 3.3.0.0.0
       signer_tag: ${{ inputs.signer_tag }} # signer_tag contains 6 char signer version, i.e. 3.3.0.0.0.1
       release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core
 
-  ##
-  ## Runs when the following is true:
-  ##  - either node or signer tag is provided
+  #
+  # Runs when the following is true:
+  #  - either node or signer tag is provided
   create-release:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
     name: Create Release
-    runs-on: ubuntu-latest
     needs:
       - andon-cord
       - build-binaries
       - docker-images
+    if: |
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      ## Creates releases
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Creates releases
       - name: Create Release
-        id: check
-        uses: stacks-network/actions/stacks-core/release/create-releases@main
+        uses: ./.github/actions/release
         with:
           node_tag: ${{ inputs.node_tag }} # name used for release (use the version by itself
+          # node_epoch: ${{ inputs.node_epoch }}
           signer_tag: signer-${{ inputs.signer_tag }} # name used for release (prefix with 'signer-')
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
