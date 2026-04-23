@@ -9,9 +9,43 @@
 (define-constant ERR_ALREADY_REGISTERED (err u9))
 (define-constant ERR_TOO_MUCH_SATS (err u10))
 (define-constant ERR_NOT_ALLOWLISTED (err u11))
+(define-constant ERR_SIGNER_KEY_GRANT_USED (err u12))
+(define-constant ERR_INVALID_SIGNATURE_RECOVER (err u13))
+(define-constant ERR_INVALID_SIGNATURE_PUBKEY (err u14))
+(define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH (err u15))
+(define-constant ERR_SIGNER_AUTH_USED (err u16))
+(define-constant ERR_SIGNER_KEY_GRANT_NOT_FOUND (err u17))
+(define-constant ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH (err u18))
+(define-constant ERR_ALREADY_STAKED (err u19))
+(define-constant ERR_INVALID_NUM_CYCLES (err u20))
+(define-constant ERR_INVALID_POX_ADDRESS (err u21))
 
 (define-constant BOND_LENGTH_CYCLES u12)
 (define-constant BOND_GAP_CYCLES u2)
+
+;; SIP18 message prefix
+(define-constant SIP018_MSG_PREFIX 0x534950303138)
+
+;; SIP018 domain
+(define-constant POX_5_SIGNER_DOMAIN {
+    name: "pox-wf-0-signer",
+    version: "1.0.0",
+    chain-id: chain-id,
+})
+
+;; Keep these constants in lock-step with the address version buffs above
+;; Maximum value of an address version as a uint
+(define-constant MAX_ADDRESS_VERSION u6)
+;; Maximum value of an address version that has a 20-byte hashbytes
+;; (0x00, 0x01, 0x02, 0x03, and 0x04 have 20-byte hashbytes)
+(define-constant MAX_ADDRESS_VERSION_BUFF_20 u4)
+;; Maximum value of an address version that has a 32-byte hashbytes
+;; (0x05 and 0x06 have 32-byte hashbytes)
+(define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
+
+;; Values for stacks address versions
+(define-constant STACKS_ADDR_VERSION_MAINNET 0x16)
+(define-constant STACKS_ADDR_VERSION_TESTNET 0x1a)
 
 (define-map protocol-bonds
     uint
@@ -56,6 +90,45 @@
         ;; Used to calculate claimable rewards
         reward-per-share-paid: uint,
     }
+)
+
+(define-map signer-key-grants
+    {
+        signer-key: (buff 33),
+        staker: principal,
+    }
+    (optional {
+        version: (buff 1),
+        hashbytes: (buff 32),
+    })
+)
+
+(define-map used-signer-key-grants
+    {
+        signer-key: (buff 33),
+        staker: principal,
+        auth-id: uint,
+    }
+    bool
+)
+
+;; State for tracking used signer key authorizations. This prevents re-use
+;; of the same signature or pre-set authorization for multiple transactions.
+;; Refer to the `signer-key-authorizations` map for the documentation on these fields
+(define-map used-signer-key-authorizations
+    {
+        signer-key: (buff 33),
+        reward-cycle: uint,
+        period: uint,
+        topic: (string-ascii 14),
+        pox-addr: (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }),
+        auth-id: uint,
+        max-amount: uint,
+    }
+    bool ;; Whether the field has been used or not
 )
 
 ;; The role that is allowed to set bond parameters
@@ -198,13 +271,9 @@
             version: (buff 1),
             hashbytes: (buff 32),
         }))
-        ;; #[allow(unused_binding)]
         (signer-sig (optional (buff 65)))
-        ;; #[allow(unused_binding)]
         (signer-key (buff 33))
-        ;; #[allow(unused_binding)]
         (max-amount uint)
-        ;; #[allow(unused_binding)]
         (auth-id uint)
         (amount-ustx uint)
         ;; Their BTC lockup info. If the response is `ok`, then
@@ -239,13 +308,20 @@
                 })
                 ERR_NOT_ALLOWLISTED
             ))
+            (first-cycle (bond-period-to-reward-cycle bond-index))
         )
         ;; Verify that they're sending enough STX
         (asserts! (>= amount-ustx min-amount-ustx) ERR_INSUFFICIENT_STX)
 
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
-        ;; TODO: add them to the signer set for every cycle of this bond
+        (try! (check-opt-pox-addr pox-addr))
+
+        ;; Validate their signer key usage
+        (try! (validate-signer-key-usage pox-addr (current-pox-reward-cycle) "stake"
+            BOND_LENGTH_CYCLES signer-sig signer-key amount-ustx max-amount
+            auth-id tx-sender
+        ))
 
         ;; TODO: validate caller
 
@@ -260,6 +336,8 @@
             })
             ERR_ALREADY_REGISTERED
         )
+
+        (try! (add-staker-to-reward-cycles tx-sender first-cycle BOND_LENGTH_CYCLES))
 
         (ok true)
     )
@@ -335,6 +413,312 @@
     )
 )
 
+;;; Signer key authorization functions
+
+(define-public (grant-signer-key
+        (signer-key (buff 33))
+        (staker principal)
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (auth-id uint)
+        (signer-sig (buff 65))
+    )
+    (begin
+        (asserts!
+            (is-none (map-get? used-signer-key-grants {
+                signer-key: signer-key,
+                staker: staker,
+                auth-id: auth-id,
+            }))
+            ERR_SIGNER_KEY_GRANT_USED
+        )
+
+        (asserts!
+            (is-eq
+                (unwrap!
+                    (secp256k1-recover?
+                        (get-signer-grant-message-hash staker pox-addr auth-id)
+                        signer-sig
+                    )
+                    ERR_INVALID_SIGNATURE_RECOVER
+                )
+                signer-key
+            )
+            ERR_INVALID_SIGNATURE_PUBKEY
+        )
+
+        (asserts!
+            (map-insert used-signer-key-grants {
+                signer-key: signer-key,
+                staker: staker,
+                auth-id: auth-id,
+            }
+                true
+            )
+            ERR_SIGNER_KEY_GRANT_USED
+        )
+
+        (map-set signer-key-grants {
+            signer-key: signer-key,
+            staker: staker,
+        }
+            pox-addr
+        )
+
+        (ok true)
+    )
+)
+
+;; Revoke a signer key grant for a staker. Only the Stacks principal
+;; associated with `signer-key` can call this function.
+;;
+;; Returns a boolean indicating whether the signer key grant existed.
+(define-public (revoke-signer-grant
+        (staker principal)
+        (signer-key (buff 33))
+    )
+    (begin
+        ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
+        (asserts!
+            (is-eq
+                (unwrap-panic (principal-construct?
+                    (if is-in-mainnet
+                        STACKS_ADDR_VERSION_MAINNET
+                        STACKS_ADDR_VERSION_TESTNET
+                    )
+                    (hash160 signer-key)
+                ))
+                tx-sender
+            )
+            ERR_UNAUTHORIZED
+        )
+        (ok (map-delete signer-key-grants {
+            signer-key: signer-key,
+            staker: staker,
+        }))
+    )
+)
+
+;; Generate a message hash for validating a signer key.
+;; The message hash follows SIP018 for signing structured data. The structured data
+;; is the tuple `{ pox-addr: { version, hashbytes }, reward-cycle, auth-id, max-amount, topic, period }`.
+;; The domain is [POX_5_SIGNER_DOMAIN].
+(define-read-only (get-signer-key-message-hash
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (max-amount uint)
+        (auth-id uint)
+    )
+    (sha256 (concat SIP018_MSG_PREFIX
+        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+            (sha256 (unwrap-panic (to-consensus-buff? {
+                pox-addr: pox-addr,
+                reward-cycle: reward-cycle,
+                topic: topic,
+                period: period,
+                auth-id: auth-id,
+                max-amount: max-amount,
+            })))
+        )))
+)
+
+;; Construct the message hash for validating a signer key grant. Unlike [get-signer-key-message-hash],
+;; this message hash does not include `max-amount`, `period`, or `reward-cycle`. The topic is always `"grant-authorization"`.
+;; The `pox-addr` field is optional. When `none`, it means the signer key can be used for any PoX address.
+(define-read-only (get-signer-grant-message-hash
+        (staker principal)
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (auth-id uint)
+    )
+    (sha256 (concat SIP018_MSG_PREFIX
+        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+            (sha256 (unwrap-panic (to-consensus-buff? {
+                topic: "grant-authorization",
+                staker: staker,
+                pox-addr: pox-addr,
+                auth-id: auth-id,
+            })))
+        )))
+)
+
+;; Verify a signature from the signing key for this specific stacker.
+;; See `get-signer-key-message-hash` for details on the message hash.
+;;
+;; Note that `reward-cycle` corresponds to the _current_ reward cycle,
+;; when used with `stack-stx` and `stack-extend`. Both the reward cycle and
+;; the lock period are inflexible, which means that the stacker must confirm their transaction
+;; during the exact reward cycle and with the exact period that the signature or authorization was
+;; generated for.
+;;
+;; The `amount` field is checked to ensure it is not larger than `max-amount`, which is
+;; a field in the authorization. `auth-id` is a random uint to prevent authorization
+;; replays.
+;;
+;; This function does not verify the payload of the authorization. The caller of
+;; this function must ensure that the payload (reward cycle, period, topic, and pox-addr)
+;; are valid according to the caller function's requirements.
+;;
+;; When `signer-sig` is present, the public key is recovered from the signature
+;; and compared to `signer-key`. If `signer-sig` is `none`, the function verifies that an authorization was previously
+;; added for this key.
+;;
+;; This function checks to ensure that the authorization hasn't been used yet, but it
+;; does _not_ store the authorization as used. The function `consume-signer-key-authorization`
+;; handles that, and this read-only function is exposed for client-side verification.
+(define-read-only (verify-signer-key-sig
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (signer-sig (buff 65))
+        (signer-key (buff 33))
+        (amount uint)
+        (max-amount uint)
+        (auth-id uint)
+    )
+    (begin
+        ;; Validate that amount is less than or equal to `max-amount`
+        (asserts! (>= max-amount amount) ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH)
+        (asserts!
+            (is-none (map-get? used-signer-key-authorizations {
+                signer-key: signer-key,
+                reward-cycle: reward-cycle,
+                topic: topic,
+                period: period,
+                pox-addr: pox-addr,
+                auth-id: auth-id,
+                max-amount: max-amount,
+            }))
+            ERR_SIGNER_AUTH_USED
+        )
+        (ok (asserts!
+            (is-eq
+                (unwrap!
+                    (secp256k1-recover?
+                        (get-signer-key-message-hash pox-addr reward-cycle topic
+                            period max-amount auth-id
+                        )
+                        signer-sig
+                    )
+                    ERR_INVALID_SIGNATURE_RECOVER
+                )
+                signer-key
+            )
+            ERR_INVALID_SIGNATURE_PUBKEY
+        ))
+    )
+)
+
+;; This function does two things:
+;;
+;; - Verify that a signer key is authorized to be used
+;; - Updates the `used-signer-key-authorizations` map to prevent reuse
+;;
+;; This "wrapper" method around `verify-signer-key-sig` allows that function to remain
+;; read-only, so that it can be used by clients as a sanity check before submitting a transaction.
+(define-private (consume-signer-key-authorization
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (signer-sig (buff 65))
+        (signer-key (buff 33))
+        (amount uint)
+        (max-amount uint)
+        (auth-id uint)
+    )
+    (begin
+        ;; verify the authorization
+        (try! (verify-signer-key-sig pox-addr reward-cycle topic period signer-sig
+            signer-key amount max-amount auth-id
+        ))
+        ;; update the `used-signer-key-authorizations` map
+        (asserts!
+            (map-insert used-signer-key-authorizations {
+                signer-key: signer-key,
+                reward-cycle: reward-cycle,
+                topic: topic,
+                period: period,
+                pox-addr: pox-addr,
+                auth-id: auth-id,
+                max-amount: max-amount,
+            }
+                true
+            )
+            ERR_SIGNER_AUTH_USED
+        )
+        (ok true)
+    )
+)
+
+;; if signer-sig-opt is present, verify the signature. Otherwise,
+;; verify that a grant was previously added for this key.
+(define-private (validate-signer-key-usage
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (signer-sig-opt (optional (buff 65)))
+        (signer-key (buff 33))
+        (amount uint)
+        (max-amount uint)
+        (auth-id uint)
+        (staker principal)
+    )
+    (match signer-sig-opt
+        signer-sig (consume-signer-key-authorization pox-addr reward-cycle topic period
+            signer-sig signer-key amount max-amount auth-id
+        )
+        (verify-signer-key-grant staker signer-key pox-addr)
+    )
+)
+
+(define-read-only (verify-signer-key-grant
+        (staker principal)
+        (signer-key (buff 33))
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+    )
+    (ok (asserts!
+        (match (unwrap!
+            (map-get? signer-key-grants {
+                signer-key: signer-key,
+                staker: staker,
+            })
+            ERR_SIGNER_KEY_GRANT_NOT_FOUND
+        )
+            grant-pox-addr (is-eq grant-pox-addr
+                (unwrap! pox-addr ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH)
+            )
+            true
+        )
+        ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH
+    ))
+)
+
+;;; Helper functions
+
 ;; This is a stand-in for a future built-in clarity function.
 (define-private (validate-p2wsh-exists?
         ;; #[allow(unused_binding)]
@@ -353,7 +737,12 @@
 
 ;; What's the burn height at the start of a given bond index?
 (define-read-only (bond-period-to-burn-height (bond-index uint))
-    (reward-cycle-to-burn-height (+ (var-get first-pox-wf-reward-cycle) (* bond-index BOND_GAP_CYCLES)))
+    (reward-cycle-to-burn-height (bond-period-to-reward-cycle bond-index))
+)
+
+;; What reward cycle does a bond index start at?
+(define-read-only (bond-period-to-reward-cycle (bond-index uint))
+    (+ (var-get first-pox-wf-reward-cycle) (* bond-index BOND_GAP_CYCLES))
 )
 
 ;; What's the reward cycle number of the burnchain block height?
@@ -402,4 +791,208 @@
         bond-index: bond-index,
         staker: staker,
     })
+)
+
+(define-private (check-opt-pox-addr (pox-addr-opt (optional {
+    version: (buff 1),
+    hashbytes: (buff 32),
+})))
+    (match pox-addr-opt
+        pox-addr (check-pox-addr pox-addr)
+        (ok true)
+    )
+)
+
+(define-read-only (check-pox-addr (pox-addr {
+    version: (buff 1),
+    hashbytes: (buff 32),
+}))
+    (let (
+            (version (buff-to-uint-be (get version pox-addr)))
+            (expected-len (if (<= version MAX_ADDRESS_VERSION_BUFF_20)
+                u20
+                u32
+            ))
+        )
+        (ok (asserts!
+            (and
+                (<= version MAX_ADDRESS_VERSION)
+                (is-eq (len (get hashbytes pox-addr)) expected-len)
+            )
+            ERR_INVALID_POX_ADDRESS
+        ))
+    )
+)
+
+;;; Cycle-based Linked List functions
+
+;; First item in the linked list of stakers
+(define-map staker-set-ll-first-for-cycle
+    uint
+    principal
+)
+;; Last item in the linked list of stakers
+(define-map staker-set-ll-last-for-cycle
+    uint
+    principal
+)
+
+;; Linked list of all stakers for a cycle
+(define-map staker-set-ll-for-cycle
+    {
+        cycle: uint,
+        staker: principal,
+    }
+    {
+        prev: (optional principal),
+        next: (optional principal),
+    }
+)
+
+(define-read-only (get-staker-set-last-item-for-cycle (cycle uint))
+    (map-get? staker-set-ll-last-for-cycle cycle)
+)
+
+(define-read-only (get-staker-set-first-item-for-cycle (cycle uint))
+    (map-get? staker-set-ll-first-for-cycle cycle)
+)
+
+(define-read-only (get-staker-set-item-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (map-get? staker-set-ll-for-cycle {
+        cycle: cycle,
+        staker: staker,
+    })
+)
+
+(define-read-only (get-staker-set-next-item-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (match (map-get? staker-set-ll-for-cycle {
+        cycle: cycle,
+        staker: staker,
+    })
+        item (get next item)
+        none
+    )
+)
+
+(define-read-only (get-staker-set-prev-item-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (match (map-get? staker-set-ll-for-cycle {
+        cycle: cycle,
+        staker: staker,
+    })
+        item (get prev item)
+        none
+    )
+)
+
+(define-read-only (staker-set-contains-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (is-some (map-get? staker-set-ll-for-cycle {
+        cycle: cycle,
+        staker: staker,
+    }))
+)
+
+(define-private (add-staker-to-set-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (let ((last-item (map-get? staker-set-ll-last-for-cycle cycle)))
+        ;; Todo: remove this and guard in a higher-level fn
+        (asserts!
+            (not (is-some (map-get? staker-set-ll-for-cycle {
+                cycle: cycle,
+                staker: staker,
+            })))
+            ERR_ALREADY_STAKED
+        )
+
+        (match last-item
+            last-stacker (let ((last-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: last-stacker,
+                }))))
+                (map-set staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: last-stacker,
+                } {
+                    prev: (get prev last-node),
+                    next: (some staker),
+                })
+                (map-set staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: staker,
+                } {
+                    prev: (some last-stacker),
+                    next: none,
+                })
+            )
+            (begin
+                ;; This is the first item
+                (map-set staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: staker,
+                } {
+                    prev: none,
+                    next: none,
+                })
+                (map-set staker-set-ll-first-for-cycle cycle staker)
+            )
+        )
+
+        (map-set staker-set-ll-last-for-cycle cycle staker)
+        (ok true)
+    )
+)
+
+(define-private (add-staker-to-reward-cycles
+        (staker principal)
+        (first-reward-cycle uint)
+        (num-cycles uint)
+    )
+    (let ((cycle-indexes (unwrap!
+            (slice?
+                (list
+                    u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15
+                    u16 u17 u18 u19 u20 u21 u22 u23
+                )
+                u0 num-cycles
+            )
+            ERR_INVALID_NUM_CYCLES
+        )))
+        (try! (fold add-staker-to-nth-reward-cycle cycle-indexes
+            (ok {
+                staker: staker,
+                first-reward-cycle: first-reward-cycle,
+            })
+        ))
+        (ok true)
+    )
+)
+
+(define-private (add-staker-to-nth-reward-cycle
+        (cycle-index uint)
+        (params-resp (response {
+            staker: principal,
+            first-reward-cycle: uint,
+        }
+            uint
+        ))
+    )
+    (let ((params (try! params-resp)))
+        (try! (add-staker-to-set-for-cycle (get staker params)
+            (+ (get first-reward-cycle params) cycle-index)
+        ))
+        (ok params)
+    )
 )

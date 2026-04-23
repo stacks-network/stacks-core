@@ -7,6 +7,10 @@ import {
 import { accounts, project } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
 import { filterEvents, rov, rovOk, txErr, txOk } from '@clarigen/test';
+import { randomSecretKey } from '../test-helpers';
+import { randomBytes } from '@stacks/transactions';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { createSignerKeyGrant } from './pox-wf-helpers';
 
 const contracts = projectFactory(project, 'simnet');
 const wf = contracts.poxWaterfall0;
@@ -45,6 +49,21 @@ test('can calculate bond start height correctly', () => {
 });
 
 test('scenario - setting up and starting a bond', () => {
+  const signerSk = randomSecretKey();
+  const signerKey = secp256k1.getPublicKey(signerSk, true);
+  createSignerKeyGrant({
+    staker: alice,
+    signerSk: signerSk,
+    poxAddr: null,
+    authId: 0n,
+  });
+  createSignerKeyGrant({
+    staker: bob,
+    signerSk: signerSk,
+    poxAddr: null,
+    authId: 0n,
+  });
+
   const minUstxRatio = 1000n; // 10%
   const stxValueRatio = 1000n; // 1 ustx = 1 sat
   txOk(
@@ -78,7 +97,7 @@ test('scenario - setting up and starting a bond', () => {
       bondIndex: 0n,
       poxAddr: null,
       signerSig: null,
-      signerKey: new Uint8Array(),
+      signerKey,
       maxAmount: 100000000n,
       authId: 0n,
       amountUstx: 100000000n,
@@ -101,7 +120,7 @@ test('scenario - setting up and starting a bond', () => {
       bondIndex: 0n,
       poxAddr: null,
       signerSig: null,
-      signerKey: new Uint8Array(),
+      signerKey,
       maxAmount: 100000000n,
       authId: 0n,
       amountUstx: 100000000n,
@@ -121,7 +140,7 @@ test('scenario - setting up and starting a bond', () => {
       bondIndex: 0n,
       poxAddr: null,
       signerSig: null,
-      signerKey: new Uint8Array(),
+      signerKey,
       maxAmount: 100000000n,
       authId: 0n,
       amountUstx: stxMinAmount - 1n,
@@ -137,7 +156,7 @@ test('scenario - setting up and starting a bond', () => {
       bondIndex: 0n,
       poxAddr: null,
       signerSig: null,
-      signerKey: new Uint8Array(),
+      signerKey,
       maxAmount: 100000000n,
       authId: 0n,
       amountUstx: 100000000n,
@@ -153,7 +172,7 @@ test('scenario - setting up and starting a bond', () => {
       bondIndex: 0n,
       poxAddr: null,
       signerSig: null,
-      signerKey: new Uint8Array(),
+      signerKey,
       maxAmount: 100000000n,
       authId: 0n,
       amountUstx: stxMinAmount,
