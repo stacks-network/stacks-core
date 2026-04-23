@@ -1267,7 +1267,75 @@ export const contracts = {
         access: 'variable',
       } as TypedAbiVariable<bigint>,
     },
-    constants: {},
+    constants: {
+      ERR_INSUFFICIENT_FUNDS: 4_001n,
+      ERR_NAMESPACE_ALREADY_EXISTS: 1_006n,
+      ERR_NAMESPACE_ALREADY_LAUNCHED: 1_014n,
+      ERR_NAMESPACE_BLANK: 1_013n,
+      ERR_NAMESPACE_CHARSET_INVALID: 1_016n,
+      ERR_NAMESPACE_HASH_MALFORMED: 1_015n,
+      ERR_NAMESPACE_NOT_FOUND: 1_005n,
+      ERR_NAMESPACE_NOT_LAUNCHED: 1_007n,
+      ERR_NAMESPACE_OPERATION_UNAUTHORIZED: 1_011n,
+      ERR_NAMESPACE_PREORDER_ALREADY_EXISTS: 1_003n,
+      ERR_NAMESPACE_PREORDER_CLAIMABILITY_EXPIRED: 1_009n,
+      ERR_NAMESPACE_PREORDER_EXPIRED: 1_002n,
+      ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED: 1_010n,
+      ERR_NAMESPACE_PREORDER_NOT_FOUND: 1_001n,
+      ERR_NAMESPACE_PRICE_FUNCTION_INVALID: 1_008n,
+      ERR_NAMESPACE_STX_BURNT_INSUFFICIENT: 1_012n,
+      ERR_NAMESPACE_UNAVAILABLE: 1_004n,
+      ERR_NAME_ALREADY_CLAIMED: 2_011n,
+      ERR_NAME_BLANK: 2_010n,
+      ERR_NAME_CHARSET_INVALID: 2_022n,
+      ERR_NAME_CLAIMABILITY_EXPIRED: 2_012n,
+      ERR_NAME_COULD_NOT_BE_MINTED: 2_020n,
+      ERR_NAME_COULD_NOT_BE_TRANSFERED: 2_021n,
+      ERR_NAME_EXPIRED: 2_008n,
+      ERR_NAME_GRACE_PERIOD: 2_009n,
+      ERR_NAME_HASH_MALFORMED: 2_017n,
+      ERR_NAME_NOT_FOUND: 2_013n,
+      ERR_NAME_NOT_RESOLVABLE: 2_019n,
+      ERR_NAME_OPERATION_UNAUTHORIZED: 2_006n,
+      ERR_NAME_PREORDERED_BEFORE_NAMESPACE_LAUNCH: 2_018n,
+      ERR_NAME_PREORDER_ALREADY_EXISTS: 2_016n,
+      ERR_NAME_PREORDER_EXPIRED: 2_002n,
+      ERR_NAME_PREORDER_FUNDS_INSUFFICIENT: 2_003n,
+      ERR_NAME_PREORDER_NOT_FOUND: 2_001n,
+      ERR_NAME_REVOKED: 2_014n,
+      ERR_NAME_STX_BURNT_INSUFFICIENT: 2_007n,
+      ERR_NAME_TRANSFER_FAILED: 2_015n,
+      ERR_NAME_UNAVAILABLE: 2_004n,
+      ERR_PANIC: 0n,
+      ERR_PRINCIPAL_ALREADY_ASSOCIATED: 3_001n,
+      NAMESPACE_LAUNCHABILITY_TTL: 52_595n,
+      NAMESPACE_PREORDER_CLAIMABILITY_TTL: 144n,
+      NAMESPACE_PRICE_TIERS: [
+        640_000_000_000n,
+        64_000_000_000n,
+        64_000_000_000n,
+        6_400_000_000n,
+        6_400_000_000n,
+        6_400_000_000n,
+        6_400_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+      ],
+      NAME_GRACE_PERIOD_DURATION: 5_000n,
+      NAME_PREORDER_CLAIMABILITY_TTL: 144n,
+      attachmentIndex: 0n,
+    },
     non_fungible_tokens: [
       {
         name: 'names',
@@ -3531,6 +3599,778 @@ export const contracts = {
     clarity_version: 'Clarity2',
     contractName: 'pox-4',
   },
+  poxWaterfall0: {
+    functions: {
+      addStakerToBond: {
+        name: 'add-staker-to-bond',
+        access: 'private',
+        args: [
+          {
+            name: 'staker-item',
+            type: {
+              tuple: [
+                { name: 'max-sats', type: 'uint128' },
+                { name: 'staker', type: 'principal' },
+              ],
+            },
+          },
+          {
+            name: 'accumulator-res',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    { name: 'bond-index', type: 'uint128' },
+                    { name: 'sum-max-sats', type: 'uint128' },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'sum-max-sats', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          stakerItem: TypedAbiArg<
+            {
+              maxSats: number | bigint;
+              staker: string;
+            },
+            'stakerItem'
+          >,
+          accumulatorRes: TypedAbiArg<
+            Response<
+              {
+                bondIndex: number | bigint;
+                sumMaxSats: number | bigint;
+              },
+              number | bigint
+            >,
+            'accumulatorRes'
+          >,
+        ],
+        Response<
+          {
+            bondIndex: bigint;
+            sumMaxSats: bigint;
+          },
+          bigint
+        >
+      >,
+      lockSbtc: {
+        name: 'lock-sbtc',
+        access: 'private',
+        args: [{ name: 'amount', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [amount: TypedAbiArg<number | bigint, 'amount'>],
+        Response<bigint, bigint>
+      >,
+      validateL1Lockup: {
+        name: 'validate-l1-lockup',
+        access: 'private',
+        args: [
+          {
+            name: 'lockup',
+            type: {
+              tuple: [
+                { name: 'amount', type: 'uint128' },
+                { name: 'output-index', type: 'uint128' },
+                { name: 'txid', type: { buffer: { length: 32 } } },
+              ],
+            },
+          },
+          {
+            name: 'accumulator-res',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    {
+                      name: 'expected-script-hash',
+                      type: { buffer: { length: 32 } },
+                    },
+                    { name: 'sum', type: 'uint128' },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  {
+                    name: 'expected-script-hash',
+                    type: { buffer: { length: 32 } },
+                  },
+                  { name: 'sum', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          lockup: TypedAbiArg<
+            {
+              amount: number | bigint;
+              outputIndex: number | bigint;
+              txid: Uint8Array;
+            },
+            'lockup'
+          >,
+          accumulatorRes: TypedAbiArg<
+            Response<
+              {
+                expectedScriptHash: Uint8Array;
+                sum: number | bigint;
+              },
+              number | bigint
+            >,
+            'accumulatorRes'
+          >,
+        ],
+        Response<
+          {
+            expectedScriptHash: Uint8Array;
+            sum: bigint;
+          },
+          bigint
+        >
+      >,
+      validateP2wshExists_q: {
+        name: 'validate-p2wsh-exists?',
+        access: 'private',
+        args: [
+          { name: 'script-hash', type: { buffer: { length: 32 } } },
+          { name: 'amount', type: 'uint128' },
+          { name: 'txid', type: { buffer: { length: 32 } } },
+          { name: 'output-index', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          scriptHash: TypedAbiArg<Uint8Array, 'scriptHash'>,
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          txid: TypedAbiArg<Uint8Array, 'txid'>,
+          outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
+        ],
+        Response<bigint, bigint>
+      >,
+      verifyL1Lockups: {
+        name: 'verify-l1-lockups',
+        access: 'private',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'bond-index', type: 'uint128' },
+          {
+            name: 'lockups',
+            type: {
+              tuple: [
+                {
+                  name: 'outputs',
+                  type: {
+                    list: {
+                      type: {
+                        tuple: [
+                          { name: 'amount', type: 'uint128' },
+                          { name: 'output-index', type: 'uint128' },
+                          { name: 'txid', type: { buffer: { length: 32 } } },
+                        ],
+                      },
+                      length: 10,
+                    },
+                  },
+                },
+                { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+              ],
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          lockups: TypedAbiArg<
+            {
+              outputs: {
+                amount: number | bigint;
+                outputIndex: number | bigint;
+                txid: Uint8Array;
+              }[];
+              unlockBytes: Uint8Array;
+            },
+            'lockups'
+          >,
+        ],
+        Response<bigint, bigint>
+      >,
+      registerForBond: {
+        name: 'register-for-bond',
+        access: 'public',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          {
+            name: 'pox-addr',
+            type: {
+              optional: {
+                tuple: [
+                  { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                  { name: 'version', type: { buffer: { length: 1 } } },
+                ],
+              },
+            },
+          },
+          {
+            name: 'signer-sig',
+            type: { optional: { buffer: { length: 65 } } },
+          },
+          { name: 'signer-key', type: { buffer: { length: 33 } } },
+          { name: 'max-amount', type: 'uint128' },
+          { name: 'auth-id', type: 'uint128' },
+          { name: 'amount-ustx', type: 'uint128' },
+          {
+            name: 'btc-lockup',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    {
+                      name: 'outputs',
+                      type: {
+                        list: {
+                          type: {
+                            tuple: [
+                              { name: 'amount', type: 'uint128' },
+                              { name: 'output-index', type: 'uint128' },
+                              {
+                                name: 'txid',
+                                type: { buffer: { length: 32 } },
+                              },
+                            ],
+                          },
+                          length: 10,
+                        },
+                      },
+                    },
+                    { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          poxAddr: TypedAbiArg<
+            {
+              hashbytes: Uint8Array;
+              version: Uint8Array;
+            } | null,
+            'poxAddr'
+          >,
+          signerSig: TypedAbiArg<Uint8Array | null, 'signerSig'>,
+          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
+          maxAmount: TypedAbiArg<number | bigint, 'maxAmount'>,
+          authId: TypedAbiArg<number | bigint, 'authId'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          btcLockup: TypedAbiArg<
+            Response<
+              {
+                outputs: {
+                  amount: number | bigint;
+                  outputIndex: number | bigint;
+                  txid: Uint8Array;
+                }[];
+                unlockBytes: Uint8Array;
+              },
+              number | bigint
+            >,
+            'btcLockup'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
+      setBurnchainParameters: {
+        name: 'set-burnchain-parameters',
+        access: 'public',
+        args: [
+          { name: 'first-burn-height', type: 'uint128' },
+          { name: 'prepare-cycle-length', type: 'uint128' },
+          { name: 'reward-cycle-length', type: 'uint128' },
+          { name: 'begin-wf-reward-cycle', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'none' } } },
+      } as TypedAbiFunction<
+        [
+          firstBurnHeight: TypedAbiArg<number | bigint, 'firstBurnHeight'>,
+          prepareCycleLength: TypedAbiArg<
+            number | bigint,
+            'prepareCycleLength'
+          >,
+          rewardCycleLength: TypedAbiArg<number | bigint, 'rewardCycleLength'>,
+          beginWfRewardCycle: TypedAbiArg<
+            number | bigint,
+            'beginWfRewardCycle'
+          >,
+        ],
+        Response<boolean, null>
+      >,
+      setupBond: {
+        name: 'setup-bond',
+        access: 'public',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'target-rate', type: 'uint128' },
+          { name: 'stx-value-ratio', type: 'uint128' },
+          { name: 'min-ustx-ratio', type: 'uint128' },
+          { name: 'early-unlock-signers', type: { buffer: { length: 683 } } },
+          {
+            name: 'allowlist',
+            type: {
+              list: {
+                type: {
+                  tuple: [
+                    { name: 'max-sats', type: 'uint128' },
+                    { name: 'staker', type: 'principal' },
+                  ],
+                },
+                length: 1000,
+              },
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          targetRate: TypedAbiArg<number | bigint, 'targetRate'>,
+          stxValueRatio: TypedAbiArg<number | bigint, 'stxValueRatio'>,
+          minUstxRatio: TypedAbiArg<number | bigint, 'minUstxRatio'>,
+          earlyUnlockSigners: TypedAbiArg<Uint8Array, 'earlyUnlockSigners'>,
+          allowlist: TypedAbiArg<
+            {
+              maxSats: number | bigint;
+              staker: string;
+            }[],
+            'allowlist'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
+      bondPeriodToBurnHeight: {
+        name: 'bond-period-to-burn-height',
+        access: 'read_only',
+        args: [{ name: 'bond-index', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>],
+        bigint
+      >,
+      burnHeightToRewardCycle: {
+        name: 'burn-height-to-reward-cycle',
+        access: 'read_only',
+        args: [{ name: 'height', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [height: TypedAbiArg<number | bigint, 'height'>],
+        bigint
+      >,
+      currentPoxRewardCycle: {
+        name: 'current-pox-reward-cycle',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getBondAllowance: {
+        name: 'get-bond-allowance',
+        access: 'read_only',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'staker', type: 'principal' },
+        ],
+        outputs: { type: { optional: 'uint128' } },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          staker: TypedAbiArg<string, 'staker'>,
+        ],
+        bigint | null
+      >,
+      getBondMember: {
+        name: 'get-bond-member',
+        access: 'read_only',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'staker', type: 'principal' },
+        ],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'amount-sats', type: 'uint128' },
+                {
+                  name: 'pox-addr',
+                  type: {
+                    optional: {
+                      tuple: [
+                        { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                        { name: 'version', type: { buffer: { length: 1 } } },
+                      ],
+                    },
+                  },
+                },
+                { name: 'reward-per-share-paid', type: 'uint128' },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          staker: TypedAbiArg<string, 'staker'>,
+        ],
+        {
+          amountSats: bigint;
+          poxAddr: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          } | null;
+          rewardPerSharePaid: bigint;
+        } | null
+      >,
+      rewardCycleToBurnHeight: {
+        name: 'reward-cycle-to-burn-height',
+        access: 'read_only',
+        args: [{ name: 'cycle', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
+        bigint
+      >,
+      rewardCycleToUnlockHeight: {
+        name: 'reward-cycle-to-unlock-height',
+        access: 'read_only',
+        args: [{ name: 'cycle', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
+        bigint
+      >,
+    },
+    maps: {
+      protocolBondAllowances: {
+        name: 'protocol-bond-allowances',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: 'uint128' },
+            { name: 'staker', type: 'principal' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint;
+          staker: string;
+        },
+        bigint
+      >,
+      protocolBondMembers: {
+        name: 'protocol-bond-members',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: 'uint128' },
+            { name: 'staker', type: 'principal' },
+          ],
+        },
+        value: {
+          tuple: [
+            { name: 'amount-sats', type: 'uint128' },
+            {
+              name: 'pox-addr',
+              type: {
+                optional: {
+                  tuple: [
+                    { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                    { name: 'version', type: { buffer: { length: 1 } } },
+                  ],
+                },
+              },
+            },
+            { name: 'reward-per-share-paid', type: 'uint128' },
+          ],
+        },
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint;
+          staker: string;
+        },
+        {
+          amountSats: bigint;
+          poxAddr: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          } | null;
+          rewardPerSharePaid: bigint;
+        }
+      >,
+      protocolBonds: {
+        name: 'protocol-bonds',
+        key: 'uint128',
+        value: {
+          tuple: [
+            { name: 'early-unlock-signers', type: { buffer: { length: 683 } } },
+            { name: 'min-ustx-ratio', type: 'uint128' },
+            { name: 'stx-value-ratio', type: 'uint128' },
+            { name: 'target-rate', type: 'uint128' },
+            { name: 'total-sats-shares', type: 'uint128' },
+          ],
+        },
+      } as TypedAbiMap<
+        number | bigint,
+        {
+          earlyUnlockSigners: Uint8Array;
+          minUstxRatio: bigint;
+          stxValueRatio: bigint;
+          targetRate: bigint;
+          totalSatsShares: bigint;
+        }
+      >,
+    },
+    variables: {
+      BOND_GAP_CYCLES: {
+        name: 'BOND_GAP_CYCLES',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      BOND_LENGTH_CYCLES: {
+        name: 'BOND_LENGTH_CYCLES',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      ERR_ALREADY_REGISTERED: {
+        name: 'ERR_ALREADY_REGISTERED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_BOND_ALREADY_SETUP: {
+        name: 'ERR_BOND_ALREADY_SETUP',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_BOND_NOT_FOUND: {
+        name: 'ERR_BOND_NOT_FOUND',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_CANNOT_SETUP_BOND_TOO_LATE: {
+        name: 'ERR_CANNOT_SETUP_BOND_TOO_LATE',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_CANNOT_SETUP_BOND_TOO_SOON: {
+        name: 'ERR_CANNOT_SETUP_BOND_TOO_SOON',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INSUFFICIENT_STX: {
+        name: 'ERR_INSUFFICIENT_STX',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      eRR_L1_LOCKUP_NOT_FOUND: {
+        name: 'ERR_L1_LOCKUP_NOT_FOUND',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NOT_ALLOWLISTED: {
+        name: 'ERR_NOT_ALLOWLISTED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_STAKER_ALREADY_ADDED: {
+        name: 'ERR_STAKER_ALREADY_ADDED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_TOO_MUCH_SATS: {
+        name: 'ERR_TOO_MUCH_SATS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNAUTHORIZED: {
+        name: 'ERR_UNAUTHORIZED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      bondAdmin: {
+        name: 'bond-admin',
+        type: 'principal',
+        access: 'variable',
+      } as TypedAbiVariable<string>,
+      configured: {
+        name: 'configured',
+        type: 'bool',
+        access: 'variable',
+      } as TypedAbiVariable<boolean>,
+      firstBurnchainBlockHeight: {
+        name: 'first-burnchain-block-height',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      firstPoxWfRewardCycle: {
+        name: 'first-pox-wf-reward-cycle',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      poxPrepareCycleLength: {
+        name: 'pox-prepare-cycle-length',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      poxRewardCycleLength: {
+        name: 'pox-reward-cycle-length',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+    },
+    constants: {
+      BOND_GAP_CYCLES: 2n,
+      BOND_LENGTH_CYCLES: 12n,
+      ERR_ALREADY_REGISTERED: {
+        isOk: false,
+        value: 9n,
+      },
+      ERR_BOND_ALREADY_SETUP: {
+        isOk: false,
+        value: 4n,
+      },
+      ERR_BOND_NOT_FOUND: {
+        isOk: false,
+        value: 7n,
+      },
+      ERR_CANNOT_SETUP_BOND_TOO_LATE: {
+        isOk: false,
+        value: 3n,
+      },
+      ERR_CANNOT_SETUP_BOND_TOO_SOON: {
+        isOk: false,
+        value: 2n,
+      },
+      ERR_INSUFFICIENT_STX: {
+        isOk: false,
+        value: 8n,
+      },
+      eRR_L1_LOCKUP_NOT_FOUND: {
+        isOk: false,
+        value: 6n,
+      },
+      ERR_NOT_ALLOWLISTED: {
+        isOk: false,
+        value: 11n,
+      },
+      ERR_STAKER_ALREADY_ADDED: {
+        isOk: false,
+        value: 5n,
+      },
+      ERR_TOO_MUCH_SATS: {
+        isOk: false,
+        value: 10n,
+      },
+      ERR_UNAUTHORIZED: {
+        isOk: false,
+        value: 1n,
+      },
+      bondAdmin: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
+      configured: false,
+      firstBurnchainBlockHeight: 0n,
+      firstPoxWfRewardCycle: 0n,
+      poxPrepareCycleLength: 50n,
+      poxRewardCycleLength: 1_050n,
+    },
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: 'Epoch33',
+    clarity_version: 'Clarity4',
+    contractName: 'pox-waterfall-0',
+  },
   pox_4_test: {
     functions: {
       checkPoxAddrHashbytesIter: {
@@ -3746,6 +4586,1577 @@ export const contracts = {
     epoch: 'Epoch24',
     clarity_version: 'Clarity2',
     contractName: 'pox_4_test',
+  },
+  sbtcDeposit: {
+    functions: {
+      completeIndividualDepositsHelper: {
+        name: 'complete-individual-deposits-helper',
+        access: 'private',
+        args: [
+          {
+            name: 'deposit',
+            type: {
+              tuple: [
+                { name: 'amount', type: 'uint128' },
+                { name: 'burn-hash', type: { buffer: { length: 32 } } },
+                { name: 'burn-height', type: 'uint128' },
+                { name: 'recipient', type: 'principal' },
+                { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+                { name: 'txid', type: { buffer: { length: 32 } } },
+                { name: 'vout-index', type: 'uint128' },
+              ],
+            },
+          },
+          {
+            name: 'helper-response',
+            type: { response: { ok: 'uint128', error: 'uint128' } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          deposit: TypedAbiArg<
+            {
+              amount: number | bigint;
+              burnHash: Uint8Array;
+              burnHeight: number | bigint;
+              recipient: string;
+              sweepTxid: Uint8Array;
+              txid: Uint8Array;
+              voutIndex: number | bigint;
+            },
+            'deposit'
+          >,
+          helperResponse: TypedAbiArg<
+            Response<number | bigint, number | bigint>,
+            'helperResponse'
+          >,
+        ],
+        Response<bigint, bigint>
+      >,
+      completeDepositWrapper: {
+        name: 'complete-deposit-wrapper',
+        access: 'public',
+        args: [
+          { name: 'txid', type: { buffer: { length: 32 } } },
+          { name: 'vout-index', type: 'uint128' },
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+          { name: 'burn-hash', type: { buffer: { length: 32 } } },
+          { name: 'burn-height', type: 'uint128' },
+          { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          txid: TypedAbiArg<Uint8Array, 'txid'>,
+          voutIndex: TypedAbiArg<number | bigint, 'voutIndex'>,
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+          burnHash: TypedAbiArg<Uint8Array, 'burnHash'>,
+          burnHeight: TypedAbiArg<number | bigint, 'burnHeight'>,
+          sweepTxid: TypedAbiArg<Uint8Array, 'sweepTxid'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      completeDepositsWrapper: {
+        name: 'complete-deposits-wrapper',
+        access: 'public',
+        args: [
+          {
+            name: 'deposits',
+            type: {
+              list: {
+                type: {
+                  tuple: [
+                    { name: 'amount', type: 'uint128' },
+                    { name: 'burn-hash', type: { buffer: { length: 32 } } },
+                    { name: 'burn-height', type: 'uint128' },
+                    { name: 'recipient', type: 'principal' },
+                    { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+                    { name: 'txid', type: { buffer: { length: 32 } } },
+                    { name: 'vout-index', type: 'uint128' },
+                  ],
+                },
+                length: 500,
+              },
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          deposits: TypedAbiArg<
+            {
+              amount: number | bigint;
+              burnHash: Uint8Array;
+              burnHeight: number | bigint;
+              recipient: string;
+              sweepTxid: Uint8Array;
+              txid: Uint8Array;
+              voutIndex: number | bigint;
+            }[],
+            'deposits'
+          >,
+        ],
+        Response<bigint, bigint>
+      >,
+      getBurnHeader: {
+        name: 'get-burn-header',
+        access: 'read_only',
+        args: [{ name: 'height', type: 'uint128' }],
+        outputs: { type: { optional: { buffer: { length: 32 } } } },
+      } as TypedAbiFunction<
+        [height: TypedAbiArg<number | bigint, 'height'>],
+        Uint8Array | null
+      >,
+    },
+    maps: {},
+    variables: {
+      ERR_DEPOSIT: {
+        name: 'ERR_DEPOSIT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_DEPOSIT_INDEX_PREFIX: {
+        name: 'ERR_DEPOSIT_INDEX_PREFIX',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      ERR_DEPOSIT_REPLAY: {
+        name: 'ERR_DEPOSIT_REPLAY',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_BURN_HASH: {
+        name: 'ERR_INVALID_BURN_HASH',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_CALLER: {
+        name: 'ERR_INVALID_CALLER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_LOWER_THAN_DUST: {
+        name: 'ERR_LOWER_THAN_DUST',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_TXID_LEN: {
+        name: 'ERR_TXID_LEN',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      depositRole: {
+        name: 'deposit-role',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      dustLimit: {
+        name: 'dust-limit',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      txidLength: {
+        name: 'txid-length',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+    },
+    constants: {},
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: 'Epoch30',
+    clarity_version: 'Clarity3',
+    contractName: 'sbtc-deposit',
+  },
+  sbtcRegistry: {
+    functions: {
+      incrementLastWithdrawalRequestId: {
+        name: 'increment-last-withdrawal-request-id',
+        access: 'private',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      completeDeposit: {
+        name: 'complete-deposit',
+        access: 'public',
+        args: [
+          { name: 'txid', type: { buffer: { length: 32 } } },
+          { name: 'vout-index', type: 'uint128' },
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+          { name: 'burn-hash', type: { buffer: { length: 32 } } },
+          { name: 'burn-height', type: 'uint128' },
+          { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          txid: TypedAbiArg<Uint8Array, 'txid'>,
+          voutIndex: TypedAbiArg<number | bigint, 'voutIndex'>,
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+          burnHash: TypedAbiArg<Uint8Array, 'burnHash'>,
+          burnHeight: TypedAbiArg<number | bigint, 'burnHeight'>,
+          sweepTxid: TypedAbiArg<Uint8Array, 'sweepTxid'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      completeWithdrawalAccept: {
+        name: 'complete-withdrawal-accept',
+        access: 'public',
+        args: [
+          { name: 'request-id', type: 'uint128' },
+          { name: 'bitcoin-txid', type: { buffer: { length: 32 } } },
+          { name: 'output-index', type: 'uint128' },
+          { name: 'signer-bitmap', type: 'uint128' },
+          { name: 'fee', type: 'uint128' },
+          { name: 'burn-hash', type: { buffer: { length: 32 } } },
+          { name: 'burn-height', type: 'uint128' },
+          { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          requestId: TypedAbiArg<number | bigint, 'requestId'>,
+          bitcoinTxid: TypedAbiArg<Uint8Array, 'bitcoinTxid'>,
+          outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
+          signerBitmap: TypedAbiArg<number | bigint, 'signerBitmap'>,
+          fee: TypedAbiArg<number | bigint, 'fee'>,
+          burnHash: TypedAbiArg<Uint8Array, 'burnHash'>,
+          burnHeight: TypedAbiArg<number | bigint, 'burnHeight'>,
+          sweepTxid: TypedAbiArg<Uint8Array, 'sweepTxid'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      completeWithdrawalReject: {
+        name: 'complete-withdrawal-reject',
+        access: 'public',
+        args: [
+          { name: 'request-id', type: 'uint128' },
+          { name: 'signer-bitmap', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          requestId: TypedAbiArg<number | bigint, 'requestId'>,
+          signerBitmap: TypedAbiArg<number | bigint, 'signerBitmap'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      createWithdrawalRequest: {
+        name: 'create-withdrawal-request',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'max-fee', type: 'uint128' },
+          { name: 'sender', type: 'principal' },
+          {
+            name: 'recipient',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+          { name: 'height', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          maxFee: TypedAbiArg<number | bigint, 'maxFee'>,
+          sender: TypedAbiArg<string, 'sender'>,
+          recipient: TypedAbiArg<
+            {
+              hashbytes: Uint8Array;
+              version: Uint8Array;
+            },
+            'recipient'
+          >,
+          height: TypedAbiArg<number | bigint, 'height'>,
+        ],
+        Response<bigint, bigint>
+      >,
+      rotateKeys: {
+        name: 'rotate-keys',
+        access: 'public',
+        args: [
+          {
+            name: 'new-keys',
+            type: { list: { type: { buffer: { length: 33 } }, length: 128 } },
+          },
+          { name: 'new-address', type: 'principal' },
+          { name: 'new-aggregate-pubkey', type: { buffer: { length: 33 } } },
+          { name: 'new-signature-threshold', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          newKeys: TypedAbiArg<Uint8Array[], 'newKeys'>,
+          newAddress: TypedAbiArg<string, 'newAddress'>,
+          newAggregatePubkey: TypedAbiArg<Uint8Array, 'newAggregatePubkey'>,
+          newSignatureThreshold: TypedAbiArg<
+            number | bigint,
+            'newSignatureThreshold'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
+      updateProtocolContract: {
+        name: 'update-protocol-contract',
+        access: 'public',
+        args: [
+          { name: 'contract-type', type: { buffer: { length: 1 } } },
+          { name: 'new-contract', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          contractType: TypedAbiArg<Uint8Array, 'contractType'>,
+          newContract: TypedAbiArg<string, 'newContract'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      getActiveProtocol: {
+        name: 'get-active-protocol',
+        access: 'read_only',
+        args: [{ name: 'contract-flag', type: { buffer: { length: 1 } } }],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>],
+        string | null
+      >,
+      getCompletedDeposit: {
+        name: 'get-completed-deposit',
+        access: 'read_only',
+        args: [
+          { name: 'txid', type: { buffer: { length: 32 } } },
+          { name: 'vout-index', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'amount', type: 'uint128' },
+                { name: 'recipient', type: 'principal' },
+                { name: 'sweep-burn-hash', type: { buffer: { length: 32 } } },
+                { name: 'sweep-burn-height', type: 'uint128' },
+                { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          txid: TypedAbiArg<Uint8Array, 'txid'>,
+          voutIndex: TypedAbiArg<number | bigint, 'voutIndex'>,
+        ],
+        {
+          amount: bigint;
+          recipient: string;
+          sweepBurnHash: Uint8Array;
+          sweepBurnHeight: bigint;
+          sweepTxid: Uint8Array;
+        } | null
+      >,
+      getCompletedWithdrawalSweepData: {
+        name: 'get-completed-withdrawal-sweep-data',
+        access: 'read_only',
+        args: [{ name: 'id', type: 'uint128' }],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'sweep-burn-hash', type: { buffer: { length: 32 } } },
+                { name: 'sweep-burn-height', type: 'uint128' },
+                { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [id: TypedAbiArg<number | bigint, 'id'>],
+        {
+          sweepBurnHash: Uint8Array;
+          sweepBurnHeight: bigint;
+          sweepTxid: Uint8Array;
+        } | null
+      >,
+      getCurrentAggregatePubkey: {
+        name: 'get-current-aggregate-pubkey',
+        access: 'read_only',
+        args: [],
+        outputs: { type: { buffer: { length: 33 } } },
+      } as TypedAbiFunction<[], Uint8Array>,
+      getCurrentSignerData: {
+        name: 'get-current-signer-data',
+        access: 'read_only',
+        args: [],
+        outputs: {
+          type: {
+            tuple: [
+              {
+                name: 'current-aggregate-pubkey',
+                type: { buffer: { length: 33 } },
+              },
+              { name: 'current-signature-threshold', type: 'uint128' },
+              { name: 'current-signer-principal', type: 'principal' },
+              {
+                name: 'current-signer-set',
+                type: {
+                  list: { type: { buffer: { length: 33 } }, length: 128 },
+                },
+              },
+            ],
+          },
+        },
+      } as TypedAbiFunction<
+        [],
+        {
+          currentAggregatePubkey: Uint8Array;
+          currentSignatureThreshold: bigint;
+          currentSignerPrincipal: string;
+          currentSignerSet: Uint8Array[];
+        }
+      >,
+      getCurrentSignerPrincipal: {
+        name: 'get-current-signer-principal',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'principal' },
+      } as TypedAbiFunction<[], string>,
+      getCurrentSignerSet: {
+        name: 'get-current-signer-set',
+        access: 'read_only',
+        args: [],
+        outputs: {
+          type: { list: { type: { buffer: { length: 33 } }, length: 128 } },
+        },
+      } as TypedAbiFunction<[], Uint8Array[]>,
+      getDepositStatus: {
+        name: 'get-deposit-status',
+        access: 'read_only',
+        args: [
+          { name: 'txid', type: { buffer: { length: 32 } } },
+          { name: 'vout-index', type: 'uint128' },
+        ],
+        outputs: { type: { optional: 'bool' } },
+      } as TypedAbiFunction<
+        [
+          txid: TypedAbiArg<Uint8Array, 'txid'>,
+          voutIndex: TypedAbiArg<number | bigint, 'voutIndex'>,
+        ],
+        boolean | null
+      >,
+      getWithdrawalRequest: {
+        name: 'get-withdrawal-request',
+        access: 'read_only',
+        args: [{ name: 'id', type: 'uint128' }],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'amount', type: 'uint128' },
+                { name: 'block-height', type: 'uint128' },
+                { name: 'max-fee', type: 'uint128' },
+                {
+                  name: 'recipient',
+                  type: {
+                    tuple: [
+                      { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                      { name: 'version', type: { buffer: { length: 1 } } },
+                    ],
+                  },
+                },
+                { name: 'sender', type: 'principal' },
+                { name: 'status', type: { optional: 'bool' } },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [id: TypedAbiArg<number | bigint, 'id'>],
+        {
+          amount: bigint;
+          blockHeight: bigint;
+          maxFee: bigint;
+          recipient: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          };
+          sender: string;
+          status: boolean | null;
+        } | null
+      >,
+      isProtocolCaller: {
+        name: 'is-protocol-caller',
+        access: 'read_only',
+        args: [
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+          { name: 'contract', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+          contract: TypedAbiArg<string, 'contract'>,
+        ],
+        Response<boolean, bigint>
+      >,
+    },
+    maps: {
+      activeProtocolContracts: {
+        name: 'active-protocol-contracts',
+        key: { buffer: { length: 1 } },
+        value: 'principal',
+      } as TypedAbiMap<Uint8Array, string>,
+      activeProtocolRoles: {
+        name: 'active-protocol-roles',
+        key: 'principal',
+        value: { buffer: { length: 1 } },
+      } as TypedAbiMap<string, Uint8Array>,
+      aggregatePubkeys: {
+        name: 'aggregate-pubkeys',
+        key: { buffer: { length: 33 } },
+        value: 'bool',
+      } as TypedAbiMap<Uint8Array, boolean>,
+      completedDeposits: {
+        name: 'completed-deposits',
+        key: {
+          tuple: [
+            { name: 'txid', type: { buffer: { length: 32 } } },
+            { name: 'vout-index', type: 'uint128' },
+          ],
+        },
+        value: {
+          tuple: [
+            { name: 'amount', type: 'uint128' },
+            { name: 'recipient', type: 'principal' },
+            { name: 'sweep-burn-hash', type: { buffer: { length: 32 } } },
+            { name: 'sweep-burn-height', type: 'uint128' },
+            { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+          ],
+        },
+      } as TypedAbiMap<
+        {
+          txid: Uint8Array;
+          voutIndex: number | bigint;
+        },
+        {
+          amount: bigint;
+          recipient: string;
+          sweepBurnHash: Uint8Array;
+          sweepBurnHeight: bigint;
+          sweepTxid: Uint8Array;
+        }
+      >,
+      completedWithdrawalSweep: {
+        name: 'completed-withdrawal-sweep',
+        key: 'uint128',
+        value: {
+          tuple: [
+            { name: 'sweep-burn-hash', type: { buffer: { length: 32 } } },
+            { name: 'sweep-burn-height', type: 'uint128' },
+            { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+          ],
+        },
+      } as TypedAbiMap<
+        number | bigint,
+        {
+          sweepBurnHash: Uint8Array;
+          sweepBurnHeight: bigint;
+          sweepTxid: Uint8Array;
+        }
+      >,
+      depositStatus: {
+        name: 'deposit-status',
+        key: {
+          tuple: [
+            { name: 'txid', type: { buffer: { length: 32 } } },
+            { name: 'vout-index', type: 'uint128' },
+          ],
+        },
+        value: 'bool',
+      } as TypedAbiMap<
+        {
+          txid: Uint8Array;
+          voutIndex: number | bigint;
+        },
+        boolean
+      >,
+      withdrawalRequests: {
+        name: 'withdrawal-requests',
+        key: 'uint128',
+        value: {
+          tuple: [
+            { name: 'amount', type: 'uint128' },
+            { name: 'block-height', type: 'uint128' },
+            { name: 'max-fee', type: 'uint128' },
+            {
+              name: 'recipient',
+              type: {
+                tuple: [
+                  { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                  { name: 'version', type: { buffer: { length: 1 } } },
+                ],
+              },
+            },
+            { name: 'sender', type: 'principal' },
+          ],
+        },
+      } as TypedAbiMap<
+        number | bigint,
+        {
+          amount: bigint;
+          blockHeight: bigint;
+          maxFee: bigint;
+          recipient: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          };
+          sender: string;
+        }
+      >,
+      withdrawalStatus: {
+        name: 'withdrawal-status',
+        key: 'uint128',
+        value: 'bool',
+      } as TypedAbiMap<number | bigint, boolean>,
+    },
+    variables: {
+      ERR_AGG_PUBKEY_REPLAY: {
+        name: 'ERR_AGG_PUBKEY_REPLAY',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_REQUEST_ID: {
+        name: 'ERR_INVALID_REQUEST_ID',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNAUTHORIZED: {
+        name: 'ERR_UNAUTHORIZED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      depositRole: {
+        name: 'deposit-role',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      governanceRole: {
+        name: 'governance-role',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      withdrawalRole: {
+        name: 'withdrawal-role',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      currentAggregatePubkey: {
+        name: 'current-aggregate-pubkey',
+        type: {
+          buffer: {
+            length: 33,
+          },
+        },
+        access: 'variable',
+      } as TypedAbiVariable<Uint8Array>,
+      currentSignatureThreshold: {
+        name: 'current-signature-threshold',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      currentSignerPrincipal: {
+        name: 'current-signer-principal',
+        type: 'principal',
+        access: 'variable',
+      } as TypedAbiVariable<string>,
+      currentSignerSet: {
+        name: 'current-signer-set',
+        type: {
+          list: {
+            type: {
+              buffer: {
+                length: 33,
+              },
+            },
+            length: 128,
+          },
+        },
+        access: 'variable',
+      } as TypedAbiVariable<Uint8Array[]>,
+      lastWithdrawalRequestId: {
+        name: 'last-withdrawal-request-id',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+    },
+    constants: {},
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: 'Epoch30',
+    clarity_version: 'Clarity3',
+    contractName: 'sbtc-registry',
+  },
+  sbtcToken: {
+    functions: {
+      protocolMintManyIter: {
+        name: 'protocol-mint-many-iter',
+        access: 'private',
+        args: [
+          {
+            name: 'item',
+            type: {
+              tuple: [
+                { name: 'amount', type: 'uint128' },
+                { name: 'recipient', type: 'principal' },
+              ],
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          item: TypedAbiArg<
+            {
+              amount: number | bigint;
+              recipient: string;
+            },
+            'item'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
+      transferManyIter: {
+        name: 'transfer-many-iter',
+        access: 'private',
+        args: [
+          {
+            name: 'individual-transfer',
+            type: {
+              tuple: [
+                { name: 'amount', type: 'uint128' },
+                {
+                  name: 'memo',
+                  type: { optional: { buffer: { length: 34 } } },
+                },
+                { name: 'sender', type: 'principal' },
+                { name: 'to', type: 'principal' },
+              ],
+            },
+          },
+          {
+            name: 'result',
+            type: { response: { ok: 'uint128', error: 'uint128' } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          individualTransfer: TypedAbiArg<
+            {
+              amount: number | bigint;
+              memo: Uint8Array | null;
+              sender: string;
+              to: string;
+            },
+            'individualTransfer'
+          >,
+          result: TypedAbiArg<
+            Response<number | bigint, number | bigint>,
+            'result'
+          >,
+        ],
+        Response<bigint, bigint>
+      >,
+      protocolBurn: {
+        name: 'protocol-burn',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'owner', type: 'principal' },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          owner: TypedAbiArg<string, 'owner'>,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      protocolBurnLocked: {
+        name: 'protocol-burn-locked',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'owner', type: 'principal' },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          owner: TypedAbiArg<string, 'owner'>,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      protocolLock: {
+        name: 'protocol-lock',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'owner', type: 'principal' },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          owner: TypedAbiArg<string, 'owner'>,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      protocolMint: {
+        name: 'protocol-mint',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      protocolMintMany: {
+        name: 'protocol-mint-many',
+        access: 'public',
+        args: [
+          {
+            name: 'recipients',
+            type: {
+              list: {
+                type: {
+                  tuple: [
+                    { name: 'amount', type: 'uint128' },
+                    { name: 'recipient', type: 'principal' },
+                  ],
+                },
+                length: 200,
+              },
+            },
+          },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                list: {
+                  type: { response: { ok: 'bool', error: 'uint128' } },
+                  length: 200,
+                },
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          recipients: TypedAbiArg<
+            {
+              amount: number | bigint;
+              recipient: string;
+            }[],
+            'recipients'
+          >,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<Response<boolean, bigint>[], bigint>
+      >,
+      protocolSetName: {
+        name: 'protocol-set-name',
+        access: 'public',
+        args: [
+          { name: 'new-name', type: { 'string-ascii': { length: 32 } } },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          newName: TypedAbiArg<string, 'newName'>,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      protocolSetSymbol: {
+        name: 'protocol-set-symbol',
+        access: 'public',
+        args: [
+          { name: 'new-symbol', type: { 'string-ascii': { length: 10 } } },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          newSymbol: TypedAbiArg<string, 'newSymbol'>,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      protocolSetTokenUri: {
+        name: 'protocol-set-token-uri',
+        access: 'public',
+        args: [
+          {
+            name: 'new-uri',
+            type: { optional: { 'string-utf8': { length: 256 } } },
+          },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          newUri: TypedAbiArg<string | null, 'newUri'>,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      protocolUnlock: {
+        name: 'protocol-unlock',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'owner', type: 'principal' },
+          { name: 'contract-flag', type: { buffer: { length: 1 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          owner: TypedAbiArg<string, 'owner'>,
+          contractFlag: TypedAbiArg<Uint8Array, 'contractFlag'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      transfer: {
+        name: 'transfer',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'sender', type: 'principal' },
+          { name: 'recipient', type: 'principal' },
+          { name: 'memo', type: { optional: { buffer: { length: 34 } } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          sender: TypedAbiArg<string, 'sender'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+          memo: TypedAbiArg<Uint8Array | null, 'memo'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      transferMany: {
+        name: 'transfer-many',
+        access: 'public',
+        args: [
+          {
+            name: 'recipients',
+            type: {
+              list: {
+                type: {
+                  tuple: [
+                    { name: 'amount', type: 'uint128' },
+                    {
+                      name: 'memo',
+                      type: { optional: { buffer: { length: 34 } } },
+                    },
+                    { name: 'sender', type: 'principal' },
+                    { name: 'to', type: 'principal' },
+                  ],
+                },
+                length: 200,
+              },
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          recipients: TypedAbiArg<
+            {
+              amount: number | bigint;
+              memo: Uint8Array | null;
+              sender: string;
+              to: string;
+            }[],
+            'recipients'
+          >,
+        ],
+        Response<bigint, bigint>
+      >,
+      getBalance: {
+        name: 'get-balance',
+        access: 'read_only',
+        args: [{ name: 'who', type: 'principal' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'none' } } },
+      } as TypedAbiFunction<
+        [who: TypedAbiArg<string, 'who'>],
+        Response<bigint, null>
+      >,
+      getBalanceAvailable: {
+        name: 'get-balance-available',
+        access: 'read_only',
+        args: [{ name: 'who', type: 'principal' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'none' } } },
+      } as TypedAbiFunction<
+        [who: TypedAbiArg<string, 'who'>],
+        Response<bigint, null>
+      >,
+      getBalanceLocked: {
+        name: 'get-balance-locked',
+        access: 'read_only',
+        args: [{ name: 'who', type: 'principal' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'none' } } },
+      } as TypedAbiFunction<
+        [who: TypedAbiArg<string, 'who'>],
+        Response<bigint, null>
+      >,
+      getDecimals: {
+        name: 'get-decimals',
+        access: 'read_only',
+        args: [],
+        outputs: { type: { response: { ok: 'uint128', error: 'none' } } },
+      } as TypedAbiFunction<[], Response<bigint, null>>,
+      getName: {
+        name: 'get-name',
+        access: 'read_only',
+        args: [],
+        outputs: {
+          type: {
+            response: { ok: { 'string-ascii': { length: 32 } }, error: 'none' },
+          },
+        },
+      } as TypedAbiFunction<[], Response<string, null>>,
+      getSymbol: {
+        name: 'get-symbol',
+        access: 'read_only',
+        args: [],
+        outputs: {
+          type: {
+            response: { ok: { 'string-ascii': { length: 10 } }, error: 'none' },
+          },
+        },
+      } as TypedAbiFunction<[], Response<string, null>>,
+      getTokenUri: {
+        name: 'get-token-uri',
+        access: 'read_only',
+        args: [],
+        outputs: {
+          type: {
+            response: {
+              ok: { optional: { 'string-utf8': { length: 256 } } },
+              error: 'none',
+            },
+          },
+        },
+      } as TypedAbiFunction<[], Response<string | null, null>>,
+      getTotalSupply: {
+        name: 'get-total-supply',
+        access: 'read_only',
+        args: [],
+        outputs: { type: { response: { ok: 'uint128', error: 'none' } } },
+      } as TypedAbiFunction<[], Response<bigint, null>>,
+    },
+    maps: {},
+    variables: {
+      ERR_NOT_OWNER: {
+        name: 'ERR_NOT_OWNER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_TRANSFER_INDEX_PREFIX: {
+        name: 'ERR_TRANSFER_INDEX_PREFIX',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      tokenDecimals: {
+        name: 'token-decimals',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      tokenName: {
+        name: 'token-name',
+        type: {
+          'string-ascii': {
+            length: 32,
+          },
+        },
+        access: 'variable',
+      } as TypedAbiVariable<string>,
+      tokenSymbol: {
+        name: 'token-symbol',
+        type: {
+          'string-ascii': {
+            length: 10,
+          },
+        },
+        access: 'variable',
+      } as TypedAbiVariable<string>,
+      tokenUri: {
+        name: 'token-uri',
+        type: {
+          optional: {
+            'string-utf8': {
+              length: 256,
+            },
+          },
+        },
+        access: 'variable',
+      } as TypedAbiVariable<string | null>,
+    },
+    constants: {},
+    non_fungible_tokens: [],
+    fungible_tokens: [{ name: 'sbtc-token' }, { name: 'sbtc-token-locked' }],
+    epoch: 'Epoch30',
+    clarity_version: 'Clarity3',
+    contractName: 'sbtc-token',
+  },
+  sbtcWithdrawal: {
+    functions: {
+      completeIndividualWithdrawalHelper: {
+        name: 'complete-individual-withdrawal-helper',
+        access: 'private',
+        args: [
+          {
+            name: 'withdrawal',
+            type: {
+              tuple: [
+                {
+                  name: 'bitcoin-txid',
+                  type: { optional: { buffer: { length: 32 } } },
+                },
+                { name: 'burn-hash', type: { buffer: { length: 32 } } },
+                { name: 'burn-height', type: 'uint128' },
+                { name: 'fee', type: { optional: 'uint128' } },
+                { name: 'output-index', type: { optional: 'uint128' } },
+                { name: 'request-id', type: 'uint128' },
+                { name: 'signer-bitmap', type: 'uint128' },
+                { name: 'status', type: 'bool' },
+                {
+                  name: 'sweep-txid',
+                  type: { optional: { buffer: { length: 32 } } },
+                },
+              ],
+            },
+          },
+          {
+            name: 'helper-response',
+            type: { response: { ok: 'uint128', error: 'uint128' } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          withdrawal: TypedAbiArg<
+            {
+              bitcoinTxid: Uint8Array | null;
+              burnHash: Uint8Array;
+              burnHeight: number | bigint;
+              fee: number | bigint | null;
+              outputIndex: number | bigint | null;
+              requestId: number | bigint;
+              signerBitmap: number | bigint;
+              status: boolean;
+              sweepTxid: Uint8Array | null;
+            },
+            'withdrawal'
+          >,
+          helperResponse: TypedAbiArg<
+            Response<number | bigint, number | bigint>,
+            'helperResponse'
+          >,
+        ],
+        Response<bigint, bigint>
+      >,
+      acceptWithdrawalRequest: {
+        name: 'accept-withdrawal-request',
+        access: 'public',
+        args: [
+          { name: 'request-id', type: 'uint128' },
+          { name: 'bitcoin-txid', type: { buffer: { length: 32 } } },
+          { name: 'signer-bitmap', type: 'uint128' },
+          { name: 'output-index', type: 'uint128' },
+          { name: 'fee', type: 'uint128' },
+          { name: 'burn-hash', type: { buffer: { length: 32 } } },
+          { name: 'burn-height', type: 'uint128' },
+          { name: 'sweep-txid', type: { buffer: { length: 32 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          requestId: TypedAbiArg<number | bigint, 'requestId'>,
+          bitcoinTxid: TypedAbiArg<Uint8Array, 'bitcoinTxid'>,
+          signerBitmap: TypedAbiArg<number | bigint, 'signerBitmap'>,
+          outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
+          fee: TypedAbiArg<number | bigint, 'fee'>,
+          burnHash: TypedAbiArg<Uint8Array, 'burnHash'>,
+          burnHeight: TypedAbiArg<number | bigint, 'burnHeight'>,
+          sweepTxid: TypedAbiArg<Uint8Array, 'sweepTxid'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      completeWithdrawals: {
+        name: 'complete-withdrawals',
+        access: 'public',
+        args: [
+          {
+            name: 'withdrawals',
+            type: {
+              list: {
+                type: {
+                  tuple: [
+                    {
+                      name: 'bitcoin-txid',
+                      type: { optional: { buffer: { length: 32 } } },
+                    },
+                    { name: 'burn-hash', type: { buffer: { length: 32 } } },
+                    { name: 'burn-height', type: 'uint128' },
+                    { name: 'fee', type: { optional: 'uint128' } },
+                    { name: 'output-index', type: { optional: 'uint128' } },
+                    { name: 'request-id', type: 'uint128' },
+                    { name: 'signer-bitmap', type: 'uint128' },
+                    { name: 'status', type: 'bool' },
+                    {
+                      name: 'sweep-txid',
+                      type: { optional: { buffer: { length: 32 } } },
+                    },
+                  ],
+                },
+                length: 600,
+              },
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          withdrawals: TypedAbiArg<
+            {
+              bitcoinTxid: Uint8Array | null;
+              burnHash: Uint8Array;
+              burnHeight: number | bigint;
+              fee: number | bigint | null;
+              outputIndex: number | bigint | null;
+              requestId: number | bigint;
+              signerBitmap: number | bigint;
+              status: boolean;
+              sweepTxid: Uint8Array | null;
+            }[],
+            'withdrawals'
+          >,
+        ],
+        Response<bigint, bigint>
+      >,
+      initiateWithdrawalRequest: {
+        name: 'initiate-withdrawal-request',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          {
+            name: 'recipient',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+          { name: 'max-fee', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<
+            {
+              hashbytes: Uint8Array;
+              version: Uint8Array;
+            },
+            'recipient'
+          >,
+          maxFee: TypedAbiArg<number | bigint, 'maxFee'>,
+        ],
+        Response<bigint, bigint>
+      >,
+      rejectWithdrawalRequest: {
+        name: 'reject-withdrawal-request',
+        access: 'public',
+        args: [
+          { name: 'request-id', type: 'uint128' },
+          { name: 'signer-bitmap', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          requestId: TypedAbiArg<number | bigint, 'requestId'>,
+          signerBitmap: TypedAbiArg<number | bigint, 'signerBitmap'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      getBurnHeader: {
+        name: 'get-burn-header',
+        access: 'read_only',
+        args: [{ name: 'height', type: 'uint128' }],
+        outputs: { type: { optional: { buffer: { length: 32 } } } },
+      } as TypedAbiFunction<
+        [height: TypedAbiArg<number | bigint, 'height'>],
+        Uint8Array | null
+      >,
+      validateRecipient: {
+        name: 'validate-recipient',
+        access: 'read_only',
+        args: [
+          {
+            name: 'recipient',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          recipient: TypedAbiArg<
+            {
+              hashbytes: Uint8Array;
+              version: Uint8Array;
+            },
+            'recipient'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
+    },
+    maps: {},
+    variables: {
+      DUST_LIMIT: {
+        name: 'DUST_LIMIT',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      ERR_ALREADY_PROCESSED: {
+        name: 'ERR_ALREADY_PROCESSED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_DUST_LIMIT: {
+        name: 'ERR_DUST_LIMIT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_FEE_TOO_HIGH: {
+        name: 'ERR_FEE_TOO_HIGH',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_ADDR_HASHBYTES: {
+        name: 'ERR_INVALID_ADDR_HASHBYTES',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_ADDR_VERSION: {
+        name: 'ERR_INVALID_ADDR_VERSION',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_BURN_HASH: {
+        name: 'ERR_INVALID_BURN_HASH',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_CALLER: {
+        name: 'ERR_INVALID_CALLER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_REQUEST: {
+        name: 'ERR_INVALID_REQUEST',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_WITHDRAWAL_INDEX: {
+        name: 'ERR_WITHDRAWAL_INDEX',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_WITHDRAWAL_INDEX_PREFIX: {
+        name: 'ERR_WITHDRAWAL_INDEX_PREFIX',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      MAX_ADDRESS_VERSION: {
+        name: 'MAX_ADDRESS_VERSION',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      mAX_ADDRESS_VERSION_BUFF_20: {
+        name: 'MAX_ADDRESS_VERSION_BUFF_20',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      mAX_ADDRESS_VERSION_BUFF_32: {
+        name: 'MAX_ADDRESS_VERSION_BUFF_32',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      withdrawRole: {
+        name: 'withdraw-role',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+    },
+    constants: {},
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: 'Epoch30',
+    clarity_version: 'Clarity3',
+    contractName: 'sbtc-withdrawal',
   },
   signers: {
     functions: {
@@ -4540,11 +6951,11 @@ export const contracts = {
       ERR_SIGNER_INDEX_MISMATCH: 10n,
       poxInfo: {
         firstBurnchainBlockHeight: 0n,
-        minAmountUstx: 125_000_000_000n,
+        minAmountUstx: 150_000_000_000n,
         prepareCycleLength: 50n,
         rewardCycleId: 0n,
         rewardCycleLength: 1_050n,
-        totalLiquidSupplyUstx: 1_000_000_000_000_000n,
+        totalLiquidSupplyUstx: 1_200_000_000_000_000n,
       },
       thresholdConsensus: 70n,
     },
@@ -4667,7 +7078,7 @@ export const contracts = {
       } as TypedAbiVariable<string>,
     },
     constants: {
-      DEPLOY_BLOCK_HEIGHT: 3n,
+      DEPLOY_BLOCK_HEIGHT: 5n,
       ERR_INVALID_RECIPIENT: 103n,
       ERR_NOTHING_TO_CLAIM: 102n,
       ERR_NOT_ALLOWED: 101n,
@@ -4753,6 +7164,10 @@ export const accounts = {
     address: 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5',
     balance: '100000000000000',
   },
+  wallet_10: {
+    address: 'ST3FFKYTTB975A3JC3F99MM7TXZJ406R3GKE6JV56',
+    balance: '200000000000000',
+  },
   wallet_2: {
     address: 'ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG',
     balance: '100000000000000',
@@ -4791,7 +7206,12 @@ export const identifiers = {
   bns: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.bns',
   bns_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.bns_test',
   pox4: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-4',
+  poxWaterfall0: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-waterfall-0',
   pox_4_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox_4_test',
+  sbtcDeposit: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit',
+  sbtcRegistry: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry',
+  sbtcToken: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token',
+  sbtcWithdrawal: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal',
   signers: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers',
   signersVoting: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers-voting',
   sip031: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031',
@@ -4823,9 +7243,39 @@ export const deployments = {
     testnet: null,
     mainnet: null,
   },
+  poxWaterfall0: {
+    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-waterfall-0',
+    simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-waterfall-0',
+    testnet: null,
+    mainnet: null,
+  },
   pox_4_test: {
     devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox_4_test',
     simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox_4_test',
+    testnet: null,
+    mainnet: null,
+  },
+  sbtcDeposit: {
+    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtc-deposit',
+    simnet: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit',
+    testnet: null,
+    mainnet: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit',
+  },
+  sbtcRegistry: {
+    devnet: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry',
+    simnet: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry',
+    testnet: null,
+    mainnet: null,
+  },
+  sbtcToken: {
+    devnet: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token',
+    simnet: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token',
+    testnet: null,
+    mainnet: null,
+  },
+  sbtcWithdrawal: {
+    devnet: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal',
+    simnet: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal',
     testnet: null,
     mainnet: null,
   },
