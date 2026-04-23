@@ -4035,6 +4035,30 @@ export const contracts = {
         ],
         Response<bigint, bigint>
       >,
+      allowContractCaller: {
+        name: 'allow-contract-caller',
+        access: 'public',
+        args: [
+          { name: 'caller', type: 'principal' },
+          { name: 'until-burn-ht', type: { optional: 'uint128' } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          caller: TypedAbiArg<string, 'caller'>,
+          untilBurnHt: TypedAbiArg<number | bigint | null, 'untilBurnHt'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      disallowContractCaller: {
+        name: 'disallow-contract-caller',
+        access: 'public',
+        args: [{ name: 'caller', type: 'principal' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [caller: TypedAbiArg<string, 'caller'>],
+        Response<boolean, bigint>
+      >,
       grantSignerKey: {
         name: 'grant-signer-key',
         access: 'public',
@@ -4225,7 +4249,26 @@ export const contracts = {
             },
           },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'bond-index', type: 'uint128' },
+                  {
+                    name: 'early-unlock-signers',
+                    type: { buffer: { length: 683 } },
+                  },
+                  { name: 'max-allocation-sats', type: 'uint128' },
+                  { name: 'min-ustx-ratio', type: 'uint128' },
+                  { name: 'stx-value-ratio', type: 'uint128' },
+                  { name: 'target-rate', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [
           bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
@@ -4241,7 +4284,17 @@ export const contracts = {
             'allowlist'
           >,
         ],
-        Response<boolean, bigint>
+        Response<
+          {
+            bondIndex: bigint;
+            earlyUnlockSigners: Uint8Array;
+            maxAllocationSats: bigint;
+            minUstxRatio: bigint;
+            stxValueRatio: bigint;
+            targetRate: bigint;
+          },
+          bigint
+        >
       >,
       bondPeriodToBurnHeight: {
         name: 'bond-period-to-burn-height',
@@ -4270,6 +4323,12 @@ export const contracts = {
         [height: TypedAbiArg<number | bigint, 'height'>],
         bigint
       >,
+      checkCallerAllowed: {
+        name: 'check-caller-allowed',
+        access: 'read_only',
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
       checkPoxAddr: {
         name: 'check-pox-addr',
         access: 'read_only',
@@ -4431,6 +4490,31 @@ export const contracts = {
           authId: TypedAbiArg<number | bigint, 'authId'>,
         ],
         Uint8Array
+      >,
+      getStakerInfo: {
+        name: 'get-staker-info',
+        access: 'read_only',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'amount-ustx', type: 'uint128' },
+                { name: 'first-reward-cycle', type: 'uint128' },
+                { name: 'num-cycles', type: 'uint128' },
+                { name: 'signer-key', type: { buffer: { length: 33 } } },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [staker: TypedAbiArg<string, 'staker'>],
+        {
+          amountUstx: bigint;
+          firstRewardCycle: bigint;
+          numCycles: bigint;
+          signerKey: Uint8Array;
+        } | null
       >,
       getStakerSetFirstItemForCycle: {
         name: 'get-staker-set-first-item-for-cycle',
@@ -4620,6 +4704,22 @@ export const contracts = {
       >,
     },
     maps: {
+      allowanceContractCallers: {
+        name: 'allowance-contract-callers',
+        key: {
+          tuple: [
+            { name: 'contract-caller', type: 'principal' },
+            { name: 'sender', type: 'principal' },
+          ],
+        },
+        value: { optional: 'uint128' },
+      } as TypedAbiMap<
+        {
+          contractCaller: string;
+          sender: string;
+        },
+        bigint | null
+      >,
       protocolBondAllowances: {
         name: 'protocol-bond-allowances',
         key: {
@@ -4757,6 +4857,26 @@ export const contracts = {
         key: 'uint128',
         value: 'principal',
       } as TypedAbiMap<number | bigint, string>,
+      stakingState: {
+        name: 'staking-state',
+        key: 'principal',
+        value: {
+          tuple: [
+            { name: 'amount-ustx', type: 'uint128' },
+            { name: 'first-reward-cycle', type: 'uint128' },
+            { name: 'num-cycles', type: 'uint128' },
+            { name: 'signer-key', type: { buffer: { length: 33 } } },
+          ],
+        },
+      } as TypedAbiMap<
+        string,
+        {
+          amountUstx: bigint;
+          firstRewardCycle: bigint;
+          numCycles: bigint;
+          signerKey: Uint8Array;
+        }
+      >,
       usedSignerKeyAuthorizations: {
         name: 'used-signer-key-authorizations',
         key: {
@@ -5036,6 +5156,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNAUTHORIZED_CALLER: {
+        name: 'ERR_UNAUTHORIZED_CALLER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       MAX_ADDRESS_VERSION: {
         name: 'MAX_ADDRESS_VERSION',
         type: 'uint128',
@@ -5227,6 +5357,10 @@ export const contracts = {
       ERR_UNAUTHORIZED: {
         isOk: false,
         value: 1n,
+      },
+      ERR_UNAUTHORIZED_CALLER: {
+        isOk: false,
+        value: 22n,
       },
       MAX_ADDRESS_VERSION: 6n,
       mAX_ADDRESS_VERSION_BUFF_20: 4n,

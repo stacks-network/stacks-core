@@ -19,6 +19,7 @@
 (define-constant ERR_ALREADY_STAKED (err u19))
 (define-constant ERR_INVALID_NUM_CYCLES (err u20))
 (define-constant ERR_INVALID_POX_ADDRESS (err u21))
+(define-constant ERR_UNAUTHORIZED_CALLER (err u22))
 
 (define-constant BOND_LENGTH_CYCLES u12)
 (define-constant BOND_GAP_CYCLES u2)
@@ -110,6 +111,26 @@
         auth-id: uint,
     }
     bool
+)
+
+(define-map staking-state
+    principal
+    {
+        num-cycles: uint,
+        amount-ustx: uint,
+        first-reward-cycle: uint,
+        signer-key: (buff 33),
+    }
+)
+
+;; allowed contract-callers
+(define-map allowance-contract-callers
+    {
+        sender: principal,
+        contract-caller: principal,
+    }
+    ;; Optional expiration burn height
+    (optional uint)
 )
 
 ;; State for tracking used signer key authorizations. This prevents re-use
@@ -223,14 +244,21 @@
             ERR_BOND_ALREADY_SETUP
         )
 
-        (try! (fold add-staker-to-bond allowlist
+        (let ((accumulator (try! (fold add-staker-to-bond allowlist
+                (ok {
+                    sum-max-sats: u0,
+                    bond-index: bond-index,
+                })
+            ))))
             (ok {
-                sum-max-sats: u0,
                 bond-index: bond-index,
+                target-rate: target-rate,
+                stx-value-ratio: stx-value-ratio,
+                min-ustx-ratio: min-ustx-ratio,
+                early-unlock-signers: early-unlock-signers,
+                max-allocation-sats: (get sum-max-sats accumulator),
             })
-        ))
-
-        (ok true)
+        )
     )
 )
 
@@ -246,19 +274,26 @@
             uint
         ))
     )
-    (let ((accumulator (try! accumulator-res)))
+    (let (
+            (accumulator (try! accumulator-res))
+            (bond-index (get bond-index accumulator))
+        )
         (asserts!
             (map-insert protocol-bond-allowances {
-                bond-index: (get bond-index accumulator),
+                bond-index: bond-index,
                 staker: (get staker staker-item),
             }
                 (get max-sats staker-item)
             )
             ERR_STAKER_ALREADY_ADDED
         )
+        (print (merge staker-item {
+            topic: "add-to-allowlist",
+            bond-index: bond-index,
+        }))
         (ok {
             sum-max-sats: (+ (get sum-max-sats accumulator) (get max-sats staker-item)),
-            bond-index: (get bond-index accumulator),
+            bond-index: bond-index,
         })
     )
 )
@@ -308,7 +343,7 @@
                 })
                 ERR_NOT_ALLOWLISTED
             ))
-            (first-cycle (bond-period-to-reward-cycle bond-index))
+            (first-reward-cycle (bond-period-to-reward-cycle bond-index))
         )
         ;; Verify that they're sending enough STX
         (asserts! (>= amount-ustx min-amount-ustx) ERR_INSUFFICIENT_STX)
@@ -323,7 +358,15 @@
             auth-id tx-sender
         ))
 
-        ;; TODO: validate caller
+        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (check-caller-allowed))
+
+        (map-set staking-state tx-sender {
+            amount-ustx: amount-ustx,
+            first-reward-cycle: first-reward-cycle,
+            num-cycles: BOND_LENGTH_CYCLES,
+            signer-key: signer-key,
+        })
 
         (asserts!
             (map-insert protocol-bond-members {
@@ -337,7 +380,9 @@
             ERR_ALREADY_REGISTERED
         )
 
-        (try! (add-staker-to-reward-cycles tx-sender first-cycle BOND_LENGTH_CYCLES))
+        (try! (add-staker-to-reward-cycles tx-sender first-reward-cycle
+            BOND_LENGTH_CYCLES
+        ))
 
         (ok true)
     )
@@ -793,6 +838,27 @@
     })
 )
 
+;; Get the _current_ PoX staking principal information.  If the information
+;; is expired, or if there's never been such a staker, then returns none.
+(define-read-only (get-staker-info (staker principal))
+    (match (map-get? staking-state staker)
+        staking-info
+        (if (<=
+                (+ (get first-reward-cycle staking-info)
+                    (get num-cycles staking-info)
+                )
+                (current-pox-reward-cycle)
+            )
+            ;; present, but lock has expired
+            none
+            ;; present, and lock has not expired
+            (some staking-info)
+        )
+        ;; no state at all
+        none
+    )
+)
+
 (define-private (check-opt-pox-addr (pox-addr-opt (optional {
     version: (buff 1),
     hashbytes: (buff 32),
@@ -820,6 +886,57 @@
                 (is-eq (len (get hashbytes pox-addr)) expected-len)
             )
             ERR_INVALID_POX_ADDRESS
+        ))
+    )
+)
+
+;;; Contract caller allowances
+
+(define-read-only (check-caller-allowed)
+    (ok (asserts!
+        (or
+            (is-eq tx-sender contract-caller)
+            (match (unwrap!
+                (map-get? allowance-contract-callers {
+                    sender: tx-sender,
+                    contract-caller: contract-caller,
+                })
+                ERR_UNAUTHORIZED_CALLER
+            )
+                expiration (>= burn-block-height expiration)
+                true
+            )
+        )
+        ERR_UNAUTHORIZED_CALLER
+    ))
+)
+
+;; Revoke contract-caller authorization to call stacking methods
+(define-public (disallow-contract-caller (caller principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
+        (ok (map-delete allowance-contract-callers {
+            sender: tx-sender,
+            contract-caller: caller,
+        }))
+    )
+)
+
+;; Give a contract-caller authorization to call stacking methods
+;;  normally, stacking methods may only be invoked by _direct_ transactions
+;;   (i.e., the tx-sender issues a direct contract-call to the stacking methods)
+;;  by issuing an allowance, the tx-sender may call through the allowed contract
+(define-public (allow-contract-caller
+        (caller principal)
+        (until-burn-ht (optional uint))
+    )
+    (begin
+        (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
+        (ok (map-set allowance-contract-callers {
+            sender: tx-sender,
+            contract-caller: caller,
+        }
+            until-burn-ht
         ))
     )
 )

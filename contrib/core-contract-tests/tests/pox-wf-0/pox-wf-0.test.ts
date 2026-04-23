@@ -106,6 +106,14 @@ test('scenario - setting up and starting a bond', () => {
     alice,
   );
 
+  const aliceStakerInfo = rov(wf.getStakerInfo(alice))!;
+  expect(aliceStakerInfo).toEqual({
+    numCycles: 12n,
+    amountUstx: 100000000n,
+    firstRewardCycle: 1n,
+    signerKey,
+  });
+
   const transferEvent = filterEvents(
     aliceRegister.events,
     CoreNodeEventType.FtTransferEvent,
