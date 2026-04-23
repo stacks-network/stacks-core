@@ -308,7 +308,6 @@ jobs:
     if: >-
       always() &&
       !cancelled() &&
-      github.repository == 'stacks-network/stacks-core' &&
       !contains(needs.stacks-core-tests.result, 'skipped') &&
       !contains(needs.bitcoin-tests.result, 'skipped') &&
       !contains(needs.p2p-tests.result, 'skipped')
