@@ -6718,6 +6718,7 @@ pub mod tests {
     use stacks_common::util::vrf::*;
 
     use super::*;
+    use crate::burnchains::bitcoin::WitnessScriptHash;
     use crate::burnchains::db::BurnchainDB;
     use crate::burnchains::tests::db::make_simple_block_commit;
     use crate::burnchains::*;
