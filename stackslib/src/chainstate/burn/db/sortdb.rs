@@ -4388,6 +4388,10 @@ impl SortitionDB {
             sortition_db_handle
                 .store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
             sortition_db_handle.store_watched_outputs(&new_snapshot.0, &p2wsh_outputs)?;
+            sortition_db_handle.prune_watched_outputs(
+                burnchain.pox_constants.reward_cycle_length,
+                new_snapshot.0.block_height,
+            )?;
         }
 
         announce_to(reward_set_info, &new_snapshot.0.consensus_hash);
@@ -6742,6 +6746,27 @@ impl SortitionHandleTx<'_> {
                     u64_to_sql(output.amount)?,
                 ],
             )?;
+        }
+        Ok(())
+    }
+
+    /// Prune watched outputs whose block height is older than 1.5 reward cycles
+    /// before `current_block_height`.
+    pub fn prune_watched_outputs(
+        &mut self,
+        reward_cycle_length: u32,
+        current_block_height: u64,
+    ) -> Result<(), db_error> {
+        let window = (3u64 * u64::from(reward_cycle_length)) / 2;
+        let threshold = current_block_height.saturating_sub(window);
+        let sql = "DELETE FROM watched_p2wsh_outputs WHERE block_height < ?1";
+        let deleted = self.execute(sql, [u64_to_sql(threshold)?])?;
+        if deleted > 0 {
+            test_debug!(
+                "Pruned {} watched outputs older than block height {}",
+                deleted,
+                threshold
+            );
         }
         Ok(())
     }
@@ -11695,6 +11720,91 @@ pub mod tests {
             // there is no tip info off of sortition C'
             let sortition_Cp_tip = get_stacks_tip_at_sortition(&db, &sortition_Cp.sortition_id);
             assert!(sortition_Cp_tip.is_none());
+        }
+    }
+
+    #[test]
+    fn prune_watched_outputs() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "10000000000000000000000000000000000000000000000000000000000000ff",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+
+        // With reward_cycle_length = 10, the retention window is (3 * 10) / 2 = 15 blocks.
+        // Pruning against a tip at height 100 keeps outputs with block_height >= 85.
+        let reward_cycle_length: u32 = 10;
+        let window: u64 = (3 * u64::from(reward_cycle_length)) / 2; // 15
+        let current_block_height: u64 = 100;
+        let threshold = current_block_height - window; // 85
+
+        let heights: &[u64] = &[1, 50, 80, 84, 85, 90, 100];
+
+        let mut tx = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
+        for &height in heights {
+            let marker = height as u8;
+            tx.execute(
+                "INSERT INTO watched_p2wsh_outputs
+                 (txid, vout, consensus_hash, block_height, witness_script_hash, amount)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    &Txid([marker; 32]),
+                    0u32,
+                    &tip.consensus_hash,
+                    u64_to_sql(height).unwrap(),
+                    &WitnessScriptHash([marker; 32]),
+                    u64_to_sql(height * 1_000).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        tx.prune_watched_outputs(reward_cycle_length, current_block_height)
+            .unwrap();
+        tx.commit().unwrap();
+
+        for &height in heights {
+            let remaining: i64 = db
+                .conn()
+                .query_row(
+                    "SELECT COUNT(*) FROM watched_p2wsh_outputs WHERE block_height = ?1",
+                    [u64_to_sql(height).unwrap()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            if height < threshold {
+                assert_eq!(
+                    remaining, 0,
+                    "Expected outputs at height {height} to be pruned (threshold={threshold})"
+                );
+            } else {
+                assert_eq!(
+                    remaining, 1,
+                    "Expected outputs at height {height} to survive (threshold={threshold})"
+                );
+            }
+        }
+
+        // When the tip is below the retention window, nothing more should be pruned.
+        let early_tip: u64 = 5;
+        let mut tx = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
+        tx.prune_watched_outputs(reward_cycle_length, early_tip)
+            .unwrap();
+        tx.commit().unwrap();
+
+        for &height in heights.iter().filter(|&&h| h >= threshold) {
+            let remaining: i64 = db
+                .conn()
+                .query_row(
+                    "SELECT COUNT(*) FROM watched_p2wsh_outputs WHERE block_height = ?1",
+                    [u64_to_sql(height).unwrap()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                remaining, 1,
+                "Expected outputs at height {height} to survive a below-window prune"
+            );
         }
     }
 }
