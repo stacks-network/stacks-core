@@ -14,13 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
 use clarity::vm::types::QualifiedContractIdentifier;
+#[cfg(test)]
 use clarity::vm::ContractName;
+#[cfg(test)]
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
+#[cfg(test)]
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+#[cfg(test)]
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+#[cfg(test)]
 use stacks_common::util::secp256k1::MessageSignature;
 
+#[cfg(test)]
 use crate::*;
 
 #[test]
@@ -45,6 +52,11 @@ fn test_stackerdb_slot_metadata_sign_verify() {
     let mut slot_metadata = chunk_data.get_slot_metadata();
     slot_metadata.sign(&pk).unwrap();
 
+    assert!(slot_metadata.verify(&addr).unwrap());
+
+    // succeds with high-S signature (that's not necessarily good, but
+    // since this has always worked, it can't just stop)
+    slot_metadata.signature = slot_metadata.signature.with_negated_s();
     assert!(slot_metadata.verify(&addr).unwrap());
 
     // fails with wrong address

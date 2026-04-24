@@ -710,6 +710,40 @@ fn test_secp256k1_recover_returns_expected_public_key() {
 }
 
 #[test]
+fn test_secp256k1_recover_returns_expected_public_key_even_with_high_s() {
+    let (message, signature, pubkey) = secp256k1_vectors();
+    let high_s_signature = Secp256k1Signature::from_rsv(&signature)
+        .unwrap()
+        .with_negated_s()
+        .to_rsv();
+    assert_ne!(
+        signature, high_s_signature,
+        "high s signature should be different"
+    );
+
+    let fallback = zeroed_buff_literal(33);
+    let program = format!(
+        "(is-eq (unwrap! (secp256k1-recover? {} {}) {}) {})",
+        buff_literal(&message),
+        buff_literal(&high_s_signature),
+        fallback,
+        buff_literal(&pubkey)
+    );
+
+    assert_eq!(
+        Value::Bool(true),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
 fn test_secp256k1_recover_invalid_signature_returns_err_code() {
     let (message, mut signature, _pubkey) = secp256k1_vectors();
     signature[5] ^= 0x02;

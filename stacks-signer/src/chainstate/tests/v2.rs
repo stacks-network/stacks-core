@@ -234,6 +234,23 @@ fn check_proposal_miner_pkh_mismatch() {
     ));
 }
 
+#[test]
+fn check_proposal_accepts_high_s_miner_sign() {
+    let (stacks_client, mut signer_db, miner_sk, mut block, current_sortition, _, sortitions_view) =
+        setup_test_environment(function_name!());
+    block.header.consensus_hash = current_sortition.data.consensus_hash;
+
+    block.header.miner_signature = miner_sk
+        .sign(block.header.miner_signature_hash().as_bytes())
+        .unwrap()
+        .with_negated_s();
+    assert_eq!(
+        sortitions_view.check_proposal(&stacks_client, &mut signer_db, &block),
+        Ok(()),
+        "should validate"
+    );
+}
+
 fn reorg_timing_testing(
     test_name: &str,
     first_proposal_burn_block_timing_secs: u64,
