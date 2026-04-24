@@ -125,7 +125,7 @@ jobs:
 
       # Download binary artifacts
       - name: Download Artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: ${{ steps.set-vars.outputs.artifact_pattern }}
           path: /tmp/release
@@ -143,7 +143,7 @@ jobs:
       # Set docker metatdata
       - name: Docker Metadata ( ${{ matrix.dist }} )
         id: docker-metadata
-        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 #v5.9.0
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf #v6.0.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
@@ -177,7 +177,7 @@ jobs:
       # Build docker image for release
       - name: Build and Push ( ${{matrix.dist}} )
         id: docker-build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           sbom: false
           provenance: ${{ env.PROVENANCE }}
@@ -203,7 +203,7 @@ jobs:
       #   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
       #   - annotations show as null per https://github.com/sigstore/cosign/pull/4508 until a future release (or tagging this specific commit)
       - name: Install Cosign
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
       # Sign the images with Github OIDC token
       - name: Sign the images with OIDC Token

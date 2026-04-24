@@ -120,7 +120,7 @@ jobs:
       - name: Upload Artifact (stacks-core)
         if: |
           inputs.node_tag != ''
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ github.sha }}-stacks-core-${{ steps.build-binaries.outputs.zipfile_name }}
           path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
@@ -129,7 +129,7 @@ jobs:
       - name: Attest Artifact (stacks-core)
         if: |
           inputs.node_tag != ''
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
@@ -160,6 +160,6 @@ jobs:
       - name: Attest Artifact (stacks-signer)
         if: |
           inputs.signer_tag != ''
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip

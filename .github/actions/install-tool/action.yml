@@ -14,6 +14,6 @@ runs:
   steps:
     # Install the defined input.tool
     - name: Install cargo-nextest (testenv fallback)
-      uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6 # v2.56.8
+      uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.75.21
       with:
         tool: ${{ inputs.tool }}
