@@ -545,7 +545,7 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
     fn parse(
         &mut self,
-        ipc_block: BitcoinBlockIPC,
+        ipc_block: &BitcoinBlockIPC,
         epoch_id: StacksEpochId,
     ) -> Result<BurnchainBlock, burnchain_error> {
         match ipc_block.block_message {

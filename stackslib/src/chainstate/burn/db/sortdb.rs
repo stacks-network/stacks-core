@@ -31,7 +31,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::bitcoin::{WatchedP2WSHOutput, WitnessScriptHash};
+use crate::burnchains::bitcoin::WatchedP2WSHOutput;
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
     BurnchainView, Error as BurnchainError, PoxConstants, Txid,
@@ -742,8 +742,7 @@ static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
     );
     "#];
 
-static SORTITION_DB_SCHEMA_12: &[&str] = &[
-    r#"CREATE TABLE IF NOT EXISTS watched_p2wsh_outputs (
+static SORTITION_DB_SCHEMA_12: &[&str] = &[r#"CREATE TABLE IF NOT EXISTS watched_p2wsh_outputs (
         txid TEXT NOT NULL,
         vout INTEGER NOT NULL,
         consensus_hash TEXT NOT NULL,
@@ -752,14 +751,7 @@ static SORTITION_DB_SCHEMA_12: &[&str] = &[
         amount INTEGER NOT NULL,
         PRIMARY KEY(txid, vout, consensus_hash),
         FOREIGN KEY(consensus_hash) REFERENCES snapshots(consensus_hash)
-    );"#,
-    "CREATE INDEX IF NOT EXISTS index_sortdb_watched_outputs_consensus_hash
-        ON watched_p2wsh_outputs(consensus_hash);",
-    "CREATE INDEX IF NOT EXISTS index_sortdb_watched_outputs_witness_script_hash
-        ON watched_p2wsh_outputs(witness_script_hash);",
-    "CREATE INDEX IF NOT EXISTS index_sortdb_watched_outputs_txid
-        ON watched_p2wsh_outputs(txid);",
-];
+    );"#];
 
 const LAST_SORTITION_DB_INDEX: &str =
     "stacks_chain_tips_by_burn_view_by_sortition_id_and_block_height";
@@ -1090,21 +1082,6 @@ pub trait SortitionHandle {
             return Ok(None);
         };
         Ok(Some(StacksBlockId::new(&ch, &bhh)))
-    }
-
-    /// Returns true if the bitcoin block identified by `to_check` at block height `to_check_height`
-    ///  is an ancestor/or equal to the tip identified by SortitionHandle
-    fn consensus_hash_in_fork(
-        &mut self,
-        to_check: &ConsensusHash,
-        to_check_height: u32,
-    ) -> Result<bool, db_error> {
-        let Some(sn_in_fork) = self.get_block_snapshot_by_height(to_check_height.into())? else {
-            // if there's no block in the fork at the height, then `to_check` cannot be
-            // an ancestor
-            return Ok(false);
-        };
-        Ok(sn_in_fork.consensus_hash == *to_check)
     }
 
     /// Check if the descendancy cache has an entry for whether or not the winning block in `key.0`
@@ -5493,55 +5470,6 @@ impl SortitionDB {
 
         SortitionDB::get_block_snapshot(tx, &sortition_id)
             .map(|x| x.expect("FATAL: no snapshot for MARF'ed sortition ID"))
-    }
-
-    /// Get all watched P2WSH outputs stored for the sortition identified by `consensus_hash`.
-    pub fn get_watched_outputs_at_sortition(
-        conn: &DBConn,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<Vec<WatchedP2WSHOutput>, db_error> {
-        let sql = "SELECT txid, vout, witness_script_hash, amount
-                   FROM watched_p2wsh_outputs
-                   WHERE consensus_hash = ?1
-                   ORDER BY txid, vout";
-        query_rows(conn, sql, &[consensus_hash])
-    }
-
-    /// Get all watched P2WSH outputs that share the given witness script hash, across all
-    /// sortitions, ordered by block height.
-    pub fn get_watched_outputs_by_script_hash(
-        conn: &DBConn,
-        witness_script_hash: &WitnessScriptHash,
-    ) -> Result<Vec<WatchedP2WSHOutputMetadata>, db_error> {
-        let sql = "SELECT txid, vout, witness_script_hash,
-                          amount, consensus_hash, block_height
-                   FROM watched_p2wsh_outputs
-                   WHERE witness_script_hash = ?1
-                   ORDER BY block_height, txid, vout";
-        query_rows(conn, sql, &[witness_script_hash])
-    }
-}
-
-/// `WatchedP2WSHOutput` and associated metadata
-pub struct WatchedP2WSHOutputMetadata {
-    /// The watched output
-    output: WatchedP2WSHOutput,
-    /// The consensus hash of the bitcoin block including this output
-    at_block_ch: ConsensusHash,
-    /// The block height of the bitcoin block including this output
-    at_block_ht: u32,
-}
-
-impl FromRow<WatchedP2WSHOutputMetadata> for WatchedP2WSHOutputMetadata {
-    fn from_row(row: &Row) -> Result<Self, db_error> {
-        let output = WatchedP2WSHOutput::from_row(row)?;
-        let at_block_ch = row.get("consensus_hash")?;
-        let at_block_ht = row.get("block_height")?;
-        Ok(WatchedP2WSHOutputMetadata {
-            output,
-            at_block_ch,
-            at_block_ht,
-        })
     }
 }
 

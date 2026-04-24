@@ -135,7 +135,8 @@ impl FromRow<WatchedP2WSHOutput> for WatchedP2WSHOutput {
 
         Ok(WatchedP2WSHOutput {
             witness_script_hash,
-            amount: u64::try_from(amount_i64).expect("FATAL: more than 21M bitcoin exist"),
+            amount: u64::try_from(amount_i64)
+                .expect("FATAL: negative amount stored in watched_p2wsh_outputs"),
             txid,
             vout,
         })
@@ -400,10 +401,6 @@ const BURNCHAIN_DB_SCHEMA_4: &[&str] = &[
     "#,
     r#"CREATE INDEX IF NOT EXISTS index_watched_outputs_block_hash
        ON watched_p2wsh_outputs(block_hash);"#,
-    r#"CREATE INDEX IF NOT EXISTS index_watched_outputs_witness_script_hash
-       ON watched_p2wsh_outputs(witness_script_hash);"#,
-    r#"CREATE INDEX IF NOT EXISTS index_watched_outputs_txid
-       ON watched_p2wsh_outputs(txid);"#,
     "INSERT OR REPLACE INTO db_config (version) VALUES (4);",
 ];
 
