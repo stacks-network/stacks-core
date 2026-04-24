@@ -103,6 +103,7 @@ jobs:
       - changelog-check
     if: >-
       !cancelled() &&
+      github.event.repository.visibility == 'public' &&
       needs.rustfmt.result == 'success'
     runs-on: ubuntu-latest
     outputs:
@@ -263,6 +264,7 @@ jobs:
   create-release:
     if: >-
       !cancelled() &&
+      github.event.repository.visibility == 'public' &&
       needs.rustfmt.result == 'success' &&
       needs.changelog-check.result == 'success' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
@@ -308,6 +310,7 @@ jobs:
     if: >-
       always() &&
       !cancelled() &&
+      github.event.repository.visibility == 'public' &&
       !contains(needs.stacks-core-tests.result, 'skipped') &&
       !contains(needs.bitcoin-tests.result, 'skipped') &&
       !contains(needs.p2p-tests.result, 'skipped')

@@ -102,9 +102,10 @@ jobs:
       - andon-cord
       - build-binaries
       - docker-images
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      (inputs.node_tag != '' ||
+      inputs.signer_tag != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write

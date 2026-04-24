@@ -38,7 +38,7 @@ jobs:
   build-binaries:
     name: Build Binaries
     # Only run this if it's the public repo or manually triggered
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 2
@@ -117,7 +117,7 @@ jobs:
     needs:
       - build-binaries
     # Only run this if it's the public repo or manually triggered
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     permissions:
       contents: read       # required for checkout

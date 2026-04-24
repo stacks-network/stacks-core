@@ -106,6 +106,7 @@ jobs:
 
       # Generate code coverage
       - name: Code Coverage
+        if: github.event.repository.visibility == 'public'
         uses: ./.github/actions/codecov
         with:
           test-name: ${{ matrix.test-name }}
@@ -149,6 +150,7 @@ jobs:
 
       # Generate code coverage
       - name: Code Coverage
+        if: github.event.repository.visibility == 'public'
         uses: ./.github/actions/codecov
         with:
           test-name: ${{ matrix.test-name }}

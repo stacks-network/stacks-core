@@ -73,6 +73,7 @@ jobs:
 
       # Create and upload code coverage file
       - name: Code Coverage
+        if: github.event.repository.visibility == 'public'
         uses: ./.github/actions/codecov
         with:
           test-name: ${{ matrix.test-name }}

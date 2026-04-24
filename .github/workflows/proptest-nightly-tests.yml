@@ -61,7 +61,7 @@ env:
 jobs:
   proptests-nightly:
     name: Run All Proptest Tests
-    if: github.repository == 'stacks-network/stacks-core' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     steps:
       ## Compute env variables depending on the workflow trigger (schedule vs dispatch)
