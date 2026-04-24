@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::mem::replace;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use clarity_types::representations::ClarityName;
@@ -275,6 +276,10 @@ pub enum ExecutionTimeTracker {
     },
 }
 
+/// Callback checked at every `eval` call (alongside the execution time
+/// tracker). Returns `Ok(())` to continue or `Err(reason)` to abort.
+pub type AbortCallback = Arc<dyn Fn() -> Result<(), String>>;
+
 /** GlobalContext represents the outermost context for a single transaction's
      execution. It tracks an asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
@@ -294,6 +299,9 @@ pub struct GlobalContext<'a, 'hooks> {
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: ExecutionTimeTracker,
+    /// Optional callback checked at every `eval` call. When it returns
+    /// `Err(reason)`, execution is aborted with `VmExecutionError::RuntimeCheck(Unreachable)`.
+    pub abort_callback: Option<AbortCallback>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -737,6 +745,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
         }
+    }
+
+    /// Set an abort callback that will be checked at every `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.context.abort_callback = Some(callback);
     }
 
     pub fn get_exec_environment<'b>(
@@ -1703,6 +1716,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
+            abort_callback: None,
         }
     }
 

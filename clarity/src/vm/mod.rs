@@ -487,18 +487,24 @@ fn check_max_execution_time_expired(
     global_context: &GlobalContext,
 ) -> Result<(), VmExecutionError> {
     match global_context.execution_time_tracker {
-        ExecutionTimeTracker::NoTracking => Ok(()),
+        ExecutionTimeTracker::NoTracking => {}
         ExecutionTimeTracker::MaxTime {
             start_time,
             max_duration,
         } => {
             if start_time.elapsed() >= max_duration {
-                Err(CostErrors::ExecutionTimeExpired.into())
-            } else {
-                Ok(())
+                return Err(CostErrors::ExecutionTimeExpired.into());
             }
         }
     }
+    if let Some(ref cb) = global_context.abort_callback {
+        if let Err(reason) = cb() {
+            return Err(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::Unreachable(reason),
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn eval<'a>(

@@ -28,6 +28,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::pipe::*;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use crate::config::DEFAULT_PROPOSAL_MEMORY_BYTES;
 use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
 use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
 use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
@@ -491,6 +492,12 @@ pub struct ConnectionOptions {
 
     /// Maximum time to spend validating a block proposal in seconds
     pub block_proposal_validation_timeout_secs: u64,
+
+    /// Maximum bytes a single transaction may allocate on the heap during
+    /// block-proposal validation before it is rejected. Tracked via
+    /// jemalloc per-thread counters when available; ignored on platforms
+    /// without jemalloc. A value of `0` disables the limit.
+    pub block_proposal_max_tx_mem_bytes: u64,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -604,6 +611,7 @@ impl std::default::Default for ConnectionOptions {
 
             read_only_max_execution_time_secs: 30,
             block_proposal_validation_timeout_secs: DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
+            block_proposal_max_tx_mem_bytes: DEFAULT_PROPOSAL_MEMORY_BYTES,
         }
     }
 }

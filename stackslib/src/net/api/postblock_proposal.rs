@@ -352,12 +352,19 @@ impl NakamotoBlockProposal {
         connection_opts: &ConnectionOptions,
     ) -> Result<JoinHandle<()>, std::io::Error> {
         let timeout_secs = connection_opts.block_proposal_validation_timeout_secs;
+        let max_tx_mem_bytes = connection_opts.block_proposal_max_tx_mem_bytes;
         let auth_token = connection_opts.auth_token.clone();
         thread::Builder::new()
             .name("block-proposal".into())
             .spawn(move || {
                 let result = self
-                    .validate(&sortdb, &mut chainstate, timeout_secs, auth_token)
+                    .validate(
+                        &sortdb,
+                        &mut chainstate,
+                        timeout_secs,
+                        max_tx_mem_bytes,
+                        auth_token,
+                    )
                     .map_err(|reason| BlockValidateReject {
                         signer_signature_hash: self.block.header.signer_signature_hash(),
                         reason_code: reason.reason_code,
@@ -531,6 +538,7 @@ impl NakamotoBlockProposal {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
         timeout_secs: u64,
+        max_tx_mem_bytes: u64,
         auth_token: Option<String>,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
         fault_injection_validation_stall(auth_token);
@@ -728,6 +736,14 @@ impl NakamotoBlockProposal {
             let remaining = block_deadline.saturating_duration_since(Instant::now());
 
             let tx_len = tx.tx_len();
+
+            if max_tx_mem_bytes > 0 {
+                if let Some(cb) =
+                    crate::chainstate::nakamoto::miner::make_mem_abort_callback(max_tx_mem_bytes)
+                {
+                    tenure_tx.set_abort_callback(cb);
+                }
+            }
 
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,

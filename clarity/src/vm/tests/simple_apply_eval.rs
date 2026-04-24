@@ -1869,3 +1869,55 @@ fn test_execution_time_expiration() {
         ClarityEvalError::Vm(CostErrors::ExecutionTimeExpired.into())
     );
 }
+
+#[test]
+fn test_abort_callback_stops_execution() {
+    use std::sync::Arc;
+
+    use crate::vm::execute_with_parameters_and_call_in_global_context;
+
+    // An abort callback that always fires
+    let result = execute_with_parameters_and_call_in_global_context(
+        "(+ 1 1)",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch20,
+        false,
+        clarity_types::types::StandardPrincipalData::transient(),
+        |g| {
+            g.abort_callback = Some(Arc::new(|| Err("memory limit exceeded".into())));
+            Ok(())
+        },
+        |_| Ok(()),
+    );
+    match result {
+        Err(ClarityEvalError::Vm(e)) => {
+            let expected = VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
+                "memory limit exceeded".into(),
+            ));
+            assert_eq!(e, expected);
+        }
+        other => panic!("Expected CostAborted error, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_abort_callback_ok_allows_execution() {
+    use std::sync::Arc;
+
+    use crate::vm::execute_with_parameters_and_call_in_global_context;
+
+    // An abort callback that never fires
+    let result = execute_with_parameters_and_call_in_global_context(
+        "(+ 1 1)",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch20,
+        false,
+        clarity_types::types::StandardPrincipalData::transient(),
+        |g| {
+            g.abort_callback = Some(Arc::new(|| Ok(())));
+            Ok(())
+        },
+        |_| Ok(()),
+    );
+    assert_eq!(result.unwrap().unwrap(), Value::Int(2));
+}

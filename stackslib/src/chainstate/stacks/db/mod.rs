@@ -519,6 +519,11 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.cost_so_far()
     }
 
+    /// Set an abort callback that will be checked at every Clarity `eval` call.
+    pub fn set_abort_callback(&mut self, callback: clarity::vm::contexts::AbortCallback) {
+        self.block.set_abort_callback(callback);
+    }
+
     pub fn get_epoch(&self) -> StacksEpochId {
         self.block.get_epoch()
     }

@@ -46,6 +46,44 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 
+/// Build an [`AbortCallback`] that checks jemalloc per-thread allocation
+/// deltas and aborts when net allocation since the callback was created
+/// exceeds `limit_bytes`. Intended to be called once per transaction so
+/// each transaction gets a fresh baseline.
+///
+/// On platforms without jemalloc this returns `None`.
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
+pub fn make_mem_abort_callback(limit_bytes: u64) -> Option<clarity::vm::contexts::AbortCallback> {
+    use tikv_jemalloc_ctl::thread::{allocatedp, deallocatedp};
+
+    if limit_bytes == 0 {
+        return None;
+    }
+
+    let alloc_ptr = allocatedp::read().ok()?;
+    let dealloc_ptr = deallocatedp::read().ok()?;
+
+    let baseline_alloc = alloc_ptr.get();
+    let baseline_dealloc = dealloc_ptr.get();
+
+    Some(std::sync::Arc::new(move || {
+        let net = (alloc_ptr.get().saturating_sub(baseline_alloc))
+            .saturating_sub(dealloc_ptr.get().saturating_sub(baseline_dealloc));
+        if net as u64 > limit_bytes {
+            Err(format!(
+                "Transaction heap usage ({net} bytes) exceeded limit ({limit_bytes} bytes)"
+            ))
+        } else {
+            Ok(())
+        }
+    }))
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_arch = "arm"))]
+pub fn make_mem_abort_callback(_limit_bytes: u64) -> Option<clarity::vm::contexts::AbortCallback> {
+    None
+}
+
 /// Nakamaoto tenure information
 #[derive(Debug, Default)]
 pub struct NakamotoTenureInfo {

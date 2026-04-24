@@ -853,6 +853,7 @@ impl LimitedCostTracker {
         Self::Free
     }
 
+    /// Set an abort hook that will be polled periodically during cost tracking.
     pub fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String, CostErrors> {
         let result = match epoch_id {
             StacksEpochId::Epoch10 => {

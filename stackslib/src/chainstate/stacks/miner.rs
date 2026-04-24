@@ -245,6 +245,9 @@ pub struct BlockBuilderSettings {
     pub max_tenure_bytes: u64,
     /// Transaction IDs to temporarily exclude from block building (e.g., signer-rejected txs)
     pub temporarily_excluded_txids: HashSet<Txid>,
+    /// Maximum bytes the miner thread may allocate during block assembly.
+    /// 0 means no limit.
+    pub max_assembly_mem_bytes: u64,
 }
 
 impl BlockBuilderSettings {
@@ -259,6 +262,7 @@ impl BlockBuilderSettings {
             max_execution_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
             temporarily_excluded_txids: HashSet::new(),
+            max_assembly_mem_bytes: 0,
         }
     }
 
@@ -273,6 +277,7 @@ impl BlockBuilderSettings {
             max_execution_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
             temporarily_excluded_txids: HashSet::new(),
+            max_assembly_mem_bytes: 0,
         }
     }
 }
@@ -2680,6 +2685,14 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                 let tx_start = Instant::now();
 
                 fault_injection_stall_tx();
+
+                if settings.max_assembly_mem_bytes > 0 {
+                    if let Some(cb) = crate::chainstate::nakamoto::miner::make_mem_abort_callback(
+                        settings.max_assembly_mem_bytes,
+                    ) {
+                        epoch_tx.set_abort_callback(cb);
+                    }
+                }
 
                 let tx_result = builder.try_mine_tx_with_len(
                     epoch_tx,
