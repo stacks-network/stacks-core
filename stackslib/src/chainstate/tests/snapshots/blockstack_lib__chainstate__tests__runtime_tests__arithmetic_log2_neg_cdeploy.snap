@@ -1,131 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "b516f9ef62928fce845a11e44db9afd41e0c586a0ab8e79c46cebf8d25017fc3",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: log2-neg-deploy-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 44,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9137,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 44,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9137,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "615d169badad181ab0a12cb23a69eaeb44979eff1e3de2fc21333b13e2de913e",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: log2-neg-deploy-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 44,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9137,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 44,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9137,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "36fd3e1498d859a8292011eb4d4427306f53df3895101fcb786b6266e0732534",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: log2-neg-deploy-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 44,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9137,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 44,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9137,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a999a783d969f3c2b0fa7d8c8e4aeacea81e3c4bb516e84eb1ba34b04faccfc7",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: log2-neg-deploy-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 44,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9137,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 44,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9137,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "29bef737140f1aa6bfa74c3e917f4e3b9da9005a803967689698511e4ce6e19f",
+    marf_hash: "a1e7f8d8ee08363c6ea6831021aeafa3394bfea637414aa6e8aa9a18e7f233fa",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cba1356935923b3b768d5483d3326dbbf44b9e0ccaff96641c70a17d83905bc5",
+    marf_hash: "dbdd4bdb399b8be296bc74ab4d2d25a4ca01733bb241c1fa2912f834b61a4cbe",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "297f918e47f5dcc8ba8ce6ed17e9f32fb23623de67f7bd18bbbb83aeddacd0d4",
+    marf_hash: "6d5865b202add5bcea3a9f20c2a1a547409edb3aabfa8531fb70b8a7573d0f7c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bdbc0b703a04750c541ec34675ef723e5fc18c9f119b3e5929d555df05cf4b2c",
+    marf_hash: "feb80c1b1aafff6ce47e0cb9e0b8638baf0205d61c9621c72ff35e7dd780c5f8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +124,191 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "543a501c6e3351d9670077c919e257fd8e160444949afd48ced39b3ce601bcc8",
+    marf_hash: "3ccecb7beb0d081f4e104a1f532167afa5eb643593a72f78942616183de3f55d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: log2-neg-deploy-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 44,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9137,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 44,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9137,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "015f25dc378dec9778bde7cb4a13c8cbdca5968de5ea63aaa445d8a0ab1fcbe6",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: log2-neg-deploy-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 44,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9137,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 44,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9137,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2dfbdaf8b3dcc00786094e1f9c07324cc5f79e9de7113604f227838e18077ad9",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: log2-neg-deploy-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 44,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9137,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 44,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9137,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "52b929627b47a1f6754481b264057474a364ae408ceca68ff49cf1a9800927e7",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: log2-neg-deploy-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 44,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9137,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 44,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9137,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a8d4d70d195bd4b6ec1cd59bf2316b51191b13918deb2db4954c89de20d18004",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: log2-neg-deploy-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 44,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9137,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 44,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9137,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "341c3a2db8f6942cb18c504b91d6162919abf3168879859d8b0ddda49eb3594c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: log2-neg-deploy-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 44,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9137,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 44,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9137,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "843e07cbb9038023cfe2021900fdd7ea68d6463d51ca34013a390c7e695f80b5",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: log2-neg-deploy-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(Arithmetic(\"log2 must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

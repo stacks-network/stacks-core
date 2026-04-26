@@ -1,7 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
@@ -705,757 +704,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "608c08c7ad66c83c98fea06ebb39e181d70e06140436a074f2b609fe8c207a8b",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_0-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b8e2e22e14502fa30ebc24c6c42141e7ef4e8fc128c3ca0c92ff875d6010d3a1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_05-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0ea86af73376e391a0c7c8b65c6c19e5545787daf336a40e80b46d847fdb18e9",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_1-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b42226b2b02681fa817c08ec958f86bc5259095a6b5cd307e3acafd7627d88c2",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_1-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bb9e8978a25efdfb0cbadc86657ea2e13675eb97fd35ebf7c7a5288f0188dfb7",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_2-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a9a4f86813ecf0a3db22ca783f15284b5b33edd780738ec698d22c5389bcb7cc",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_2-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6f9f5bde91ea63e552ed0f11a56ff6a935dbdd85af9d354fef3e876c4aadbac2",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_3-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "cca349fdfaa36ac62f1870ad836440a15e1689f4aab16aee7d8e53308ad85ca5",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_3-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "090e9f10e80304b2086adafedf0e8e815945494d9ce38080b49cbfe306809beb",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_4-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "db3fe4678932f7a0d7071b89817181da4eacf0d4c2c9dad1eb7dadbe1948be39",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_4-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "88ea309f7b5a2fe5c60fc8bddccf762271dc56b1a83ab41609afbbc9f83a053e",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_5-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "14bed7e425f92a5b27f9bdfb902f39cfe5ba50099326056fdf4766c2751c4b5b",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_5-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "535930d03ff8d3fe1a565a09823c7d2f0ea0bc2cc00fd05ca283d6179ce3dba0",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_0-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7e2d327abdd7ebe4888cac269f7e2ed570f8e9ba24ca4583ec6bbe82c724133d",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_0-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e285f9415ad8d11eee2fd24adcf1b9208be6341db4aa2141f7dc9d571c67feeb",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_0-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7b427e80e4472311dc88c9ce6dfbd4384985297d6d0ff9eed6f0b4666d4fc11d",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_1-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "faa63e889f545fc5211c2cd4a49fecb816775b24ac0db6a6cfb027699e3d0610",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_1-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f6825d9fe4472d9c9383628ccaa59663abc67d54a2e6c34eb30893c2f6691796",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_1-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "3957346c07ca65068ab3c869c558c386246049db2f493d5e40d55dc31a41c0e8",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_2-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e6a1cf6bcacc42d1455129c24b58a8f011ea15c9fa16ce1c2372a9cf78bdc573",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_2-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0f74a15c63dff6654a63db298a37e3836ee163314571de2606cd103bef791c6b",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_2-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7f8610b427e53b96eeb31e84377d593a27698c0c02d57523772728b36e64dbee",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_3-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b833b652d5ff2246fd82b2fd3d194aef083de68b507d5c56fe8787141e04f936",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_3-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "76b0e1e3ce082dce0c9a4c99b0acde0e0a8fae75ab6ff8c5f32dca1e04e5e7fa",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_3-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "227d61b858988efb2634934a29a9ea175db25f6f41022b8e6fefeed3000a5fe2",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_3-Clarity4, function_name: overflow-to-int-large, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 99,
-          read_count: 3,
-          runtime: 350,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 99,
-      read_count: 3,
-      runtime: 350,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e74863e080fe53a076a32132c97e7f34d55922c9126a99085560a887d8f74f3c",
+    marf_hash: "e99ff97fa347bb3637e5affd4075f22ab5d404966fbf4868cb31b406f3905358",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1483,7 +732,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f553f58824c900f2d317bc44f84d3fd5b20aa856acaabd6472ff1d0f3dd7479c",
+    marf_hash: "d91c61a0231cd3119e1d3299b6a45a8469f8c112f0bb619971822118127656b4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1511,7 +760,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "867ee1b19481fb77e846cc3d2512fee33f3c4c1563d011d9a0ac87d20bb71193",
+    marf_hash: "5f4aa56916182af14049e841ac9a6d9bb64ec60c7af129d048b92ba3cd2df928",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1539,7 +788,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f3af1b99eba30e2c4a8e9d5f592987e93e3817ff4ad667d6f996efc7df799a86",
+    marf_hash: "19ae94a1af08246542eaa881ed054578fb8ae181c9b26e980739bd170de41843",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1567,7 +816,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b0775114f1be95b68adb57918cab5d86a43444b7561dc7b3424df01b58e91f8c",
+    marf_hash: "a82367912406a5bb98bf40cde4df0d57ec8d526e132ce52fecd36bd2c824b11d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1595,7 +844,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a812e965510a35761d46a0402c55f70043f2eebb97d5dedb310b0220373cc7bb",
+    marf_hash: "36bd0010df845249214db9b803720afb6270b30d8229cb0bae9e30722d0a8254",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1625,7 +874,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b27051d6e97394d8356624d1d9acd6b7eed69eb5da7ab217b5b844fd05084b74",
+    marf_hash: "c07e90a403f28fa569f745fbb8a2b7a428e6831991e3371a5b3850ed6cc9d626",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1655,7 +904,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8ae121898104113b22311d18a0c9a02f117a77eb54d092eef99a97909461cd7e",
+    marf_hash: "6ffb11c457b5fe1cd782f569f4e5cd31f0cedc8cc2308a6612f71180004fa228",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1685,7 +934,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6604765e0b0db3d45a0bfddb1a2033d7e099f8b9c1f77ad976c5a65df957cfc1",
+    marf_hash: "fa1fb2b225757d957882fdb4cf65308d8042c92d3a5f626e0fb7299f43893d96",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1715,7 +964,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6af7152c51524235fed3f9b88c1a1dc9ba1425c30586eea1f4fe50f3fa7abbd8",
+    marf_hash: "39280354bfff2c9423b98855064ef413bb61695f5ba9baedfda20182f43e2d14",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1745,7 +994,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4c0806e9351738f265264bb68fcfd26ebbeda1f18d520c54916734e9ebaaac18",
+    marf_hash: "8917c6b472c080ca918f723ed54d730cae34015b7a4c1efebbf7634356d1bfb9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1775,7 +1024,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8044a710694da666e7d1785935ad7a807a53fa7863407f4e57cf391ece726d92",
+    marf_hash: "b7bc81d1968010eddc95e302ee28a7f6aa0bc93ac6154f1a736d8a28816ff7d9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1805,7 +1054,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d3e6fec04bb8a455aaef8230c8518fdee40c619b6fad06f4ea3e50669bf9c2df",
+    marf_hash: "090403f9f95fa759341b0310bada092eb8ddf60849a3cc17895a45c391eef87c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1835,7 +1084,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6d18ce97e7b5f469bfe0cdab9ea991452cbf86a0748ff7a5cdebef8d11b97f04",
+    marf_hash: "45d0d2c74479e103d9a07bc0e4d8dd8fd45a3d39da357ee8667b2250bb729bf0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1865,7 +1114,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9de7add2a98fb02da54b958d11bd6195fd68e889b3ede79e42b0820c61d8411e",
+    marf_hash: "5784c81fba51ac314012868fe4f4f2d7b69b2cd6345a99800371315ee4da255a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1895,7 +1144,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "be74dae3b1f2a1c8b7948c15aa57fe9e3cf5307b18e1b71f8fa6156ff31df73f",
+    marf_hash: "47be1a4b20a6ddcae36764fa6ded2fa814f7f539d0acc5c6e68dc7c81a460690",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1925,7 +1174,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f1dc3a0916af36100067d79ff6a947dc07922a54e1866a5b7287d630496f9dca",
+    marf_hash: "1a4a36104bec445836d6f8c2a64a74b37a96e511716ef515352d9536e33112d0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1955,7 +1204,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "98357b602d79eee3bc6ddc6491d41a43d8d038534289f5847b86bf4aedeb3803",
+    marf_hash: "c2f0e61caaef23c6595095cf32ef680bf30ee0f9c1bad1e0ba1df580313e78f9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1985,7 +1234,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1be2a7e80050f1aeada1b6c8b8590f4ff6a7d5289df582670c00c9b98a2f0c32",
+    marf_hash: "63c6c897219e366c8b98b10754fc7fe294396daea2b3b9edeed1b315fcbf905a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2015,7 +1264,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2b571aad73af5888d6717a5908a8357aa344918cdb5858981b7e484a5e48d275",
+    marf_hash: "9fb146971dd00d321dfde548f2214c797931694661e393408f5bfd7b631b2b5c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2045,7 +1294,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7c016dec3389fbe5b151ecb14b382b0767131b47f0fd7be4dd6e56f4f9dfb0a6",
+    marf_hash: "8a10d594f9918992458812a334c755197d8d159801346542986221fdf9c530d0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2075,7 +1324,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f8d864e18b206789b89d8af0422885842bc5295e6d8098fc90ce62ccb55ba15e",
+    marf_hash: "ca5ad9c5419c63f8530eaacda10851bf42e528cd5a7e8f0aaba18ed08e259360",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2105,7 +1354,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f19db6ec98da9c3e1ac86ee76e1361771e0923854724356aba8280e0bbe968e8",
+    marf_hash: "ea046056d2b5967a27c575b246f75e1d4f27efb456a01d64e24c9f0a814ffc04",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2135,7 +1384,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2506cd673e3c46740b34827ab74ac031126a755039df55582bd2fc42486e6071",
+    marf_hash: "999c65bd5cd08e3695b8d812bdf3546fce4d84cce3ca513b2e005fe3a099180a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2165,7 +1414,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "739d4cc5cad487858d37866ca48e6c50211497f65c2bfc8d5b1793ffa19a862b",
+    marf_hash: "e54a248ca7fc08de8aafc2580358458dc614694c938b5b86703f34c3687883ef",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2195,7 +1444,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7523f673ebdf60f87819404e2c7be9db7183df0b234a61f3c233344d99f95f52",
+    marf_hash: "c3fffdbd0d8ab97c061a50347a0ec9896bbe3560d45104510c1f101d38ad3852",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2225,7 +1474,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ae6718581ed046e93313184f5264cb35fc98b99c7b565a0d838785af00ca65a9",
+    marf_hash: "c74b323fe762287f6a432e857070f0cfbddf4a01197e52b2388bcb9b0a6fc884",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2255,7 +1504,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e12ccdad01c68341bd31d094c383e0c9d22ee2427a92e61db8b4dca4f0a27f58",
+    marf_hash: "ee9c749111ae1ccf8e3ee774d00a46a06902087345099a26c5f17abb9ab456ce",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2285,7 +1534,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c1d3d4050e95916550cbd9d7491776c87a60d1459f9e14548c26094e26450215",
+    marf_hash: "4be64691589dbae4b8de4887d438a7ad331f14727131c7e0d750e568baeba294",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2315,7 +1564,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "359bf1ddef6e36c0c84c505f7350223a2b51157c44c758412c49aeb9aab7f525",
+    marf_hash: "ae44d469da475766aeae3df815fdf1707bd6898895193837ee2ab35dc23c3838",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2345,7 +1594,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "83ae38740a3fe9d000a7316fd8b6fc8ff099ce8107286e8af1bdce8810e78dc5",
+    marf_hash: "a36dc2c7946bcbe6133b032102f3e53ce593e03f376ff43f23f7277285ce346f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2375,7 +1624,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4fd792451ed8e27c1b87e0ba649d5db785ea6840e423557889f7ee5f8c68bc31",
+    marf_hash: "871f751dba59b0877601aada40fddbde7578c7ff3ea9c2364b12819e3ed1170d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2405,7 +1654,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2f7809d347b4ca3fc575c3ec366e836192e2715d6b142514c20c8a73add7368f",
+    marf_hash: "ad0db1ee8e3f8a640b828d684371d0c1a24eacadfb1adc76a7fe8ee18027401f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2435,7 +1684,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8a90256e0b019f4c7fd560b39b3310c625ee368f8394f10054fe2db4edbd7351",
+    marf_hash: "dad3bee73e0b1a04726a135091aabb4c91a668536ca5e9339c532370c906ca38",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2465,11 +1714,1259 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "35d01f653227f12749715eeaf66c0750551a4f6ab133d909558d48834d325633",
+    marf_hash: "e2b89cd3bfd7a0fafbf6e3a3940e11e1e2deb6894bd3ba8685b00054f98e919a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_4-Clarity5, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f0723ba44ec9a08323549180a1cd9b27675eca90aa4d1d452a1fbcac65c87b7d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-to-int-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 109,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11586,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 109,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11586,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4aafbdeff81849f80734e66a5f8ff6e2a7ebce9ed19ae5654ab4386f2e9cf763",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-to-int-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 109,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11586,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 109,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11586,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "414676dae05fbc6e151242fffc53ddab2b24082a90b92b9c71dfd6b5a12135ae",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-to-int-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 109,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11586,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 109,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11586,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "34a775b0a55e08cfc7bd4f37decc3482c118f21a7c8ca3dd7f5c4c81c07c5f37",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-to-int-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 109,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11586,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 109,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11586,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fdb071239185686392d46df065cf355f4b0fe2326580b843a308ca4d804cd216",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-to-int-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 109,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11586,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 109,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11586,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3e608b0b176f10ef02b005f3ae434c8cdb24b8079b315f2e23b49c38fd1de403",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-to-int-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 109,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11586,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 109,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11586,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1cd9ae0c08fe486e933c00f11b4b783956af9fe3ac709d9ab27bd068e2386079",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_0-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2d04f311dcba4e8aafd4f2b89d45e33d032ca872292d210f955f955c48e7e9a7",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_05-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "be75dc51bc5e6ee185c479f9cd32f0ecb65c9384d2a78936baf9e2fa04db943d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_1-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fb43e125f8ec1957bb2a49922f0a845f210da566adab9e99f24bff350c5fec2b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_1-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3556b7a01d7993d253e72f0c4746f3b99e92169fbbda48f26401a6560de2e22d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_2-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d514558502dd196aef2460dadcdc2b0f2c3a370bfabdfbf52925524de4cdefc0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_2-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ab3091e7cc7cae621277a06f0cc0d99ceb2a85927db1495c281ef2d0932755ec",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_3-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2a0366b0f360fee6028a3055d2cae20e5227d31ea88e53925dcf53a644e8589c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_3-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "42ec4be1d40e13d45e88b3d72ae69529d191bd5c91c679bfa6efda2cc8ba76b0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_4-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "902208f6452425d857bc90d4952c5e9c4cbba0366e0fcca0974d3b5f1be8cfde",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_4-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5aae5fbfb1b1081c5004f05c3079a46b4e741d4a40de954208369616f138e093",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_5-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "dc3ddff34069fd8c76c8142543baa78dcd5a21aa46ac5144f9118a91aaba775e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch2_5-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ffb0e0767a90e645d820d8586976103bc81a5d81d5fb893d7bd88dcfdfe09d09",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_0-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "31f786b26c492d58554c78473338fbddbb9eff82ad31b51dcc0a2fbc7e50b9c0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_0-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e958690310c198252f381d73f062e63dfe45e75b0abbb1d327f2727c390274f7",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_0-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "db20a9772979b9f6b2c95edb6cab2be9380d64016b75bd835916e7ed9d48b663",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_1-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6f6c022876af8fe17744abadda31e6d04bb680bc511a063dcf471ea1d55d7833",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_1-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "41b9822db992a11f4214072ae1ca48f749567f9ed964f5bdbeac5400a4f00429",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_1-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5ed504fd364ab478e3ac9880bd1b5afe3d06eb102d4fc92658e279deb4a871da",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_2-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e0870f142214c5d612d5dc2f7a1c067506802f311e59fc8feb728438a0022bad",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_2-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3dd72c00cdb5a2a1cd1245744e503b459a2e48bd745b9209fafce47c598fc985",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_2-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f9e3995d1cd50ad7bdfe21ec6abef53d32c8092523bcaf902755eafbc2b2638a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_3-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f3c517ea77460838e9d7bea09461b046715ec44320d5a673269ab9a6a5d48109",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_3-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "673abb5230e751656c23a845a363a4ea1042fd01684e7dd6e55124ff816eaf1a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_3-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ee29937ea3ade898bbe5862bfdb1977634e5d49a3876987f98c28d933632a9e3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_3-Clarity4, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bb88ff79a44ad7465e7b666595e428480eb7aca30ac526722e0ae9217b8f859f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_4-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a5c60442b2e7e4c5cb137dc9fb937b817a4f352331d1fa7774a2a3cfb8ab1456",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_4-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bafd6683cf7fcc1ead760e38317a90fb2c4cd0a4715e4c20cac200fa1916ea0d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_4-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5c84a2154296c93fc81f2f3ca9279ca8740106e944a7dde0879a177b59f488c2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_4-Clarity4, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ff843247d46ce57d3a739880a9e3332a3b9f3483ac4578534b6d52a1bd63db32",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_4-Clarity5, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "753a36006a96da3f4ca1cba0e83c973040ffd9dba2a62179e16eca9b3200a1f1",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_5-Clarity1, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "17d58c8659078e1c2ebf05920fe3546b1b228d5eea1e28e9a0bea097d34f38ec",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_5-Clarity2, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4885da0b54622972289f7ee195a764eee961e7e37968fd4b2648acd68081eb6e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_5-Clarity3, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "879c8aa435a5a153db70e365d46a7850a94ab4d9094e0a0a523e16265b1b8f06",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_5-Clarity4, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "56c7a82f797413263eb339f8ffb7b32ccf644b1b5425bd5d8e0b156e0dbb1acb",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_5-Clarity5, function_name: overflow-to-int-large, function_args: [[]])",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 99,
+          read_count: 3,
+          runtime: 350,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 99,
+      read_count: 3,
+      runtime: 350,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "28283e07c671b249d95eb6c3c92a0333c33dc53c8b31e435bb82af3cd8516d3b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-to-int-Epoch3_5-Clarity6, function_name: overflow-to-int-large, function_args: [[]])",
         vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

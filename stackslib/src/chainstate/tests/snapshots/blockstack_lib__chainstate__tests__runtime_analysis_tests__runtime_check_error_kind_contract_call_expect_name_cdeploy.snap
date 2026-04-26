@@ -4,97 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "ccca7533b395f2d918a8b8444294bc11d32bd9f943480cf94ca6e4b7617f4aac",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-3-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 273,
-          write_count: 2,
-          read_length: 9,
-          read_count: 3,
-          runtime: 19904,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 273,
-      write_count: 2,
-      read_length: 9,
-      read_count: 3,
-      runtime: 19904,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b69cb5f0005e7bc95b5a9510f01a29f2c26c2fd10ecea3c545a8098c26a87bb9",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-3-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 273,
-          write_count: 2,
-          read_length: 9,
-          read_count: 3,
-          runtime: 19904,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 273,
-      write_count: 2,
-      read_length: 9,
-      read_count: 3,
-      runtime: 19904,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "cdf0de3ebae96aac192ab8e87abb8fd72c77e5cdf9889c91251ac50135d2c309",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-3-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 273,
-          write_count: 2,
-          read_length: 9,
-          read_count: 3,
-          runtime: 19904,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 273,
-      write_count: 2,
-      read_length: 9,
-      read_count: 3,
-      runtime: 19904,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "190a882b6be381ddd4fc3ff5a55f19ea95fb53edead91a04881b601416126f86",
+    marf_hash: "aa8ee31d574427963fcf539728a250e8d6d90b15e94f19c75d5d3fd4e2f19cff",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7b4a0a19d6a53cbf2938267310516c7c12441da7ff56ce23a47be3ff04440d27",
+    marf_hash: "7b66482ad89bec726abdde71a6d38d31009ced509b9a8fe8523d13a9ba36a9cf",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "47812b96bed51205019dc3344381c08b042e121a4bf4282fe8b510f0403904e4",
+    marf_hash: "7adab3000f9e12e03c3d30f49a2e1238dd504f885fe9f69d11a8eb7324dacc32",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,11 +94,161 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "accaca33ad80bc363a09d30cb8da0b378fe1700504944928dcadb4498a9e810c",
+    marf_hash: "338f7e8edba3383beb1228572cf33c179707f9e74c8e8a3c57f83457a8f7c7c1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 273,
+          write_count: 2,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 273,
+      write_count: 2,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ec513fedb5b6c3ae7df6e6d84ee7cb4077aa918f2f72a61298286fddcbc38e5c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-3-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 273,
+          write_count: 2,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 273,
+      write_count: 2,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "dc1c6aff6259ba8c06a452671d5c70abd65f055c728f6a85d1dffe177f550a6c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-3-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 273,
+          write_count: 2,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 273,
+      write_count: 2,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "dd20fc0b4328bcf4ffa5ec485bdac093990d855755bab672aa2401b4aa6ee403",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-3-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 273,
+          write_count: 2,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 273,
+      write_count: 2,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8e85c983b21c73b903c52d4d18cc60b20fc8b6e306071bdaf5f767c08149ff85",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-3-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 273,
+          write_count: 2,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 273,
+      write_count: 2,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3e08d08de42effa9f60be9b8f95994dcf57b6ae656f9453380f00fdf08173d13",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-3-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -1,7 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
@@ -705,757 +704,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "09e6cb4a682bd969c14a61a0e9fed62be94eb8756a682e47c9bc56990e40e04f",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_0-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6bae77389e9e60a8155c301a2448752dac8be1ceb86f2f3451ba61cd321633f2",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_05-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e2ebf24450c7730f5b9ec0d8e9464cba12a9d956e12893586afb9fb85afea3b9",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_1-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "87ea732596eead45d696ea3b98c080c1d84dee0a214f08bb5bf3c564e63e3be1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_1-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "912990f67f81b704f2a110bc4a2e550c90d484c114b2e1134ec3ac0ecf5d33f8",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_2-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "aecf24b3532cedf440f8240a45b45d1197ff322544fe25b15f29946ea356a139",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_2-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b37a3d2941d5e2e9bb79d63b8862bd3f2718ed0229ae09942673911598d23fc1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_3-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d97b2f76cccadfdf8412a487755952c45bb91a16c2a18c0b1ad2a7e6bb52cc76",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_3-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c5e4b8e1bd1e80a7dde12c8ea815b1f704cdc02d1ec1d4659d49507c3a609bbd",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_4-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ae23cef98c3bd2aeb1d3712af3279a7942537aab9beb3a40dce45dd3f51987fc",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_4-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "87e1ae2bb29923a016eee9a315874c83fa7e262e85cd48cf95be1dfe1fde23f9",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_5-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "128dcdeda5b2607063c722d86978fcd1b76ee9da3350759b2fc8ec5f259c684a",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_5-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d8103ebd1689da265e070fd97a67ef67cf907876ad8c8364a9deb547ca48704c",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_0-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "eff62df9439ce3a4d0cc11e8576b7f6604a7726c9f8691bd222cf1da5d6e29db",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_0-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "99edd982ab393ae1fc22b4df3e8ad26847d7756718ab9d84023252ecd2cef2bb",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_0-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f0c608f1f5bf5ab372a0bbf5fbfd45f920c64704f3e752b4c5378950852ff83b",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_1-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ea54dbf2b4374b3fef31d85b005a2e3766612e18d86593dee9e930aae8d4164a",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_1-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a7d0fc582c62e35c84e36ccc4d0b895e334bb1310a871acffeecc7d61de9e232",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_1-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "eb3b3ab12b284d698797875bec0b34db9eb7361bc6e5b52ad71ac29e4dee2cac",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_2-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "de0797c5dfbc3070e7aecd074ec771bf15733a0ed40f753d320fc3b36b1d98bc",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_2-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "834cae0bacffa27b20e4d8edee4b2f61317035af49715bfa9fd2f3a1719c5ec2",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_2-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bc132714aff62d0ad0dfc0d947ae0065ee430a2de0c32edbaa26c67c05025228",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_3-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "76c4439dd7e45faebd0ccbf9cd126263d6bb859df47a60e8eb7666413931b839",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_3-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ea8a57dc658762f9ae711daecb23eceac72fa0d2decfb9652e6332a4811539d1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_3-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ef61eb540bfa06986f4540de3c6653077886cf09a9c4e5badb0ef4dc5bbd394f",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_3-Clarity4, function_name: trigger-ft-supply-overflow, function_args: [[]])",
-        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 2,
-          write_count: 4,
-          read_length: 191,
-          read_count: 7,
-          runtime: 3535,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2,
-      write_count: 4,
-      read_length: 191,
-      read_count: 7,
-      runtime: 3535,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "828efcbfa6be5d1d4e7ce8231b4cb98fbc35c875ce5a23df10b0857d72353b82",
+    marf_hash: "c4c7bad2baaf68cd0da71d5fa2112193031b27de748f187b8b486854fcdbef3b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1483,7 +732,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "16918aad102d17c73bf7985c8b3de2f856240ac4b2ff71ef881580dbc83e9fa2",
+    marf_hash: "738df9146dbae2617586740d43d2f365a1483c323fdb9049755d1099180346f3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1511,7 +760,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c104c59d1d4b8ccb3250dfb994d7fc45945eb0b8032fb248bc721ec4a65f9ffe",
+    marf_hash: "ad9d317a1c02d296193b0ab75f3bfcee144721f3b946bce188333c1286cabe21",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1539,7 +788,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b9952ba32a3e387b72b74b1286e0cbf3ddd026afaab3d53761286ce22e127ffc",
+    marf_hash: "702f3095c908346c69879bfc1e92ac19a1ba38f0c859267f1aaf40d26b3a86d1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1567,7 +816,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a0677bc00998328d0ea952b5a713c9f24bf3e162c3291d67689dc8aa381e6886",
+    marf_hash: "052624b5574e2086788b36fea427fc60a7ea5bfa41f5971aeb1a2767802f2af5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1595,7 +844,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "04d52cde4233bcf8a7fd6c8e6872fed3420ff6b0d3ec1762b0b607e0b8b6e981",
+    marf_hash: "a200b8c91354ce52f28d75e86b655fe82ec558c7c0395dfc6a800beb5719af2a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1625,7 +874,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9096d93210b9edb2a76cea6e9fb90aa4089fbff46e4580681dea8212a9760b81",
+    marf_hash: "41634fb4e937000f2add663235dcf3d396e01932c4fc128cfc75a915e07b06b6",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1655,7 +904,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ab539d684f4fd847f9d09297c649fe1d7b3babdc95439ac3c6334e2f7a86f99c",
+    marf_hash: "bda9ea3a1744c85a23deddc0aaec0c4fef5d94bdc7d2ae00aceebef26b29135c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1685,7 +934,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5a1da6e274dd3213a1981cd70fd981d5d212467a65a325070785f92bcc37cebd",
+    marf_hash: "f99a4faf91180680148fa16d8805cd2f1e28f96fb4b1a634878f00d8d31cf1a8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1715,7 +964,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c5772e66e2bbb5cb20af71e18c04aacabd92b28c62717c99e0d4a7ee2db135d2",
+    marf_hash: "9c2f3f83bd5ddaad5378f55c3daecb87435802f50ff2f0b437b4adf3e5dac6df",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1745,7 +994,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b727880e0f4beedb88181e9d1375db2d23bd13e526d693c7936c69dc76cdc160",
+    marf_hash: "15b93a93e9e284b18b3d2d8e2fceaa3a7f62645a685ae7bc83975ca2647a9aa0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1775,7 +1024,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e045664bcf14792b5c7ee6236a97e5581c4716c02693de522171134f5f12c507",
+    marf_hash: "9e19dc8f2e17be89fdfaabf78bcb6c98009a658acff18083ad77bacec152293b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1805,7 +1054,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "908895687c09e5ea4cbe514c19fdb6f81d1b059e811a12a8754cd3e490c327fb",
+    marf_hash: "c92cf398493baf0fe9b7f9fd8c071853bdcad0974b04135060b7f52f4ca6f2ba",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1835,7 +1084,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "776127fc1cb121ca8545b98569403194636c6e1a9a33d46f554e8b31f9e99711",
+    marf_hash: "d9ca03b3fa015fc7fd5e5a0232bb9154e98d86d9bc112900f30378b289a6f57b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1865,7 +1114,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "eb455e5d6643eb50d5427f2b365d4b1c50775c29b3207bdf735f09338f321f16",
+    marf_hash: "54e89bfb0b94d438ef1e5cbf971528e64240334c4986026584e720e8a2c35816",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1895,7 +1144,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "05b749327b519d27a1d1fe302abcbdf1d5b1c50eb325f2cd1c81498f50ee65c7",
+    marf_hash: "2706f7f0d62d991f65a625993f6fdddf47a423f2e9d9415c4fea418152f3792a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1925,7 +1174,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "01064fda4cb46a3cb1294b5e6ed25ac88520f4db584f84d25fedb8ccbe073dc5",
+    marf_hash: "59cb5e707723e1c611eff8368ca2626d67ef0f085c63e65773b000c8690e0209",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1955,7 +1204,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4ab6a7ebbb1523d3c71fe50891a51bc5aa09189082be0f1a843e5ec3bd9f88ae",
+    marf_hash: "e5c281115257823d5fd51d84fe3a353513fcaa0af612e9c75df4d007579aa3d7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1985,7 +1234,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4500c17519f7e882cae998b11a541cf42ca37c1c396e0b0444ca91eadbf6a4af",
+    marf_hash: "b4c0ce1ea25fbd002ff8607d1fa5579e22d2117a65038f67080d558758885b44",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2015,7 +1264,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "39f2bf491bc2e957b32a92761ee53497940fa541ddfce35cf2ff0144bd09c694",
+    marf_hash: "74c32f951355a292d9efded03f81c50ba23f2cb2e81a004d3d095066db4d52cf",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2045,7 +1294,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1f0764b81413ed35f8487358c1b627387e141149d009593e7e53e02fcb7f1590",
+    marf_hash: "abff250a994eb8679bc330c97c6e63d41d7e8fa9e84811a055760f4895243e2e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2075,7 +1324,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "df5c9c482783d59a4fd597289a1ac46e873553f120ee697071ff73f078aa486a",
+    marf_hash: "90cec0d3f63ca4d44b4b5299185ae7e4b43a8fcafc0c9b53a9de4e70ce37254e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2105,7 +1354,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b0bfb906e8eb0b3c64f1a1fd7669174f08ae5bfaa9ec5e345395be8cad200eec",
+    marf_hash: "2b3d0566ba774fa9b7c5aa2fa903558e0c1cf7eeedda4370ecc8cd607bbdb24e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2135,7 +1384,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8fd3567f340ac970d1d0124bd15e818775343ed9a14b4de61f4e936b3193f8a2",
+    marf_hash: "189a28547e4d0a2a5e060e702a403979fe9aea4d5112f360c374de490fc2b5ff",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2165,7 +1414,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "657492e271ec9c8cc7d7f5632a0fd87ec3871d6087628f9a9329b37d02fa2a21",
+    marf_hash: "eccf66fb03a273436668b4da2fad5ad88d4ac724117080a5dfcbc5e7f4acfb30",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2195,7 +1444,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "df2974aa4055e6109dad293e309c5ead9598094a00d6b28f4025a6ccd2e1d6e7",
+    marf_hash: "8eabf708b5e3d3d7783c2af5fc18180366e1da22cb3a8350058ca149a7df99d2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2225,7 +1474,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "aedc514262d2e6680455f006e9622ca73f4fcfbcd03e4ec69f86f895cc0b4fd4",
+    marf_hash: "2c6d32ce018edb79b4739531054b91ddef864d91ab100d71342b539dfab7c8a9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2255,7 +1504,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5279eac426f933437cb4c27ce2201a12c77dcc801257d48451f4b24238b285d0",
+    marf_hash: "83c0de442a96b261caeb4065d65944cef51ba80b351ad9d67463a03ec8045d0c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2285,7 +1534,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7f80246d832fe3e30eb56aa64b91e853a817d16fb95bb9d2099b5cc2e82ca7af",
+    marf_hash: "e4a8e94f9fa8ffe6375a7a137f320c23409a0546c343684b6be3b453347a8d26",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2315,7 +1564,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "eca21fc642215870dfc2293ab04b73e63611170d2a26e9c66477f5c0eec846d9",
+    marf_hash: "565f66c7613979f9e72da6625423a322f02e77202789aff0ef5979db4692eb77",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2345,7 +1594,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f911d08760381344f359294dbc7cbc4b3cba6b9c67b749746571030b3935cd0c",
+    marf_hash: "48fb5e0094c9663700bb5d3f67162d791d985dad8b3715efca280b7afd4b074c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2375,7 +1624,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5f6e441a16f3e8f2e5304d4d90d3034f1e335848bdbee2f931a0eca17b5e7792",
+    marf_hash: "dbe5e1588e39e90b5862ccb77a1a784d25355c4fcb7c67251f96a3d0d1665e15",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2405,7 +1654,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f5a43161e4f12504f660e3a4fddd3f53e0bbbab46156beb1ee5177127865bf3e",
+    marf_hash: "6876304f83d482554a0ec5b8fdfbe0e323c8c650f0472fd5f0ca3f8104e35cff",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2435,7 +1684,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1743e7d89518d8a8470b99ce94b7bf5bb63e5a5ab62846c1fac41d5e9b2da16e",
+    marf_hash: "d85339911e735f675b3f1553ce63ec847b8f0626f14cc7a86436ce866812f9ff",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2465,11 +1714,1259 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "44c97d29f21e8589c4712c99842a54f95b91a5a9872b6ab063d0b41634cd54b2",
+    marf_hash: "1c21ab18d9ec89f8876cc4dedfe1f40e064a3e9c35de7208c29089eadb4c5e36",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_4-Clarity5, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "53af3295cf445ee33dc5ebf8b6268016fc9c2e3cdc00cd68a2dded686774a110",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: ft-supply-overflow-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 213,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 18110,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 213,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 18110,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d6c264653a678e6d6b16f3a8734e79e118fba79b8be1955f78353e36e59309d3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: ft-supply-overflow-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 213,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 18105,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 213,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 18105,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "16ed2af0df7deb31414b0d77bc375e2a98dba7911e4b0048e6e348bde647f596",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: ft-supply-overflow-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 213,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 18105,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 213,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 18105,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1039e3ffd2239f2b4cddba1c533b5bb040cabd8f5ffd048e78762efd0bd1ae32",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: ft-supply-overflow-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 213,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 18105,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 213,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 18105,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "67d77a34035d24981a009c6958d9904a463e1c0059b7ea058817e4f0ede0bc69",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: ft-supply-overflow-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 213,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 18105,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 213,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 18105,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cae4a15aade0b53b499a192fe2b0b0a93f1faad7f21b6fd895c79c8dfd0b21ab",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: ft-supply-overflow-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 213,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 18105,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 213,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 18105,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "78e6c2dd498cd69c85499ca5bd1f997e99fdd8bec3a051cc922f9dc732b080b2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_0-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ae174f3be10680421decbd44ad0b0636296482e466fb62bcf19a6a026cd40c10",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_05-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ec64566fd9a021822fb92f82a8b2351a4aee05120c781d40fe02f4344dcc9b20",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_1-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2d72c63c248ba4f9348977114a66b303c5f9fd83b76267875e052f8da8c08504",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_1-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a49e16a5c4f19e24732ac7322fc65a2e506407aa0266429c62396e3c8bde3b38",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_2-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "540b05b03fe9127acaad029971f511963977657add0993ffb3823b5c0e3df731",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_2-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b68009546cf1bd87a570944ed4c2b3191994fa6443405f07e9d7aef3c4e14836",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_3-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "62ee28ed57cd07cba9e2bec4db204557fcaeef5ca76669bd3f453dd053ea9533",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_3-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4ce286a704762a3cd36bd36bc5a8d009b1827363932e8bc5c83f812fb01f9a1c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_4-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b98d211626432bae3525c4ea4434b9efa7556c9ddd00045a8e986f964bac3ab8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_4-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7f322d31ede8a3c0c7fc8ffb783f94264c4c667d8d18609bfc068e3749bec76e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_5-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9d988aaa9cac58f0da03d379e29f3e7a1c9c2f8a00211ca4b61ce23a73555f24",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch2_5-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "196642c11e1a33117de73cdfdb3ba2ae28776377d3bba1d9c92c026e8f161ac8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_0-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e339a1fffec5231c09b298461ca02f3e3c1042346cc3133baef4db0bdee9954e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_0-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7e5850c7869c22ea47b4bdf6f456e5558a83e20728f9ffb1e310b407f3cadf42",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_0-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "94f1bf3f4f34305b371f3c153360e400ccf667bb32faab383bccb040bef3f15d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_1-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "920ce9f85223a2cd2c8795700555f74600c783abdf17ee8a2bb9f222454d9a4f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_1-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4c53bff93f9d11c5de8a64c8e8e82dfb29bf4d7c958981a5c788f63bb6d68d3a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_1-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0a2c581f6aa8b97eeb1ceebc9fc67e905f53dbab9d00e8c2c3fa536e9f62bf65",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_2-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "87c5efab485cabf2116272f343fa4c1f41fa0b00d10fbfdc1f417ca3ea3b1665",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_2-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0c001a03a653054ece8e0c60c76553de0d0590acd312594a58184b225c5c8582",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_2-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6a5ebff6b7ce6528e89df45cc08db3d2e8181b8163fd19a3a409e6196db1a96e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_3-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b2536cf3c8a7cc0e32e7376ebc8354c25b6afb1d528c45091af51c40b6c9bdaf",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_3-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "706def17e6b9ea9fb55347a5763c21e897c7360a24014df48090fd1f18ac9b4a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_3-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0cfa9e7d06895a19edc35b292604d8d27bd77e678846875caef78a2b95752475",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_3-Clarity4, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fc804b43a88eabd6cf992b2ce62f9b02bd8a640dfe03f42ba41b8604e9fe35a0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_4-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c4125dc7305d0a9318243fc28daf553752fc11c456b5f8d6e1fb46ab6e389ebc",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_4-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0058d12ab4cf932ed7c36f05953422fdf18a8f41fcde1e4d56310b2782d7e0b7",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_4-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3b6bb654a53880586cb8bf8f87f0fcaa398470f1f9f3676a000e58c3afe47689",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_4-Clarity4, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9d3eeae4ed9af86ddcf292cfa1b10ac3760ecd36b8b47acec129f5bea59172b0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_4-Clarity5, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "debd8963737d74b4af17eb1f1d9a1a513dc257eb7b80aaaa99b9e5e25b0b01bb",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_5-Clarity1, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2dac482ca1ef9db0cbcc01d2e9eaff73f0de1d82794b9d2974ec6fdeaee7ca0d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_5-Clarity2, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "922f53af5dac6eb96d1fbcf48e74830d87bc51242c9f9130be1a51b054d14d69",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_5-Clarity3, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2d042561f4270c42c67046a27f82d3b6cf951162fc1747222753ae9ac5037232",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_5-Clarity4, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7c7fa985cc1a0c93b009e9647abc47ff8b797996d0baa9a4ef553524873c9fe3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_5-Clarity5, function_name: trigger-ft-supply-overflow, function_args: [[]])",
+        vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 2,
+          write_count: 4,
+          read_length: 191,
+          read_count: 7,
+          runtime: 3535,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2,
+      write_count: 4,
+      read_length: 191,
+      read_count: 7,
+      runtime: 3535,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7ff1a2da94c51bc7b6023f02d2a6df0b5f4d18c3c2205177c02216be8e5db055",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: ft-supply-overflow-Epoch3_5-Clarity6, function_name: trigger-ft-supply-overflow, function_args: [[]])",
         vm_error: "Some(SupplyOverflow(1100000, 1000000)) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

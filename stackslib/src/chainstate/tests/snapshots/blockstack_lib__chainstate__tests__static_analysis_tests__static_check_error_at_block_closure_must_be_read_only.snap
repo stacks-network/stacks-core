@@ -1,131 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "65f68ed40b24a4f8663861d31f781057a04911fb73f91a15fc39e87e17773224",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: closure-must-be-ro-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 3966,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 3966,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b6f34fba1197bb3d043b171153a1aa0d70a16f366ec7f7bea196b9e29eefcc19",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: closure-must-be-ro-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 3966,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 3966,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f3a1e7654bac982518200a50219f4185d26974afe8569706cec6884580cfb05c",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: closure-must-be-ro-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 3966,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 3966,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "700417ae0d86690924b3d7b30fec3a3571b8bc9847c5a9359b332d37264c494b",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: closure-must-be-ro-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 3966,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 3966,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "937c3ce184e52f9eed40d0575a0e6b06891509e909f554c7be80a4ddde8e228f",
+    marf_hash: "e18d233b6c30cd28cf7f68abf6d468d3dccbe50aa6f178b48abb44688337af2c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "78f0e31fc8fd35b8bbf544fe4ccd5d538129927f7ff5a8a7d9636f8c736456f2",
+    marf_hash: "0f7601db823f21639bc8be1d2fd9bcb1489cb68cd0a24266e729cc7f40043778",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5fef75da10d06575e5c2389ac4d928464dd56cd60c4bb22cfa484ba1a2d1fa88",
+    marf_hash: "6ce44bf3a55e21a190f036468d6b937903629f7ffe06adb40467dec1d7b102a6",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,11 +94,131 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "16ffad1cd83fdd06ec003aca3b3075de041f7d60dfbaad2baf4724a8fec9630e",
+    marf_hash: "676ef98c9d6581ee12c5332f31a43858614d40f33ecf287985695dd522025a22",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: closure-must-be-ro-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3966,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8fa74c817549e922973fc03d1700c3ea96e76459d81893a975b80a8a674cc2ca",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: closure-must-be-ro-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3966,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f24d42579dfcefac7d3157c9e4ab3f9aa1a18155c397589404d2250d34f8f1bd",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: closure-must-be-ro-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3966,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6f3d834a12e8dd418e16c2918759e4ddb5854cf9b1f203fe4053b48ae04401c4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: closure-must-be-ro-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 3966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 3966,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "925d616aaee0660c6b228ce83f91b7fedfa13dd05048e8b9e1c4211d030e5c34",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: closure-must-be-ro-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
