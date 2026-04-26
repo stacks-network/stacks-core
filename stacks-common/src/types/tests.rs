@@ -14,10 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::str::FromStr;
+
 use super::{
     set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId, COINBASE_INTERVALS_MAINNET,
     COINBASE_INTERVALS_TESTNET,
 };
+
+#[test]
+fn test_stacks_epoch_id_display_fromstr_tryfrom_roundtrip() {
+    for epoch in StacksEpochId::ALL {
+        let s = epoch.to_string();
+        assert_eq!(
+            StacksEpochId::from_str(&s),
+            Ok(*epoch),
+            "Display/FromStr roundtrip failed for {epoch:?} -> {s:?}"
+        );
+        let u = *epoch as u32;
+        assert_eq!(
+            StacksEpochId::try_from(u),
+            Ok(*epoch),
+            "TryFrom<u32> roundtrip failed for {epoch:?} (0x{u:x})"
+        );
+    }
+}
 
 #[test]
 fn test_mainnet_coinbase_emissions() {

@@ -445,19 +445,10 @@ impl TypeSignature {
         epoch: &StacksEpochId,
         other: &TypeSignature,
     ) -> Result<bool, ClarityTypeError> {
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.admits_type_v2_1(other),
-            StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
+        if *epoch < StacksEpochId::Epoch21 {
+            self.admits_type_v2_0(other)
+        } else {
+            self.admits_type_v2_1(other)
         }
     }
 
@@ -650,22 +641,11 @@ impl TypeSignature {
     /// This method will convert types from previous epochs with the appropriate
     /// types for the specified epoch.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
-        match epoch {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
-            | StacksEpochId::Epoch22 => self.clone(),
-            // Note for future epochs: Epochs >= 2.3 should use the canonicalize_v2_1() routine
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.canonicalize_v2_1(),
+        // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
+        if *epoch < StacksEpochId::Epoch21 || *epoch == StacksEpochId::Epoch22 {
+            self.clone()
+        } else {
+            self.canonicalize_v2_1()
         }
     }
 
@@ -994,19 +974,10 @@ impl TypeSignature {
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, ClarityTypeError> {
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => Self::least_supertype_v2_1(a, b),
-            StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
+        if *epoch < StacksEpochId::Epoch21 {
+            Self::least_supertype_v2_0(a, b)
+        } else {
+            Self::least_supertype_v2_1(a, b)
         }
     }
 

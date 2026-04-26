@@ -25,7 +25,7 @@ use clarity::consts::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_3_5, STACKS_EPOCH_MAX,
 };
 use clarity::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -205,7 +205,10 @@ impl<'a> TestChainstate<'a> {
         config.burnchain.working_dir = get_burnchain(&test_path, None).working_dir;
 
         let epochs = config.epochs.clone().unwrap_or_else(|| {
-            StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
+            StacksEpoch::unit_test_up_to(
+                config.burnchain.first_block_height,
+                StacksEpochId::Epoch20,
+            )
         });
 
         let mut sortdb = SortitionDB::connect(
@@ -1759,9 +1762,16 @@ impl<'a> TestChainstate<'a> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch34,
                 start_height: first_burnchain_height + 4,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 5,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch35,
+                start_height: first_burnchain_height + 5,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_3_5,
             },
         ])
     }
@@ -1861,9 +1871,16 @@ impl<'a> TestChainstate<'a> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch34,
                 start_height: first_burnchain_height + 32,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 33,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch35,
+                start_height: first_burnchain_height + 33,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_3_5,
             },
         ])
     }
@@ -1904,6 +1921,7 @@ fn advance_through_all_epochs() {
         StacksEpochId::Epoch32,
         StacksEpochId::Epoch33,
         StacksEpochId::Epoch34,
+        StacksEpochId::Epoch35,
     ] {
         chainstate.advance_to_epoch_boundary(&privk, target_epoch);
         let burn_block_height = chainstate.get_burn_block_height();
@@ -1970,18 +1988,18 @@ fn advance_through_nakamoto_bootstrapped() {
     boot_plan = boot_plan.with_epochs(epochs);
     let mut chainstate = boot_plan.to_chainstate(None, Some(activation_height.into()));
     // Make sure we can advance through every single epoch.
-    chainstate.advance_to_epoch_boundary(&privk, StacksEpochId::Epoch34);
+    chainstate.advance_to_epoch_boundary(&privk, StacksEpochId::Epoch35);
     let burn_block_height = chainstate.get_burn_block_height();
     let current_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
             .unwrap()
             .unwrap()
             .epoch_id;
-    assert_eq!(current_epoch, StacksEpochId::Epoch33);
+    assert_eq!(current_epoch, StacksEpochId::Epoch34);
     let next_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height + 1)
             .unwrap()
             .unwrap()
             .epoch_id;
-    assert_eq!(next_epoch, StacksEpochId::Epoch34);
+    assert_eq!(next_epoch, StacksEpochId::Epoch35);
 }

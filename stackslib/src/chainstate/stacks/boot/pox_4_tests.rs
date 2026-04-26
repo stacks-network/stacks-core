@@ -4311,7 +4311,10 @@ fn stack_agg_increase() {
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
-    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_epoch_only(
+        1000,
+        StacksEpochId::Epoch30,
+    )); // Let us not activate nakamoto to make life easier
     peer_config.chain_config.initial_balances =
         vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config
@@ -6722,7 +6725,10 @@ pub fn pox_4_scenario_test_setup<'a>(
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
-    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000));
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_epoch_only(
+        1000,
+        StacksEpochId::Epoch30,
+    ));
     peer_config.chain_config.initial_balances =
         vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config

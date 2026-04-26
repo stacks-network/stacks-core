@@ -136,29 +136,11 @@ pub fn run_analysis(
     );
     let result = analysis_db.execute(|db| {
         ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db)?;
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
-            }
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
-                TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
-            }
-            StacksEpochId::Epoch10 => {
-                return Err(StaticCheckErrorKind::Unreachable(
-                    "Epoch 1.0 is not a valid epoch for analysis".into(),
-                )
-                .into());
-            }
-        }?;
+        if epoch >= StacksEpochId::Epoch21 {
+            TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
+        } else {
+            TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
+        }
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 

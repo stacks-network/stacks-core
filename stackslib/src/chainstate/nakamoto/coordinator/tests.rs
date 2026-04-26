@@ -30,7 +30,7 @@ use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_H
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
-use stacks_common::types::{Address, StacksEpoch, StacksPublicKeyBuffer};
+use stacks_common::types::{Address, StacksEpoch, StacksEpochId, StacksPublicKeyBuffer};
 use stacks_common::util::hash::{to_hex, Hash160};
 
 use crate::burnchains::tests::TestMiner;
@@ -262,7 +262,7 @@ pub fn boot_nakamoto<'a>(
         test_signers,
         test_stackers,
         observer,
-        StacksEpoch::unit_test_3_0_only(37),
+        StacksEpoch::unit_test_epoch_only(37, StacksEpochId::Epoch30),
     )
 }
 
@@ -282,7 +282,7 @@ pub fn boot_nakamoto_3_2<'a>(
         test_signers,
         test_stackers,
         observer,
-        StacksEpoch::unit_test_3_2_only(37),
+        StacksEpoch::unit_test_epoch_only(37, StacksEpochId::Epoch32),
     )
 }
 
@@ -302,7 +302,7 @@ pub fn boot_nakamoto_3_3<'a>(
         test_signers,
         test_stackers,
         observer,
-        StacksEpoch::unit_test_3_3_only(37),
+        StacksEpoch::unit_test_epoch_only(37, StacksEpochId::Epoch33),
     )
 }
 
@@ -1075,7 +1075,7 @@ fn block_info_tests(use_primary_testnet: bool) {
             ClarityVersion::Clarity4 => &clar4_contract_id,
             // Later versions of Clarity are just running the same code as Clarity4 for now
             // so it's not necessary to test them all individually here.
-            ClarityVersion::Clarity5 => panic!("Clarity5 not supported in this test"),
+            _ => panic!("{version:?} not supported in this test"),
         };
         peer.with_db_state(|sortdb, chainstate, _, _| {
             let sortdb_handle = sortdb.index_handle_at_tip();
@@ -3730,7 +3730,11 @@ fn nakamoto_coordinator_sip034_tenure_extensions_epoch_gated_3_3() {
     // 3.3, when it is really epoch 3.2
     peer.with_dbs(|_, sortdb, _, _| {
         let tx = sortdb.tx_begin().unwrap();
-        SortitionDB::replace_epochs_unchecked(&tx, &StacksEpoch::unit_test_3_3_only(37)).unwrap();
+        SortitionDB::replace_epochs_unchecked(
+            &tx,
+            &StacksEpoch::unit_test_epoch_only(37, StacksEpochId::Epoch33),
+        )
+        .unwrap();
         tx.commit().unwrap();
     });
 
@@ -3816,7 +3820,11 @@ fn nakamoto_coordinator_sip034_tenure_extensions_epoch_gated_3_3() {
     // Restore corrupted epochs with 3.2 test epochs
     peer.with_dbs(|_, sortdb, _, _| {
         let tx = sortdb.tx_begin().unwrap();
-        SortitionDB::replace_epochs_unchecked(&tx, &StacksEpoch::unit_test_3_2_only(37)).unwrap();
+        SortitionDB::replace_epochs_unchecked(
+            &tx,
+            &StacksEpoch::unit_test_epoch_only(37, StacksEpochId::Epoch32),
+        )
+        .unwrap();
         tx.commit().unwrap();
     });
 

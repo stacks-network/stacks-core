@@ -2972,7 +2972,10 @@ pub mod test {
                 .unwrap();
 
             let epochs = config.chain_config.epochs.clone().unwrap_or_else(|| {
-                StacksEpoch::unit_test_pre_2_05(config.chain_config.burnchain.first_block_height)
+                StacksEpoch::unit_test_up_to(
+                    config.chain_config.burnchain.first_block_height,
+                    StacksEpochId::Epoch20,
+                )
             });
 
             let mut peer_network = PeerNetwork::new(
@@ -4423,7 +4426,7 @@ pub mod test {
                     .chain_config
                     .epochs
                     .clone()
-                    .unwrap_or(StacksEpoch::unit_test_3_0(0)),
+                    .unwrap_or(StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch30)),
             )
         }
 

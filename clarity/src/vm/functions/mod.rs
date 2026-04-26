@@ -39,32 +39,12 @@ macro_rules! switch_on_global_epoch {
             invoke_ctx: &crate::vm::InvocationContext,
             context: &LocalContext,
         ) -> std::result::Result<Value, VmExecutionError> {
-            match exec_state.epoch() {
-                StacksEpochId::Epoch10 => {
-                    panic!("Executing Clarity method during Epoch 1.0, before Clarity")
-                }
-                StacksEpochId::Epoch20 => $Epoch2Version(args, exec_state, invoke_ctx, context),
-                StacksEpochId::Epoch2_05 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.1.
-                StacksEpochId::Epoch21 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.2.
-                StacksEpochId::Epoch22 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.3.
-                StacksEpochId::Epoch23 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.4.
-                StacksEpochId::Epoch24 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.5.
-                StacksEpochId::Epoch25 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.0.
-                StacksEpochId::Epoch30 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.1.
-                StacksEpochId::Epoch31 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.2.
-                StacksEpochId::Epoch32 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.3.
-                StacksEpochId::Epoch33 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.4.
-                StacksEpochId::Epoch34 => $Epoch205Version(args, exec_state, invoke_ctx, context),
+            if exec_state.epoch() == &StacksEpochId::Epoch10 {
+                panic!("Executing Clarity method during Epoch 1.0, before Clarity")
+            } else if exec_state.epoch() == &StacksEpochId::Epoch20 {
+                $Epoch2Version(args, exec_state, invoke_ctx, context)
+            } else {
+                $Epoch205Version(args, exec_state, invoke_ctx, context)
             }
         }
     };

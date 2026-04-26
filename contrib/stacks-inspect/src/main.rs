@@ -1118,7 +1118,11 @@ fn main() {
             let burnchain = Burnchain::regtest(&new_burnchain_path);
             let first_burnchain_block_height = burnchain.first_block_height;
             let first_burnchain_block_hash = &burnchain.first_block_hash;
-            let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
+            let epochs = StacksEpoch::unit_test_2_1_with_heights(
+                first_burnchain_block_height,
+                u64::MAX,
+                u64::MAX,
+            );
             let (mut new_sortition_db, _) = burnchain
                 .connect_db(
                     true,
@@ -1202,7 +1206,11 @@ fn main() {
             let mut known_stacks_blocks = HashSet::new();
             let mut next_arrival = 0;
 
-            let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
+            let epochs = StacksEpoch::unit_test_2_1_with_heights(
+                first_burnchain_block_height,
+                u64::MAX,
+                u64::MAX,
+            );
 
             let (p2p_new_sortition_db, _) = burnchain
                 .connect_db(

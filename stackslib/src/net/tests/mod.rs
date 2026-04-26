@@ -149,11 +149,12 @@ impl NakamotoBootPlan {
         )
         .unwrap();
 
-        let default_epoch = StacksEpoch::unit_test_3_0_only(
+        let default_epoch = StacksEpoch::unit_test_epoch_only(
             (self.pox_constants.pox_4_activation_height
                 + self.pox_constants.reward_cycle_length
                 + 1)
             .into(),
+            StacksEpochId::Epoch30,
         );
         chainstate_config.epochs = Some(self.epochs.clone().unwrap_or(default_epoch));
         chainstate_config.initial_balances = vec![];
