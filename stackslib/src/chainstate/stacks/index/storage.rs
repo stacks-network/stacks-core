@@ -771,8 +771,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         .bench
                         .write_children_hashes_empty_finish(start_time);
                 } else if !is_backptr(ptr.id()) {
+                    let child_idx = ptr.try_ptr_into_u32()?;
                     // hash is the hash of this node's children
-                    let node_hash = self.calculate_node_hashes(storage_tx, ptr.ptr_as_u32()?)?;
+                    let node_hash = self.calculate_node_hashes(storage_tx, child_idx)?;
 
                     // count the time taken to store the hash towards the
                     // write_children_hashes_same_benchmark
@@ -791,7 +792,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         && ptr.id() != TrieNodeID::Leaf as u8
                     {
                         // need to store this hash too, since we deferred calculation
-                        self.write_node_hash(ptr.ptr_as_u32()?, node_hash)?;
+                        self.write_node_hash(child_idx, node_hash)?;
                     }
 
                     storage_tx
@@ -839,15 +840,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Compute the reserved on-disk size for a root written after its children.
     fn reserved_root_size(base_len: usize, ptrs: &[TriePtr]) -> Result<u64, Error> {
-        let base_len = u64::try_from(base_len).map_err(|_| Error::OverflowError)?;
-        let inline_ptr_growth = u64::try_from(
-            ptrs.iter()
-                .filter(|p| !p.is_empty() && !is_backptr(p.id))
-                .count(),
-        )
-        .map_err(|_| Error::OverflowError)?
-        .checked_mul(4)
-        .ok_or(Error::OverflowError)?;
+        let base_len = base_len as u64;
+        let inline_count = ptrs
+            .iter()
+            .filter(|p| !p.is_empty() && !is_backptr(p.id))
+            .count() as u64;
+        let inline_ptr_growth = inline_count.checked_mul(4).ok_or(Error::OverflowError)?;
         base_len
             .checked_add(inline_ptr_growth)
             .ok_or(Error::OverflowError)
@@ -860,7 +858,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 continue;
             }
 
-            let child_idx = ptr.ptr_as_usize()?;
+            let child_idx = ptr.try_ptr_into_usize()?;
             let Some(&offset) = file_offsets.get(child_idx) else {
                 return Err(Error::CorruptionError("Child index out of range".into()));
             };
@@ -888,7 +886,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// and it is written last once all child offsets are known.
     pub(crate) fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
         let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr_as_u32()?;
+        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).try_ptr_into_u32()?;
 
         // Step 1: collect nodes in root-first DFS order.
         let write_order = {
@@ -900,7 +898,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 if !node.is_leaf() {
                     for child in node.ptrs().iter() {
                         if !child.is_empty() && !is_backptr(child.id) {
-                            stack.push(child.ptr_as_u32()?);
+                            stack.push(child.try_ptr_into_u32()?);
                         }
                     }
                 }
@@ -945,7 +943,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // Reverse-iterating `descendants` ensures each child's file offset is already
         // recorded by the time we write its parent.
         for &mem_ptr in descendants.iter().rev() {
-            let mem_idx = usize::try_from(mem_ptr).map_err(|_| Error::OverflowError)?;
+            let mem_idx = mem_ptr as usize;
             *file_offsets.get_mut(mem_idx).ok_or_else(|| {
                 Error::CorruptionError("Node index out of range in dump_consume".into())
             })? = f.stream_position()?;
@@ -964,10 +962,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let end_offset = f.stream_position()?;
 
         // Step 4: write the root node into its reserved space.
-        let root_idx = usize::try_from(root_mem_ptr).map_err(|_| Error::OverflowError)?;
         let entry = self
             .data
-            .get_mut(root_idx)
+            .get_mut(root_mem_ptr as usize)
             .ok_or_else(|| Error::CorruptionError("Invalid root pointer in dump_consume".into()))?;
 
         if !entry.0.is_leaf() {
@@ -1072,7 +1069,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     ) -> Result<u64, Error> {
         let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
         let max_patch_depth = MAX_PATCH_DEPTH as usize;
-        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr_as_u32()?;
+        let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).try_ptr_into_u32()?;
 
         // Step 1: collect nodes in root-first DFS order, computing patch
         // payloads along the way.
@@ -1141,7 +1138,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 if !node.is_leaf() {
                     for child in node.ptrs().iter() {
                         if !child.is_empty() && !is_backptr(child.id) {
-                            let idx = child.ptr_as_u32()?;
+                            let idx = child.try_ptr_into_u32()?;
                             stack.push(idx);
                         }
                     }
@@ -1204,8 +1201,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                     Error::CorruptionError(format!("Failed to serialize patch: {e:?}"))
                 })?;
             } else {
-                let node_idx = usize::try_from(dp.ptr()).map_err(|_| Error::OverflowError)?;
-                let node = data.get(node_idx).ok_or_else(|| {
+                let node = data.get(dp.ptr() as usize).ok_or_else(|| {
                     Error::CorruptionError("node pointer invalid in compressed dump".into())
                 })?;
                 write_nodetype_bytes_compressed(f, &node.0, node.1)?;
@@ -1218,7 +1214,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // Reverse-iterating `descendants` ensures each child's file offset is already
         // recorded by the time we write its parent.
         for dp in descendants.iter_mut().rev() {
-            let dp_idx = usize::try_from(dp.ptr()).map_err(|_| Error::OverflowError)?;
+            let dp_idx = dp.ptr() as usize;
             *file_offsets.get_mut(dp_idx).ok_or_else(|| {
                 Error::CorruptionError("Node index out of range in dump_compressed_consume".into())
             })? = f.stream_position()?;
@@ -1241,8 +1237,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         if let Some(patch) = root_dp.patch_mut() {
             Self::update_inline_child_ptrs(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
         } else {
-            let root_idx = usize::try_from(root_dp.ptr()).map_err(|_| Error::OverflowError)?;
-            let entry = self.data.get_mut(root_idx).ok_or_else(|| {
+            let entry = self.data.get_mut(root_dp.ptr() as usize).ok_or_else(|| {
                 Error::CorruptionError("Invalid root pointer in dump_compressed_consume".into())
             })?;
             if !entry.0.is_leaf() {
@@ -1354,7 +1349,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Read a node's hash from the TrieRAM.  ptr.ptr() is an array index.
     pub fn read_node_hash(&self, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let idx = ptr.ptr_as_usize()?;
+        let idx = ptr.try_ptr_into_usize()?;
         let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
@@ -1400,7 +1395,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             self.read_node_count += 1;
         }
 
-        let idx = ptr.ptr_as_usize()?;
+        let idx = ptr.try_ptr_into_usize()?;
         if let Some(node) = self.data.get(idx) {
             Ok(node.clone())
         } else {
@@ -1445,7 +1440,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             }
         }
 
-        let node_index = usize::try_from(node_array_ptr).map_err(|_| Error::NotFoundError)?;
+        let node_index = node_array_ptr as usize;
         if let Some(existing_node) = self.data.get_mut(node_index) {
             *existing_node = (node.clone(), hash);
             Ok(())
@@ -1476,7 +1471,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         );
 
         // can only set the hash of an existing node
-        let node_index = usize::try_from(node_array_ptr).map_err(|_| Error::NotFoundError)?;
+        let node_index = node_array_ptr as usize;
         if let Some(existing_node) = self.data.get_mut(node_index) {
             existing_node.1 = hash;
             Ok(())
@@ -1506,7 +1501,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
 impl<T: MarfTrieId> NodeHashReader for TrieRAM<T> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        let idx = ptr.ptr_as_usize()?;
+        let idx = ptr.try_ptr_into_usize()?;
         let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
@@ -3355,6 +3350,24 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
         let node_type = node.as_trie_node_type();
         self.write_nodetype(node_array_ptr, &node_type, hash)
+    }
+
+    /// Store only a node hash to the uncommitted state.
+    /// If the uncommitted state is not instantiated, then this panics.
+    pub fn write_node_hash(&mut self, node_array_ptr: u32, hash: TrieHash) -> Result<(), Error> {
+        if self.data.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
+        // Only allow writes when the cur_block is the current in-RAM extending block.
+        if let Some((ref uncommitted_bhh, ref mut uncommitted_trie)) = self.data.uncommitted_writes
+        {
+            if &self.data.cur_block == uncommitted_bhh {
+                return uncommitted_trie.write_node_hash(node_array_ptr, hash);
+            }
+        }
+
+        panic!("Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!");
     }
 
     /// Get the next node index into which a node will be inserted in the

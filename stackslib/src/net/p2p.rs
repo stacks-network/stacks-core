@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -5654,7 +5654,7 @@ mod test {
             0x9abcdef0,
             0,
             23456,
-            "http://test-p2p.com".into(),
+            UrlString::from_literal("http://test-p2p.com"),
             &[],
             initial_neighbors,
         )

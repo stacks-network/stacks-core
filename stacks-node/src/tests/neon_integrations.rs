@@ -1,3 +1,18 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7338,8 +7353,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 
             let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
                 address: spender_addr.clone(),
-                contract_name: ContractName::from("increment-contract"),
-                function_name: ClarityName::from("increment-many"),
+                contract_name: ContractName::from_literal("increment-contract"),
+                function_name: ClarityName::from_literal("increment-many"),
                 function_args: vec![],
             });
 
@@ -8521,7 +8536,7 @@ pub fn make_expensive_tx_chain(
                 nonce,
                 1049230 + nonce + fee_plus,
                 chain_id,
-                &contract_name,
+                contract_name.as_str(),
                 &make_runtime_sized_contract(num_index_of, nonce, &addr_prefix),
             )
         } else {

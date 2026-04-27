@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ContractName;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
@@ -80,7 +81,8 @@ fn test_stackerdb_paths() {
     )
     .unwrap();
 
-    let contract_id = QualifiedContractIdentifier::new(addr.into(), "hello-world".into());
+    let contract_id =
+        QualifiedContractIdentifier::new(addr.into(), ContractName::from_literal("hello-world"));
 
     assert_eq!(
         stackerdb_get_metadata_path(contract_id.clone()),

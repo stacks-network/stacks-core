@@ -457,6 +457,14 @@ impl Default for TriePtr {
 }
 
 impl TriePtr {
+    /// Serialized size of the node-ID byte.
+    const ID_BYTE_LEN: usize = 1;
+    /// Serialized size of the path-char byte.
+    const CHR_BYTE_LEN: usize = 1;
+    /// Serialized size of the `back_block` field (only present in uncompressed
+    /// form, or in compressed form when the pointer is a backptr).
+    const BACK_BLOCK_BYTE_LEN: usize = 4;
+
     #[inline]
     pub fn new(id: u8, chr: u8, ptr: u64) -> TriePtr {
         TriePtr {
@@ -502,14 +510,14 @@ impl TriePtr {
     /// Convert `self.ptr()` to a `u32` in-memory index, or return an error
     /// if the value exceeds `u32::MAX`.
     #[inline]
-    pub fn ptr_as_u32(&self) -> Result<u32, Error> {
+    pub fn try_ptr_into_u32(&self) -> Result<u32, Error> {
         u32::try_from(self.ptr).map_err(|_| Error::OverflowError)
     }
 
     /// Convert `self.ptr()` to a `usize` in-memory index, or return an error
     /// if the value exceeds `usize::MAX`.
     #[inline]
-    pub fn ptr_as_usize(&self) -> Result<usize, Error> {
+    pub fn try_ptr_into_usize(&self) -> Result<usize, Error> {
         usize::try_from(self.ptr).map_err(|_| Error::OverflowError)
     }
 
@@ -546,9 +554,12 @@ impl TriePtr {
     ///
     /// The `0x20` control bit determines whether the pointer payload is encoded
     /// as `u32` or `u64`.
+    ///
+    /// Uncompressed layout: `id (1) + chr (1) + ptr (4 or 8) + back_block (4)`.
     #[inline]
     pub const fn encoded_size_for_id(node_id: u8) -> usize {
-        1 + 1 + if is_u64_ptr(node_id) { 8 } else { 4 } + 4
+        let ptr_bytes = if is_u64_ptr(node_id) { 8 } else { 4 };
+        Self::ID_BYTE_LEN + Self::CHR_BYTE_LEN + ptr_bytes + Self::BACK_BLOCK_BYTE_LEN
     }
 
     /// Return the maximum possible uncompressed encoded size for any `TriePtr`.
@@ -562,9 +573,13 @@ impl TriePtr {
     ///
     /// The `0x20` control bit determines whether the pointer payload is encoded
     /// as `u32` or `u64`.
+    ///
+    /// Compressed layout: `id (1) + chr (1) + ptr (4 or 8)`. The `back_block`
+    /// field is only appended for backptr nodes (see [`Self::compressed_size_for_id`]).
     #[inline]
     pub const fn encoded_size_compressed_for_id(node_id: u8) -> usize {
-        1 + 1 + if is_u64_ptr(node_id) { 8 } else { 4 }
+        let ptr_bytes = if is_u64_ptr(node_id) { 8 } else { 4 };
+        Self::ID_BYTE_LEN + Self::CHR_BYTE_LEN + ptr_bytes
     }
 
     #[inline]
@@ -574,7 +589,7 @@ impl TriePtr {
         if is_u64_ptr(encoded_id) {
             w.write_all(&self.ptr().to_be_bytes())?;
         } else {
-            let ptr32 = u32::try_from(self.ptr()).map_err(|_| Error::OverflowError)?;
+            let ptr32 = self.try_ptr_into_u32()?;
             w.write_all(&ptr32.to_be_bytes())?;
         }
         w.write_all(&self.back_block().to_be_bytes())?;
@@ -593,7 +608,7 @@ impl TriePtr {
         if is_u64_ptr(encoded_id) {
             w.write_all(&self.ptr().to_be_bytes())?;
         } else {
-            let ptr32 = u32::try_from(self.ptr()).map_err(|_| Error::OverflowError)?;
+            let ptr32 = self.try_ptr_into_u32()?;
             w.write_all(&ptr32.to_be_bytes())?;
         }
         if has_back_block_payload_bytes(encoded_id) {
@@ -634,15 +649,14 @@ impl TriePtr {
         assert!(bytes.len() >= min_len);
         let id = clear_u64_ptr(encoded_id);
         let chr = bytes[1];
+        // Layout: [id(1)][chr(1)][ptr(4 or 8)][back_block(4)].
         let (ptr, back_block) = if is_u64_ptr(encoded_id) {
-            let ptr = u64::from_be_bytes([
-                bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-            ]);
-            let back_block = u32::from_be_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]);
+            let ptr = u64::from_be_bytes(bytes[2..10].try_into().unwrap());
+            let back_block = u32::from_be_bytes(bytes[10..14].try_into().unwrap());
             (ptr, back_block)
         } else {
-            let ptr = u64::from(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]));
-            let back_block = u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]);
+            let ptr = u64::from(u32::from_be_bytes(bytes[2..6].try_into().unwrap()));
+            let back_block = u32::from_be_bytes(bytes[6..10].try_into().unwrap());
             (ptr, back_block)
         };
 
@@ -673,24 +687,20 @@ impl TriePtr {
         assert!(bytes.len() >= TriePtr::compressed_size_for_id(encoded_id));
         let id = clear_u64_ptr(clear_inline_back_block(encoded_id));
         let chr = bytes[1];
+        // Layout: [id(1)][chr(1)][ptr(4 or 8)]; backptrs append [back_block(4)].
         let ptr = if is_u64_ptr(encoded_id) {
-            u64::from_be_bytes([
-                bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-            ])
+            u64::from_be_bytes(bytes[2..10].try_into().unwrap())
         } else {
-            u64::from(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]))
+            u64::from(u32::from_be_bytes(bytes[2..6].try_into().unwrap()))
         };
 
         let back_block = if has_back_block_payload_bytes(encoded_id) {
             // Backpointers and squash annotations append a 4-byte `back_block` after the compressed ptr payload.
             let back_block_offset = TriePtr::encoded_size_compressed_for_id(encoded_id);
-            assert!(bytes.len() >= back_block_offset + 4);
-            u32::from_be_bytes([
-                bytes[back_block_offset],
-                bytes[back_block_offset + 1],
-                bytes[back_block_offset + 2],
-                bytes[back_block_offset + 3],
-            ])
+            let back_block_end = back_block_offset + 4;
+            // Backpointers append a 4-byte `back_block` after the compressed ptr payload.
+            assert!(bytes.len() >= back_block_end);
+            u32::from_be_bytes(bytes[back_block_offset..back_block_end].try_into().unwrap())
         } else {
             0
         };

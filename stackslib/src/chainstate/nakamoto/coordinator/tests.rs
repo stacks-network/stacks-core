@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::ClarityVersion;
+use clarity::vm::{ClarityVersion, ContractName};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -387,7 +387,7 @@ pub fn make_token_transfer(
 /// Make contract publish
 pub fn make_contract(
     chainstate: &mut StacksChainState,
-    name: &str,
+    name: ContractName,
     code: &str,
     private_key: &StacksPrivateKey,
     version: ClarityVersion,
@@ -399,7 +399,7 @@ pub fn make_contract(
         TransactionAuth::from_p2pkh(private_key).unwrap(),
         TransactionPayload::SmartContract(
             TransactionSmartContract {
-                name: name.into(),
+                name,
                 code_body: StacksString::from_str(code).unwrap(),
             },
             Some(version),
@@ -1043,15 +1043,15 @@ fn block_info_tests(use_primary_testnet: bool) {
 
     let clar1_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar1_contract_name.into(),
+        name: ContractName::from_literal(clar1_contract_name),
     };
     let clar3_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar3_contract_name.into(),
+        name: ContractName::from_literal(clar3_contract_name),
     };
     let clar4_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar4_contract_name.into(),
+        name: ContractName::from_literal(clar4_contract_name),
     };
 
     let get_tip_info = |peer: &mut TestPeer| {
@@ -1107,7 +1107,7 @@ fn block_info_tests(use_primary_testnet: bool) {
         let account = get_account(chainstate, sortdb, &addr);
         let tx_0 = make_contract(
             chainstate,
-            clar1_contract_name,
+            clar1_contract_name.try_into().unwrap(),
             clar1_contract,
             &private_key,
             ClarityVersion::Clarity1,
@@ -1116,7 +1116,7 @@ fn block_info_tests(use_primary_testnet: bool) {
         );
         let tx_1 = make_contract(
             chainstate,
-            clar3_contract_name,
+            clar3_contract_name.try_into().unwrap(),
             clar3_contract,
             &private_key,
             ClarityVersion::Clarity3,
@@ -3394,10 +3394,11 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
                     debug!("\n\nProduce block {}\n\n", blocks_so_far.len());
 
                     let account = get_account(chainstate, sortdb, &addr);
+                    let name = format!("test-{contract_count}");
 
                     let contract = make_contract(
                         chainstate,
-                        &format!("test-{contract_count}"),
+                        ContractName::try_from(name).unwrap(),
                         smart_contract,
                         &private_key,
                         ClarityVersion::Clarity4,

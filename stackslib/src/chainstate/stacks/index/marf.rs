@@ -434,20 +434,6 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.storage.set_squash_info(info);
     }
 
-    /// Write a trie node directly to the uncommitted TrieRAM at `slot`.
-    ///
-    /// Used by `squash_to_path` to populate the TrieRAM with a
-    /// structure-preserving deep copy of the source trie, bypassing the
-    /// normal walk-cow insertion path.
-    pub(crate) fn write_node_direct(
-        &mut self,
-        slot: u64,
-        node: &TrieNodeType,
-        hash: TrieHash,
-    ) -> Result<(), Error> {
-        self.storage.write_nodetype(slot, node, hash)
-    }
-
     /// Reopen this MARF transaction with readonly storage.
     ///   NOTE: any pending operations in the SQLite transaction _will not_
     ///         have materialized in the reopened view.
