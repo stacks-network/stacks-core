@@ -1654,10 +1654,10 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
 
 /// Snapshot metadata cached at open time for squashed MARFs.
 ///
-/// Contains the archival root hash, squash root node hash, height, and
-/// block hash at which the MARF was squashed.  This is populated once
-/// when the MARF is opened and used by the ancestor-hash computation to
-/// avoid opening pruned historical blocks.
+/// Contains the archival root hash, squash root node hash, and squash
+/// height. This is populated once when the MARF is opened and used by
+/// the ancestor-hash computation to avoid opening pruned historical
+/// blocks.
 #[derive(Clone, Debug)]
 pub struct SquashInfo {
     /// Archival MARF root hash committed to the chain at the squash height.
