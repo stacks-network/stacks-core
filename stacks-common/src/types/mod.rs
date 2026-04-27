@@ -36,7 +36,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_EPOCH_3_5,
+    PEER_VERSION_EPOCH_4_0,
 };
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -164,7 +164,7 @@ define_stacks_epochs! {
     Epoch32 = 0x03002 => "3.2",
     Epoch33 = 0x03003 => "3.3",
     Epoch34 = 0x03004 => "3.4",
-    Epoch35 = 0x03005 => "3.5",
+    Epoch40 = 0x04000 => "4.0",
 }
 
 #[derive(Debug)]
@@ -499,7 +499,7 @@ impl StacksEpochId {
 
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch35
+        StacksEpochId::Epoch40
     }
 
     #[cfg(not(any(test, feature = "testing")))]
@@ -789,7 +789,7 @@ impl StacksEpochId {
             StacksEpochId::Epoch32 => PEER_VERSION_EPOCH_3_2,
             StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
             StacksEpochId::Epoch34 => PEER_VERSION_EPOCH_3_4,
-            StacksEpochId::Epoch35 => PEER_VERSION_EPOCH_3_5,
+            StacksEpochId::Epoch40 => PEER_VERSION_EPOCH_4_0,
         }
     }
 
