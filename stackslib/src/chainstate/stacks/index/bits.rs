@@ -239,6 +239,8 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
     );
 
     let max_ptr_size = TriePtr::max_encoded_size();
+    // A patch can encode at most one diff per child slot in this node, so its
+    // diff list is bounded by `num_ptrs`.
     let patch_overhead = max_ptr_size + 1;
     let mut bytes = vec![0u8; 1 + num_ptrs * max_ptr_size + patch_overhead];
     let mut offset = 0;
@@ -456,16 +458,14 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
         trace!("Node {} has uncompressed ptrs", cleared_nid);
         let mut cursor = 0;
         for ptr_slot in ptrs_buf.iter_mut() {
-            let ptr_id = *ptr_bytes
-                .get(cursor)
-                .ok_or_else(|| Error::CorruptionError("ptr_bytes runs short".into()))?;
-            *ptr_slot = TriePtr::from_bytes(
+            let (ptr, bytes_read) = TriePtr::from_bytes(
                 ptr_bytes
                     .get(cursor..)
                     .ok_or_else(|| Error::CorruptionError("ptr_bytes runs short".into()))?,
             );
+            *ptr_slot = ptr;
             cursor = cursor
-                .checked_add(TriePtr::encoded_size_for_id(ptr_id))
+                .checked_add(bytes_read)
                 .ok_or_else(|| Error::OverflowError)?;
         }
         let seek_target = u64::try_from(cursor)

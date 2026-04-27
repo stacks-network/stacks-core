@@ -70,4 +70,4 @@ testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
 build-signer-v3-3-0-0-5-0 = ["signer_v3_3_0_0_5_0", "libsigner_v3_3_0_0_5", "stacks_v3_3_0_0_5", "stacks_common_v3_3_0_0_5"]
 
 [package.metadata.pinny]
-allowed = ["bitcoind", "flaky", "slow"]
+allowed = ["bitcoind", "flaky", "slow", "ci_skip"]

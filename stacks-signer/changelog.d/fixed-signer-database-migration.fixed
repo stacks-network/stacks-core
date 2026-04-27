@@ -1,0 +1,1 @@
+Fixed signer database migration 19 that could leave the database in corrupted, unrecoverable state.

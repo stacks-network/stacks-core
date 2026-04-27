@@ -29,7 +29,7 @@ fn trieptr_to_bytes() {
     let mut buf = Vec::new();
     t.write_bytes(&mut buf).unwrap();
     assert_eq!(buf, t_bytes);
-    assert_eq!(TriePtr::from_bytes(&t_bytes[..]), t);
+    assert_eq!(TriePtr::from_bytes(&t_bytes[..]), (t, t_bytes.len()));
 }
 
 #[test]
@@ -3991,7 +3991,7 @@ fn read_write_node4_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr.into())));
     }
 
     // no final child
@@ -4035,7 +4035,7 @@ fn read_write_node16_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr.into())));
     }
 
     // no final child
@@ -4081,7 +4081,7 @@ fn read_write_node48_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr.into())));
     }
 
     // no final child
@@ -4127,7 +4127,7 @@ fn read_write_node256_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr.into())));
     }
 
     // no final child
@@ -5102,7 +5102,7 @@ fn trieptr_uncompressed_roundtrip_boundaries() {
         expected.extend_from_slice(&0u32.to_be_bytes());
 
         assert_eq!(expected, bytes);
-        assert_eq!(ptr, TriePtr::from_bytes(&bytes));
+        assert_eq!(TriePtr::from_bytes(&bytes), (ptr, bytes.len()));
     }
 }
 

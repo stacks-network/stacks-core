@@ -22,6 +22,9 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::types::{ResponseData, TupleData};
+use clarity::vm::Value;
 use regex::{Captures, Regex};
 use serde::Deserialize;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
@@ -32,9 +35,12 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
 
+use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::PoxVersions;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
@@ -63,6 +69,7 @@ pub static TEST_VALIDATE_STALL: LazyLock<TestFlag<Vec<Option<String>>>> =
 /// Artificial delay to add to block validation.
 pub static TEST_VALIDATE_DELAY_DURATION_SECS: LazyLock<TestFlag<u64>> =
     LazyLock::new(TestFlag::default);
+
 #[cfg(any(test, feature = "testing"))]
 /// Mock for the set of transactions that must be replayed
 pub static TEST_REPLAY_TRANSACTIONS: LazyLock<
@@ -88,7 +95,8 @@ define_u8_enum![ValidateRejectCode {
     InvalidParentBlock = 8,
     InvalidTimestamp = 9,
     NetworkChainMismatch = 10,
-    NotFoundError = 11
+    NotFoundError = 11,
+    ProblematicTransaction = 12
 }];
 
 pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
@@ -119,12 +127,17 @@ pub struct BlockValidateReject {
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub reason: String,
     pub reason_code: ValidateRejectCode,
+    /// The txid of the transaction that caused the block to be rejected, if any
+    #[serde(default)]
+    pub failed_txid: Option<Txid>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockValidateRejectReason {
     pub reason: String,
     pub reason_code: ValidateRejectCode,
+    /// The txid of the transaction that caused the block to be rejected, if any
+    pub failed_txid: Option<Txid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,6 +165,7 @@ where
         Self {
             reason: format!("Chainstate Error: {ce}"),
             reason_code,
+            failed_txid: None,
         }
     }
 }
@@ -237,6 +251,7 @@ fn fault_injection_reject_replay_txs() -> Result<(), BlockValidateRejectReason> 
         Err(BlockValidateRejectReason {
             reason_code: ValidateRejectCode::InvalidTransactionReplay,
             reason: "Rejected by test flag".into(),
+            failed_txid: None,
         })
     } else {
         Ok(())
@@ -260,6 +275,74 @@ pub struct NakamotoBlockProposal {
     pub replay_txs: Option<Vec<StacksTransaction>>,
 }
 
+fn match_result_ok(value: &Value) -> Option<&Value> {
+    let Value::Response(ResponseData { committed, data }) = value else {
+        return None;
+    };
+    if !committed {
+        return None;
+    }
+    Some(data.as_ref())
+}
+
+fn match_tuple(value: &Value) -> Option<&TupleData> {
+    if let Value::Tuple(data) = value {
+        Some(data)
+    } else {
+        None
+    }
+}
+
+pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent) -> bool {
+    let StacksTransactionEvent::SmartContractEvent(event) = event else {
+        // only smart contract events are relevant, so everything else is "okay"
+        return true;
+    };
+    if !event.key.0.is_boot() {
+        // only boot code events are relevant, so everything else is "okay"
+        return true;
+    }
+    if event.key.0.name.as_str() != PoxVersions::Pox4.get_name_str() {
+        // only pox events are relevant
+        return true;
+    }
+    if &event.key.1 != "print" {
+        // only look at print events
+        return true;
+    }
+    let Some(pox_event_tuple) = match_result_ok(&event.value) else {
+        // only care about (okay ...) results
+        return true;
+    };
+    let Some(outer_tuple_data) = match_tuple(&pox_event_tuple) else {
+        // should be unreachable
+        return true;
+    };
+    let Ok(data_tuple) = outer_tuple_data.get("data") else {
+        // should be unreachable
+        return true;
+    };
+    let Some(data_tuple_data) = match_tuple(&data_tuple) else {
+        // should be unreachable
+        return true;
+    };
+    let Ok(pox_addr_tuple) = data_tuple_data.get("pox-addr") else {
+        // should be unreachable
+        return true;
+    };
+
+    let pox_addr_value = if let Value::Optional(data) = pox_addr_tuple {
+        match data.data {
+            None => return true,
+            Some(ref inner) => inner.as_ref(),
+        }
+    } else {
+        pox_addr_tuple
+    };
+
+    PoxAddress::try_from_pox_tuple(is_mainnet, pox_addr_value).is_some()
+}
+
 impl NakamotoBlockProposal {
     fn spawn_validation_thread(
         self,
@@ -279,6 +362,7 @@ impl NakamotoBlockProposal {
                         signer_signature_hash: self.block.header.signer_signature_hash(),
                         reason_code: reason.reason_code,
                         reason: reason.reason,
+                        failed_txid: reason.failed_txid,
                     });
                 receiver.notify_proposal_result(result);
             })
@@ -302,6 +386,7 @@ impl NakamotoBlockProposal {
         .map_err(|e| BlockValidateRejectReason {
             reason_code: ValidateRejectCode::ChainstateError,
             reason: format!("Failed to query highest block in tenure ID: {:?}", &e),
+            failed_txid: None,
         })?
         else {
             warn!(
@@ -312,6 +397,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::NoSuchTenure,
                 reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".into(),
+                failed_txid: None,
             });
         };
         let Some(parent_header) =
@@ -319,6 +405,7 @@ impl NakamotoBlockProposal {
                 |e| BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::ChainstateError,
                     reason: format!("Failed to query block header by block ID: {:?}", &e),
+                    failed_txid: None,
                 },
             )?
         else {
@@ -330,6 +417,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::UnknownParent,
                 reason: "Block has no parent".into(),
+                failed_txid: None,
             });
         };
         if parent_header.anchored_header.height() != highest_header.anchored_header.height() {
@@ -343,6 +431,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::InvalidParentBlock,
                 reason: "Block is not higher than the highest block in its tenure".into(),
+                failed_txid: None,
             });
         }
         Ok(())
@@ -364,6 +453,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::NonCanonicalTenure,
                 reason: "Tenure consensus hash is not on the canonical Bitcoin fork".into(),
+                failed_txid: None,
             });
         }
         Ok(())
@@ -386,6 +476,7 @@ impl NakamotoBlockProposal {
                 .map_err(|_| BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::InvalidBlock,
                     reason: "Block is not well-formed".into(),
+                    failed_txid: None,
                 })?;
 
         if !is_tenure_start {
@@ -407,6 +498,7 @@ impl NakamotoBlockProposal {
             .ok_or_else(|| BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::UnknownParent,
                 reason: "No parent block".into(),
+                failed_txid: None,
             })?;
 
             Self::check_block_builds_on_highest_block_in_tenure(
@@ -459,6 +551,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::NetworkChainMismatch,
                 reason: "Wrong network/chain_id".into(),
+                failed_txid: None,
             });
         }
 
@@ -482,6 +575,7 @@ impl NakamotoBlockProposal {
         .ok_or_else(|| BlockValidateRejectReason {
             reason_code: ValidateRejectCode::UnknownParent,
             reason: "Unknown parent block".into(),
+            failed_txid: None,
         })?;
 
         let burn_view_consensus_hash =
@@ -491,6 +585,7 @@ impl NakamotoBlockProposal {
                 .ok_or_else(|| BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::NoSuchTenure,
                     reason: "Failed to find sortition for block tenure".to_string(),
+                    failed_txid: None,
                 })?;
 
         let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip.sortition_id);
@@ -517,6 +612,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::UnknownParent,
                 reason: "Failed to find parent expected burns".into(),
+                failed_txid: None,
             });
         };
 
@@ -548,6 +644,7 @@ impl NakamotoBlockProposal {
                 return Err(BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::InvalidTimestamp,
                     reason: "Block timestamp is not greater than parent block".into(),
+                    failed_txid: None,
                 });
             }
         }
@@ -561,6 +658,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::InvalidTimestamp,
                 reason: "Block timestamp is too far into the future".into(),
+                failed_txid: None,
             });
         }
 
@@ -576,6 +674,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::InvalidBlock,
                 reason: "Block height is non-contiguous with parent".into(),
+                failed_txid: None,
             });
         }
 
@@ -626,14 +725,7 @@ impl NakamotoBlockProposal {
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
         let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
-            let now = Instant::now();
-            if now >= block_deadline {
-                return Err(BlockValidateRejectReason {
-                    reason: format!("Problematic tx {i}: execution time expired"),
-                    reason_code: ValidateRejectCode::BadTransaction,
-                });
-            }
-            let remaining = block_deadline.saturating_duration_since(now);
+            let remaining = block_deadline.saturating_duration_since(Instant::now());
 
             let tx_len = tx.tx_len();
 
@@ -645,17 +737,36 @@ impl NakamotoBlockProposal {
                 Some(remaining),
                 &mut receipts_total,
             );
-            let err = match tx_result {
-                TransactionResult::Success(_) => Ok(()),
-                TransactionResult::Skipped(s) => Err(format!("tx {i} skipped: {}", s.error)),
-                TransactionResult::ProcessingError(e) => {
-                    Err(format!("Error processing tx {i}: {}", e.error))
+            let reason = match tx_result {
+                TransactionResult::Success(success_result) => {
+                    let all_events_valid = success_result
+                        .receipt
+                        .events
+                        .iter()
+                        .all(|event| is_event_pox_addr_valid(mainnet, event));
+                    if !all_events_valid {
+                        Some((
+                            format!("Problematic tx {i}: contains invalid pox address"),
+                            ValidateRejectCode::ProblematicTransaction,
+                        ))
+                    } else {
+                        None
+                    }
                 }
-                TransactionResult::Problematic(p) => {
-                    Err(format!("Problematic tx {i}: {}", p.error))
-                }
+                TransactionResult::Skipped(s) => Some((
+                    format!("tx {i} skipped: {}", s.error),
+                    ValidateRejectCode::BadTransaction,
+                )),
+                TransactionResult::ProcessingError(e) => Some((
+                    format!("Error processing tx {i}: {}", e.error),
+                    ValidateRejectCode::BadTransaction,
+                )),
+                TransactionResult::Problematic(p) => Some((
+                    format!("Problematic tx {i}: {}", p.error),
+                    ValidateRejectCode::ProblematicTransaction,
+                )),
             };
-            if let Err(reason) = err {
+            if let Some((reason, reject_code)) = reason {
                 warn!(
                     "Rejected block proposal";
                     "reason" => %reason,
@@ -663,7 +774,8 @@ impl NakamotoBlockProposal {
                 );
                 return Err(BlockValidateRejectReason {
                     reason,
-                    reason_code: ValidateRejectCode::BadTransaction,
+                    reason_code: reject_code,
+                    failed_txid: Some(tx.txid()),
                 });
             }
         }
@@ -700,6 +812,7 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason: "Block hash is not as expected".into(),
                 reason_code: ValidateRejectCode::BadBlockHash,
+                failed_txid: None,
             });
         }
 
@@ -806,6 +919,7 @@ impl NakamotoBlockProposal {
                     return Err(BlockValidateRejectReason {
                         reason_code: ValidateRejectCode::InvalidTransactionReplay,
                         reason: "Block contains transactions beyond the replay set".into(),
+                        failed_txid: Some(tx.txid()),
                     });
                 };
                 if replay_tx.txid() == tx.txid() {
@@ -850,6 +964,7 @@ impl NakamotoBlockProposal {
                                 return Err(BlockValidateRejectReason {
                                     reason_code: ValidateRejectCode::InvalidTransactionReplay,
                                     reason: "Next replay tx exceeds cost limits, so should have been in the next block.".into(),
+                                    failed_txid: None,
                                 });
                             }
                             _ => {
@@ -872,6 +987,7 @@ impl NakamotoBlockProposal {
                         return Err(BlockValidateRejectReason {
                             reason_code: ValidateRejectCode::InvalidTransactionReplay,
                             reason: "Transaction is not in the replay set".into(),
+                            failed_txid: Some(tx.txid()),
                         });
                     }
                 };

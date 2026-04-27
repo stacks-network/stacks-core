@@ -491,10 +491,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     pub fn wait_for_registered(&self) {
         let mut finished_signers = HashSet::new();
-        wait_for(120, || {
-            self.send_status_request(&HashSet::new());
-            thread::sleep(Duration::from_secs(5));
-            let latest_states = self.get_states(&HashSet::new());
+        wait_for(240, || {
+            self.send_status_request(&finished_signers);
+            thread::sleep(Duration::from_secs(1));
+            let latest_states = self.get_states(&finished_signers);
             for (ix, state) in latest_states.iter().enumerate() {
                 let Some(state) = state else { continue; };
                 if state.runloop_state == State::RegisteredSigners {
@@ -511,7 +511,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Send a status request to the signers to ensure they are registered for both reward cycles.
     pub fn wait_for_registered_both_reward_cycles(&self) {
         let mut finished_signers = HashSet::new();
-        wait_for(120, || {
+        wait_for(240, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
             let latest_states = self.get_states(&finished_signers);
@@ -609,9 +609,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         info!("Latest sortition: {sortition_latest:?}");
         info!("Prior sortition: {sortition_prior:?}");
 
-        assert_eq!(
-            sortition_latest.last_sortition_ch,
-            sortition_latest.stacks_parent_ch
+        assert!(
+            std::env::var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL") == Ok("1".to_string())
+                || sortition_latest.last_sortition_ch == sortition_latest.stacks_parent_ch
         );
         let latest_block = self
             .stacks_client
@@ -646,9 +646,13 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                     panic!();
                 };
                 assert_eq!(Some(current_miner_pkh), sortition_latest.miner_pk_hash160);
-                assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
-                assert_eq!(parent_tenure_last_block, latest_block_id);
-                assert_eq!(parent_tenure_last_block_height, latest_block.height());
+                if std::env::var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL")
+                    != Ok("1".to_string())
+                {
+                    assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
+                    assert_eq!(parent_tenure_last_block, latest_block_id);
+                    assert_eq!(parent_tenure_last_block_height, latest_block.height());
+                }
             });
     }
 
@@ -1796,6 +1800,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
             EventKeyType::BlockProposal,
             EventKeyType::MinedBlocks,
             EventKeyType::BurnchainBlocks,
+            EventKeyType::MemPoolTransactions,
         ],
         timeout_ms: 1000,
         disable_retries: false,

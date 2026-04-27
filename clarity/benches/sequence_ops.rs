@@ -279,10 +279,10 @@ fn old_retain_quadratic(
 /// Uses the new O(n) try_retain (swap-to-front + truncate).
 fn new_try_retain_linear(
     sequence_data: SequenceData,
-    predicate: &mut impl FnMut(SymbolicExpression) -> Result<bool, ()>,
+    predicate: &mut impl FnMut(Value) -> Result<bool, ()>,
 ) -> SequenceData {
     sequence_data
-        .try_retain::<(), _>(|sym| predicate(sym))
+        .try_retain::<(), _>(|val| predicate(val))
         .unwrap()
 }
 

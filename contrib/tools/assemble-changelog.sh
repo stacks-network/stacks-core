@@ -4,8 +4,8 @@
 # and stacks-signer.
 #
 # Usage:
-#   ./contrib/assemble-changelog.sh <version>           # both node and signer
-#   ./contrib/assemble-changelog.sh <version> --signer  # signer only
+#   ./contrib/tools/assemble-changelog.sh <version>           # both node and signer
+#   ./contrib/tools/assemble-changelog.sh <version> --signer  # signer only
 #
 # By default, assembles both changelogs. The signer version is derived by
 # appending ".0" to the node version (e.g., 3.3.0.0.7 -> 3.3.0.0.7.0).
@@ -16,8 +16,8 @@
 # If a changelog directory has no fragments, it is skipped.
 #
 # Examples:
-#   ./contrib/assemble-changelog.sh 3.3.0.0.7           # node [3.3.0.0.7] + signer [3.3.0.0.7.0]
-#   ./contrib/assemble-changelog.sh 3.3.0.0.7.1 --signer  # signer [3.3.0.0.7.1] only
+#   ./contrib/tools/assemble-changelog.sh 3.3.0.0.7           # node [3.3.0.0.7] + signer [3.3.0.0.7.0]
+#   ./contrib/tools/assemble-changelog.sh 3.3.0.0.7.1 --signer  # signer [3.3.0.0.7.1] only
 
 set -euo pipefail
 
@@ -60,8 +60,11 @@ assemble_changelog() {
             found_any=true
             while IFS= read -r line || [ -n "$line" ]; do
                 [ -z "$line" ] && continue
-                if [[ "$line" != "- "* ]]; then
-                    line="- $line"
+                # Normalise to * bullets (- triggers GPG dash-escaping)
+                if [[ "$line" == "- "* ]]; then
+                    line="* ${line#- }"
+                elif [[ "$line" != "* "* ]]; then
+                    line="* $line"
                 fi
                 case "$ext" in
                     added)   ADDED+=("$line") ;;
