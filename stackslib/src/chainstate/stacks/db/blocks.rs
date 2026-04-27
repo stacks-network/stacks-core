@@ -4846,41 +4846,17 @@ impl StacksChainState {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
-        match cur_epoch.epoch_id {
-            StacksEpochId::Epoch10 => {
-                panic!("FATAL: processed a block in Epoch 1.0");
-            }
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                let (stack_ops, transfer_ops) =
-                    StacksChainState::get_stacking_and_transfer_burn_ops_v205(
-                        sortdb_conn,
-                        burn_tip,
-                    )?;
-                // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
-                Ok((stack_ops, transfer_ops, vec![], vec![]))
-            }
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
-                let (stack_ops, transfer_ops, delegate_ops, _) =
-                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                        chainstate_tx,
-                        parent_index_hash,
-                        sortdb_conn,
-                        burn_tip,
-                        burn_tip_height,
-                        cur_epoch.start_height,
-                    )?;
-                Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
-            }
-            StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34
-            | StacksEpochId::Epoch35 => {
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch25 {
+            StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                chainstate_tx,
+                parent_index_hash,
+                sortdb_conn,
+                burn_tip,
+                burn_tip_height,
+                cur_epoch.start_height,
+            )
+        } else if cur_epoch.epoch_id >= StacksEpochId::Epoch21 {
+            let (stack_ops, transfer_ops, delegate_ops, _) =
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -4888,8 +4864,13 @@ impl StacksChainState {
                     burn_tip,
                     burn_tip_height,
                     cur_epoch.start_height,
-                )
-            }
+                )?;
+            Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
+        } else {
+            let (stack_ops, transfer_ops) =
+                StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)?;
+            // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
+            Ok((stack_ops, transfer_ops, vec![], vec![]))
         }
     }
 
