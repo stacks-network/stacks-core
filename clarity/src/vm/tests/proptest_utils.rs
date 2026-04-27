@@ -969,10 +969,8 @@ pub fn trait_shape_strategy() -> BoxedStrategy<TraitShape> {
     .boxed()
 }
 
-/// A strategy that generates valid Clarity type signature strings suitable for
-/// `from-consensus-buff?`. Parameterized types get randomized lengths up to
-/// 128.
-pub fn consensus_buff_type_strategy() -> BoxedStrategy<String> {
+/// Non-tuple Clarity type signatures for `consensus-buff?` tests.
+fn consensus_buff_leaf_type_strategy() -> BoxedStrategy<String> {
     let len_range = 1u32..=128;
 
     prop_oneof![
@@ -988,6 +986,25 @@ pub fn consensus_buff_type_strategy() -> BoxedStrategy<String> {
         Just("(optional int)".to_string()),
         len_range.prop_map(|n| format!("(list {n} int)")),
         Just("(response int int)".to_string()),
+    ]
+    .boxed()
+}
+
+/// A strategy that generates valid Clarity type signature strings suitable for
+/// `from-consensus-buff?`. Includes scalars, parameterized types, and tuples.
+pub fn consensus_buff_type_strategy() -> BoxedStrategy<String> {
+    let leaf = consensus_buff_leaf_type_strategy();
+
+    prop_oneof![
+        leaf.clone(),
+        proptest::collection::vec(leaf, 1..=4).prop_map(|types| {
+            let fields: Vec<_> = types
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!("f-{i}: {t}"))
+                .collect();
+            format!("{{ {} }}", fields.join(", "))
+        }),
     ]
     .boxed()
 }
