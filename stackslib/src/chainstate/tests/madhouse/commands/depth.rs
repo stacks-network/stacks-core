@@ -16,6 +16,7 @@
 use std::sync::Arc;
 
 use clarity::vm::ClarityVersion;
+use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
@@ -38,12 +39,6 @@ const CHAIN_LONG_DEPTH: usize = 64;
 /// N=65 contracts -> stack depth 2*65-1=129. Exact min that exceeds Epoch34's
 /// 128 limit.
 const CHAIN_OVER_DEPTH: usize = CHAIN_LONG_DEPTH + 1;
-
-/// Epoch33 max call-stack depth.
-const EPOCH33_DEPTH_LIMIT: usize = 64;
-
-/// Epoch34 max call-stack depth.
-const EPOCH34_DEPTH_LIMIT: usize = 128;
 
 /// Deploy a chain of N contracts, each calling the previous one's `ping`
 /// function. `contract-0.ping` returns `(ok true)`. `contract-i.ping` calls
@@ -122,11 +117,8 @@ fn assert_chain_call_result(
 
     let tx_out = unwrap_single_tx_success(result, label);
     let stack_depth = 2 * depth - 1;
-    let limit = if state.is_epoch34() {
-        EPOCH34_DEPTH_LIMIT
-    } else {
-        EPOCH33_DEPTH_LIMIT
-    };
+    let limit =
+        StackDepthLimits::for_epoch(state.current_epoch).max_call_stack_depth() as usize;
 
     if stack_depth < limit {
         assert!(

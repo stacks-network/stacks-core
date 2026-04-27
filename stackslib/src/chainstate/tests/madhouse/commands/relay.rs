@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use clarity::types::StacksEpochId;
 use clarity::vm::ClarityVersion;
+use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::Strategy;
 
@@ -25,10 +25,6 @@ use crate::chainstate::tests::consensus::{ConsensusUtils, TestBlock};
 use crate::chainstate::tests::madhouse::context::Epoch33ToEpoch34TestContext;
 use crate::chainstate::tests::madhouse::state::Epoch33ToEpoch34TestState;
 use crate::net::relay::Relayer;
-
-/// The parser's AST depth buffer above `max_call_stack_depth`.  Must match
-/// `AST_CALL_STACK_DEPTH_BUFFER` in `clarity/src/vm/ast/stack_depth_checker.rs`.
-const AST_DEPTH_BUFFER: u64 = 5;
 
 /// AST nesting overhead from `(define-public (deep) (ok ...))` — one list
 /// level each for `define-public` and `ok`.  Specific to `make_deep_expression`.
@@ -82,12 +78,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for RelayDe
         // The AST nesting depth includes wrapper overhead from
         // `(define-public (deep) (ok ...))`.
         let ast_depth = (self.depth + WRAPPER_OVERHEAD) as u64;
-        let call_stack_limit = if state.chain_epoch() >= StacksEpochId::Epoch34 {
-            128
-        } else {
-            64
-        };
-        let parser_limit = call_stack_limit + AST_DEPTH_BUFFER;
+        let parser_limit = StackDepthLimits::for_epoch(state.chain_epoch()).max_nesting_depth();
 
         // Epoch34+ skips the relay depth check entirely
         // (`rejects_parse_depth_errors` returns false), so the relay always
