@@ -9,7 +9,7 @@ COLYELLOW=$'\033[33m' # Yellow
 COLRESET=$'\033[0m'   # Reset color/formatting
 
 strip_ansi() { printf '%s' "$*" | sed $'s/\033\\[[0-9;]*m//g'; }
-info()  { echo "${COLGREEN}INFO:${COLRESET}    $*"; }
-warn()  { echo "${COLYELLOW}WARN:${COLRESET}    $*"; }
+info()  { echo "${COLGREEN}INFO:${COLRESET}    $*" >&2; }
+warn()  { echo "${COLYELLOW}WARN:${COLRESET}    $*" >&2; }
 error() { echo "${COLRED}ERROR:${COLRESET}   $*" >&2; [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && echo "**ERROR:** $(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"; }
 hl()    { printf '%s' "${COLYELLOW}$*${COLRESET}"; }  # highlight an inline value
