@@ -11766,14 +11766,13 @@ fn mine_invalid_principal_from_consensus_buff() {
     run_loop_thread.join().unwrap();
 }
 
-/// Test that `MempoolIterationStopReason::report_to_monitoring()` correctly
-/// reports miner stop reasons to Prometheus.
+/// Test that mempool stop reasons are being correctly reported to Prometheus.
 ///
-/// The test deploys a simple contract, calls it, mines the transactions, and
-/// then triggers another mining attempt with an empty mempool. Prometheus should
-/// report `no_transactions` after the mempool drains.
+/// The test boots into epoch 3, mines a block to ensure the miner is running, then waits for the
+/// mempool to be drained.
 #[test]
 #[ignore]
+#[cfg(feature = "monitoring_prom")]
 fn miner_stop_reason_reported_to_prometheus() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -11788,12 +11787,6 @@ fn miner_stop_reason_reported_to_prometheus() {
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
-    let sender_sk = Secp256k1PrivateKey::random();
-    let sender_addr = tests::to_addr(&sender_sk);
-    conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
-        1_000_000,
-    );
     conf.add_initial_balance(
         PrincipalData::from(signer_addr.clone()).to_string(),
         100_000,
@@ -11842,34 +11835,31 @@ fn miner_stop_reason_reported_to_prometheus() {
     // The mempool is now empty, so the miner's next iteration should stop with
     // NoMoreCandidates, which report_to_monitoring() maps to no_transactions.
     // The miner continuously retries, so we just poll the metric.
-    #[cfg(feature = "monitoring_prom")]
-    {
-        let prom_http_origin = format!("http://{prom_bind}");
-        let client = reqwest::blocking::Client::new();
-        let parse_metric = |reason: &str| -> u64 {
-            let res = client
-                .get(&prom_http_origin)
-                .send()
-                .unwrap()
-                .text()
-                .unwrap();
-            let re = regex::Regex::new(&format!(
-                r#"stacks_node_miner_stop_reason_total\{{reason="{reason}"\}} (\d+)"#
-            ))
+    let prom_http_origin = format!("http://{prom_bind}");
+    let client = reqwest::blocking::Client::new();
+    let parse_metric = |reason: &str| -> u64 {
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
             .unwrap();
-            re.captures(&res)
-                .and_then(|caps| caps.get(1))
-                .and_then(|m| m.as_str().parse::<u64>().ok())
-                .unwrap_or(0)
-        };
+        let re = regex::Regex::new(&format!(
+            r#"stacks_node_miner_stop_reason_total\{{reason="{reason}"\}} (\d+)"#
+        ))
+        .unwrap();
+        re.captures(&res)
+            .and_then(|caps| caps.get(1))
+            .and_then(|m| m.as_str().parse::<u64>().ok())
+            .unwrap_or(0)
+    };
 
-        let no_tx_count_before = parse_metric("no_transactions");
+    let no_tx_count_before = parse_metric("no_transactions");
 
-        wait_for(10, || {
-            Ok(parse_metric("no_transactions") > no_tx_count_before)
-        })
-        .expect("Expected no_transactions metric to increment after mempool drained");
-    }
+    wait_for(10, || {
+        Ok(parse_metric("no_transactions") > no_tx_count_before)
+    })
+    .expect("Expected no_transactions metric to increment after mempool drained");
 
     coord_channel
         .lock()
