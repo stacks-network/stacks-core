@@ -53,7 +53,7 @@ impl error::Error for CursorError {
 }
 
 // All numeric values of a Trie node when encoded.
-// The low 5 bits encode the base TrieNodeID value (0-6).
+// The low 4 bits encode the base TrieNodeID value (0-6).
 // * the 8th bit (0x80) indicates a back-pointer to be followed
 // * the 7th bit (0x40) indicates the ptrs are compressed. Cleared on read.
 // * the 6th bit (0x20) indicates the ptr offset is encoded as u64, instead of u32. Cleared on read.
