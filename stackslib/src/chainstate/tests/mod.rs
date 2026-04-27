@@ -1984,22 +1984,26 @@ fn advance_through_nakamoto_bootstrapped() {
             + boot_plan.pox_constants.reward_cycle_length
             + 1) as u64,
     );
+    let epoch_vec = epochs.clone().to_vec();
+    let final_epoch = epoch_vec.last().unwrap().epoch_id;
+    let penultimate_epoch = epoch_vec.get(epoch_vec.len() - 2).unwrap().epoch_id;
+
     let activation_height = boot_plan.pox_constants.pox_4_activation_height;
     boot_plan = boot_plan.with_epochs(epochs);
     let mut chainstate = boot_plan.to_chainstate(None, Some(activation_height.into()));
     // Make sure we can advance through every single epoch.
-    chainstate.advance_to_epoch_boundary(&privk, StacksEpochId::Epoch35);
+    chainstate.advance_to_epoch_boundary(&privk, final_epoch);
     let burn_block_height = chainstate.get_burn_block_height();
     let current_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
             .unwrap()
             .unwrap()
             .epoch_id;
-    assert_eq!(current_epoch, StacksEpochId::Epoch34);
+    assert_eq!(current_epoch, penultimate_epoch);
     let next_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height + 1)
             .unwrap()
             .unwrap()
             .epoch_id;
-    assert_eq!(next_epoch, StacksEpochId::Epoch35);
+    assert_eq!(next_epoch, final_epoch);
 }
