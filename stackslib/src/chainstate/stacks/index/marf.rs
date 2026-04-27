@@ -621,22 +621,6 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
-    pub fn insert_raw(&mut self, path: TrieHash, marf_leaf: TrieLeaf) -> Result<(), Error> {
-        if self.storage.readonly() {
-            return Err(Error::ReadOnlyError);
-        }
-        let block_hash = match self.open_chain_tip {
-            None => Err(Error::WriteNotBegunError),
-            Some(WriteChainTip { ref block_hash, .. }) => Ok(block_hash.clone()),
-        }?;
-
-        let (cur_block_hash, cur_block_id) = self.storage.get_cur_block_and_id();
-        let result = MARF::insert_leaf(&mut self.storage, &block_hash, &path, &marf_leaf);
-        self.storage
-            .open_block_maybe_id(&cur_block_hash, cur_block_id)?;
-        result
-    }
-
     /// Begin extending the MARF to an unconfirmed trie.  The resulting trie will have a block hash
     /// equal to MARF::make_unconfirmed_block_hash(chain_tip) to avoid collision
     /// and block hash reuse.
