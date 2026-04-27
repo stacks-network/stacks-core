@@ -73,13 +73,16 @@ cargo_output=$(cargo ${before_empty_dashes:-fmt} --all --manifest-path="${FMT_MA
 ## ── Write step summary and exit ─────────────────────────────────────────────
 if [[ "${cargo_status}" -eq 0 ]]; then
     info "Code is formatted correctly"
-    cat >> "${GITHUB_STEP_SUMMARY}" <<'MARKDOWN'
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        cat >> "${GITHUB_STEP_SUMMARY}" <<'MARKDOWN'
 # Rustfmt Results
 
 The code is formatted correctly
 MARKDOWN
+    fi
 else
-    cat >> "${GITHUB_STEP_SUMMARY}" <<'MARKDOWN'
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        cat >> "${GITHUB_STEP_SUMMARY}" <<'MARKDOWN'
 # Rustfmt Results
 
 `cargo fmt` reported formatting errors in the following locations.
@@ -89,18 +92,19 @@ cargo fmt --all
 ```
 MARKDOWN
 
-    # Append a collapsible diff per file to the summary.
-    # Strip ANSI/cursor codes using portable $'\033' form (not \x1B which BSD sed rejects),
-    # then wrap each location block in a <details> element.
-    printf '%s' "${cargo_output}" \
-        | sed $'s/\033\\[[0-9;]*[A-Za-z]//g' \
-        | sed $'s/\033.[A-G]//g' \
-        | tr "\n" "\r" \
-        | sed -E 's#Diff in ([^\r]*?) at line ([[:digit:]]+):\r((:?[ +-][^\r]*\r)+)#<details>\n<summary>\1:\2</summary>\n\n```diff\n\3```\n\n</details>\n\n#g' \
-        | tr "\r" "\n" >> "${GITHUB_STEP_SUMMARY}"
+        # Append a collapsible diff per file to the summary.
+        # Strip ANSI/cursor codes using portable $'\033' form (not \x1B which BSD sed rejects),
+        # then wrap each location block in a <details> element.
+        printf '%s' "${cargo_output}" \
+            | sed $'s/\033\\[[0-9;]*[A-Za-z]//g' \
+            | sed $'s/\033.[A-G]//g' \
+            | tr "\n" "\r" \
+            | sed -E 's#Diff in ([^\r]*?) at line ([[:digit:]]+):\r((:?[ +-][^\r]*\r)+)#<details>\n<summary>\1:\2</summary>\n\n```diff\n\3```\n\n</details>\n\n#g' \
+            | tr "\r" "\n" >> "${GITHUB_STEP_SUMMARY}"
+    fi
 fi
 
-# Print the original cargo output to the terminal (retains color)
-echo "${cargo_output}"
+# Print the original cargo output to the terminal in case of fmt failures
+[[ -n "${cargo_output}" ]] && info "${cargo_output}"
 
 exit "${cargo_status}"

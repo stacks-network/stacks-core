@@ -10,7 +10,6 @@
 #   - Branch matches a release pattern  → validates versions.toml, writes outputs, exits 0
 #   - Branch does not match             → exits 0 (all outputs empty/false; downstream
 #                                         jobs guard themselves with is_node/signer_release checks)
-#   - Validation error                  → writes error to $GITHUB_STEP_SUMMARY, exits 1
 # Outputs:
 #   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stdout if unset
 #   node_tag          - node release tag       (e.g. 1.0.0.0.0)         empty for signer-only releases
@@ -55,9 +54,9 @@ if [[ "${BRANCH}" =~ ${signer_release_regex} ]]; then
     signer_tag=$(echo "${BRANCH}" | sed "s|^${signer_prefix}||")
     is_signer_release=true
 elif [[ "${BRANCH}" =~ ${node_release_regex} ]]; then
-    node_tag=$(echo "${BRANCH}"          | sed "s|^${release_prefix}||")
+    node_tag=$(echo "${BRANCH}" | sed "s|^${release_prefix}||")
     ## Derive the signer tag by appending an extra .0 version component
-    signer_tag=$(echo "${node_tag}"  | sed 's/\(-[^-]*\)*$/.0\1/')
+    signer_tag=$(echo "${node_tag}" | sed 's/\(-[^-]*\)*$/.0\1/')
     is_node_release=true
     is_signer_release=true
 else
@@ -72,10 +71,10 @@ else
             echo "is_signer_release=false"
         } >> "${GITHUB_OUTPUT}"
     else
-        echo "node_tag="
-        echo "signer_tag="
-        echo "is_node_release=false"
-        echo "is_signer_release=false"
+        info "node_tag="
+        info "signer_tag="
+        info "is_node_release=false"
+        info "is_signer_release=false"
     fi
     exit 0
 fi
@@ -123,8 +122,8 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
         echo "is_signer_release=${is_signer_release}"
     } >> "${GITHUB_OUTPUT}"
 else
-    echo "node_tag=${node_tag}"
-    echo "signer_tag=${signer_tag}"
-    echo "is_node_release=${is_node_release}"
-    echo "is_signer_release=${is_signer_release}"
+    info "node_tag=${node_tag}"
+    info "signer_tag=${signer_tag}"
+    info "is_node_release=${is_node_release}"
+    info "is_signer_release=${is_signer_release}"
 fi

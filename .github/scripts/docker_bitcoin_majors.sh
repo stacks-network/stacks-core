@@ -122,7 +122,7 @@ main() {
         echo "versions=${full_versions_json}" >> "${GITHUB_OUTPUT}"
         info "versions written to GITHUB_OUTPUT"
     else
-        echo "versions=${full_versions_json}"
+        info "versions=${full_versions_json}"
     fi
 }
 

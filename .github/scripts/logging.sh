@@ -8,8 +8,32 @@ COLGREEN=$'\033[32m'  # Green
 COLYELLOW=$'\033[33m' # Yellow
 COLRESET=$'\033[0m'   # Reset color/formatting
 
-strip_ansi() { printf '%s' "$*" | sed $'s/\033\\[[0-9;]*m//g'; }
-info()  { echo "${COLGREEN}INFO:${COLRESET}    $*" >&2; }
-warn()  { echo "${COLYELLOW}WARN:${COLRESET}    $*" >&2; }
-error() { echo "${COLRED}ERROR:${COLRESET}   $*" >&2; [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && echo "**ERROR:** $(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"; }
-hl()    { printf '%s' "${COLYELLOW}$*${COLRESET}"; }  # highlight an inline value
+# strip ansi color codes for GITHUB_STEP_SUMMARY
+strip_ansi() {
+    printf '%s' "$*" | sed $'s/\033\\[[0-9;]*m//g';
+}
+# highlight an inline value
+hl() {
+    printf '%s' "${COLYELLOW}$*${COLRESET}";
+}
+# Info logging to stderr
+info() {
+    echo "${COLGREEN}INFO:${COLRESET}    $*" >&2
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        echo "**INFO:** $(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
+    fi
+}
+# Warn log to stderr
+warn() {
+    echo "${COLYELLOW}WARN:${COLRESET}    $*" >&2
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        echo "**WARN:** $(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
+    fi
+}
+# Error log to stderr (do not exit here, let the calling script determine how to handle an error)
+error() {
+    echo "${COLRED}ERROR:${COLRESET}   $*" >&2
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        echo "**ERROR:** $(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
+    fi
+}
