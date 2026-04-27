@@ -124,11 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5ba5135d892a77b6e346bfe5fd2e781609ba3cfc1747a624cdf4585a1a13620d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "01e563660f141fa4ddf7f37b6da95ee9f1bed54473dc433d8db59c63cbc4729f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: serialization-type-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e52fbbbc7336531ef3703538fddf60bfd70ec1939fd6b92aeb7d28e31ceaf18e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8a9a45cf0b52ac8cdeb03de3ddfcdc498aa617fcbb436b750378a7d31b8c83c0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: serialization-type-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "95c317e3d70219b5c84a61e99b16e3de3fb6c19795cefb0102134beb313e4701",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cc68cfad01886ab91f5cf05465e450e7cca6e8e225daf376f2b2b980aa33b1f3",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: serialization-type-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dcc0050bce6f0b931053f730af2391148f6d73d6a78e7e51a9a60072b460cc66",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3a0b4114aed4a72fb8e455e14d9c137a076d08dc68adbacd54529932eece9959",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: serialization-type-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cd39715ab6f08162181c7cead8c1dfcef6cc5861f0cf1f19aa0f7d247fb72bec",
-    evaluated_epoch: Epoch35,
+    marf_hash: "527206d4b597f14f5a9b977dcafbf14ec1dd578b4da9e5a914e001cd69b8a4d3",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: serialization-type-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: serialization-type-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: could not determine the input type for the serialization function) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ef50dab9ae33fcc80a5acb97036b3f4d80b6218eafdf63a62cae85d400ff25b9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0f2178045fe3429f6430c822ab5423430885b31680e44441818ebd08705d960f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: unknown-function-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "867bd6e40b5a5a416aee559494ce4ddce0136a6a5556b5ad8a362d922dc1b519",
-    evaluated_epoch: Epoch35,
+    marf_hash: "379e4699b9297310a8ebd8f4ccdd8bf6adddeb43ab83400b62eec27980b1ea6a",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: unknown-function-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ebfb0e84432fd2b32e90566295b46a7fbed402a855f5fab384a0dc28141e4f21",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8ac1eec5398c2af35518a0b856f535fedf8cb74c50a5f09234c9a0d87943759b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: unknown-function-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "334a5d713a0e6ffd8e5c91e18164dbd21ef68978e7393ea378bcbda0c43efc32",
-    evaluated_epoch: Epoch35,
+    marf_hash: "c49e42eceaf8340c98f318a5e190278a44ae5b2709fefad90f47cf649efb473a",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: unknown-function-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a7b6ed2907497eb8a260dc4db2560586f65690775d352704a61c3e320af14504",
-    evaluated_epoch: Epoch35,
+    marf_hash: "05e7db2b5e289e3329e6d7a4bdc3eeb3c439534e251d327a152f6a922ebd9896",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: unknown-function-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f09a801262a566b5278e1e16d44256c43655c83bc98fc74c21d1589c9a2dc0dc",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a256635871427b8a125f9f29291c67a3e565326ef58b21d941c1c3e07e539231",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: unknown-function-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

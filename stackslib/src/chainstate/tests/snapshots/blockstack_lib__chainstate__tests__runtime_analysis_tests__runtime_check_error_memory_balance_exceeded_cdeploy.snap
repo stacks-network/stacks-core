@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3321beccbe30985088d1b0c52406211a0eb5e3417ed9e37aa3e3dc21f3b21568",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5c10c6080ad8c5def52d6ae9fd8c369d54b2f24369b6f65d04e33864c5840b17",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: test-exceeds-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: test-exceeds-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(MemoryBalanceExceeded(100665826, 100000000)) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "447e100e1173a8ab00782d35b454659c88d629d6ce468bea230322cd2d9e5d2c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "782e46a97e76b4b0a673d1716433cc2b9eee799bc152aa782effb89a97335011",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: test-exceeds-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: test-exceeds-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(MemoryBalanceExceeded(100665826, 100000000)) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7b8efde5ed3f219290be1feeb418c032c6c00f8f03406eba6a1611942800c3f0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3856e2a2155758667e766e02b1bcb1dc29ae5ad061614ac7885f842d13cdc131",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: test-exceeds-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: test-exceeds-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(MemoryBalanceExceeded(100665826, 100000000)) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "957a86a55ad00fc81b5fcceb5dd916b458dd521ed75503667d98fdc9a47bd495",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a009e321e542f9e3956df3af50751d3df362a48afd7db510a12c7629d2f3156b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: test-exceeds-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: test-exceeds-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(MemoryBalanceExceeded(100665826, 100000000)) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d05ff18a8ce752c449bfbc078145a4d29d99b6c36ea282963e8952fbabe30c87",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1ba990b9444e16b16b70fe907a4363bddfde4d8caa2ea4c3eb8b7acd557084e7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: test-exceeds-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: test-exceeds-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(MemoryBalanceExceeded(100665826, 100000000)) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6676e2c4d9226dcd4825385271da37a47e24478cb765107a64e12f054a75637a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "10e25d06b88f603020a88d07932bcb5c341b7e1001bffa45b5780b60214e1c73",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: test-exceeds-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: test-exceeds-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(MemoryBalanceExceeded(100665826, 100000000)) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

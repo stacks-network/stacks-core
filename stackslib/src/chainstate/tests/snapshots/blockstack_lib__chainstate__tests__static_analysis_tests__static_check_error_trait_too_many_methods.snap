@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3b5f64e729fea0173f81f146785cbb88a613694e895125bb0cfaf0430febe579",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ef45f2db1bc278a5ff13ca4330d109f031b9380a63e062a63d401e066ab47861",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: too-many-methods-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: too-many-methods-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: too many trait methods specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5345b9b1e399b9b190bca941ccf55f6cc9b52ec016b1d311d4fcb246df272193",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4d32fb29dc048edd827ff2d226b675bf0ecb3d1204f013df7afcdf92682a4d9f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: too-many-methods-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: too-many-methods-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: too many trait methods specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d0719be8a20b29d4c65904c8ebd6a11d87568abd3ec713556b0ab0984b7d325a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9fb525b89225f365d1c854555ea0f2160dd5f133642ca3fd6b9f8960a0b83e75",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: too-many-methods-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: too-many-methods-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: too many trait methods specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "32fcc3bd64ed8abd261dd2a07a968e9b04af92299f851c5246ed1d62603ecefd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "df386a07a0454774fba8cc37d1cae06edd6c0e7e1d03e4d0b673051b9947c017",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: too-many-methods-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: too-many-methods-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: too many trait methods specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "23868ad81b7c7149906c30ed8cde4e4856ef968bfa0f83c68825755a06b6c0e5",
-    evaluated_epoch: Epoch35,
+    marf_hash: "854ac9b43a81fc7bcf9e71419bca17b91ae043e64ddb2ab4fe3618f583276cbc",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: too-many-methods-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: too-many-methods-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: too many trait methods specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4d2015921a853c1b63bd0908d6964c18bef0e1f77bcab10057f2c09a4a13f668",
-    evaluated_epoch: Epoch35,
+    marf_hash: "70101cd410cab5396eb403fac14ad79aad6f639396cfe9f838ee6faf65d37c2d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: too-many-methods-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: too-many-methods-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: too many trait methods specified: found 257, the maximum is 256) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

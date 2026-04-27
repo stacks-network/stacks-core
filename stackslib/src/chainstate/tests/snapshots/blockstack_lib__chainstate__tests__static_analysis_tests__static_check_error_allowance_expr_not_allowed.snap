@@ -64,11 +64,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "44bc05c50c458c1c336100ce52c1829cb53bf46c4f78ce943c1241c5f8706fde",
-    evaluated_epoch: Epoch35,
+    marf_hash: "c71394c04f7920b3710e89b93f3ed1d72d1c25213e4f9755388fe7667a1362ee",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: allow-expr-not-allo-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: allow-expr-not-allo-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -94,11 +94,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2c57293caaedbded62ec86ba65687708b08fcbb9f6d8185fc90ae2ed1c62fbc6",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9b641f8abd76052b84a5e609b6668ebdf7ee65780b3e779431896a8c64b36a3f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: allow-expr-not-allo-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: allow-expr-not-allo-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -124,11 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ed514ebbc38c629b8560de62d189aaeb6d82467abcd852ab26dc4fbc0f17abea",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cbb2f1b932f33bb18dcc04e64c07054aada8c48e08914163c2e718c4ae5f36f3",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: allow-expr-not-allo-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: allow-expr-not-allo-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "82e78e21799f6475c3480b9fc6db31c1eb93eb85c5707171ec258345c8b9bd3e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "efc86fda03a3582ec0cfb1b1a17edb1534539c78a3f621ab24050b73074590e6",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-data-var-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: no-such-data-var-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "32fa3422bffa740f49c56f35f93c4e298cd45de99cb1a62495455feca1a67062",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f92414e69eec63c54234d450f4f1689d86232dd634e0f71239ec2bc4044f8071",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-data-var-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: no-such-data-var-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a442df2d8b74a14f8b67ffe4318a175e540cdac0f10c21015852c16798991481",
-    evaluated_epoch: Epoch35,
+    marf_hash: "68604f2f6bc3e36e449ce204b29755db098aae69f0252b38843f975f9021c8e2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-data-var-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: no-such-data-var-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f8bc1f34509a769dba50cfa875fa66008f840793e6af537dece722ee888012ef",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b924bb18291cfbfcf6b9415a945739cbfdb3f96ec7d0c8638b7508e8dcdff63d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-data-var-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: no-such-data-var-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a7ab0d025b041fc7994ed2653274602b3827b4be815d0346b0a7c3c846652b59",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a2d3bb55dc7f2dbe3dbe90ff530b6fef13fb6b090177ce3c314b688e3a70004b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-data-var-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: no-such-data-var-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1f73ae00eebb32a3da0d92b9444a7c12124c6677aef75e67d2c20bb258675b3b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "85ebda8c67e58de87e02cd3c69f013caf0d1f8c418a824db13190b242e36597e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-data-var-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: no-such-data-var-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -94,11 +94,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "71c9718e8596b7c03b604a81531712ab4da0999bf0078ae5c9874d97ca2b56fe",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f64e0b71efccb298a222eebf63422a3ac8ad2edccb405cce57071164fef5031e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: tenure-exp-prop-name-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: tenure-exp-prop-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: missing property name for tenure info introspection) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -124,11 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9041411ed570782afc3b77a49a1b470c2f6931ac5ba6bca1f29f2ce76992a172",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f7a4cfa64232339aac8a2b5ca4651d7c651f0efc30420ac2103b8356b022d293",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: tenure-exp-prop-name-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: tenure-exp-prop-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: missing property name for tenure info introspection) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "543cdb400576ca4ca2737ce253eac281a1cef2551e819b0e1fc504d799ab8971",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e833523f3cd6f159d1ab0e6e6b17a037811607d92e87d9187fc20f02bd477b6f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: tenure-exp-prop-name-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: tenure-exp-prop-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: missing property name for tenure info introspection) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "31844f752b16407033cb60db8ea3ac7eaa2f9ff604ef7e85ced8caf3b5072624",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8b0996d0a895e9372d8c3a0d50ddd398460a1653b72ba9e5ee75ab742c9f9d3c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: tenure-exp-prop-name-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: tenure-exp-prop-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: missing property name for tenure info introspection) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

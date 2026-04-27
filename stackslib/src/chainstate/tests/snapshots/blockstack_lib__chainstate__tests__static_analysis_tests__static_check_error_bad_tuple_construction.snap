@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "45d399306f425894e8bf3835b8fae55ae236878621e52902e0886f61a905db73",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6c6d330dd2cbf34ff56d30e503f8c9a3ef798e85d6812970bcffabcf5527d980",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: bad-tuple-constr-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a79e2d7c3283d5bcd12c75e880850130fd3de54eb2244927c9afa841f9894e88",
-    evaluated_epoch: Epoch35,
+    marf_hash: "473cc6b5271cef23b2e57e5b74271576db2ce97f34062a2ee87532c352dbdd04",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: bad-tuple-constr-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7e03846f359a29e1f1daf5b145ade24a3f45939184ef0db5ffa4fb1f852bcac8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "25706f91a4cf0f194dfbf2e4d13a1899edda0ba1db83685a73e26d3e3c66c9ad",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: bad-tuple-constr-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e346874d1a7f15e4901de982c10bcc8d90fa070422319d43c93ee6088cedb130",
-    evaluated_epoch: Epoch35,
+    marf_hash: "35a8c5910354d32ef529c4653493729d62edc9ad1c5311c6ad1d75d79c307f06",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: bad-tuple-constr-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d77bbc1d1ce22621ce4fb87adc46bd365c080e384d3cab31018ef9bcbedc560d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "eae0cea4e2b317efc0b2aa89a12781d5898892134dabcb17b898b25700783ada",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: bad-tuple-constr-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4a6f17836c07b85e9edc831a9ca905932cc924f1e44b20871273c86f43277ff4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0e5850a66d54f4d226ef9ed2323cb21d80fa02ae8da0e7820eed180abdef563d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-constr-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: bad-tuple-constr-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: invalid tuple syntax: defining \'name\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

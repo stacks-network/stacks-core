@@ -152,11 +152,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7a2625846a410c09405a849d62577ecdc0a3c6d03e94ea78ba73c7f7a38e49ab",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e285e8d27592e0847c5f62779489d9d7bdb4189f1896a4f52b45d98f315726cd",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -180,11 +180,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5d94376b84a97f02a0b95fbe5a6e81e58eb01ba2639d056e23516db48ce0a841",
-    evaluated_epoch: Epoch35,
+    marf_hash: "07dc26dd152e76d7cee19489305d77490fb1302765975f5072041016205bf534",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -210,11 +210,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "038189c19ee09591b6ec4550bde6c7b969481cdbc56f211e4e57aeaa85f06e9c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9bab6641b2ecc87a4924c574e6c1a870a4a4c43441fef168c3467a20fddac51c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -240,11 +240,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9b7a27ce0a536b97e6a072128f03bf04e2c3dd8d86b3a6fffd455fe584233b15",
-    evaluated_epoch: Epoch35,
+    marf_hash: "30317f08aefa1fb587b2d5e729b54cb8de83d55ffe8e099cd48c20a7e32dc872",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -270,11 +270,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3cc1cb0204cf430ce42de46b647e4763d8d7f9d0913f45cc4ff022aa8a8ee630",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5115931c191254ffe75969ecb5991989b97007174dcd5165f331e91f3aebadcd",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -300,11 +300,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "91a00f4e7904893fd81f414c5e719669dd34d8545efa75550df1142a53a75aee",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a2d2923ae3de1f7786b91f4ff74f392aadb13b65ed656e8413ab7017819834f1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

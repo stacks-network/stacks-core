@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1d341a6b007fff73ecb8dab0fe3f24ccab4ba6f7906f0accdb6eb05b1199e1cd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f177c40a14f4de3a6e272b53f8dafb8d43487d099d8d3c2b3e9c9731f5ae3f17",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-token-name-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: bad-token-name-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: expecting an token name as an argument) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9cd537687ed1934608673c60cdd3f95f4d6cce1a9faa5e8d7c7363dd4efadfec",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1cbd7bd641bbc4344e6b5dab2a6c8e215a947391740646cbf9c9e856d618d75f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-token-name-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: bad-token-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: expecting an token name as an argument) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3ff507b95e8c80295ff8dd457eaed1e29006c4537bc2ec2d2d1d1f2aa38eac93",
-    evaluated_epoch: Epoch35,
+    marf_hash: "83e779304aca8ef6ee9ee32781905fb860513ef09fdf64af4dc545171f0f7b59",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-token-name-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: bad-token-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: expecting an token name as an argument) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "60e46356a77d543d43eec50e651d075cbf59332104b5b39b71c7af3ca7f513fa",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a7a4715361d058266645424e3698d56e2396fa5b3fdd839eb8e87b788832213c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-token-name-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: bad-token-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: expecting an token name as an argument) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "94b2987700aec7d84a349097e023b07fa9a373eb12bfa547b80b3cac55bfdc64",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8197da28190247d33b42d9d452f73214f5f15bb53911f0b8eb1c203f6f6409d2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-token-name-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: bad-token-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expecting an token name as an argument) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d12576b225093184054a72f07e409ee0089674c004e5fbc4d3923d2c4fe22a1a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a861061319394e04352799440599e129011d316683974ea37fa5363f9fa6cdc1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-token-name-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: bad-token-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: expecting an token name as an argument) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

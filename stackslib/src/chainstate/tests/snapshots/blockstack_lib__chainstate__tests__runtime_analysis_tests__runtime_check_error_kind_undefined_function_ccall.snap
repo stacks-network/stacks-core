@@ -1744,11 +1744,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6dc6b1aa78601ba1a4014fe69c10ce7bd00f979fcfbb9ec0061fa2033e15125b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "53de77d4227131bce6e14f510860d2f7397f2c58109a4c0ec68610dd09847080",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: undef-fn-call-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1772,11 +1772,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cbe16688dc49143799d061a17ddbdba14433b175611f240bf891f4d73370607c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4e134b46a5bd0225d73c5e933e4854223b1a02eb07708259a0c6d68b7b33180d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: undef-fn-call-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1800,11 +1800,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "10d0bbf1543c5383665d8ec9313f4a3b2b26357eba3210606d819f0b8416a368",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ac25731b8047893a43fc4cb1a924a943e6302ae68d02f88fb8301e8548522dbd",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: undef-fn-call-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1828,11 +1828,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dc58521528604b26883edf0b645d63a478745f469fefe0863db95c1608ca21cd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d76af37eb3d52de47ef5538590b38689d20dc07752202fb012c6a90f6f94fbe0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: undef-fn-call-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1856,11 +1856,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "97a7d10a216d1081b2f6c7d3ae438c45d5f665129b2d9025d5dd79a1c51bc15a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "66e20055e2f5161ce0ae9a0fa9a9ddaa453d70ea0b195392abb179f8d973324c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: undef-fn-call-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1884,11 +1884,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "023bdffcf100649b768ba4f6691c9b8437cbb63eed2ad1fc73625c33431796f8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "089ef9e203ee50c6f2f040dda4807d7911b57c62aa9dcbcee23ac09263dbc627",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: undef-fn-call-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1912,8 +1912,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f4dab10d7e09982b8b64593e1fb78b6fdcd999657bba5a52ea6044311b0f9dc0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "c7acd7887678b2daed9f25fe0ccac5dbc47a1e1860202150e076d874ca6cd1a1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_0-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -1942,8 +1942,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dfb3f4e15926f47ac71e83bdcea997439c673085490765cbcc575b29d9672aba",
-    evaluated_epoch: Epoch35,
+    marf_hash: "68eb595bd276aeabb9fa3dc70e72ab637cd60fa7d139a5a760512756645fba2b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_05-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -1972,8 +1972,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "66d8f37faed59df126d863a2ad0a70062858a19747f7dfa35aa70c229213d31c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4bf5d375738920f4e2304697b4819f2f7ee76aa515e4bdda1e954f03a2a369f6",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_1-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2002,8 +2002,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8246efa673a4f406128ac9fd113ce9b50a39bfbf52b386e5cd8df5c6832582f7",
-    evaluated_epoch: Epoch35,
+    marf_hash: "aa457dacc8657d6c0dc9d2f93443751c4d8e55cac157b3a567a7f53ba2b0d8ab",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_1-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2032,8 +2032,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c93639fc10991956d7f40372dfa251678b47f833c06d77f8c8eb8f2cdc420ab0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9faf6f1f478c6364ef679c7ca61c31ed086d5d8826d00a36f9926dcd186f37a4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_2-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2062,8 +2062,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1820b3977cb703665a2085804621722faa9dfb66ced40d06348e526b580f3d1f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cb381717c04fe977a1c1df18c6c121f5d147ad4577be59a9a91570ebf03a2fba",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_2-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2092,8 +2092,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5777ba2a7ddc8c77a515464ce1a2780a0c656ac1221433fcf5f299f5daf32bbe",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f6c52c678dd5322e73e26acb83a54b27266d2a4af4f5ed1d3e935040b8229ea9",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_3-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2122,8 +2122,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6dfcf9fd59071a9fa87abcca77029b655557d6ff474b73b1cc53840715595003",
-    evaluated_epoch: Epoch35,
+    marf_hash: "917e0fdbd4c281c4ea6deebcd97ce88f3272ff19751c5ba3f5cabd97b01430e3",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_3-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2152,8 +2152,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e09713dfc2d306a2145b150ea73552d46d975ace039a6fcbb3263309fd953dd3",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8b31bfc61abbc700c5a123f3520c5ad012e21c698af5f75564e1e3432947d61c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_4-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2182,8 +2182,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ff5661315b3894049f14b664cce2623a0b01c4aab24bb48ae86399cf0d7b204c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b073d81523bb101d39dd7b9ecaffeefd9e4a27015d0ee863552f40fbbf6acd2e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_4-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2212,8 +2212,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1c2f75c69adfb6550645ad430516546b0b998df46e9d284be499918ed4ba0d82",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ff48c5b51d52c48239c12c5fc7b317a2632f69cbf67673d7827a72e5201700a1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_5-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2242,8 +2242,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "07cc0e470e5a89556a0ee77cb90d33b83572eca8f9cc38e29fc67a077b995366",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6aa321d6cdba66566789cd7bd0941f615b91725ed47ab234c88f2fdbcd389387",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_5-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2272,8 +2272,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7d72be41897bda9b6dfaa8aec24083917fe10d6c6c02eb21c82b1e9e2271c96b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "90d5d71077e0e157da735e31c499d15ff5beb3afe8486d3e46e6b291f552b823",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_0-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2302,8 +2302,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6f39dd1e8416a64ffaee3856941745f34ced97ee1200deaed3c9fb3d1dc743e9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "fa7ff5a7f6218582d20911697f8c4213201a79073da73f7f557473617219758f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_0-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2332,8 +2332,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "77716d9f869477c06585cf4dc469575bf1f23a921723d234ec4af612d461da33",
-    evaluated_epoch: Epoch35,
+    marf_hash: "dc4cc7d6fbdaad6d0b8739c7f2505daf70906f1b4236c333891d77e92620b8f8",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_0-Clarity3, function_name: missing-func, function_args: [[]])",
@@ -2362,8 +2362,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f4d3a56555abb9832008a4b595d80d5e6785443e2a624cb88354d77c3db47942",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5240246009c314c54b7f985adbe089b4c9bd2621209ebdd818ddf62d1e4cb5d4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_1-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2392,8 +2392,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "23ae62935585fe0453af9f45ea2ca3ec5c86a511ceab38ca5f878168cb9f849f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ab4535230371474d4473f2cde2d377890c1c8c19169093ab88de001c215f6cc8",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_1-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2422,8 +2422,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d9a8cffb8fcd866f37c9ae428cde4c20ac569dc358ee859fa7716a38d8551c3c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d8d2b8b9bc0d115dc6a3d9b59425eddd7e3d0a98af49180f060d8e058fe2d8f4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_1-Clarity3, function_name: missing-func, function_args: [[]])",
@@ -2452,8 +2452,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5761b301c3e7e26553538ab967468321418dad71cdaa6140226a2afcbb214cdc",
-    evaluated_epoch: Epoch35,
+    marf_hash: "953197184978285cd0966e3a3cd50e150d43aecf88a4b1abb548f2109b167252",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_2-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2482,8 +2482,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8c23941514774e99b565a5d433cb853b466d94a627ae0fd5fdcacbb4e1543159",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3904c0ced4b8af4224d7fd7ea5f09bafb139c165522a9ce44b917f215015dac5",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_2-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2512,8 +2512,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c35295469a00acfe1dc24d3ac6318e6a810c80eaa7fcc72ca6567fd35597aa63",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e3eae0a83e3ce1896ce5cc2f9757818a5caf2e839358b1fed53a70cee500f047",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_2-Clarity3, function_name: missing-func, function_args: [[]])",
@@ -2542,8 +2542,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fd3e495f51b93c900639d96ddc73388588d9d1ca73d1b889241dd03c2cdd3048",
-    evaluated_epoch: Epoch35,
+    marf_hash: "00e01aeb8ecc9921f88e0ba6a5ea3405018708c6d5d45b8ec6a41ba4a03d41ac",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_3-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2572,8 +2572,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1d27c4e665bbdb0e4100a8fd67a454e09df81c628a53993ac96ba18dfe7d7462",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8a07d2937e87f078a410e9dfc9154267a71994a4451f9435e421718cbbce6112",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_3-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2602,8 +2602,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bd8d26502dce631a4c4c098d89496649da6d996921d2e695105d7eaea9e96c64",
-    evaluated_epoch: Epoch35,
+    marf_hash: "141d9c90167684a7deb3d4a739a1cd74cf3c993f0a0fef8748329dfd4bd1d539",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_3-Clarity3, function_name: missing-func, function_args: [[]])",
@@ -2632,8 +2632,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9922fba1264665f3ee38f8e61b5fc4285ceddb6223f4d31a0dc87dd2af120835",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ecd4958af3b1f130cf4d25ed9eadd2e8c7cfa13f759860c08675816f3296ca82",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_3-Clarity4, function_name: missing-func, function_args: [[]])",
@@ -2662,8 +2662,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "896f848417beb6f56ee31c2301183fd4c07c49152101e9073fddd6db2d83669a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8b0e93379ff4eb0261b9039be779e4d25402173cc49f63b9d3c14754f64ad161",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity1, function_name: missing-func, function_args: [[]])",
@@ -2692,8 +2692,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "83de5b5616d2c4f3f107a1eccc12465f7e5f52a72fd9c8e615c5e5a249b70c0d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "288f3635b90a92f0560c8b655ad4480d536e077a541833dbf9031e5f5bf3ee67",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity2, function_name: missing-func, function_args: [[]])",
@@ -2722,8 +2722,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "15eb14e1c77b91e6978eac3deda271c7a5c322daf53b9c2a08ffb942a9403f82",
-    evaluated_epoch: Epoch35,
+    marf_hash: "206e77c440a7a45a709f367a2cb246765085c9706a544c4fd8a35488caf14670",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity3, function_name: missing-func, function_args: [[]])",
@@ -2752,8 +2752,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7fe4f87e08d2c8b9da57701b159345ce446a29a598cd3c53e0ac0b1842907533",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e83ee968354ea8fb45f82cf310ad4fea8226efbfac0f2a4e994b2713b633bc67",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity4, function_name: missing-func, function_args: [[]])",
@@ -2782,8 +2782,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "28f1059195a30d73d7afbd2f3a544fc1f49a2d9cdc78705fdbd4b0845f175be7",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5c863a2b603e48c1bef7e14a85bc748f806bd3281fffdcbea83d034cf2ce2d8c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity5, function_name: missing-func, function_args: [[]])",
@@ -2812,11 +2812,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3ea801f14cf1ec710c2ec11f5eca06b15de75668dcc50cfffc2a992110a5e3e4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "762b0b58c3fcd5f29e9fe15ddae347f7e23bd46b3c2fee1d69ec51c0e6716b2a",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity1, function_name: missing-func, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch4_0-Clarity1, function_name: missing-func, function_args: [[]])",
         vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2842,11 +2842,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e94b7a037e02a98da071657418a34e2039930c7bdecc33224bf61181e82466c3",
-    evaluated_epoch: Epoch35,
+    marf_hash: "58159d57161065774b6a19ada4bcf6ae40f89ce269dff92317a3363063ac7e7c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity2, function_name: missing-func, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch4_0-Clarity2, function_name: missing-func, function_args: [[]])",
         vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2872,11 +2872,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ff2f4465d90b260053080d24d1bbfed00fdd42e4e5c7cf2446f307a77c778127",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cc44120987d5184a68edbccf6f7241721ea24ece98c82524d1a2b9418d7eea95",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity3, function_name: missing-func, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch4_0-Clarity3, function_name: missing-func, function_args: [[]])",
         vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2902,11 +2902,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b865b71c0188386a9d24828c9b4e25e417bf60ec31880e0ec9cacc9595129075",
-    evaluated_epoch: Epoch35,
+    marf_hash: "79a950a01e812f5b5baf4b74fe625cb6af26c52190b995d11d952d31101cb663",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity4, function_name: missing-func, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch4_0-Clarity4, function_name: missing-func, function_args: [[]])",
         vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2932,11 +2932,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "477a978af398a0440545bb47e9d6887459d093ce16b554823b511bb64b70e16a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "06e797487bac328b0e904cea70d69dd89c85e3c18210df0f4a556706902156d3",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity5, function_name: missing-func, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch4_0-Clarity5, function_name: missing-func, function_args: [[]])",
         vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2962,11 +2962,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ee508bac0b8206f32c156edcb5eb40fb4490fb4cbca4d9c4dece066941c53785",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a457703e185f601e0cde94d7bcd56a5083ced38b49bc299c94db8420db97339a",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity6, function_name: missing-func, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch4_0-Clarity6, function_name: missing-func, function_args: [[]])",
         vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

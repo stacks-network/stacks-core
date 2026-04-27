@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4dd30e943b1ce00ba6c2932f2a42bb83c6149ffb5800512bcf77e75210b8d855",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2f2085130a131125576e3c9e524ddac9c4dfbed2ef1d879a9b39d755064358db",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: value-too-large-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "968492a187638a97e316e7b7c4532bb233cdc501d0b049111d4ed963e84481e2",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e625c566fe6227bfb1eee15c9c9b34effb5f83e6a44daf02966d7e37cd13faad",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: value-too-large-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6be16bc2a0f2fa3013cfab3527494c200f64a293694ffa0acecdcc6d49a9efe1",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5596dec5e9dfe17f140a517e6c680885f1b4e565fd0b8995dc219b2620bfeec3",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: value-too-large-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "65592a76fc632575e9774c029853cf37a394f168bdd39a2f0063c2dcd467e320",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6d2bc840f405f44d5d594d4521d6bcc510f3439b8ba9ff0495ba68dcdaebfb43",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: value-too-large-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cf6f7d9ae744655531e0cdf92b190c1a901c94b2899f6ace4c38c7d7d870c583",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9dd371314437c3efc2b9dbc04a51315bf9d838b0d63bbb9ae7ec8e817d349470",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: value-too-large-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "31bbdc439da3efa3e929ffc9215427fd37cc35c5a1849b53927aad9f0c28e4ef",
-    evaluated_epoch: Epoch35,
+    marf_hash: "26773f115038d6c1f6555cc617e79b96b350e5f6f6be941e0b640cd1ba7b231f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: value-too-large-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: value-too-large-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "43c0ac054242f98f5bf984863eb1b6f520ac5289a6e581c7aad54fb404377a05",
-    evaluated_epoch: Epoch35,
+    marf_hash: "de5fc984b0a5ff26511f43242a50ba8f3ba05cac99bdeb1325ebba2666c464d5",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: bad-tuple-field-name-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8585e687f54f9dedb51d82f0fe811d46f9c98ddd9670cd03447078eef19b9246",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1b5557220decf52a6ffe9ed653209f325228dcb5b9f980ef7e673d6923b34e95",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: bad-tuple-field-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0da127ac2f535f1109499353c9f0b200bd9172234cb1c67cf1c0b0f3ac7f6657",
-    evaluated_epoch: Epoch35,
+    marf_hash: "94b5517098fc7292c32e56268dcb80d8d449df082d1a99017676e96fa88e7708",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: bad-tuple-field-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6498f58c9eea8254cc5853d449b84d61270d575f4350785d5445190ccd56535c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5f3e695d7d36a283edca5b473949928a126282d6d2b5b8d4a00e91ba98c47bdc",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: bad-tuple-field-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b23194f939b6a8bf6c6e7cab052b24fcd3138b197d88c630a012d978a4878d4f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7525bacd895c6c506c139ec5030c108eef9d0f4c920135232af54fea84ce5e16",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: bad-tuple-field-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8e1730e3e5a58d6e0eeae90f12b4adc9d4ceefcb47e3316495dd0ddc0b996e2b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ff32870be28d96a50530be02ec58e29bfafe5daaccc56bd3fe2d51bba7e7c5dd",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: bad-tuple-field-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

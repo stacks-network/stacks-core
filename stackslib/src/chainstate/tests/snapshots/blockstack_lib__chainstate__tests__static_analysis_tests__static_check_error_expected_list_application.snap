@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9ba95e0b483953df523f537f15a92bab0b36057a753067aa7758ceee55578baa",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d4fad50e1020efe2989a363dd4a30e73b324279f567c3aaa9339b838fd758bc4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: expected-list-appl-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0a5e2fcbbc6b80920ce19203958ae0568e2cb5c31a5d351fb61ed187baa63ada",
-    evaluated_epoch: Epoch35,
+    marf_hash: "99ffb55efb9746b6c4c9abaca624d82a75f606cfe26c0d9da938d3b0614a0e60",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: expected-list-appl-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5078b7ec5f4fe9284267656ea63cad55505fafc86c4d77ac4acd26fdfe4d5797",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f050a80001c2b7ca9b912875e82c15de04b17d76dc2fda1e72a0365d410baa9f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: expected-list-appl-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7023c6b4324871e582e67d8196497a8ea5043693c3cf54154a1171760bab398c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ee5ddbae03518a78824c0a6055f1241233a66dd9dde9d77170edb5f0e6dc65e0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: expected-list-appl-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2d0ceb72c616648f1a75cac85e1ccc3f48293325c633e4c2eaf3f06d153dd531",
-    evaluated_epoch: Epoch35,
+    marf_hash: "03d9ade1aa4b400f7f800022cc937d756bb54f8e2b6884f84339caa00e6d2747",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: expected-list-appl-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f10550c409bc4977f393df1e1690ff992b765b7d05408aeaa365271e4adf03fa",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f9f589a5f2bc23590b0647885359d8875f3cb05db7d49235bba120f0cbdac320",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-list-appl-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: expected-list-appl-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: expecting expression of type list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

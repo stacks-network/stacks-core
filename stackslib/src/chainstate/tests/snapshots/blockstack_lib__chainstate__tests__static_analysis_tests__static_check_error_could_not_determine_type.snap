@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d89e0e051837b29fa1cf2129221560534ca4d92cf2d8a38f6c89f48630d557de",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9b6c996e14d3858e26d9f336dccceb1d6250db335c18886701ef6fc38ed489a2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: type of expression cannot be determined) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1832f398bca0d6fb65bd74c60359b53213634bcd68129ecceacb3eed97a8d7c8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b773b269aaf11689061488fb468269c502f1092f1bfe61109b1703d4e8643460",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: type of expression cannot be determined) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4805cc758af4739dd4060c054a446e1f9868c740b8acf2db7c49b051e705b9cc",
-    evaluated_epoch: Epoch35,
+    marf_hash: "bef4553f15d0d6a2787abbe8635532b4507069f8e739788d1c2953274a678e4c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: type of expression cannot be determined) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "aab832c94f4daa4ed5e74b79c99e74159c0886bcaef6b8c4579f01a60c37141d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "58322d0fe1891a0b4befe2ed240d8f42e2c49e27772bb98d8316ec224b126b85",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: type of expression cannot be determined) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6d7e9920c89f2306ba1a4ab88d6b0034dece590f38318622fd12fc7bec9526af",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0b0148e6f75f78eaf751b042f4c3cceec45d397c2409cb8baf3e56b684ea6317",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: type of expression cannot be determined) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0376014f3297c874531d37ce8fdd645f7c8a0ab63a4272828be2bf99ad380852",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9d2df0258c09ddcfd8c785fe344165c35dd0cd2795a7e8e5127c19ec0e817bf7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: type of expression cannot be determined) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f315724e7d3705fac725e3b3acdc0c012cf1c7fb97042258ff5ea0c4ab3bf7b9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f91c23abb05ad2ad98fa806994ec20a45ade90983e42f16336a5c391e7f9e5a2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "73b917d6c5a0a3e930e76444e02ea6ad1475d580aa677df0a73788de11349a20",
-    evaluated_epoch: Epoch35,
+    marf_hash: "21ec79c64beda7748ed1b6e099fca0e927989c76f8cbbf08a3ac7aeade29dc67",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ac7a57a880f40130189619e0d34b5e1a4d17236a938e64a768c693ea9b05eb4f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f62476c2e9ef5c3104e52c896b4db651d0b19a168ccc8059f2321adb72d47800",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fb0078a917e253545f90c42b0c5a457b5bbb54b06ebbd2de8303403eab6a13b0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7595c0e2d2428e22c932b0d1705c87c6abbdb29d184dbff97eb72aa7e8b47e30",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5d848dd746a3351c263b7e5afea31de361ea2b4b4f83eb4541ec0303d4e1a3fa",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6fa8328d92156a5417735d58ccd252ec79b6dea6388e63277cb1a35507f28fb5",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "334b5b45d37e308b7222c8d972aa3f33feb915cd036f54b223ad87018e0932a6",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cc6e7f3171a46c2e5008213da75dad8b3cfcd6058f9d4630b828c0efa944cead",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

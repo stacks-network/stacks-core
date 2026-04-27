@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fb73642a14555bad3abb53b15152742fbf389ebee8572707961c9216118b83ab",
-    evaluated_epoch: Epoch35,
+    marf_hash: "22b7c9a5c41c1536190b64769ff0980b48073388b2e36c6012a029c0cec55a27",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expect-trait-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: expect-trait-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: trait reference expected) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4dc6add0d09cbf23efb238ad72cb4b868eaba575919ebcba357969fc434389da",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4e97f495877fac14c5c79ecc46897afe5763c52c0e0a66214a974af701370933",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expect-trait-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: expect-trait-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: trait reference expected) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d2566262ffbc94791bc24e453afcf45fa7467a92e1bfb30aef8a85356d4df63c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a0525ad5310f382d46f6e11d6b4ac3af230dfd9b9d2bd7d6289727b307488826",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expect-trait-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: expect-trait-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: trait reference expected) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4259caff022e0041fdd1b270eaa034108a7dbe678c627b0cd959bed8a6513842",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6d6cff18e0af697afcac1b82cca54fd777dbe33a4641ea6c0821c2c1bd69a5e4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expect-trait-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: expect-trait-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: trait reference expected) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "553566e79d663e81cc8b5f088c909da38620e9e82a6577e0050d4c31879d4790",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6757fd76efc1fdd2bbe3e604e9c3d19d8dd2c058045094e052b76db554b4875e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expect-trait-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: expect-trait-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: trait reference expected) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8dd23a7469056b4624cf9fdce5f0ce2cf89592af5379f8b339e02e50a7de2660",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5a1f351a1b28783db5446074785be05a4d8335ae57a1dddef7a713d0d5035ba2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: expect-trait-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: expect-trait-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: trait reference expected) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

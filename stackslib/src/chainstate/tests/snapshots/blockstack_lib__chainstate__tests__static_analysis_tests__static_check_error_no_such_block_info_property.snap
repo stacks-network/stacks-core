@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "187716444365818a14bea0b2bcf43244bf0b80225c2ed97d0aff6f559559d28a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0d7249902fb728b9948207accef2110ff41812144680fe220f13acb28da5db71",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-block-info-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: no-such-block-info-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: use of unresolved function \'get-burn-block-info?\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8c6aac3961c661a0b0c7ef9de2680ec2e552be45869263addb437419dd3236f2",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e58987c01c0755f340bafc797aadd5a833a90379cf204423981d4cf03902479d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-block-info-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: no-such-block-info-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: use of block unknown property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2c289ff9a6bc9bf6cdc81aa6571db38e089be9f54659824c35bb673a09a2a348",
-    evaluated_epoch: Epoch35,
+    marf_hash: "54e0d60b54d664131bb3a95b71c487f77a36620fa25f690fed5e1ac0d5f77894",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-block-info-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: no-such-block-info-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: use of block unknown property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "66e01aa4fc98c0aaaac5ee86876ef1776cd34a4da3bb2b1bd4d0d4fea5a78af4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d15e474167e15cd29e5cfe51dce1fa9a25e85cc7b10a8c87eb0c9a28712f9da6",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-block-info-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: no-such-block-info-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: use of block unknown property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7d35e20331cf7d6c345d8377a3cc8f466ae533dd39b8e1673817b1b39d332207",
-    evaluated_epoch: Epoch35,
+    marf_hash: "905b8a8278b392a82a83980820fc51b32ba628199c4faf20097977e6e0d1bd1f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-block-info-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: no-such-block-info-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: use of block unknown property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "25874204d22b07c5e1e8c3a414f61041745d7e5104e47264223eac4138ef31c9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ad78c6e46b75789a1bd746968a4fc8fb326bb774512c048041d9a5fb443b7b27",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-block-info-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: no-such-block-info-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: use of block unknown property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
