@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS marf_squash_archival_marf_roots (
 );
 CREATE TABLE IF NOT EXISTS marf_squash_block_heights (
     block_hash TEXT PRIMARY KEY,
-    height INTEGER NOT NULL
+    height INTEGER NOT NULL UNIQUE
 );
 ";
 
