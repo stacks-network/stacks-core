@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use clarity::vm::ClarityVersion;
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
+use clarity::vm::ClarityVersion;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
@@ -117,8 +117,7 @@ fn assert_chain_call_result(
 
     let tx_out = unwrap_single_tx_success(result, label);
     let stack_depth = 2 * depth - 1;
-    let limit =
-        StackDepthLimits::for_epoch(state.current_epoch).max_call_stack_depth() as usize;
+    let limit = StackDepthLimits::for_epoch(state.current_epoch).max_call_stack_depth() as usize;
 
     if stack_depth < limit {
         assert!(

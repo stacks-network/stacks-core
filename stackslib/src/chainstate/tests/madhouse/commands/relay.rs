@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use clarity::vm::ClarityVersion;
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
+use clarity::vm::ClarityVersion;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::Strategy;
 
