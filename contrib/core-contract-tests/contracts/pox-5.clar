@@ -20,9 +20,22 @@
 (define-constant ERR_INVALID_NUM_CYCLES (err u20))
 (define-constant ERR_INVALID_POX_ADDRESS (err u21))
 (define-constant ERR_UNAUTHORIZED_CALLER (err u22))
+(define-constant ERR_POOL_NOT_FOUND (err u23))
+(define-constant ERR_INVALID_START_BURN_HEIGHT (err u24))
+(define-constant ERR_ALREADY_POOLED (err u25))
+(define-constant ERR_UNAUTHORIZED_POOL_REGISTRATION (err u26))
 
+;; The length, in terms of staking cycles, of a given
+;; bond period
 (define-constant BOND_LENGTH_CYCLES u12)
+;; The gap between the start of different bond periods
 (define-constant BOND_GAP_CYCLES u2)
+;; The maximum amount of time that a user can stake for
+(define-constant MAX_NUM_CYCLES u12)
+
+;; The minimum amount of uSTX that a staker must stake
+;; to become part of the signer set
+(define-constant SIGNER_SET_MIN_USTX u50000000000) ;; 50k STX
 
 ;; SIP18 message prefix
 (define-constant SIP018_MSG_PREFIX 0x534950303138)
@@ -120,7 +133,38 @@
         num-cycles: uint,
         amount-ustx: uint,
         first-reward-cycle: uint,
-        signer-key: (buff 33),
+        ;; For pools, the signer key is lazily fetched from the `pools`
+        ;; map when creating a reward set.
+        signer-key: (optional (buff 33)),
+    }
+)
+
+;; Users can stake to a pool, where the pool owner
+;; (which is the key of this map) is able to manage
+;; the signer key for the pool.
+(define-map pools
+    principal
+    (buff 33) ;; signer key
+)
+
+;; Keep track of how much STX has been staked for a pool
+;; for a given cycle
+(define-map pool-staked-per-cycle
+    {
+        pool: principal,
+        cycle: uint,
+    }
+    uint
+)
+
+;; Keep track of a staker's pool membership
+(define-map staker-pool-membership
+    principal
+    {
+        pool: principal,
+        amount-ustx: uint,
+        first-reward-cycle: uint,
+        num-cycles: uint,
     }
 )
 
@@ -177,16 +221,8 @@
 
 (define-trait pool-owner-trait (
     (validate-stake!
-        ;; caller, amount-ustx, num-cycles, unlock-bytes
-        (principal uint uint (buff 683))
-        (response bool uint)
-    )
-    (validate-management!
-        ;; caller, signer-key, pox-addr
-        (principal (buff 33) {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        })
+        ;; caller, amount-ustx, num-cycles
+        (principal uint uint)
         (response bool uint)
     )
 ))
@@ -386,7 +422,7 @@
             amount-ustx: amount-ustx,
             first-reward-cycle: first-reward-cycle,
             num-cycles: BOND_LENGTH_CYCLES,
-            signer-key: signer-key,
+            signer-key: (some signer-key),
         })
 
         (asserts!
@@ -406,6 +442,151 @@
         ))
 
         (ok true)
+    )
+)
+
+;; Register a pool
+(define-public (register-pool
+        (pool-owner <pool-owner-trait>)
+        (signer-key (buff 33))
+    )
+    (let ((pool (contract-of pool-owner)))
+        ;; Because pools can have members register at any time,
+        ;; they must use signer key grants instead of per-tx
+        ;; authorizations.
+        (try! (verify-signer-key-grant tx-sender signer-key none))
+
+        ;; Only the pool contract itself can register itself
+        (asserts! (is-eq tx-sender pool) ERR_UNAUTHORIZED_POOL_REGISTRATION)
+
+        (map-set pools pool signer-key)
+        (ok {
+            pool: pool,
+            signer-key: signer-key,
+        })
+    )
+)
+
+;; Stake your STX
+(define-public (stake
+        (pool-owner <pool-owner-trait>)
+        (amount-ustx uint)
+        (num-cycles uint)
+        (start-burn-ht uint)
+    )
+    (let (
+            (pool (contract-of pool-owner))
+            (current-cycle (current-pox-reward-cycle))
+            (first-reward-cycle (+ u1 current-cycle))
+            (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
+            (unlock-cycle (+ current-cycle num-cycles))
+            (unlock-burn-height (reward-cycle-to-unlock-height unlock-cycle))
+        )
+        ;; The pool must have been registered already
+        (asserts! (is-some (get-pool-info pool)) ERR_POOL_NOT_FOUND)
+
+        ;; Validate that the staker can join this pool
+        (try! (contract-call? pool-owner validate-stake! tx-sender amount-ustx
+            num-cycles
+        ))
+
+        ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
+        ;;  to "post-date" their transaction
+        (asserts! (is-eq first-reward-cycle specified-reward-cycle)
+            ERR_INVALID_START_BURN_HEIGHT
+        )
+
+        ;;  lock period must be in acceptable range.
+        (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
+
+        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (check-caller-allowed))
+
+        ;; Cannot be already pooled
+        (asserts! (is-none (get-pool-membership tx-sender)) ERR_ALREADY_POOLED)
+
+        ;;;;  tx-sender principal must not be stacking
+        (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
+
+        ;;;;  the Stacker must have sufficient unlocked funds
+        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+            ERR_INSUFFICIENT_STX
+        )
+
+        (try! (add-staker-to-pool-cycles tx-sender pool first-reward-cycle num-cycles
+            amount-ustx
+        ))
+
+        (map-set staker-pool-membership tx-sender {
+            pool: pool,
+            amount-ustx: amount-ustx,
+            first-reward-cycle: first-reward-cycle,
+            num-cycles: num-cycles,
+        })
+
+        (ok {
+            pool: pool,
+            staker: tx-sender,
+            amount-ustx: amount-ustx,
+            num-cycle: num-cycles,
+            first-reward-cycle: first-reward-cycle,
+            unlock-burn-height: unlock-burn-height,
+            unlock-cycle: unlock-cycle,
+        })
+    )
+)
+
+(define-private (add-staker-to-pool-cycles
+        (staker principal)
+        (pool principal)
+        (first-reward-cycle uint)
+        (num-cycles uint)
+        (amount-ustx uint)
+    )
+    (ok (try! (fold add-staker-to-pool-for-cycle
+        ;; panic is ok here because we've already checked `num-cycles`
+        (unwrap-panic (slice? (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11) u0 num-cycles))
+        (ok {
+            staker: staker,
+            pool: pool,
+            amount-ustx: amount-ustx,
+            first-reward-cycle: first-reward-cycle,
+        })
+    )))
+)
+
+;; For a given (staker, pool, cycle), update pool state for that
+;; cycle and lazily add the pool to the signer set if needed
+(define-private (add-staker-to-pool-for-cycle
+        (cycle-index uint)
+        (accumulator-res (response {
+            pool: principal,
+            staker: principal,
+            amount-ustx: uint,
+            first-reward-cycle: uint,
+        }
+            uint
+        ))
+    )
+    (let (
+            (accumulator (try! accumulator-res))
+            (cycle (+ cycle-index (get first-reward-cycle accumulator)))
+            (pool (get pool accumulator))
+            (cur-staked-for-pool (get-current-amount-staked-for-pool pool cycle))
+            (new-staked (+ cur-staked-for-pool (get amount-ustx accumulator)))
+        )
+        (if (and (< cur-staked-for-pool SIGNER_SET_MIN_USTX) (>= new-staked SIGNER_SET_MIN_USTX))
+            ;; They've crossed the threshold - add the pool to the signer set linked list
+            (try! (add-staker-to-set-for-cycle pool cycle))
+            true
+        )
+        (map-set pool-staked-per-cycle {
+            cycle: cycle,
+            pool: pool,
+        }
+            new-staked
+        )
+        (ok accumulator)
     )
 )
 
@@ -896,6 +1077,40 @@
     )
 )
 
+(define-read-only (get-pool-info (pool principal))
+    (map-get? pools pool)
+)
+
+(define-read-only (get-current-amount-staked-for-pool
+        (pool principal)
+        (cycle uint)
+    )
+    (default-to u0
+        (map-get? pool-staked-per-cycle {
+            cycle: cycle,
+            pool: pool,
+        })
+    )
+)
+
+;; Get the _current_ pool membership info for a staker. If there
+;; membership has expired, this will return `none`.
+(define-read-only (get-pool-membership (staker principal))
+    (match (map-get? staker-pool-membership staker)
+        pool-info
+        (if (<= (+ (get first-reward-cycle pool-info) (get num-cycles pool-info))
+                (current-pox-reward-cycle)
+            )
+            ;; present, but lock has expired
+            none
+            ;; present, and lock has not expired
+            (some pool-info)
+        )
+        ;; no state at all
+        none
+    )
+)
+
 (define-private (check-opt-pox-addr (pox-addr-opt (optional {
     version: (buff 1),
     hashbytes: (buff 32),
@@ -924,6 +1139,13 @@
             )
             ERR_INVALID_POX_ADDRESS
         ))
+    )
+)
+
+(define-read-only (check-pox-lock-period (lock-period uint))
+    (and
+        (>= lock-period u1)
+        (<= lock-period MAX_NUM_CYCLES)
     )
 )
 

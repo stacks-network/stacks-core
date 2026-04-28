@@ -7,17 +7,17 @@ import {
   signWithKey,
 } from '@stacks/transactions';
 import { hex } from '@scure/base';
-import { projectErrors, projectFactory } from '@clarigen/core';
+import { extractErrors, projectErrors, projectFactory } from '@clarigen/core';
 import { accounts, project } from '../clarigen-types';
 import { rov, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-// import { randomPoxAddress } from '../test-helpers';
 
 const contracts = projectFactory(project, 'simnet');
 export const pox5 = contracts.pox5;
 export const errorCodes = projectErrors(project).pox5;
-// export const testPool = contracts.testPoxWaterfall0Pool;
+export const testPool = contracts.testPox5Pool;
+export const testPoolErrors = extractErrors(testPool);
 
 export function toWitnessOutput(script: Uint8Array) {
   return BTC.OutScript.encode(
@@ -178,24 +178,14 @@ export function signPerTransactionAuth({
 }
 
 // /** Register the test pool with a valid signer key grant. Returns the signer key and pox address. */
-// export function registerPool({
-//   caller,
-//   poxAddr,
-// }: {
-//   caller: string;
-//   poxAddr?: { version: Uint8Array; hashbytes: Uint8Array };
-// }) {
-//   const { signerKey } = setupSigner(caller);
-//   const addr = poxAddr ?? randomPoxAddress();
-//   txOk(
-//     poxWf.registerPool({
-//       poolOwner: testPool.identifier,
-//       signerKey,
-//       poxAddr: addr,
-//       signerSig: new Uint8Array(65),
-//       authId: 0,
-//     }),
-//     caller,
-//   );
-//   return { signerKey, poxAddr: addr };
-// }
+export function registerPool({ caller }: { caller: string }) {
+  const { signerKey } = setupSigner(testPool.identifier);
+  txOk(
+    testPool.registerSelf({
+      signerKey,
+      poolOwner: testPool.identifier,
+    }),
+    caller,
+  );
+  return { signerKey, pool: testPool.identifier };
+}

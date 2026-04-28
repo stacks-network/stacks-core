@@ -145,9 +145,12 @@ plan:
       emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
       path: contracts/pox-5.clar
       clarity-version: 4
+    epoch: '3.3'
+  - id: 4
+    transactions:
     - transaction-type: emulated-contract-publish
       contract-name: test-pox-5-pool
       emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
       path: contracts/test-pox-5-pool.clar
-      clarity-version: 4
-    epoch: '3.3'
+      clarity-version: 5
+    epoch: '3.4'
