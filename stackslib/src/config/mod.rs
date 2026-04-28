@@ -3117,8 +3117,8 @@ pub struct MinerConfig {
     ///   - Primarily intended for testing purposes.
     pub log_skipped_transactions: bool,
     /// Maximum number of bytes the miner thread may allocate during block
-    /// assembly before aborting. Tracked via jemalloc per-thread counters
-    /// when available; ignored on platforms without jemalloc.
+    /// assembly before aborting. Tracked via `TrackingAllocator`
+    ///
     /// A value of `0` disables the limit.
     /// ---
     /// @default: [`DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES`]

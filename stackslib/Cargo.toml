@@ -38,6 +38,7 @@ siphasher = "0.3.7"
 rusqlite = { workspace = true }
 time = "0.3.41"
 toml = { workspace = true }
+
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
 
