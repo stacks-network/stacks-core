@@ -333,11 +333,15 @@ impl NakamotoDownloadStateMachine {
                 continue;
             }
             if completed_tenures.contains_key(&wt.tenure_id_consensus_hash) {
-                debug!(
+                info!(
                     "Tenure {} is already downloaded",
                     &wt.tenure_id_consensus_hash
                 );
                 wt.processed = true;
+                continue;
+            }
+            if !attempted_tenures.contains_key(&wt.tenure_id_consensus_hash) {
+                test_debug!("Tenure {} not yet attempted", &wt.tenure_id_consensus_hash);
                 continue;
             }
             if let Some(tenure_start_end) = all_available_tenures.get(&wt.tenure_id_consensus_hash)
@@ -352,28 +356,26 @@ impl NakamotoDownloadStateMachine {
                     staging_blocks.get_nakamoto_block_header(&tenure_start_end.end_block_id);
                 match (start_block_header_optres, end_block_header_optres) {
                     (Ok(Some(start_hdr)), Ok(Some(end_hdr))) => {
-                        // see if there's at least one middle block, if these blocks aren't direct
-                        // descendants.  That would indicate that we got all the blocks in-between,
-                        // since the tenure downloader will only succeed if it fetches the full
-                        // tenure.
+                        // are there middle blocks?
                         if start_hdr.chain_length + 1 < end_hdr.chain_length {
-                            // check for a middle child (i.e. the parent of end_hdr)
-                            if staging_blocks
-                                .has_nakamoto_block_with_index_hash(&end_hdr.parent_block_id)
-                                .unwrap_or(false)
+                            // see if the last block was processed. If so, then we're done.
+                            if NakamotoChainState::has_block_header(
+                                chainstate.db(),
+                                &tenure_start_end.end_block_id,
+                                false,
+                            )
+                            .unwrap_or(false)
                             {
-                                debug!(
+                                info!(
                                     "Tenure {} already downloaded and stored",
                                     &wt.tenure_id_consensus_hash
                                 );
                                 wt.processed = true;
                                 continue;
-                            } else {
-                                info!("Tenure {} is not fully downloaded yet -- we have a start/end block but no middle block", &wt.tenure_id_consensus_hash);
                             }
                         } else {
                             // this tenure has just the start/end blocks, so we're good
-                            debug!(
+                            info!(
                                 "Tenure {} already downloaded and stored",
                                 &wt.tenure_id_consensus_hash
                             );
@@ -386,16 +388,12 @@ impl NakamotoDownloadStateMachine {
                     }
                 }
             }
-            if !attempted_tenures.contains_key(&wt.tenure_id_consensus_hash) {
-                test_debug!("Tenure {} not yet attempted", &wt.tenure_id_consensus_hash);
-                continue;
-            }
             if NakamotoChainState::has_processed_nakamoto_tenure(
                 &mut chainstate.index_conn(),
                 stacks_tip,
                 &wt.tenure_id_consensus_hash,
             )? {
-                debug!("Tenure {} is now processed", &wt.tenure_id_consensus_hash);
+                info!("Tenure {} is now processed", &wt.tenure_id_consensus_hash);
                 wt.processed = true;
                 continue;
             }
