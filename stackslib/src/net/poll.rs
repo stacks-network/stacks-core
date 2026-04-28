@@ -309,9 +309,9 @@ impl NetworkState {
         })?;
 
         // set some helpful defaults
-        // Don't go crazy on TIME_WAIT states; have them all die after 5 seconds
+        // Don't go crazy on TIME_WAIT states; have them all die immediately
         stream
-            .set_linger(Some(time::Duration::from_millis(5000)))
+            .set_linger(Some(time::Duration::from_millis(0)))
             .map_err(|e| {
                 warn!("Failed to set SO_LINGER: {:?}", &e);
                 net_error::ConnectionError
