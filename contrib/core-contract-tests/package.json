@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run -- --coverage",
+    "test:watch": "SUPPRESS_CLARINET_LOGS=1 NODE_OPTIONS=\"--import ./tests/suppress-stdout.js\" vitest",
     "genhtml": "genhtml lcov.info --branch-coverage -o coverage/"
   },
   "author": "",

@@ -21,6 +21,12 @@ import {
     - vitest run -- --coverage --costs          # collect coverage and cost reports
 */
 
+const setupFiles = [
+  vitestSetupFilePath,
+  // custom setup files can be added here
+  process.env.SUPPRESS_CLARINET_LOGS ? './tests/suppress-stdout.js' : undefined,
+].filter(Boolean);
+
 export default defineConfig({
   test: {
     environment: 'clarinet', // use vitest-environment-clarinet
@@ -29,10 +35,7 @@ export default defineConfig({
       threads: { singleThread: true },
       forks: { singleFork: true },
     },
-    setupFiles: [
-      vitestSetupFilePath,
-      // custom setup files can be added here
-    ],
+    setupFiles,
     environmentOptions: {
       clarinet: {
         ...getClarinetVitestsArgv(),
