@@ -22,10 +22,9 @@ use clarity::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRA
 #[allow(unused_imports)]
 use clarity::vm::analysis::StaticCheckErrorKind;
 use clarity::vm::types::MAX_TYPE_DEPTH;
-use clarity::vm::ClarityVersion;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
+    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils,
     SetupContract, TestBlock, EPOCHS_TO_TEST,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
@@ -190,7 +189,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
 #[ignore]
 #[test]
 fn static_check_error_cost_balance_exceeded() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &{
             let boot_addr = boot_code_test_addr();
@@ -215,7 +214,7 @@ fn static_check_error_cost_balance_exceeded() {
 /// Outcome: block rejected.
 #[test]
 fn static_check_error_memory_balance_exceeded() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "analysis-memory-test",
         contract_code: &{
             let mut contract = String::new();
@@ -247,7 +246,7 @@ fn static_check_error_memory_balance_exceeded() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_value_too_large() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "value-too-large",
         contract_code: "(as-max-len? 0x01 u1048577)",
     );
@@ -258,7 +257,7 @@ fn static_check_error_value_too_large() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_value_out_of_bounds() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
     contract_name: "value-out-of-bounds",
     contract_code: "(define-private (func (x (buff -12))) (len x))
         (func 0x00)",
@@ -270,7 +269,7 @@ fn static_check_error_value_out_of_bounds() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "expected-name",
         contract_code: "(match (some 1) 2 (+ 1 1) (+ 3 4))",
     );
@@ -281,7 +280,7 @@ fn static_check_error_expected_name() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_response_type() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "expected-response-type",
         contract_code: "(unwrap-err! (some 2) 2)",
     );
@@ -292,7 +291,7 @@ fn static_check_error_expected_response_type() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_could_not_determine_response_ok_type() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "could-not-determine",
         contract_code: "(unwrap! (err 3) 2)",
     );
@@ -303,7 +302,7 @@ fn static_check_error_could_not_determine_response_ok_type() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_could_not_determine_response_err_type() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "could-not-determine",
         contract_code: "(unwrap-err-panic (ok 3))",
     );
@@ -314,7 +313,7 @@ fn static_check_error_could_not_determine_response_err_type() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_could_not_determine_match_types() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "could-not-determine",
         contract_code: "(match none inner-value (/ 1 0) (+ 1 8))",
     );
@@ -325,7 +324,7 @@ fn static_check_error_could_not_determine_match_types() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_match_arms_must_match() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "match-arms-must-match",
         contract_code: "(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
     );
@@ -336,7 +335,7 @@ fn static_check_error_match_arms_must_match() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_match_option_syntax() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-match-option",
         contract_code: "(match (some 1) inner-value (+ 1 inner-value))",
     );
@@ -347,7 +346,7 @@ fn static_check_error_bad_match_option_syntax() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_match_response_syntax() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-match-response",
         contract_code: "(match (ok 1) inner-value (+ 1 inner-value))",
     );
@@ -358,7 +357,7 @@ fn static_check_error_bad_match_response_syntax() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_requires_at_least_arguments() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "requires-at-least",
         contract_code: "(match)",
     );
@@ -369,7 +368,7 @@ fn static_check_error_requires_at_least_arguments() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_requires_at_most_arguments() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "requires-at-most",
         contract_code: r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo" "bar")"#,
     );
@@ -380,7 +379,7 @@ fn static_check_error_requires_at_most_arguments() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_match_input() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-match-input",
         contract_code: "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
     );
@@ -391,7 +390,7 @@ fn static_check_error_bad_match_input() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_optional_type() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "expected-optional-type",
         contract_code: "(default-to 3 5)",
     );
@@ -407,7 +406,7 @@ fn static_check_error_bad_trait_implementation() {
         "(define-trait trait-1 ((get-1 ((list 10 uint)) (response uint uint))))",
     );
 
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "contract-name",
         contract_code: "
         (impl-trait .trait-contract.trait-1)
@@ -421,7 +420,7 @@ fn static_check_error_bad_trait_implementation() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_name_already_used() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "name-already-used",
         contract_code: "
         (define-constant foo 10)
@@ -434,7 +433,7 @@ fn static_check_error_name_already_used() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_return_types_must_match() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "return-types-must",
         contract_code: "
         (define-map tokens { id: int } { balance: int })
@@ -451,7 +450,7 @@ fn static_check_error_return_types_must_match() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_type_error() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "type-error",
         contract_code: "(define-data-var cursor int true)",
     );
@@ -462,7 +461,7 @@ fn static_check_error_type_error() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_define_variable_bad_signature() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "define-variable-bad",
         contract_code: "(define-data-var cursor 0x00)",
     );
@@ -473,7 +472,7 @@ fn static_check_error_define_variable_bad_signature() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_invalid_type_description() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "invalid-type-desc",
         contract_code: "(define-data-var cursor 0x00 true)",
     );
@@ -484,7 +483,7 @@ fn static_check_error_invalid_type_description() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_type_signature_too_deep() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "signature-too-deep",
         contract_code: &{
             let depth: usize = MAX_TYPE_DEPTH as usize + 1;
@@ -507,7 +506,7 @@ fn static_check_error_type_signature_too_deep() {
 /// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn static_check_error_supertype_too_large() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "supertype-too-large",
         contract_code: "
         (define-data-var big (buff 600000) 0x00)
@@ -523,7 +522,7 @@ fn static_check_error_supertype_too_large() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_constructed_list_too_large() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "constructed-list-large",
         contract_code: "
         (define-data-var ints (list 65535 int) (list 0))
@@ -543,7 +542,7 @@ fn static_check_error_constructed_list_too_large() {
 ///       this error.
 #[test]
 fn static_check_error_unknown_type_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "unknown-type-name",
         contract_code: "
         (define-public (trigger)
@@ -557,7 +556,7 @@ fn static_check_error_unknown_type_name() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_public_function_must_return_response() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "non-response",
         contract_code: "(define-public (non-response) true)",
     );
@@ -568,7 +567,7 @@ fn static_check_error_public_function_must_return_response() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_union_type_error() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "union-type-error",
         contract_code: "(map - (list true false true false))",
     );
@@ -579,7 +578,7 @@ fn static_check_error_union_type_error() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_undefined_variable() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "undefined-variable",
         contract_code: "(+ x y z)",
     );
@@ -590,7 +589,7 @@ fn static_check_error_undefined_variable() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_map_type_definition() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-map-type",
         contract_code: "(define-map lists { name: int } contents)",
     );
@@ -601,7 +600,7 @@ fn static_check_error_bad_map_type_definition() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_could_not_determine_type() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "could-not-determine",
         contract_code: "(index-of (list) none)",
     );
@@ -612,7 +611,7 @@ fn static_check_error_could_not_determine_type() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_sequence() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "expected-sequence",
         contract_code: r#"(index-of 3 "a")"#,
     );
@@ -626,7 +625,7 @@ fn static_check_error_expected_sequence() {
 ///       this error.
 #[test]
 fn static_check_error_could_not_determine_serialization_type() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "serialization-type",
         contract_code: "
         (define-trait trait-a ((ping () (response bool bool))))
@@ -642,7 +641,7 @@ fn static_check_error_could_not_determine_serialization_type() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_illegal_or_unknown_function_application() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "illegal-or-unknown",
         contract_code: "(map if (list 1 2 3 4 5))",
     );
@@ -653,7 +652,7 @@ fn static_check_error_illegal_or_unknown_function_application() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_unknown_function() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "unknown-function",
         contract_code: "(ynot 1 2)",
     );
@@ -664,7 +663,7 @@ fn static_check_error_unknown_function() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_incorrect_argument_count() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "incorrect-arg-count",
         contract_code: "(len (list 1) (list 1))",
     );
@@ -675,7 +674,7 @@ fn static_check_error_incorrect_argument_count() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_let_syntax() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-let-syntax",
         contract_code: "(let 1 2)",
     );
@@ -686,7 +685,7 @@ fn static_check_error_bad_let_syntax() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_syntax_binding() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-syntax-binding",
         contract_code: "(let ((1)) (+ 1 2))",
     );
@@ -697,7 +696,7 @@ fn static_check_error_bad_syntax_binding() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_optional_or_response_type() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "exp-opt-or-res",
         contract_code: "(try! 3)",
     );
@@ -708,7 +707,7 @@ fn static_check_error_expected_optional_or_response_type() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_define_trait_bad_signature() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "def-trait-bad-sign",
         contract_code: "(define-trait trait-1 ((get-1 uint uint)))",
     );
@@ -720,7 +719,7 @@ fn static_check_error_define_trait_bad_signature() {
 /// Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
 #[test]
 fn static_check_error_define_trait_duplicate_method() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "def-trait-dup-method",
         contract_code: "
         (define-trait double-method (
@@ -735,7 +734,7 @@ fn static_check_error_define_trait_duplicate_method() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_unexpected_trait_or_field_reference() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "trait-or-field-ref",
         contract_code: "(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)",
     );
@@ -747,7 +746,7 @@ fn static_check_error_unexpected_trait_or_field_reference() {
 /// Note: Added in Clarity 2. Clarity 1 will trigger a [`RuntimeCheckErrorKind::TypeError`].
 #[test]
 fn static_check_error_incompatible_trait() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "incompatible-trait",
         contract_code: "
     (define-trait trait-1 (
@@ -768,7 +767,7 @@ fn static_check_error_incompatible_trait() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_trait_too_many_methods() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "too-many-methods",
         contract_code: &format!(
             "(define-trait trait-1 ({}))",
@@ -785,7 +784,7 @@ fn static_check_error_trait_too_many_methods() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_too_many_function_parameters() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "too-many-params",
         contract_code: &format!(
             "(define-trait trait-1 ((method ({}) (response uint uint))))",
@@ -804,7 +803,7 @@ fn static_check_error_too_many_function_parameters() {
 ///       will trigger a [`RuntimeCheckErrorKind::NameAlreadyUsed`].
 #[test]
 fn static_check_error_reserved_word() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "reserved-word",
         contract_code: "(define-private (block-height) true)",
     );
@@ -815,7 +814,7 @@ fn static_check_error_reserved_word() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_block_info_property() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-block-info",
         contract_code: "(get-burn-block-info? none u1)",
     );
@@ -828,7 +827,7 @@ fn static_check_error_no_such_block_info_property() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_stacks_block_info_property() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-stacks-info",
         contract_code: "(get-stacks-block-info? none u1)",
     );
@@ -839,7 +838,7 @@ fn static_check_error_no_such_stacks_block_info_property() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_unchecked_intermediary_responses() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "unchecked-resp",
         contract_code: "
         (define-public (trigger)
@@ -854,7 +853,7 @@ fn static_check_error_unchecked_intermediary_responses() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_ft() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-ft",
         contract_code: "(ft-get-balance stackoos tx-sender)",
     );
@@ -865,7 +864,7 @@ fn static_check_error_no_such_ft() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_nft() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-nft",
         contract_code: r#"(nft-get-owner? stackoos "abc")"#,
     );
@@ -876,7 +875,7 @@ fn static_check_error_no_such_nft() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_define_nft_bad_signature() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "nft-bad-signature",
         contract_code: "(define-non-fungible-token stackaroos integer)",
     );
@@ -887,7 +886,7 @@ fn static_check_error_define_nft_bad_signature() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_token_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-token-name",
         contract_code: "(ft-get-balance u1234 tx-sender)",
     );
@@ -898,7 +897,7 @@ fn static_check_error_bad_token_name() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_empty_tuples_not_allowed() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "empty-tuples-not",
         contract_code: "
             (define-private (set-cursor (value (tuple)))
@@ -911,7 +910,7 @@ fn static_check_error_empty_tuples_not_allowed() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_data_variable() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-data-var",
         contract_code: "
             (define-private (get-cursor)
@@ -924,7 +923,7 @@ fn static_check_error_no_such_data_variable() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_non_function_application() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "non-function-appl",
         contract_code: "((lambda (x y) 1) 2 1)",
     );
@@ -935,7 +934,7 @@ fn static_check_error_non_function_application() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_list_application() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "expected-list-appl",
         contract_code: "(append 2 3)",
     );
@@ -946,7 +945,7 @@ fn static_check_error_expected_list_application() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_contract() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-contract",
         contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name test! u1)",
     );
@@ -957,7 +956,7 @@ fn static_check_error_no_such_contract() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_contract_call_expect_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "ccall-expect-name",
         contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name u1)",
     );
@@ -969,7 +968,7 @@ fn static_check_error_contract_call_expect_name() {
 /// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`RuntimeCheckErrorKind::TraitReferenceUnknown`]
 #[test]
 fn static_check_error_expected_callable_type() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "exp-callable-type",
         contract_code: "
             (define-constant bad-contract u1)
@@ -982,7 +981,7 @@ fn static_check_error_expected_callable_type() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_public_function() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-pub-func-lit",
         // using the pox-4 contract as we know it exists!
         contract_code: &format!("(contract-call? '{}.pox-4 missing-func)", boot_code_test_addr()),
@@ -994,7 +993,7 @@ fn static_check_error_no_such_public_function() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_default_types_must_match() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "default-types-must",
         contract_code: "
         (define-map tokens { id: int } { balance: int })
@@ -1007,7 +1006,7 @@ fn static_check_error_default_types_must_match() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_if_arms_must_match() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "if-arms-must-match",
         contract_code: "(if true true 1)",
     );
@@ -1018,7 +1017,7 @@ fn static_check_error_if_arms_must_match() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_tuple() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "expected-tuple",
         contract_code: "(get field-0 (some 1))",
     );
@@ -1029,7 +1028,7 @@ fn static_check_error_expected_tuple() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_tuple_field() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-tuple-f",
         contract_code: "(get value (tuple (name 1)))",
     );
@@ -1040,7 +1039,7 @@ fn static_check_error_no_such_tuple_field() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_map() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-map",
         contract_code: "(map-get? non-existent (tuple (name 1)))",
     );
@@ -1051,7 +1050,7 @@ fn static_check_error_no_such_map() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_function_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-func-name",
         contract_code: "(define-private (u1) u0)",
     );
@@ -1062,7 +1061,7 @@ fn static_check_error_bad_function_name() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_define_function_bad_signature() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "def-func-bad-sign",
         contract_code: "(define-private () 1)",
     );
@@ -1073,7 +1072,7 @@ fn static_check_error_define_function_bad_signature() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_tuple_field_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-tuple-field-name",
         contract_code: "(get u1 (tuple (foo u0)))",
     );
@@ -1084,7 +1083,7 @@ fn static_check_error_bad_tuple_field_name() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_map_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-map-name",
         contract_code: "(map-get? u1 (tuple (id u0)))",
     );
@@ -1097,7 +1096,7 @@ fn static_check_error_bad_map_name() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_block_info_expect_property_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "info-exp-prop-name",
         contract_code: "(get-block-info? u1 u0)",
         clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity2),
@@ -1111,7 +1110,7 @@ fn static_check_error_get_block_info_expect_property_name() {
 ///       a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_burn_block_info_expect_property_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "burn-exp-prop-name",
         contract_code: "(get-burn-block-info? u1 u0)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
@@ -1125,7 +1124,7 @@ fn static_check_error_get_burn_block_info_expect_property_name() {
 ///       a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_stacks_block_info_expect_property_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "stacks-exp-prop-name",
         contract_code: "(get-stacks-block-info? u1 u0)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity3),
@@ -1139,7 +1138,7 @@ fn static_check_error_get_stacks_block_info_expect_property_name() {
 ///       a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_tenure_info_expect_property_name() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "tenure-exp-prop-name",
         contract_code: "(get-tenure-info? u1 u0)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity3),
@@ -1153,7 +1152,7 @@ fn static_check_error_get_tenure_info_expect_property_name() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_tenure_info_property() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "no-such-tenure-info",
         contract_code: "(get-tenure-info? none u1)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity3),
@@ -1165,7 +1164,7 @@ fn static_check_error_no_such_tenure_info_property() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_trait_reference_unknown() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "trait-ref-unknown",
         contract_code: "(+ 1 <kvstore>)",
     );
@@ -1176,7 +1175,7 @@ fn static_check_error_trait_reference_unknown() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_contract_of_expects_trait() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "expect-trait",
         contract_code: "(contract-of u1)",
     );
@@ -1187,7 +1186,7 @@ fn static_check_error_contract_of_expects_trait() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_trait_method_unknown() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "trait-method-unknown",
         contract_code: "
         (define-trait trait-1 (
@@ -1202,7 +1201,7 @@ fn static_check_error_trait_method_unknown() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_write_attempted_in_read_only() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "write-attempted-in-ro",
         contract_code: "
         (define-read-only (silly)
@@ -1218,7 +1217,7 @@ fn static_check_error_write_attempted_in_read_only() {
 ///       contract fails earlier with `UnknownFunction("at-block")`.
 #[test]
 fn static_check_error_at_block_closure_must_be_read_only() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "closure-must-be-ro",
         contract_code: "
         (define-data-var foo int 1)
@@ -1236,7 +1235,7 @@ fn static_check_error_at_block_closure_must_be_read_only() {
 ///       contract fails earlier with `UnknownFunction("at-block")`.
 #[test]
 fn static_check_error_at_block_unavailable() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "at-block-unavailable",
         contract_code: "
         (define-public (trigger-error)
@@ -1254,7 +1253,7 @@ fn static_check_error_at_block_unavailable() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_allowance_expr_not_allowed() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "allow-expr-not-allo",
         contract_code: "(with-stx u1)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
@@ -1268,7 +1267,7 @@ fn static_check_error_allowance_expr_not_allowed() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_expected_list_of_allowances() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "exp-list-of-allowances",
         contract_code: "(restrict-assets? tx-sender u1 true)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
@@ -1282,7 +1281,7 @@ fn static_check_error_expected_list_of_allowances() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_expected_allowance_expr() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "exp-allowa-expr",
         contract_code: "(restrict-assets? tx-sender ((not true)) true)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
@@ -1296,7 +1295,7 @@ fn static_check_error_expected_allowance_expr() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_all_allowance_not_allowed() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "all-allow-not-allowed",
         contract_code: "(restrict-assets? tx-sender ((with-all-assets-unsafe)) true)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
@@ -1310,7 +1309,7 @@ fn static_check_error_with_all_allowance_not_allowed() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_all_allowance_not_alone() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "all-allow-not-alone",
         contract_code: "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
@@ -1324,7 +1323,7 @@ fn static_check_error_with_all_allowance_not_alone() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_nft_expected_list_of_identifiers() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "with-nft-exp-ident",
         contract_code: r#"(restrict-assets? tx-sender ((with-nft tx-sender "token-name" tx-sender)) true)"#,
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
@@ -1338,7 +1337,7 @@ fn static_check_error_with_nft_expected_list_of_identifiers() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_max_identifier_length_exceeded() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "max-ident-len-excd",
         contract_code: &format!(
             "(restrict-assets? tx-sender ((with-nft .token \"token-name\" (list {}))) true)",
@@ -1357,7 +1356,7 @@ fn static_check_error_max_identifier_length_exceeded() {
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_too_many_allowances() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "too-many-allowances",
         contract_code: &format!(
             "(restrict-assets? tx-sender ({} ) true)",
@@ -1374,7 +1373,7 @@ fn static_check_error_too_many_allowances() {
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_tuple_construction() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "bad-tuple-constr",
         contract_code: "(tuple (name 1) (name 2))",
     );

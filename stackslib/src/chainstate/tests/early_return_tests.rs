@@ -20,7 +20,7 @@ use clarity::vm::types::ResponseData;
 use clarity::vm::Value as ClarityValue;
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, contract_deploy_consensus_test,
+    contract_call_consensus_snap_test, contract_deploy_consensus_snap_test,
 };
 
 /// Generates a coverage classification report for a specific [`EarlyReturnError`] variant.
@@ -72,7 +72,7 @@ fn variant_coverage_report(variant: EarlyReturnError) {
 /// Outcome: block accepted
 #[test]
 fn native_try_ret_err_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "unwrap-try-resp",
         contract_code: "(begin (try! (if true (err u200) (ok u1))))",
     );
@@ -85,7 +85,7 @@ fn native_try_ret_err_cdeploy() {
 /// into a successful return wrapping the internal thrown value.
 #[test]
 fn native_try_ret_err_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "unwrap-err",
         contract_code: "
             (define-public (trigger (resp (response uint uint)))
@@ -108,7 +108,7 @@ fn native_try_ret_err_ccall() {
 /// Outcome: block accepted
 #[test]
 fn native_try_ret_none_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "unwrap-try-opt",
         contract_code: "(begin (try! (if true none (some true))))",
     );
@@ -121,7 +121,7 @@ fn native_try_ret_none_cdeploy() {
 /// into a successful return wrapping the internal thrown value.
 #[test]
 fn native_try_ret_none_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "unwrap-try-opt",
         contract_code: "
             (define-read-only (trigger-ro (opt (optional bool)))
@@ -148,7 +148,7 @@ fn native_try_ret_none_ccall() {
 /// Outcome: block accepted
 #[test]
 fn native_unwrap_err_or_ret_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "unwrap-err",
         contract_code: "(begin (unwrap-err! (if true (ok u3) (err u1)) (err u9)))",
     );
@@ -161,7 +161,7 @@ fn native_unwrap_err_or_ret_cdeploy() {
 /// into a successful return wrapping the internal thrown value.
 #[test]
 fn native_unwrap_err_or_ret_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "unwrap-err",
         contract_code: "
             (define-public (trigger)
@@ -181,7 +181,7 @@ fn native_unwrap_err_or_ret_ccall() {
 /// Outcome: block accepted
 #[test]
 fn native_unwrap_or_ret_none_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "unwrap-opt",
         contract_code: "(begin (unwrap! (if true none (some true)) (err u9)))",
     );
@@ -194,7 +194,7 @@ fn native_unwrap_or_ret_none_cdeploy() {
 /// into a successful return wrapping the internal thrown value.
 #[test]
 fn native_unwrap_or_ret_none_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "unwrap-opt",
         contract_code: "
             (define-public (trigger (opt (optional bool)))
@@ -214,7 +214,7 @@ fn native_unwrap_or_ret_none_ccall() {
 /// Outcome: block accepted
 #[test]
 fn native_special_asserts_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "asserts-fail",
         contract_code: "(begin (asserts! (is-eq 1 0) (err u0)) (ok u1))",
     );
@@ -227,7 +227,7 @@ fn native_special_asserts_cdeploy() {
 /// into a successful return wrapping the internal thrown value.
 #[test]
 fn native_special_asserts_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "asserts-fail",
         contract_code: "(define-public (trigger) (begin (asserts! false (err u0)) (ok u1)))",
         function_name: "trigger",

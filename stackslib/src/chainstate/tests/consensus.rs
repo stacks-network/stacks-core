@@ -1577,6 +1577,59 @@ impl TestTxFactory {
     }
 }
 
+pub struct ConsensusUnitReport {
+    pub expected_results: Vec<ExpectedResult>,
+}
+
+macro_rules! contract_call_consensus_unit_test {
+    (
+        contract_name: $contract_name:expr,
+        contract_code: $contract_code:expr,
+        function_name: $function_name:expr,
+        function_args: $function_args:expr,
+        $(deploy_epochs: $deploy_epochs:expr,)?
+        $(call_epochs: $call_epochs:expr,)?
+        $(clarity_versions: $clarity_versions:expr,)?
+        $(setup_contracts: $setup_contracts:expr,)?
+    ) => {{
+        use $crate::chainstate::tests::consensus::{
+            EPOCHS_TO_TEST, ConsensusUnitReport,
+            ContractConsensusTest, SetupContract,
+        };
+        use clarity::types::StacksEpochId;
+        use clarity::vm::ClarityVersion;
+
+        // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
+        let deploy_epochs = &StacksEpochId::since(StacksEpochId::Epoch20);
+        $(let deploy_epochs = $deploy_epochs;)?
+
+        // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
+        let call_epochs = EPOCHS_TO_TEST;
+        $(let call_epochs = $call_epochs;)?
+        let setup_contracts: &[SetupContract] = &[];
+        $(let setup_contracts = $setup_contracts;)?
+        let clarity_versions: &[ClarityVersion] = ClarityVersion::ALL;
+        $(let clarity_versions = $clarity_versions;)?
+        let contract_test = ContractConsensusTest::new(
+            function_name!(),
+            vec![],
+            deploy_epochs,
+            call_epochs,
+            $contract_name,
+            $contract_code,
+            $function_name,
+            $function_args,
+            clarity_versions,
+            setup_contracts,
+        );
+        let result = contract_test.run();
+        ConsensusUnitReport {
+            expected_results: result
+        }
+    }};
+}
+pub(crate) use contract_call_consensus_unit_test;
+
 /// Generates a consensus test body for executing a contract function across multiple Stacks epochs.
 ///
 /// This macro automates both contract deployment and function invocation across different
@@ -1608,7 +1661,7 @@ impl TestTxFactory {
 /// ```rust,ignore
 /// #[test]
 /// fn test_my_contract_call_consensus() {
-///     contract_call_consensus_test!(
+///     contract_call_consensus_snap_test!(
 ///         contract_name: "my-contract",
 ///         contract_code: "
 ///             (define-public (get-message)
@@ -1622,47 +1675,39 @@ impl TestTxFactory {
 ///     );
 /// }
 /// ```
-macro_rules! contract_call_consensus_test {
+macro_rules! contract_call_consensus_snap_test {
+    ($($tt:tt)*) => {{
+        let result = $crate::chainstate::tests::consensus::contract_call_consensus_unit_test! {
+            $($tt)*
+        };
+        insta::assert_ron_snapshot!(result.expected_results);
+    }};
+}
+pub(crate) use contract_call_consensus_snap_test;
+
+macro_rules! contract_deploy_consensus_unit_test {
     (
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
-        function_name: $function_name:expr,
-        function_args: $function_args:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
-        $(call_epochs: $call_epochs:expr,)?
         $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
-    ) => {
-        {
-             // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-            let deploy_epochs = &clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
-            $(let deploy_epochs = $deploy_epochs;)?
-
-            // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-            let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
-            $(let call_epochs = $call_epochs;)?
-            let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
-            $(let setup_contracts = $setup_contracts;)?
-            let clarity_versions: &[clarity::vm::ClarityVersion] = clarity::vm::ClarityVersion::ALL;
-            $(let clarity_versions = $clarity_versions;)?
-            let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
-                function_name!(),
-                vec![],
-                deploy_epochs,
-                call_epochs,
-                $contract_name,
-                $contract_code,
-                $function_name,
-                $function_args,
-                clarity_versions,
-                setup_contracts,
-            );
-            let result = contract_test.run();
-            insta::assert_ron_snapshot!(result);
-        }
-    };
+    ) => {{
+        let deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
+        $(let deploy_epochs = $deploy_epochs;)?
+        $crate::chainstate::tests::consensus::contract_call_consensus_unit_test!(
+            contract_name: $contract_name,
+            contract_code: $contract_code,
+            function_name: "",   // No function calls, just deploys
+            function_args: &[],  // No function calls, just deploys
+            deploy_epochs: deploy_epochs,
+            call_epochs: &[],    // No function calls, just deploys
+            $(clarity_versions: $clarity_versions,)?
+            $(setup_contracts: $setup_contracts,)?
+        )
+    }};
 }
-pub(crate) use contract_call_consensus_test;
+pub(crate) use contract_deploy_consensus_unit_test;
 
 /// Generates a consensus test body for contract deployment across multiple Stacks epochs.
 ///
@@ -1690,38 +1735,22 @@ pub(crate) use contract_call_consensus_test;
 /// ```rust,ignore
 /// #[test]
 /// fn test_my_contract_deploy_consensus() {
-///     contract_deploy_consensus_test!(
+///     contract_deploy_consensus_snap_test!(
 ///         deploy_test,
 ///         contract_name: "my-contract",
 ///         contract_code: "(define-public (init) (ok true))",
 ///     );
 /// }
 /// ```
-macro_rules! contract_deploy_consensus_test {
-    (
-        contract_name: $contract_name:expr,
-        contract_code: $contract_code:expr,
-        $(deploy_epochs: $deploy_epochs:expr,)?
-        $(clarity_versions: $clarity_versions:expr,)?
-        $(setup_contracts: $setup_contracts:expr,)?
-    ) => {
-        {
-            let deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
-            $(let deploy_epochs = $deploy_epochs;)?
-            $crate::chainstate::tests::consensus::contract_call_consensus_test!(
-                contract_name: $contract_name,
-                contract_code: $contract_code,
-                function_name: "",   // No function calls, just deploys
-                function_args: &[],  // No function calls, just deploys
-                deploy_epochs: deploy_epochs,
-                call_epochs: &[],    // No function calls, just deploys
-                $(clarity_versions: $clarity_versions,)?
-                $(setup_contracts: $setup_contracts,)?
-            );
-        }
-    };
+macro_rules! contract_deploy_consensus_snap_test {
+    ($($tt:tt)*) => {{
+        let result = $crate::chainstate::tests::consensus::contract_deploy_consensus_unit_test! {
+            $($tt)*
+        };
+        insta::assert_ron_snapshot!(result.expected_results);
+    }};
 }
-pub(crate) use contract_deploy_consensus_test;
+pub(crate) use contract_deploy_consensus_snap_test;
 
 /// Contract deployment that must occur before `contract_call_consensus_test!` or `contract_deploy_consensus_test!` runs its own logic.
 ///
@@ -1869,7 +1898,7 @@ fn test_append_stx_transfers_success() {
 /// then calls a function in that contract and snapshots the results.
 #[test]
 fn test_successfully_deploy_and_call() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "foo_contract",
         contract_code: FOO_CONTRACT,
         function_name: "bar",
@@ -1881,7 +1910,7 @@ fn test_successfully_deploy_and_call() {
 /// Deploys a contract to all epoch, for each Clarity version
 #[test]
 fn test_successfully_deploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "foo_contract",
         contract_code: FOO_CONTRACT,
     );
@@ -1891,7 +1920,7 @@ fn test_successfully_deploy() {
 /// Test that the supertype list is accepted in >= Epoch 2.4,
 /// but is rejected in all earlier Epochs
 fn problematic_supertype_list() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "problematic",
         contract_code: "(define-data-var my-list (list 10 { a: int }) (list { a: 1 }))
     (var-set my-list
@@ -1910,7 +1939,7 @@ fn problematic_supertype_list() {
 /// Test that a read-only function call can be included in a block without issue.
 /// The fn also shows that a non-response is handled without issue with the testing framework.
 fn read_only_transaction_block() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "read-only-call",
         contract_code: "
             (define-read-only (trigger)
