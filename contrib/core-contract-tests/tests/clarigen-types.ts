@@ -8185,6 +8185,85 @@ export const contracts = {
     clarity_version: 'Clarity3',
     contractName: 'sip-031-indirect',
   },
+  testPox5Pool: {
+    functions: {
+      updateAllowedCaller: {
+        name: 'update-allowed-caller',
+        access: 'public',
+        args: [{ name: 'new-allowed-caller', type: 'principal' }],
+        outputs: { type: { response: { ok: 'bool', error: 'none' } } },
+      } as TypedAbiFunction<
+        [newAllowedCaller: TypedAbiArg<string, 'newAllowedCaller'>],
+        Response<boolean, null>
+      >,
+      validateManagement_x: {
+        name: 'validate-management!',
+        access: 'public',
+        args: [
+          { name: 'caller', type: 'principal' },
+          { name: 'signer-key', type: { buffer: { length: 33 } } },
+          {
+            name: 'pox-addr',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          caller: TypedAbiArg<string, 'caller'>,
+          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
+          poxAddr: TypedAbiArg<
+            {
+              hashbytes: Uint8Array;
+              version: Uint8Array;
+            },
+            'poxAddr'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
+      validateStake_x: {
+        name: 'validate-stake!',
+        access: 'public',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'amount-ustx', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'none' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
+          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+        ],
+        Response<boolean, null>
+      >,
+    },
+    maps: {},
+    variables: {
+      allowedCaller: {
+        name: 'allowed-caller',
+        type: 'principal',
+        access: 'variable',
+      } as TypedAbiVariable<string>,
+    },
+    constants: {
+      allowedCaller: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
+    },
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: 'Epoch33',
+    clarity_version: 'Clarity4',
+    contractName: 'test-pox-5-pool',
+  },
 } as const;
 
 export const accounts = {
@@ -8248,6 +8327,7 @@ export const identifiers = {
   signersVoting: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers-voting',
   sip031: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031',
   sip031Indirect: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031-indirect',
+  testPox5Pool: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.test-pox-5-pool',
 } as const;
 
 export const simnet = {
@@ -8332,6 +8412,12 @@ export const deployments = {
   sip031Indirect: {
     devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031-indirect',
     simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031-indirect',
+    testnet: null,
+    mainnet: null,
+  },
+  testPox5Pool: {
+    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.test-pox-5-pool',
+    simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.test-pox-5-pool',
     testnet: null,
     mainnet: null,
   },
