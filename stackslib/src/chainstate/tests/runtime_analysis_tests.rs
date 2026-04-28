@@ -583,9 +583,6 @@ fn runtime_check_error_kind_type_error_ccall() {
     )
     .with_clarity_version(ClarityVersion::Clarity1); // Only works with clarity 1 or 2
 
-    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
-    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
-
     contract_call_consensus_test!(
         contract_name: "value-too-large",
         contract_code: "
@@ -608,7 +605,7 @@ fn runtime_check_error_kind_type_error_ccall() {
         (get-shares u999 .pool))",
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: &deploy_epochs,
+        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
         call_epochs: &[StacksEpochId::Epoch33],
         setup_contracts: &[contract_1, contract_2],
     );
