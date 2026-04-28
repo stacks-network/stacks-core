@@ -340,10 +340,6 @@ impl NakamotoDownloadStateMachine {
                 wt.processed = true;
                 continue;
             }
-            if !attempted_tenures.contains_key(&wt.tenure_id_consensus_hash) {
-                test_debug!("Tenure {} not yet attempted", &wt.tenure_id_consensus_hash);
-                continue;
-            }
             if let Some(tenure_start_end) = all_available_tenures.get(&wt.tenure_id_consensus_hash)
             {
                 // maybe we already downloaded it?
@@ -387,6 +383,10 @@ impl NakamotoDownloadStateMachine {
                         // start and/or end blocks are missing, so this tenure is not downloaded
                     }
                 }
+            }
+            if !attempted_tenures.contains_key(&wt.tenure_id_consensus_hash) {
+                test_debug!("Tenure {} not yet attempted", &wt.tenure_id_consensus_hash);
+                continue;
             }
             if NakamotoChainState::has_processed_nakamoto_tenure(
                 &mut chainstate.index_conn(),
