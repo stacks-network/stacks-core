@@ -584,7 +584,7 @@ fn stack_depth_too_deep_call_chain_cdeploy() {
             &contract_code,
             "",
             &[],
-            &[],
+            ClarityVersion::ALL,
             &[],
         )
         .run();
@@ -871,6 +871,6 @@ fn block_time_not_available() {
         function_args: &[ClarityValue::UInt(1)],
         deploy_epochs: &[StacksEpochId::Epoch33],
         call_epochs: &[StacksEpochId::Epoch33],
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     )
 }
