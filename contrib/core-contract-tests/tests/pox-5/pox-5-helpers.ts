@@ -12,11 +12,11 @@ import { accounts, project } from '../clarigen-types';
 import { rov, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { randomPoxAddress } from '../test-helpers';
+// import { randomPoxAddress } from '../test-helpers';
 
 const contracts = projectFactory(project, 'simnet');
-export const poxWf = contracts.poxWaterfall0;
-export const errorCodes = projectErrors(project).poxWaterfall0;
+export const pox5 = contracts.pox5;
+export const errorCodes = projectErrors(project).pox5;
 // export const testPool = contracts.testPoxWaterfall0Pool;
 
 export function toWitnessOutput(script: Uint8Array) {
@@ -50,8 +50,8 @@ export function serializeLockupScript({
 
 /** Helper that returns the start height of the next reward cycle */
 export function getStartHeight() {
-  const nextCycle = rov(poxWf.currentPoxRewardCycle()) + 1n;
-  return rov(poxWf.rewardCycleToBurnHeight(nextCycle));
+  const nextCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
+  return rov(pox5.rewardCycleToBurnHeight(nextCycle));
 }
 
 export function signSignerKeyGrant({
@@ -81,9 +81,9 @@ export function signSignerKeyGrant({
   const fullMessage = encodeStructuredDataBytes({
     message,
     domain: Cl.tuple({
-      name: Cl.stringAscii(poxWf.constants.pOX_5_SIGNER_DOMAIN.name),
-      version: Cl.stringAscii(poxWf.constants.pOX_5_SIGNER_DOMAIN.version),
-      'chain-id': Cl.uint(poxWf.constants.pOX_5_SIGNER_DOMAIN.chainId),
+      name: Cl.stringAscii(pox5.constants.pOX_5_SIGNER_DOMAIN.name),
+      version: Cl.stringAscii(pox5.constants.pOX_5_SIGNER_DOMAIN.version),
+      'chain-id': Cl.uint(pox5.constants.pOX_5_SIGNER_DOMAIN.chainId),
     }),
   });
   const data = signWithKey(signerSk, hex.encode(sha256(fullMessage)));
@@ -109,7 +109,7 @@ export function createSignerKeyGrant({
     signerSk,
   });
   txOk(
-    poxWf.grantSignerKey({
+    pox5.grantSignerKey({
       signerKey: secp256k1.getPublicKey(signerSk, true),
       signerSig: signature,
       staker,
@@ -168,9 +168,9 @@ export function signPerTransactionAuth({
   const fullMessage = encodeStructuredDataBytes({
     message,
     domain: Cl.tuple({
-      name: Cl.stringAscii(poxWf.constants.pOX_5_SIGNER_DOMAIN.name),
-      version: Cl.stringAscii(poxWf.constants.pOX_5_SIGNER_DOMAIN.version),
-      'chain-id': Cl.uint(poxWf.constants.pOX_5_SIGNER_DOMAIN.chainId),
+      name: Cl.stringAscii(pox5.constants.pOX_5_SIGNER_DOMAIN.name),
+      version: Cl.stringAscii(pox5.constants.pOX_5_SIGNER_DOMAIN.version),
+      'chain-id': Cl.uint(pox5.constants.pOX_5_SIGNER_DOMAIN.chainId),
     }),
   });
   const data = signWithKey(signerSk, hex.encode(sha256(fullMessage)));

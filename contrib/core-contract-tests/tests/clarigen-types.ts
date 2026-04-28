@@ -3599,7 +3599,7 @@ export const contracts = {
     clarity_version: 'Clarity2',
     contractName: 'pox-4',
   },
-  poxWaterfall0: {
+  pox5: {
     functions: {
       addStakerToBond: {
         name: 'add-staker-to-bond',
@@ -5401,7 +5401,7 @@ export const contracts = {
     fungible_tokens: [],
     epoch: 'Epoch33',
     clarity_version: 'Clarity4',
-    contractName: 'pox-waterfall-0',
+    contractName: 'pox-5',
   },
   pox_4_test: {
     functions: {
@@ -8238,7 +8238,7 @@ export const identifiers = {
   bns: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.bns',
   bns_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.bns_test',
   pox4: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-4',
-  poxWaterfall0: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-waterfall-0',
+  pox5: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
   pox_4_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox_4_test',
   sbtcDeposit: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit',
   sbtcRegistry: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry',
@@ -8275,9 +8275,9 @@ export const deployments = {
     testnet: null,
     mainnet: null,
   },
-  poxWaterfall0: {
-    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-waterfall-0',
-    simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-waterfall-0',
+  pox5: {
+    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
+    simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
     testnet: null,
     mainnet: null,
   },
