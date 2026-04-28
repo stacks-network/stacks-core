@@ -41,9 +41,6 @@ toml = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
 
-[target.'cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))'.dependencies]
-tikv-jemalloc-ctl = { workspace = true }
-
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
 

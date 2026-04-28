@@ -46,42 +46,37 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 
-/// Build an [`AbortCallback`] that checks jemalloc per-thread allocation
-/// deltas and aborts when net allocation since the callback was created
-/// exceeds `limit_bytes`. Intended to be called once per transaction so
-/// each transaction gets a fresh baseline.
+/// Build an [`AbortCallback`] that checks per-thread allocation deltas
+/// and aborts when net allocation since the callback was created exceeds
+/// `limit_bytes`. Intended to be called once per transaction so each
+/// transaction gets a fresh baseline.
 ///
-/// On platforms without jemalloc this returns `None`.
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
+/// Requires a [`TrackingAllocator`](stacks_common::alloc_tracker::TrackingAllocator)
+/// to be set as the `#[global_allocator]` in the binary crate. If no
+/// tracking allocator is active the counters remain at 0 and the callback
+/// will never trigger (safe degradation).
 pub fn make_mem_abort_callback(limit_bytes: u64) -> Option<clarity::vm::contexts::AbortCallback> {
-    use tikv_jemalloc_ctl::thread::{allocatedp, deallocatedp};
+    use stacks_common::alloc_tracker::{thread_allocated, thread_deallocated};
 
     if limit_bytes == 0 {
         return None;
     }
 
-    let alloc_ptr = allocatedp::read().ok()?;
-    let dealloc_ptr = deallocatedp::read().ok()?;
-
-    let baseline_alloc = alloc_ptr.get();
-    let baseline_dealloc = dealloc_ptr.get();
+    let baseline_alloc = thread_allocated();
+    let baseline_dealloc = thread_deallocated();
 
     Some(std::sync::Arc::new(move || {
-        let net = (alloc_ptr.get().saturating_sub(baseline_alloc))
-            .saturating_sub(dealloc_ptr.get().saturating_sub(baseline_dealloc));
-        if net as u64 > limit_bytes {
+        let alloc = thread_allocated().saturating_sub(baseline_alloc);
+        let dealloc = thread_deallocated().saturating_sub(baseline_dealloc);
+        let net_alloc = alloc.saturating_sub(dealloc);
+        if net_alloc > limit_bytes {
             Err(format!(
-                "Transaction heap usage ({net} bytes) exceeded limit ({limit_bytes} bytes)"
+                "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"
             ))
         } else {
             Ok(())
         }
     }))
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows", target_arch = "arm"))]
-pub fn make_mem_abort_callback(_limit_bytes: u64) -> Option<clarity::vm::contexts::AbortCallback> {
-    None
 }
 
 /// Nakamaoto tenure information

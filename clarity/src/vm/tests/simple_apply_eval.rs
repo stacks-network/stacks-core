@@ -1896,7 +1896,7 @@ fn test_abort_callback_stops_execution() {
             ));
             assert_eq!(e, expected);
         }
-        other => panic!("Expected CostAborted error, got: {other:?}"),
+        other => panic!("Expected unreachable error, got: {other:?}"),
     }
 }
 

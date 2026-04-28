@@ -41,6 +41,7 @@ use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::config::chain_data::MinerStats;
 pub use stacks::config::{Config, ConfigFile};
+use stacks_common::alloc_tracker::TrackingAllocator;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -57,7 +58,13 @@ use crate::run_loop::boot_nakamoto;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator { inner: Jemalloc };
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_arch = "arm"))]
+#[global_allocator]
+static GLOBAL: TrackingAllocator<std::alloc::System> = TrackingAllocator {
+    inner: std::alloc::System,
+};
 
 /// Implmentation of `pick_best_tip` CLI option
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {

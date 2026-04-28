@@ -495,8 +495,8 @@ pub struct ConnectionOptions {
 
     /// Maximum bytes a single transaction may allocate on the heap during
     /// block-proposal validation before it is rejected. Tracked via
-    /// jemalloc per-thread counters when available; ignored on platforms
-    /// without jemalloc. A value of `0` disables the limit.
+    /// per-thread allocation counters in `TrackingAllocator`.
+    /// A value of `0` disables the limit.
     pub block_proposal_max_tx_mem_bytes: u64,
 }
 

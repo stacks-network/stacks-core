@@ -497,13 +497,14 @@ fn check_max_execution_time_expired(
             }
         }
     }
-    if let Some(ref cb) = global_context.abort_callback {
-        if let Err(reason) = cb() {
-            return Err(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable(reason),
-            ));
-        }
+    if let Some(ref cb) = global_context.abort_callback
+        && let Err(reason) = cb()
+    {
+        return Err(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::Unreachable(reason),
+        ));
     }
+
     Ok(())
 }
 

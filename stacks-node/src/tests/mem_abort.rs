@@ -16,122 +16,118 @@
 
 //! Tests for the per-transaction memory-limit abort callback
 //! (`make_mem_abort_callback`). These live in the stacks-node crate because
-//! it sets jemalloc as the `#[global_allocator]`, which is required for the
-//! jemalloc thread-local counters to reflect actual allocations.
+//! it sets a `TrackingAllocator` as the `#[global_allocator]`, which is
+//! required for the thread-local counters to reflect actual allocations.
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
-mod jemalloc_tests {
-    use clarity::vm::contexts::GlobalContext;
-    use clarity::vm::costs::LimitedCostTracker;
-    use clarity::vm::database::MemoryBackingStore;
-    use clarity::vm::types::QualifiedContractIdentifier;
-    use clarity::vm::{ast, eval_all, ClarityVersion, ContractContext};
-    use stacks::chainstate::nakamoto::miner::make_mem_abort_callback;
-    use stacks_common::consts::CHAIN_ID_TESTNET;
-    use stacks_common::types::StacksEpochId;
+use clarity::vm::contexts::GlobalContext;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::MemoryBackingStore;
+use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::{ast, eval_all, ClarityVersion, ContractContext};
+use stacks::chainstate::nakamoto::miner::make_mem_abort_callback;
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::StacksEpochId;
 
-    /// A Clarity program that allocates a non-trivial amount of memory
-    /// by building a large list of string literals.
-    fn big_alloc_program() -> String {
-        let mut lines = Vec::new();
-        for i in 0u8..100 {
-            let ch = (b'a' + (i % 26)) as char;
-            let s: String = std::iter::repeat(ch).take(100).collect();
-            lines.push(format!("    \"{s}\""));
-        }
-        format!("(list\n{}\n)", lines.join("\n"))
+/// A Clarity program that allocates a non-trivial amount of memory
+/// by building a large list of string literals.
+fn big_alloc_program() -> String {
+    let mut lines = Vec::new();
+    for i in 0u8..100 {
+        let ch = (b'a' + (i % 26)) as char;
+        let s: String = std::iter::repeat(ch).take(100).collect();
+        lines.push(format!("    \"{s}\""));
     }
+    format!("(list\n{}\n)", lines.join("\n"))
+}
 
-    /// Helper: run a Clarity program with an optional abort callback.
-    fn run_with_abort_callback(
-        program: &str,
-        abort_cb: Option<clarity::vm::contexts::AbortCallback>,
-    ) -> Result<Option<clarity::vm::Value>, clarity::vm::errors::VmExecutionError> {
-        let contract_id = QualifiedContractIdentifier::transient();
-        let mut marf = MemoryBackingStore::new();
-        let conn = marf.as_clarity_db();
-        let epoch = StacksEpochId::Epoch30;
+/// Helper: run a Clarity program with an optional abort callback.
+fn run_with_abort_callback(
+    program: &str,
+    abort_cb: Option<clarity::vm::contexts::AbortCallback>,
+) -> Result<Option<clarity::vm::Value>, clarity::vm::errors::VmExecutionError> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let epoch = StacksEpochId::Epoch30;
 
-        let mut global_context = GlobalContext::new(
-            false,
-            CHAIN_ID_TESTNET,
-            conn,
-            LimitedCostTracker::new_free(),
-            epoch,
-        );
-        global_context.abort_callback = abort_cb;
+    let mut global_context = GlobalContext::new(
+        false,
+        CHAIN_ID_TESTNET,
+        conn,
+        LimitedCostTracker::new_free(),
+        epoch,
+    );
+    global_context.abort_callback = abort_cb;
 
-        let mut contract_context =
-            ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
-        let parsed = ast::build_ast(
-            &contract_id,
-            program,
-            &mut global_context.cost_track,
-            ClarityVersion::Clarity2,
-            epoch,
-        )
-        .expect("Failed to parse program")
-        .expressions;
+    let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
+    let parsed = ast::build_ast(
+        &contract_id,
+        program,
+        &mut global_context.cost_track,
+        ClarityVersion::Clarity2,
+        epoch,
+    )
+    .expect("Failed to parse program")
+    .expressions;
 
-        global_context.execute(|g| eval_all(&parsed, &mut contract_context, g, None))
-    }
+    global_context.execute(|g| eval_all(&parsed, &mut contract_context, g, None))
+}
 
-    #[test]
-    fn test_mem_abort_callback_aborts_on_exceeded_limit() {
-        let program = big_alloc_program();
+#[test]
+fn test_mem_abort_callback_aborts_on_exceeded_limit() {
+    let program = big_alloc_program();
 
-        // 1 byte limit — any real execution will exceed this.
-        let abort_cb =
-            make_mem_abort_callback(1).expect("jemalloc should be available on this platform");
+    // 1 byte limit => any real execution will exceed this.
+    let abort_cb = make_mem_abort_callback(1)
+        .expect("tracking allocator should be available on this platform");
 
-        let result = run_with_abort_callback(&program, Some(abort_cb));
+    let result = run_with_abort_callback(&program, Some(abort_cb));
 
-        assert!(
-            result.is_err(),
-            "Expected execution to be aborted, but it succeeded"
-        );
-        let err_string = format!("{:?}", result.unwrap_err());
-        assert!(
-            err_string.contains("exceeded limit"),
-            "Expected 'exceeded limit' in error, got: {err_string}"
-        );
-    }
+    assert!(
+        result.is_err(),
+        "Expected execution to be aborted, but it succeeded"
+    );
+    let err_string = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_string.contains("exceeded limit"),
+        "Expected 'exceeded limit' in error, got: {err_string}"
+    );
+}
 
-    #[test]
-    fn test_mem_abort_callback_allows_execution_under_limit() {
-        let program = big_alloc_program();
+#[test]
+fn test_mem_abort_callback_allows_execution_under_limit() {
+    let program = big_alloc_program();
 
-        // 100 MB limit — the large list program should not exceed this.
-        let abort_cb = make_mem_abort_callback(100 * 1024 * 1024)
-            .expect("jemalloc should be available on this platform");
+    // 100 MB limit => the large list program should not exceed this.
+    let abort_cb = make_mem_abort_callback(100 * 1024 * 1024)
+        .expect("tracking allocator should be available on this platform");
 
-        let result = run_with_abort_callback(&program, Some(abort_cb));
+    let result = run_with_abort_callback(&program, Some(abort_cb));
 
-        assert!(
-            result.is_ok(),
-            "Expected execution to succeed, but got: {result:?}"
-        );
-    }
+    assert!(
+        result.is_ok(),
+        "Expected execution to succeed, but got: {result:?}"
+    );
+}
 
-    #[test]
-    fn test_mem_abort_callback_disabled_when_zero() {
-        // Limit of 0 means disabled — should return None.
-        assert!(
-            make_mem_abort_callback(0).is_none(),
-            "Expected None for limit_bytes=0"
-        );
-    }
+#[test]
+fn test_mem_abort_callback_disabled_when_zero() {
+    // Limit of 0 means disabled => should return None.
+    assert!(
+        make_mem_abort_callback(0).is_none(),
+        "Expected None for limit_bytes=0"
+    );
+}
 
-    #[test]
-    fn test_no_abort_callback_allows_large_allocation() {
-        let program = big_alloc_program();
+#[test]
+fn test_no_abort_callback_allows_large_allocation() {
+    let program = big_alloc_program();
 
-        // No abort callback at all — should succeed regardless of allocations.
-        let result = run_with_abort_callback(&program, None);
+    // No abort callback at all => should succeed regardless of allocations.
+    let result = run_with_abort_callback(&program, None);
 
-        assert!(
-            result.is_ok(),
-            "Expected execution to succeed without abort callback, but got: {result:?}"
-        );
-    }
+    assert!(
+        result.is_ok(),
+        "Expected execution to succeed without abort callback, but got: {result:?}"
+    );
 }
