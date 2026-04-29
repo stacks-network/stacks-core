@@ -1,10 +1,10 @@
 import {
-  contractFactory,
   CoreNodeEventType,
   err,
   extractErrors,
   isResponse,
   projectFactory,
+  ok,
 } from '@clarigen/core';
 import { accounts, project } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
@@ -14,9 +14,14 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import {
   createSignerKeyGrant,
   deployTestPool,
+  expectAllSignersHaveKeys,
+  getAllStakers,
+  isStakerInCycle,
   registerPool,
+  setupSigner,
   testPool,
 } from './pox-5-helpers';
+import { randomBytes } from '@stacks/transactions';
 
 const contracts = projectFactory(project, 'simnet');
 const pox5 = contracts.pox5;
@@ -215,6 +220,9 @@ test('scenario - setting up and starting a bond', () => {
   expect(bobRegisterEvent.data.recipient).toBe(pox5.identifier);
   expect(bobRegisterEvent.data.amount).toBe(bobAllowance!.toString());
   expect(bobRegisterEvent.data.sender).toBe(bob);
+
+  expect(getAllStakers().length).toBe(2);
+  expectAllSignersHaveKeys();
 });
 
 /**
@@ -249,20 +257,20 @@ test('scenario - staking to a pool', () => {
 
   txOk(
     pox5.stake({
-      poolOwner: pool,
+      poolOrSignerKey: ok(pool),
       amountUstx: aliceAmount,
       numCycles: 2n,
-      startBurnHt: 0n,
+      startBurnHt: simnet.burnBlockHeight,
     }),
     alice,
   );
   // cannot stake again
   const aliceStakeErr = txErr(
     pox5.stake({
-      poolOwner: pool,
+      poolOrSignerKey: ok(pool),
       amountUstx: aliceAmount,
       numCycles: 2n,
-      startBurnHt: 0n,
+      startBurnHt: simnet.burnBlockHeight,
     }),
     alice,
   );
@@ -285,19 +293,15 @@ test('scenario - staking to a pool', () => {
     numCycles: 2n,
   });
 
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 1n, staker: pool })),
-  ).toBeNull();
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 2n, staker: pool })),
-  ).toBeNull();
+  expect(isStakerInCycle({ staker: pool, cycle: 1n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: pool, cycle: 2n })).toBeFalsy();
 
   txOk(
     pox5.stake({
-      poolOwner: pool,
+      poolOrSignerKey: ok(pool),
       amountUstx: bobAmount,
       numCycles: 3n,
-      startBurnHt: 0n,
+      startBurnHt: simnet.burnBlockHeight,
     }),
     bob,
   );
@@ -318,22 +322,18 @@ test('scenario - staking to a pool', () => {
     numCycles: 3n,
   });
 
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 1n, staker: pool })),
-  ).toBeNull();
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 2n, staker: pool })),
-  ).toBeNull();
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 3n, staker: pool })),
-  ).toBeNull();
+  expectAllSignersHaveKeys();
+
+  expect(isStakerInCycle({ staker: pool, cycle: 1n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: pool, cycle: 2n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: pool, cycle: 3n })).toBeFalsy();
 
   txOk(
     pox5.stake({
-      poolOwner: pool,
+      poolOrSignerKey: ok(pool),
       amountUstx: charlieAmount,
       numCycles: 2n,
-      startBurnHt: 0n,
+      startBurnHt: simnet.burnBlockHeight,
     }),
     charlie,
   );
@@ -354,16 +354,12 @@ test('scenario - staking to a pool', () => {
     numCycles: 2n,
   });
 
+  expectAllSignersHaveKeys();
+
   // finally, our pool should be in the signer set
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 1n, staker: pool })),
-  ).toBeTruthy();
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 2n, staker: pool })),
-  ).toBeTruthy();
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 3n, staker: pool })),
-  ).toBeNull();
+  expect(isStakerInCycle({ staker: pool, cycle: 1n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: pool, cycle: 2n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: pool, cycle: 3n })).toBeFalsy();
 });
 
 /**  Scenario: a user stakes to a pool, then updates their stake.
@@ -381,20 +377,22 @@ test('scenario - updating a stake', () => {
 
   const stakeResult = txOk(
     pox5.stake({
-      poolOwner: pool1,
+      poolOrSignerKey: ok(pool1),
       amountUstx: aliceAmount,
       numCycles: 3n,
-      startBurnHt: 0n,
+      startBurnHt: simnet.burnBlockHeight,
     }),
     alice,
   );
   expect(stakeResult.value.unlockCycle).toBe(4n);
 
+  expectAllSignersHaveKeys();
+
   mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
 
   txOk(
     pox5.stakeUpdate({
-      poolOwner: testPool2.identifier,
+      poolOrSignerKey: ok(testPool2.identifier),
       amountIncrease: 0n,
       cyclesToExtend: 1n,
     }),
@@ -402,47 +400,113 @@ test('scenario - updating a stake', () => {
   );
 
   // pool1 should be removed from the signer set
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 1n, staker: pool1 })),
-  ).toBeTruthy();
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 2n, staker: pool1 })),
-  ).toBeNull();
-  expect(
-    rov(pox5.getStakerSetItemForCycle({ cycle: 3n, staker: pool1 })),
-  ).toBeNull();
+  expect(isStakerInCycle({ staker: pool1, cycle: 1n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: pool1, cycle: 2n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: pool1, cycle: 3n })).toBeFalsy();
 
   // testPool2 should be added to the signer set from 2-4
   expect(
-    rov(
-      pox5.getStakerSetItemForCycle({
-        cycle: 1n,
-        staker: testPool2.identifier,
-      }),
-    ),
-  ).toBeNull();
+    isStakerInCycle({ staker: testPool2.identifier, cycle: 1n }),
+  ).toBeFalsy();
   expect(
-    rov(
-      pox5.getStakerSetItemForCycle({
-        cycle: 2n,
-        staker: testPool2.identifier,
-      }),
-    ),
+    isStakerInCycle({ staker: testPool2.identifier, cycle: 2n }),
   ).toBeTruthy();
   expect(
-    rov(
-      pox5.getStakerSetItemForCycle({
-        cycle: 3n,
-        staker: testPool2.identifier,
-      }),
-    ),
+    isStakerInCycle({ staker: testPool2.identifier, cycle: 3n }),
   ).toBeTruthy();
   expect(
-    rov(
-      pox5.getStakerSetItemForCycle({
-        cycle: 4n,
-        staker: testPool2.identifier,
-      }),
-    ),
+    isStakerInCycle({ staker: testPool2.identifier, cycle: 4n }),
   ).toBeTruthy();
+
+  expectAllSignersHaveKeys();
+});
+
+/** Scenario: solo staking and switching to pooling
+ * - Alice solo stakes 50k for 3 cycles
+ * - Bob pools 50k for 3 cycles
+ * - In cycle 1, Alice switches to pooling
+ * - The previous solo stake should be removed from the signer set
+ */
+test('scenario - solo staking and switching to pooling', () => {
+  const aliceAmount = stxToUStx(50_000);
+  const bobAmount = stxToUStx(50_000);
+  const pool = testPool.identifier;
+
+  // alice cant solo stake yet without a signer key grant
+  const aliceSoloStakeErr = txErr(
+    pox5.stake({
+      poolOrSignerKey: err(randomBytes(33)),
+      amountUstx: aliceAmount,
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+    }),
+    alice,
+  );
+  expect(aliceSoloStakeErr.value).toEqual(
+    pox5Errors.ERR_SIGNER_KEY_GRANT_NOT_FOUND,
+  );
+
+  const { signerKey } = setupSigner(alice);
+  registerPool({ caller: deployer });
+
+  txOk(
+    pox5.stake({
+      poolOrSignerKey: err(signerKey),
+      amountUstx: aliceAmount,
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+    }),
+    alice,
+  );
+
+  expect(rov(pox5.getStakerInfo(alice))).toEqual({
+    amountUstx: aliceAmount,
+    firstRewardCycle: 1n,
+    numCycles: 3n,
+  });
+
+  expect(isStakerInCycle({ staker: alice, cycle: 1n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: alice, cycle: 2n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: alice, cycle: 3n })).toBeTruthy();
+
+  txOk(
+    pox5.stake({
+      poolOrSignerKey: ok(pool),
+      amountUstx: bobAmount,
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+    }),
+    bob,
+  );
+
+  expect(getAllStakers().length).toBe(2);
+
+  expectAllSignersHaveKeys();
+
+  expect(isStakerInCycle({ staker: pool, cycle: 1n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: pool, cycle: 2n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: pool, cycle: 3n })).toBeTruthy();
+
+  mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
+
+  txOk(
+    pox5.stakeUpdate({
+      poolOrSignerKey: ok(pool),
+      amountIncrease: 0n,
+      cyclesToExtend: 0n,
+    }),
+    alice,
+  );
+
+  expect(getAllStakers().length).toBe(1);
+
+  expect(isStakerInCycle({ staker: alice, cycle: 1n })).toBeTruthy();
+  // alice should be removed from the signer set
+  expect(isStakerInCycle({ staker: alice, cycle: 2n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: alice, cycle: 3n })).toBeFalsy();
+
+  // the pool should still be in the signer set
+  expect(isStakerInCycle({ staker: pool, cycle: 1n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: pool, cycle: 2n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: pool, cycle: 3n })).toBeTruthy();
 });

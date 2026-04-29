@@ -4544,7 +4544,15 @@ export const contracts = {
         name: 'stake',
         access: 'public',
         args: [
-          { name: 'pool-owner', type: 'trait_reference' },
+          {
+            name: 'pool-or-signer-key',
+            type: {
+              response: {
+                ok: 'trait_reference',
+                error: { buffer: { length: 33 } },
+              },
+            },
+          },
           { name: 'amount-ustx', type: 'uint128' },
           { name: 'num-cycles', type: 'uint128' },
           { name: 'start-burn-ht', type: 'uint128' },
@@ -4569,7 +4577,10 @@ export const contracts = {
         },
       } as TypedAbiFunction<
         [
-          poolOwner: TypedAbiArg<string, 'poolOwner'>,
+          poolOrSignerKey: TypedAbiArg<
+            Response<string, Uint8Array>,
+            'poolOrSignerKey'
+          >,
           amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
           numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
           startBurnHt: TypedAbiArg<number | bigint, 'startBurnHt'>,
@@ -4591,7 +4602,15 @@ export const contracts = {
         name: 'stake-update',
         access: 'public',
         args: [
-          { name: 'pool-owner', type: 'trait_reference' },
+          {
+            name: 'pool-or-signer-key',
+            type: {
+              response: {
+                ok: 'trait_reference',
+                error: { buffer: { length: 33 } },
+              },
+            },
+          },
           { name: 'cycles-to-extend', type: 'uint128' },
           { name: 'amount-increase', type: 'uint128' },
         ],
@@ -4615,7 +4634,10 @@ export const contracts = {
         },
       } as TypedAbiFunction<
         [
-          poolOwner: TypedAbiArg<string, 'poolOwner'>,
+          poolOrSignerKey: TypedAbiArg<
+            Response<string, Uint8Array>,
+            'poolOrSignerKey'
+          >,
           cyclesToExtend: TypedAbiArg<number | bigint, 'cyclesToExtend'>,
           amountIncrease: TypedAbiArg<number | bigint, 'amountIncrease'>,
         ],

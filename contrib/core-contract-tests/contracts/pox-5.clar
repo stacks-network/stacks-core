@@ -470,13 +470,16 @@
 
 ;; Stake your STX
 (define-public (stake
-        (pool-owner <pool-owner-trait>)
+        (pool-or-signer-key (response <pool-owner-trait> (buff 33)))
         (amount-ustx uint)
         (num-cycles uint)
         (start-burn-ht uint)
     )
     (let (
-            (pool (contract-of pool-owner))
+            (pool (match pool-or-signer-key
+                owner (contract-of owner)
+                signer-key tx-sender
+            ))
             (current-cycle (current-pox-reward-cycle))
             (first-reward-cycle (+ u1 current-cycle))
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
@@ -484,13 +487,23 @@
             (unlock-cycle (+ first-reward-cycle num-cycles))
             (unlock-burn-height (reward-cycle-to-unlock-height unlock-cycle))
         )
-        ;; The pool must have been registered already
-        (asserts! (is-some (get-pool-info pool)) ERR_POOL_NOT_FOUND)
-
-        ;; Validate that the staker can join this pool
-        (try! (contract-call? pool-owner validate-stake! tx-sender amount-ustx
-            num-cycles
-        ))
+        (match pool-or-signer-key
+            ;; Validate that the staker can join this pool
+            owner
+            (begin
+                (try! (contract-call? owner validate-stake! tx-sender amount-ustx
+                    num-cycles
+                ))
+                ;; The pool must have been registered already
+                (asserts! (is-some (get-pool-info pool)) ERR_POOL_NOT_FOUND)
+            )
+            ;; Validate signer key usage
+            signer-key
+            (begin
+                (try! (verify-signer-key-grant tx-sender signer-key none))
+                (map-set staker-signer-keys tx-sender signer-key)
+            )
+        )
 
         ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
         ;;  to "post-date" their transaction
@@ -542,12 +555,15 @@
 ;; - Extend their lock
 ;; - Increase STX locked
 (define-public (stake-update
-        (pool-owner <pool-owner-trait>)
+        (pool-or-signer-key (response <pool-owner-trait> (buff 33)))
         (cycles-to-extend uint)
         (amount-increase uint)
     )
     (let (
-            (pool (contract-of pool-owner))
+            (pool (match pool-or-signer-key
+                owner (contract-of owner)
+                signer-key tx-sender
+            ))
             (current-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKING))
             ;; This is the first cycle where their STX would be unlocked
             (prev-unlock-cycle (+ (get first-reward-cycle current-info)
@@ -559,13 +575,20 @@
             (current-cycle (current-pox-reward-cycle))
             (num-cycles (- unlock-cycle current-cycle u1))
         )
-        ;; The pool must have been registered already
-        (asserts! (is-some (get-pool-info pool)) ERR_POOL_NOT_FOUND)
-
         ;; Validate that the staker can join this pool
-        (try! (contract-call? pool-owner validate-stake! tx-sender new-lock-amount
-            num-cycles
-        ))
+        (match pool-or-signer-key
+            owner (begin
+                (try! (contract-call? owner validate-stake! tx-sender new-lock-amount
+                    num-cycles
+                ))
+                ;; The pool must have been registered already
+                (asserts! (is-some (get-pool-info pool)) ERR_POOL_NOT_FOUND)
+            )
+            signer-key (begin
+                (try! (verify-signer-key-grant tx-sender signer-key none))
+                (map-set staker-signer-keys tx-sender signer-key)
+            )
+        )
 
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)

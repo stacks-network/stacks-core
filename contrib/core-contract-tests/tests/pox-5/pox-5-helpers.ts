@@ -17,6 +17,7 @@ import { accounts, project } from '../clarigen-types';
 import { rov, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { expect } from 'vitest';
 
 const contracts = projectFactory(project, 'simnet');
 export const pox5 = contracts.pox5;
@@ -216,4 +217,42 @@ export function deployTestPool(name: string) {
   );
 
   return testPool2;
+}
+
+export function isStakerInCycle({
+  staker,
+  cycle,
+}: {
+  staker: string;
+  cycle: bigint;
+}): boolean {
+  return rov(pox5.getStakerSetItemForCycle({ cycle, staker })) !== null;
+}
+
+/** Get all stakers for the next reward cycle */
+export function getAllStakers(): string[] {
+  const nextCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
+  return getAllStakersForCycle(nextCycle);
+}
+
+/** Get all stakers for a given reward cycle */
+function getAllStakersForCycle(cycle: bigint): string[] {
+  const first = rov(pox5.getStakerSetFirstItemForCycle(cycle));
+  let stackers: string[] = [];
+  let cur: string | null = first;
+  if (cur) stackers.push(cur);
+  while (cur) {
+    const item = rov(pox5.getStakerSetNextItemForCycle(cur, cycle));
+    if (item) stackers.push(item);
+    cur = item;
+  }
+  return stackers;
+}
+
+export function expectAllSignersHaveKeys() {
+  const stakers = getAllStakers();
+  for (const staker of stakers) {
+    const signerKey = rov(pox5.getSignerKey(staker));
+    expect(signerKey).not.toBeNull();
+  }
 }
