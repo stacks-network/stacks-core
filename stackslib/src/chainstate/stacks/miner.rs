@@ -697,6 +697,15 @@ impl TransactionResult {
                     tx_events,
                     reason,
                 }),
+                ClarityRuntimeTxError::ExecutionTimeExpired => {
+                    // This transaction took too long to execute. Consider it problematic.
+                    info!("Problematic transaction caused ExecutionTimeExpired";
+                          "txid" => %tx.txid(),
+                          "origin" => %tx.get_origin().get_address(false),
+                          "payload" => ?tx.payload,
+                    );
+                    return (true, Error::ExecutionTimeExpired);
+                }
             },
             Error::InvalidFee => {
                 // The transaction didn't have enough STX left over after it was run.
@@ -710,6 +719,15 @@ impl TransactionResult {
                       "payload" => ?tx.payload,
                 );
                 return (true, Error::InvalidFee);
+            }
+            Error::ExecutionTimeExpired => {
+                // The transaction took too long to execute. Consider it problematic.
+                info!("Problematic transaction caused ExecutionTimeExpired";
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
+                return (true, Error::ExecutionTimeExpired);
             }
             e => e,
         };
