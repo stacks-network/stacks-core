@@ -1103,7 +1103,8 @@ fn static_check_error_get_block_info_expect_property_name() {
         exclude_clarity_versions: &[
             ClarityVersion::Clarity3,
             ClarityVersion::Clarity4,
-            ClarityVersion::Clarity5
+            ClarityVersion::Clarity5,
+            ClarityVersion::Clarity6
         ],
     );
 }

@@ -3168,20 +3168,12 @@ impl SortitionDB {
 
     /// Is a particular database version supported by a given epoch?
     pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: u32) -> bool {
-        match epoch {
-            StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version >= 1,
-            StacksEpochId::Epoch2_05 => version >= 2,
-            StacksEpochId::Epoch21 => version >= 3,
-            StacksEpochId::Epoch22 => version >= 3,
-            StacksEpochId::Epoch23 => version >= 3,
-            StacksEpochId::Epoch24 => version >= 3,
-            StacksEpochId::Epoch25 => version >= 3,
-            StacksEpochId::Epoch30 => version >= 3,
-            StacksEpochId::Epoch31 => version >= 3,
-            StacksEpochId::Epoch32 => version >= 3,
-            StacksEpochId::Epoch33 => version >= 3,
-            StacksEpochId::Epoch34 => version >= 3,
+        if epoch >= StacksEpochId::Epoch21 {
+            version >= 3
+        } else if epoch >= StacksEpochId::Epoch2_05 {
+            version >= 2
+        } else {
+            version >= 1
         }
     }
 
@@ -6937,7 +6929,7 @@ pub mod tests {
             SortitionDB::connect_test_with_epochs(
                 first_block_height,
                 first_burn_hash,
-                StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
+                StacksEpoch::unit_test_up_to(first_block_height, StacksEpochId::Epoch20),
             )
         }
 
@@ -7272,7 +7264,7 @@ pub mod tests {
             first_block_height,
             &first_burn_hash,
             get_epoch_time_secs(),
-            &StacksEpoch::unit_test_2_05(first_block_height),
+            &StacksEpoch::unit_test_up_to(first_block_height, StacksEpochId::Epoch2_05),
             PoxConstants::test_default(),
             None,
             true,
@@ -10895,7 +10887,7 @@ pub mod tests {
         let mut db = SortitionDB::connect_test_with_epochs(
             first_block_height,
             &first_block_header.block_hash,
-            StacksEpoch::all(0, 0, 0),
+            StacksEpoch::unit_test_2_1_with_heights(0, 0, 0),
         )
         .unwrap();
 
@@ -11310,7 +11302,7 @@ pub mod tests {
             "10000000000000000000000000000000000000000000000000000000000000ff",
         )
         .unwrap();
-        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let epochs = StacksEpoch::unit_test_epoch_only(0, StacksEpochId::Epoch30);
         let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
 
         let last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
@@ -11364,7 +11356,7 @@ pub mod tests {
             "10000000000000000000000000000000000000000000000000000000000000ff",
         )
         .unwrap();
-        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let epochs = StacksEpoch::unit_test_epoch_only(0, StacksEpochId::Epoch30);
         let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
 
         let last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
@@ -11450,7 +11442,7 @@ pub mod tests {
             "10000000000000000000000000000000000000000000000000000000000000ff",
         )
         .unwrap();
-        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let epochs = StacksEpoch::unit_test_epoch_only(0, StacksEpochId::Epoch30);
         let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
 
         let sortition_A = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();

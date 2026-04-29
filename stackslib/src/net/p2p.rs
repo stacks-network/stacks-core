@@ -5676,7 +5676,7 @@ mod test {
             burnchain_view,
             conn_opts,
             HashMap::new(),
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         p2p
     }

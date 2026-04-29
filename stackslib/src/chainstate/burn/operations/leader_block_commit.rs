@@ -860,71 +860,58 @@ impl LeaderBlockCommitOp {
         miss_distance: u64,
     ) -> Result<SortitionId, op_error> {
         let tx_tip = tx.context.chain_tip.clone();
-        let intended_sortition = match epoch_id {
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
-                // correct behavior -- uses *sortition height* to find the intended sortition ID
-                let sortition_height = self
-                    .block_height
-                    .checked_sub(burnchain.first_block_height)
-                    .ok_or_else(|| op_error::BlockCommitPredatesGenesis)?;
+        let intended_sortition = if epoch_id >= StacksEpochId::Epoch21 {
+            // correct behavior -- uses *sortition height* to find the intended sortition ID
+            let sortition_height = self
+                .block_height
+                .checked_sub(burnchain.first_block_height)
+                .ok_or_else(|| op_error::BlockCommitPredatesGenesis)?;
 
-                if miss_distance > sortition_height {
-                    return Err(op_error::BlockCommitBadModulus);
-                }
-
-                if miss_distance > 1 {
-                    // can't miss by more than 1 block; otherwise a miner can just bunch up all
-                    // their block-commits into a single burnchain block and mine when they want
-                    // without the 6-block warm-up period.
-                    return Err(op_error::BlockCommitMissDistanceTooBig);
-                }
-
-                let intended_sortition = tx
-                    .get_ancestor_block_hash(sortition_height - miss_distance, &tx_tip)?
-                    .ok_or_else(|| op_error::BlockCommitNoParent)?;
-
-                let intended_sn = SortitionDB::get_block_snapshot(tx, &intended_sortition)?
-                    .expect("FATAL: no snapshot for known sortition");
-                debug!("Block commit for {} missed, meant to land in burnchain block {} (sortition {})", &self.block_header_hash, intended_sn.block_height, &intended_sortition);
-
-                // NOTE: we're not doing the checks in check_common() because it doesn't matter if
-                // the late block-commit does not meet them -- it will never be a sortition winner
-                // anyway.
-                //
-                // But, we must disincentivize deliberately sending late block-commits (e.g. to
-                // improve the miner's median sortition spend), so it's necessary to require the
-                // miner to pay burnchain tokens to the intended sortition's reward addresses.  Then,
-                // doing this on purpose is at least as costly as mining honestly.
-                let reward_set_info_opt =
-                    RewardSetInfo::from_missed_commit(tx, &intended_sortition)?;
-                self.check_pox(epoch_id, burnchain, tx, reward_set_info_opt.as_ref())?;
-
-                intended_sortition
+            if miss_distance > sortition_height {
+                return Err(op_error::BlockCommitBadModulus);
             }
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                // buggy behavior that must be preserved for compatibility :(
-                // bug: uses self.block_height to find the intended sortition ID (which won't work)
-                if miss_distance > self.block_height {
-                    return Err(op_error::BlockCommitBadModulus);
-                }
-                tx.get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
-                    .ok_or_else(|| op_error::BlockCommitNoParent)?
 
-                // also buggy behavior -- the block-commit can pay to any PoX output it wants, so
-                // sending them deliberately is "free" because the sender can just pay themselves.
+            if miss_distance > 1 {
+                // can't miss by more than 1 block; otherwise a miner can just bunch up all
+                // their block-commits into a single burnchain block and mine when they want
+                // without the 6-block warm-up period.
+                return Err(op_error::BlockCommitMissDistanceTooBig);
             }
-            StacksEpochId::Epoch10 => {
-                panic!("Block commits are not supported in epoch 1.0");
+
+            let intended_sortition = tx
+                .get_ancestor_block_hash(sortition_height - miss_distance, &tx_tip)?
+                .ok_or_else(|| op_error::BlockCommitNoParent)?;
+
+            let intended_sn = SortitionDB::get_block_snapshot(tx, &intended_sortition)?
+                .expect("FATAL: no snapshot for known sortition");
+            debug!(
+                "Block commit for {} missed, meant to land in burnchain block {} (sortition {})",
+                &self.block_header_hash, intended_sn.block_height, &intended_sortition
+            );
+
+            // NOTE: we're not doing the checks in check_common() because it doesn't matter if
+            // the late block-commit does not meet them -- it will never be a sortition winner
+            // anyway.
+            //
+            // But, we must disincentivize deliberately sending late block-commits (e.g. to
+            // improve the miner's median sortition spend), so it's necessary to require the
+            // miner to pay burnchain tokens to the intended sortition's reward addresses.  Then,
+            // doing this on purpose is at least as costly as mining honestly.
+            let reward_set_info_opt = RewardSetInfo::from_missed_commit(tx, &intended_sortition)?;
+            self.check_pox(epoch_id, burnchain, tx, reward_set_info_opt.as_ref())?;
+
+            intended_sortition
+        } else {
+            // buggy behavior that must be preserved for compatibility :(
+            // bug: uses self.block_height to find the intended sortition ID (which won't work)
+            if miss_distance > self.block_height {
+                return Err(op_error::BlockCommitBadModulus);
             }
+            tx.get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
+                .ok_or_else(|| op_error::BlockCommitNoParent)?
+
+            // also buggy behavior -- the block-commit can pay to any PoX output it wants, so
+            // sending them deliberately is "free" because the sender can just pay themselves.
         };
         Ok(intended_sortition)
     }
@@ -1996,7 +1983,7 @@ mod tests {
         let mut db = SortitionDB::connect_test_with_epochs(
             first_block_height,
             &first_burn_hash,
-            StacksEpoch::all(0, 0, first_block_height),
+            StacksEpoch::unit_test_2_1_with_heights(0, 0, first_block_height),
         )
         .unwrap();
         let block_ops = [

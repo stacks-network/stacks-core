@@ -1039,7 +1039,8 @@ fn runtime_check_error_kind_could_not_determine_type_ccall() {
             ClarityVersion::Clarity1,
             ClarityVersion::Clarity3,
             ClarityVersion::Clarity4,
-            ClarityVersion::Clarity5
+            ClarityVersion::Clarity5,
+            ClarityVersion::Clarity6
         ],
         setup_contracts: &[trait_contract, trait_impl],
     );

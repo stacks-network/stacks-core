@@ -36,6 +36,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
+    PEER_VERSION_EPOCH_3_5,
 };
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -104,7 +105,7 @@ pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 pub const MINING_COMMITMENT_FREQUENCY_NAKAMOTO: u8 = 3;
 
 macro_rules! define_stacks_epochs {
-    ($($variant:ident = $value:expr),* $(,)?) => {
+    ($($variant:ident = $value:expr => $display:expr),* $(,)?) => {
         #[repr(u32)]
         #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         pub enum StacksEpochId {
@@ -116,23 +117,54 @@ macro_rules! define_stacks_epochs {
                 $(StacksEpochId::$variant),*
             ];
         }
+
+        impl std::fmt::Display for StacksEpochId {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(StacksEpochId::$variant => f.write_str($display),)*
+                }
+            }
+        }
+
+        impl FromStr for StacksEpochId {
+            type Err = &'static str;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    $($display => Ok(StacksEpochId::$variant),)*
+                    _ => Err("Invalid epoch string"),
+                }
+            }
+        }
+
+        impl TryFrom<u32> for StacksEpochId {
+            type Error = &'static str;
+
+            fn try_from(value: u32) -> Result<StacksEpochId, Self::Error> {
+                match value {
+                    $(x if x == StacksEpochId::$variant as u32 => Ok(StacksEpochId::$variant),)*
+                    _ => Err("Invalid epoch"),
+                }
+            }
+        }
     };
 }
 
 define_stacks_epochs! {
-    Epoch10 = 0x01000,
-    Epoch20 = 0x02000,
-    Epoch2_05 = 0x02005,
-    Epoch21 = 0x0200a,
-    Epoch22 = 0x0200f,
-    Epoch23 = 0x02014,
-    Epoch24 = 0x02019,
-    Epoch25 = 0x0201a,
-    Epoch30 = 0x03000,
-    Epoch31 = 0x03001,
-    Epoch32 = 0x03002,
-    Epoch33 = 0x03003,
-    Epoch34 = 0x03004,
+    Epoch10 = 0x01000 => "1.0",
+    Epoch20 = 0x02000 => "2.0",
+    Epoch2_05 = 0x02005 => "2.05",
+    Epoch21 = 0x0200a => "2.1",
+    Epoch22 = 0x0200f => "2.2",
+    Epoch23 = 0x02014 => "2.3",
+    Epoch24 = 0x02019 => "2.4",
+    Epoch25 = 0x0201a => "2.5",
+    Epoch30 = 0x03000 => "3.0",
+    Epoch31 = 0x03001 => "3.1",
+    Epoch32 = 0x03002 => "3.2",
+    Epoch33 = 0x03003 => "3.3",
+    Epoch34 = 0x03004 => "3.4",
+    Epoch35 = 0x03005 => "3.5",
 }
 
 #[derive(Debug)]
@@ -467,7 +499,7 @@ impl StacksEpochId {
 
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch34
+        StacksEpochId::Epoch35
     }
 
     #[cfg(not(any(test, feature = "testing")))]
@@ -477,137 +509,44 @@ impl StacksEpochId {
 
     /// In this epoch, how should the mempool perform garbage collection?
     pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25 => MempoolCollectionBehavior::ByStacksHeight,
-            StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => MempoolCollectionBehavior::ByReceiveTime,
+        if self < &StacksEpochId::Epoch30 {
+            MempoolCollectionBehavior::ByStacksHeight
+        } else {
+            MempoolCollectionBehavior::ByReceiveTime
         }
     }
 
     /// Returns whether or not this Epoch should perform
     ///  memory checks during analysis
     pub fn analysis_memory(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => false,
-            StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch25
     }
 
     /// Returns whether or not this Epoch should perform
     ///  Clarity value sanitization
     pub fn value_sanitizing(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23 => false,
-            StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch24
     }
 
     pub fn supports_specific_budget_extends(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch33
     }
 
     /// Whether or not this epoch supports the punishment of PoX reward
     /// recipients using the bitvec scheme
     pub fn allows_pox_punishment(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch30
     }
 
     /// Whether or not this epoch interprets block commit OPs block hash field
     ///  as a new block hash or the StacksBlockId of a new tenure's parent tenure.
     pub fn block_commits_to_parent(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch30
     }
 
     /// Whether or not this epoch supports shadow blocks
     pub fn supports_shadow_blocks(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch30
     }
 
     /// Does this epoch support unlocking PoX contributors that miss a slot?
@@ -639,21 +578,7 @@ impl StacksEpochId {
     /// Whether or not this epoch pre-sanitizes contract variables at deploy
     /// and load time, allowing variable lookups to borrow directly.
     pub fn uses_pre_sanitized_variables(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => false,
-            StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch34
     }
 
     /// What is the sortition mining commitment window for this epoch?
@@ -664,20 +589,10 @@ impl StacksEpochId {
     /// How often must a miner mine in order to be considered for sortition in its commitment
     /// window?
     pub fn mining_commitment_frequency(&self) -> u8 {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25 => 0,
-            StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
+        if self >= &StacksEpochId::Epoch30 {
+            MINING_COMMITMENT_FREQUENCY_NAKAMOTO
+        } else {
+            0
         }
     }
 
@@ -704,21 +619,7 @@ impl StacksEpochId {
         cur_reward_cycle: u64,
         first_epoch30_reward_cycle: u64,
     ) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => cur_reward_cycle > first_epoch30_reward_cycle,
-        }
+        self >= &StacksEpochId::Epoch30 && cur_reward_cycle > first_epoch30_reward_cycle
     }
 
     /// Does this epoch support the post-condition enhancements from SIP-040?
@@ -824,64 +725,25 @@ impl StacksEpochId {
         first_burnchain_height: u64,
         current_burnchain_height: u64,
     ) -> u128 {
-        match self {
-            StacksEpochId::Epoch10 => {
-                // Stacks is not active
-                0
-            }
-            StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30 => {
-                self.coinbase_reward_pre_sip029(first_burnchain_height, current_burnchain_height)
-            }
-            StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.coinbase_reward_sip029(
-                mainnet,
-                first_burnchain_height,
-                current_burnchain_height,
-            ),
+        if self == &StacksEpochId::Epoch10 {
+            // Stacks is not active in Epoch 1.0, so no coinbase reward
+            0
+        } else if self < &StacksEpochId::Epoch31 {
+            // For epochs 2.0 - 3.0, use the pre-SIP-029 schedule
+            self.coinbase_reward_pre_sip029(first_burnchain_height, current_burnchain_height)
+        } else {
+            // For epoch 3.1 and later, use the SIP-029 schedule
+            self.coinbase_reward_sip029(mainnet, first_burnchain_height, current_burnchain_height)
         }
     }
 
     /// Whether or not this epoch is part of the SIP-031 schedule
     pub fn includes_sip_031(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31 => false,
-            StacksEpochId::Epoch32 | StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch32
     }
 
     pub fn uses_marfed_block_time(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch33
     }
 
     /// Before Epoch 3.3, the cost for arguments to functions was based on the
@@ -889,57 +751,17 @@ impl StacksEpochId {
     /// resulted in over-charging for arguments smaller than the maximum size
     /// permitted for the parameter.
     pub fn uses_arg_size_for_cost(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch33
     }
 
     /// In Epoch 3.3, limits are introduced on the number of parameters
     /// in function definitions and the number of methods in trait definitions.
     pub fn limits_parameter_and_method_count(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch33
     }
 
     pub fn handles_with_stx_combined_check(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => false,
-            StacksEpochId::Epoch34 => true,
-        }
+        self >= &StacksEpochId::Epoch34
     }
 
     pub fn supports_call_with_constant(&self) -> bool {
@@ -967,6 +789,7 @@ impl StacksEpochId {
             StacksEpochId::Epoch32 => PEER_VERSION_EPOCH_3_2,
             StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
             StacksEpochId::Epoch34 => PEER_VERSION_EPOCH_3_4,
+            StacksEpochId::Epoch35 => PEER_VERSION_EPOCH_3_5,
         }
     }
 
@@ -978,72 +801,6 @@ impl StacksEpochId {
             .expect("epoch not found in ALL");
 
         &Self::ALL[idx..]
-    }
-}
-
-impl std::fmt::Display for StacksEpochId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StacksEpochId::Epoch10 => write!(f, "1.0"),
-            StacksEpochId::Epoch20 => write!(f, "2.0"),
-            StacksEpochId::Epoch2_05 => write!(f, "2.05"),
-            StacksEpochId::Epoch21 => write!(f, "2.1"),
-            StacksEpochId::Epoch22 => write!(f, "2.2"),
-            StacksEpochId::Epoch23 => write!(f, "2.3"),
-            StacksEpochId::Epoch24 => write!(f, "2.4"),
-            StacksEpochId::Epoch25 => write!(f, "2.5"),
-            StacksEpochId::Epoch30 => write!(f, "3.0"),
-            StacksEpochId::Epoch31 => write!(f, "3.1"),
-            StacksEpochId::Epoch32 => write!(f, "3.2"),
-            StacksEpochId::Epoch33 => write!(f, "3.3"),
-            StacksEpochId::Epoch34 => write!(f, "3.4"),
-        }
-    }
-}
-
-impl FromStr for StacksEpochId {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "1.0" => Ok(StacksEpochId::Epoch10),
-            "2.0" => Ok(StacksEpochId::Epoch20),
-            "2.05" => Ok(StacksEpochId::Epoch2_05),
-            "2.1" => Ok(StacksEpochId::Epoch21),
-            "2.2" => Ok(StacksEpochId::Epoch22),
-            "2.3" => Ok(StacksEpochId::Epoch23),
-            "2.4" => Ok(StacksEpochId::Epoch24),
-            "2.5" => Ok(StacksEpochId::Epoch25),
-            "3.0" => Ok(StacksEpochId::Epoch30),
-            "3.1" => Ok(StacksEpochId::Epoch31),
-            "3.2" => Ok(StacksEpochId::Epoch32),
-            "3.3" => Ok(StacksEpochId::Epoch33),
-            "3.4" => Ok(StacksEpochId::Epoch34),
-            _ => Err("Invalid epoch string"),
-        }
-    }
-}
-
-impl TryFrom<u32> for StacksEpochId {
-    type Error = &'static str;
-
-    fn try_from(value: u32) -> Result<StacksEpochId, Self::Error> {
-        match value {
-            x if x == StacksEpochId::Epoch10 as u32 => Ok(StacksEpochId::Epoch10),
-            x if x == StacksEpochId::Epoch20 as u32 => Ok(StacksEpochId::Epoch20),
-            x if x == StacksEpochId::Epoch2_05 as u32 => Ok(StacksEpochId::Epoch2_05),
-            x if x == StacksEpochId::Epoch21 as u32 => Ok(StacksEpochId::Epoch21),
-            x if x == StacksEpochId::Epoch22 as u32 => Ok(StacksEpochId::Epoch22),
-            x if x == StacksEpochId::Epoch23 as u32 => Ok(StacksEpochId::Epoch23),
-            x if x == StacksEpochId::Epoch24 as u32 => Ok(StacksEpochId::Epoch24),
-            x if x == StacksEpochId::Epoch25 as u32 => Ok(StacksEpochId::Epoch25),
-            x if x == StacksEpochId::Epoch30 as u32 => Ok(StacksEpochId::Epoch30),
-            x if x == StacksEpochId::Epoch31 as u32 => Ok(StacksEpochId::Epoch31),
-            x if x == StacksEpochId::Epoch32 as u32 => Ok(StacksEpochId::Epoch32),
-            x if x == StacksEpochId::Epoch33 as u32 => Ok(StacksEpochId::Epoch33),
-            x if x == StacksEpochId::Epoch34 as u32 => Ok(StacksEpochId::Epoch34),
-            _ => Err("Invalid epoch"),
-        }
     }
 }
 

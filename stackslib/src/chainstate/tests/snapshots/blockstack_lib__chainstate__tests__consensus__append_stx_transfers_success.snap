@@ -1,12 +1,11 @@
 ---
 source: stackslib/src/chainstate/tests/consensus.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "96075c8c696e47a94f2ad26831da11e44d8d1f005821761f8527b980e745af02",
-    evaluated_epoch: Epoch33,
+    marf_hash: "00356c1ea8055487500064e0e0a2eb40787366ae0c9a5ba0bbda6cc81dd64a54",
+    evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
@@ -63,8 +62,8 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "488e7c00b52602e1f0d95dee5c98c15f2326540afc2a1327bb682922d809e520",
-    evaluated_epoch: Epoch34,
+    marf_hash: "1540074a9fffbe2241736ad404593141c62c7d4237d153a65ca122abd2d33915",
+    evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
         tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
