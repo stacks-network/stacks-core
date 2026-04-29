@@ -1101,9 +1101,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
 
         let quiet = !cfg!(test);
+        let cost_before = clarity_tx.cost_so_far();
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet, None) {
             Ok((_fee, receipt)) => TransactionResult::success(&tx, receipt),
-            Err(e) => convert_clarity_error_to_transaction_result(clarity_tx, &tx, e),
+            Err(e) => convert_clarity_error_to_transaction_result(clarity_tx, &tx, &cost_before, e),
         }
     }
 
@@ -2502,11 +2503,17 @@ impl BlockBuilder for StacksBlockBuilder {
                 );
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
+            let cost_before = clarity_tx.cost_so_far();
             let (fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
-                        return convert_clarity_error_to_transaction_result(clarity_tx, tx, e);
+                        return convert_clarity_error_to_transaction_result(
+                            clarity_tx,
+                            tx,
+                            &cost_before,
+                            e,
+                        );
                     }
                 };
             info!("Include tx";
@@ -2545,11 +2552,17 @@ impl BlockBuilder for StacksBlockBuilder {
                 );
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
+            let cost_before = clarity_tx.cost_so_far();
             let (fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
-                        return convert_clarity_error_to_transaction_result(clarity_tx, tx, e);
+                        return convert_clarity_error_to_transaction_result(
+                            clarity_tx,
+                            tx,
+                            &cost_before,
+                            e,
+                        );
                     }
                 };
             debug!(

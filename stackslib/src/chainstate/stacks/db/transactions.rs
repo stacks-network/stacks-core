@@ -452,11 +452,15 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
 pub fn convert_clarity_error_to_transaction_result(
     clarity_tx: &mut ClarityTx,
     tx: &StacksTransaction,
+    cost_before: &ExecutionCost,
     error: Error,
 ) -> TransactionResult {
     let (is_problematic, error) =
         TransactionResult::is_problematic(tx, error, clarity_tx.get_epoch());
     if is_problematic {
+        // Roll back the cost accumulated by this transaction so it does not
+        // shrink the remaining block budget for subsequent honest txs.
+        clarity_tx.reset_cost(cost_before.clone());
         TransactionResult::problematic(tx, error)
     } else {
         match &error {
@@ -12187,6 +12191,8 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
+        let cost_before_deploy = conn.cost_so_far();
+
         // set max_execution_time to something that will fire on the first eval()
         let err = StacksChainState::process_transaction(
             &mut conn,
@@ -12201,9 +12207,33 @@ pub mod test {
             "expected Error::ExecutionTimeExpired, got {err:?}",
         );
 
+        // Exercise the miner-level wrapper: it should classify as Problematic and reset the cost.
+        let result = convert_clarity_error_to_transaction_result(
+            &mut conn,
+            &signed_tx,
+            &cost_before_deploy,
+            err,
+        );
+        assert!(
+            matches!(result, TransactionResult::Problematic(_)),
+            "expected Problematic verdict, got {result:?}",
+        );
+        assert_eq!(
+            cost_before_deploy,
+            conn.cost_so_far(),
+            "Expected transaction cost to be reverted on execution time expiry"
+        );
+
         // allow that transaction to be processed with no max_execution_time, so that it gets
         // committed to the chainstate
         StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+
+        // check that the cost of the transaction was charged this time
+        let cost_after_deploy = conn.cost_so_far();
+        assert!(
+            cost_after_deploy.exceeds(&cost_before_deploy),
+            "Expected transaction cost to be charged after successful execution"
+        );
 
         // Make a call to the contract to check the contract-call path also handles execution time
         // expiry correctly
@@ -12223,6 +12253,7 @@ pub mod test {
 
         let signed_call_tx = signer.get_tx().unwrap();
 
+        let cost_before_call = conn.cost_so_far();
         let err = StacksChainState::process_transaction(
             &mut conn,
             &signed_call_tx,
@@ -12234,6 +12265,23 @@ pub mod test {
         assert!(
             matches!(err, Error::ExecutionTimeExpired),
             "expected Error::ExecutionTimeExpired, got {err:?}",
+        );
+
+        // Exercise the miner-level wrapper for the contract-call path too.
+        let result = convert_clarity_error_to_transaction_result(
+            &mut conn,
+            &signed_call_tx,
+            &cost_before_call,
+            err,
+        );
+        assert!(
+            matches!(result, TransactionResult::Problematic(_)),
+            "expected Problematic verdict, got {result:?}",
+        );
+        assert_eq!(
+            cost_before_call,
+            conn.cost_so_far(),
+            "Expected transaction cost to be reverted on execution time expiry"
         );
     }
 }
