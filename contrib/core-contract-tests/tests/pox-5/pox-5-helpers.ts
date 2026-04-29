@@ -7,7 +7,12 @@ import {
   signWithKey,
 } from '@stacks/transactions';
 import { hex } from '@scure/base';
-import { extractErrors, projectErrors, projectFactory } from '@clarigen/core';
+import {
+  extractErrors,
+  projectErrors,
+  projectFactory,
+  contractFactory,
+} from '@clarigen/core';
 import { accounts, project } from '../clarigen-types';
 import { rov, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -188,4 +193,27 @@ export function registerPool({ caller }: { caller: string }) {
     caller,
   );
   return { signerKey, pool: testPool.identifier };
+}
+
+/**
+ * Deploy and setup a new pool
+ */
+export function deployTestPool(name: string) {
+  const testPool2Id = `${accounts.deployer.address}.${name}`;
+  const poolSource = simnet.getContractSource(testPool.identifier)!;
+  const testPool2 = contractFactory(
+    project.contracts.testPox5Pool,
+    testPool2Id,
+  );
+  const { signerKey } = setupSigner(testPool2.identifier);
+  simnet.deployContract(name, poolSource, null, accounts.deployer.address);
+  txOk(
+    testPool2.registerSelf({
+      signerKey: signerKey,
+      poolOwner: testPool2.identifier,
+    }),
+    accounts.deployer.address,
+  );
+
+  return testPool2;
 }

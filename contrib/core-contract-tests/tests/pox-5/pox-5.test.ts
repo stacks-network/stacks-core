@@ -1,4 +1,5 @@
 import {
+  contractFactory,
   CoreNodeEventType,
   err,
   extractErrors,
@@ -8,9 +9,14 @@ import {
 import { accounts, project } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
-import { randomSecretKey, stxToUStx } from '../test-helpers';
+import { mineUntil, randomSecretKey, stxToUStx } from '../test-helpers';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { createSignerKeyGrant, registerPool, testPool } from './pox-5-helpers';
+import {
+  createSignerKeyGrant,
+  deployTestPool,
+  registerPool,
+  testPool,
+} from './pox-5-helpers';
 
 const contracts = projectFactory(project, 'simnet');
 const pox5 = contracts.pox5;
@@ -118,12 +124,13 @@ test('scenario - setting up and starting a bond', () => {
     alice,
   );
 
-  const aliceStakerInfo = rov(pox5.getStakerInfo(alice))!;
-  expect(aliceStakerInfo).toEqual({
-    numCycles: 12n,
+  const aliceInfo = rov(pox5.getBondMembership(alice))!;
+  expect(aliceInfo).toEqual({
+    amountSats: 500n,
     amountUstx: 100000000n,
-    firstRewardCycle: 1n,
-    signerKey,
+    bondIndex: 0n,
+    poxAddr: null,
+    rewardPerSharePaid: 0n,
   });
 
   const transferEvent = filterEvents(
@@ -272,11 +279,10 @@ test('scenario - staking to a pool', () => {
   expect(rov(pox5.getCurrentAmountStakedForPool({ pool, cycle: 2n }))).toBe(
     aliceAmount,
   );
-  expect(rov(pox5.getPoolMembership(alice))).toEqual({
+  expect(rov(pox5.getStakerInfo(alice))).toEqual({
     amountUstx: aliceAmount,
     firstRewardCycle: 1n,
     numCycles: 2n,
-    pool,
   });
 
   expect(
@@ -306,11 +312,10 @@ test('scenario - staking to a pool', () => {
     bobAmount,
   );
 
-  expect(rov(pox5.getPoolMembership(bob))).toEqual({
+  expect(rov(pox5.getStakerInfo(bob))).toEqual({
     amountUstx: bobAmount,
     firstRewardCycle: 1n,
     numCycles: 3n,
-    pool,
   });
 
   expect(
@@ -343,11 +348,10 @@ test('scenario - staking to a pool', () => {
     charlieAmount,
   );
 
-  expect(rov(pox5.getPoolMembership(charlie))).toEqual({
+  expect(rov(pox5.getStakerInfo(charlie))).toEqual({
     amountUstx: charlieAmount,
     firstRewardCycle: 1n,
     numCycles: 2n,
-    pool,
   });
 
   // finally, our pool should be in the signer set
@@ -360,4 +364,85 @@ test('scenario - staking to a pool', () => {
   expect(
     rov(pox5.getStakerSetItemForCycle({ cycle: 3n, staker: pool })),
   ).toBeNull();
+});
+
+/**  Scenario: a user stakes to a pool, then updates their stake.
+ * - Alice stakes 50k for 3 cycles
+ * - In cycle 1, updates to different pool
+ * - The previous pool should be removed from the signer set
+ * - The new pool should be added to the signer set
+ */
+test('scenario - updating a stake', () => {
+  const pool1 = testPool.identifier;
+  registerPool({ caller: deployer });
+  const testPool2 = deployTestPool('test-pool-2');
+
+  const aliceAmount = stxToUStx(50_000);
+
+  const stakeResult = txOk(
+    pox5.stake({
+      poolOwner: pool1,
+      amountUstx: aliceAmount,
+      numCycles: 3n,
+      startBurnHt: 0n,
+    }),
+    alice,
+  );
+  expect(stakeResult.value.unlockCycle).toBe(4n);
+
+  mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
+
+  txOk(
+    pox5.stakeUpdate({
+      poolOwner: testPool2.identifier,
+      amountIncrease: 0n,
+      cyclesToExtend: 1n,
+    }),
+    alice,
+  );
+
+  // pool1 should be removed from the signer set
+  expect(
+    rov(pox5.getStakerSetItemForCycle({ cycle: 1n, staker: pool1 })),
+  ).toBeTruthy();
+  expect(
+    rov(pox5.getStakerSetItemForCycle({ cycle: 2n, staker: pool1 })),
+  ).toBeNull();
+  expect(
+    rov(pox5.getStakerSetItemForCycle({ cycle: 3n, staker: pool1 })),
+  ).toBeNull();
+
+  // testPool2 should be added to the signer set from 2-4
+  expect(
+    rov(
+      pox5.getStakerSetItemForCycle({
+        cycle: 1n,
+        staker: testPool2.identifier,
+      }),
+    ),
+  ).toBeNull();
+  expect(
+    rov(
+      pox5.getStakerSetItemForCycle({
+        cycle: 2n,
+        staker: testPool2.identifier,
+      }),
+    ),
+  ).toBeTruthy();
+  expect(
+    rov(
+      pox5.getStakerSetItemForCycle({
+        cycle: 3n,
+        staker: testPool2.identifier,
+      }),
+    ),
+  ).toBeTruthy();
+  expect(
+    rov(
+      pox5.getStakerSetItemForCycle({
+        cycle: 4n,
+        staker: testPool2.identifier,
+      }),
+    ),
+  ).toBeTruthy();
 });
