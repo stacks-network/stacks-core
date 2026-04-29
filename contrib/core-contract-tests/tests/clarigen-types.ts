@@ -4451,7 +4451,7 @@ export const contracts = {
           { name: 'first-burn-height', type: 'uint128' },
           { name: 'prepare-cycle-length', type: 'uint128' },
           { name: 'reward-cycle-length', type: 'uint128' },
-          { name: 'begin-wf-reward-cycle', type: 'uint128' },
+          { name: 'begin-pox5-reward-cycle', type: 'uint128' },
         ],
         outputs: { type: { response: { ok: 'bool', error: 'none' } } },
       } as TypedAbiFunction<
@@ -4462,9 +4462,9 @@ export const contracts = {
             'prepareCycleLength'
           >,
           rewardCycleLength: TypedAbiArg<number | bigint, 'rewardCycleLength'>,
-          beginWfRewardCycle: TypedAbiArg<
+          beginPox5RewardCycle: TypedAbiArg<
             number | bigint,
-            'beginWfRewardCycle'
+            'beginPox5RewardCycle'
           >,
         ],
         Response<boolean, null>
@@ -4654,6 +4654,39 @@ export const contracts = {
           bigint
         >
       >,
+      unstake: {
+        name: 'unstake',
+        access: 'public',
+        args: [],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'staker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [],
+        Response<
+          {
+            amountUstx: bigint;
+            firstRewardCycle: bigint;
+            staker: string;
+            unlockBurnHeight: bigint;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
       bondPeriodToBurnHeight: {
         name: 'bond-period-to-burn-height',
         access: 'read_only',
@@ -4834,6 +4867,41 @@ export const contracts = {
       } as TypedAbiFunction<
         [pool: TypedAbiArg<string, 'pool'>],
         Uint8Array | null
+      >,
+      getPoxInfo: {
+        name: 'get-pox-info',
+        access: 'read_only',
+        args: [],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'first-burnchain-block-height', type: 'uint128' },
+                  { name: 'min-amount-ustx', type: 'uint128' },
+                  { name: 'prepare-cycle-length', type: 'uint128' },
+                  { name: 'reward-cycle-id', type: 'uint128' },
+                  { name: 'reward-cycle-length', type: 'uint128' },
+                  { name: 'total-liquid-supply-ustx', type: 'uint128' },
+                ],
+              },
+              error: 'none',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [],
+        Response<
+          {
+            firstBurnchainBlockHeight: bigint;
+            minAmountUstx: bigint;
+            prepareCycleLength: bigint;
+            rewardCycleId: bigint;
+            rewardCycleLength: bigint;
+            totalLiquidSupplyUstx: bigint;
+          },
+          null
+        >
       >,
       getSignerGrantMessageHash: {
         name: 'get-signer-grant-message-hash',
@@ -5732,7 +5800,7 @@ export const contracts = {
               name: 'name',
               type: {
                 'string-ascii': {
-                  length: 15,
+                  length: 12,
                 },
               },
             },
@@ -5799,8 +5867,8 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
-      firstPoxWfRewardCycle: {
-        name: 'first-pox-wf-reward-cycle',
+      firstPox5RewardCycle: {
+        name: 'first-pox-5-reward-cycle',
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
@@ -5932,7 +6000,7 @@ export const contracts = {
       MAX_NUM_CYCLES: 12n,
       pOX_5_SIGNER_DOMAIN: {
         chainId: 2_147_483_648n,
-        name: 'pox-wf-0-signer',
+        name: 'pox-5-signer',
         version: '1.0.0',
       },
       SIGNER_SET_MIN_USTX: 50_000_000_000n,
@@ -5942,7 +6010,7 @@ export const contracts = {
       bondAdmin: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
       configured: false,
       firstBurnchainBlockHeight: 0n,
-      firstPoxWfRewardCycle: 0n,
+      firstPox5RewardCycle: 0n,
       poxPrepareCycleLength: 50n,
       poxRewardCycleLength: 1_050n,
     },

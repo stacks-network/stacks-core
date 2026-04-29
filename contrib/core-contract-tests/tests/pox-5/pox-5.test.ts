@@ -45,7 +45,7 @@ beforeEach(() => {
       firstBurnHeight: 0n,
       prepareCycleLength: 10n,
       rewardCycleLength: REWARD_CYCLE_LENGTH,
-      beginWfRewardCycle: 1n,
+      beginPox5RewardCycle: 1n,
     }),
     deployer,
   );
@@ -509,4 +509,49 @@ test('scenario - solo staking and switching to pooling', () => {
   expect(isStakerInCycle({ staker: pool, cycle: 1n })).toBeTruthy();
   expect(isStakerInCycle({ staker: pool, cycle: 2n })).toBeTruthy();
   expect(isStakerInCycle({ staker: pool, cycle: 3n })).toBeTruthy();
+});
+
+/** Scenario: unstaking
+ * - Alice stakes 50k for 3 cycles
+ * - In cycle 1, Alice unstakes
+ * - For cycles 2 and 3, she should be removed from the signer set
+ */
+test('scenario - unstaking', () => {
+  const aliceAmount = stxToUStx(50_000);
+  const pool = testPool.identifier;
+
+  registerPool({ caller: deployer });
+
+  const stakeResult = txOk(
+    pox5.stake({
+      poolOrSignerKey: ok(pool),
+      amountUstx: aliceAmount,
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+    }),
+    alice,
+  );
+  expect(stakeResult.value.unlockCycle).toBe(4n);
+
+  expectAllSignersHaveKeys();
+
+  mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
+
+  txOk(pox5.unstake(), alice);
+  expect(rov(pox5.getStakerInfo(alice))).toEqual({
+    amountUstx: aliceAmount,
+    firstRewardCycle: 1n,
+    numCycles: 1n,
+  });
+
+  expect(isStakerInCycle({ staker: pool, cycle: 1n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: pool, cycle: 2n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: pool, cycle: 3n })).toBeFalsy();
+
+  expect(getAllStakers().length).toBe(0);
+
+  mineUntil(rov(pox5.rewardCycleToUnlockHeight(2n)));
+
+  // `getStakerInfo` should return `none` because it's expired
+  expect(rov(pox5.getStakerInfo(alice))).toBeNull();
 });

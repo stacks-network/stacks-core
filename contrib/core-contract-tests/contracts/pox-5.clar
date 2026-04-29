@@ -43,7 +43,7 @@
 
 ;; SIP018 domain
 (define-constant POX_5_SIGNER_DOMAIN {
-    name: "pox-wf-0-signer",
+    name: "pox-5-signer",
     version: "1.0.0",
     chain-id: chain-id,
 })
@@ -219,10 +219,10 @@
 ))
 (define-data-var first-burnchain-block-height uint u0)
 (define-data-var configured bool false)
-;; The first reward cycle where pox-wf is active. This
+;; The first reward cycle where pox-5 is active. This
 ;; is also equal to the first bond period.
 ;; #[allow(unused_data_var)]
-(define-data-var first-pox-wf-reward-cycle uint u0)
+(define-data-var first-pox-5-reward-cycle uint u0)
 
 (define-trait pool-owner-trait (
     (validate-stake!
@@ -237,7 +237,7 @@
         (first-burn-height uint)
         (prepare-cycle-length uint)
         (reward-cycle-length uint)
-        (begin-wf-reward-cycle uint)
+        (begin-pox5-reward-cycle uint)
     )
     (begin
         (unwrap-panic (if (var-get configured)
@@ -247,7 +247,7 @@
         (var-set first-burnchain-block-height first-burn-height)
         (var-set pox-prepare-cycle-length prepare-cycle-length)
         (var-set pox-reward-cycle-length reward-cycle-length)
-        (var-set first-pox-wf-reward-cycle begin-wf-reward-cycle)
+        (var-set first-pox-5-reward-cycle begin-pox5-reward-cycle)
         (var-set configured true)
         (ok true)
     )
@@ -485,7 +485,6 @@
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
             ;; the first cycle in which their stx are unlocked
             (unlock-cycle (+ first-reward-cycle num-cycles))
-            (unlock-burn-height (reward-cycle-to-unlock-height unlock-cycle))
         )
         (match pool-or-signer-key
             ;; Validate that the staker can join this pool
@@ -544,7 +543,7 @@
             amount-ustx: amount-ustx,
             num-cycle: num-cycles,
             first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: unlock-burn-height,
+            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
             unlock-cycle: unlock-cycle,
         })
     )
@@ -570,7 +569,6 @@
                 (get num-cycles current-info)
             ))
             (unlock-cycle (+ prev-unlock-cycle cycles-to-extend))
-            (unlock-burn-height (reward-cycle-to-unlock-height unlock-cycle))
             (new-lock-amount (+ (get amount-ustx current-info) amount-increase))
             (current-cycle (current-pox-reward-cycle))
             (num-cycles (- unlock-cycle current-cycle u1))
@@ -596,6 +594,11 @@
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
+        ;; Must have enough unlocked STX
+        (asserts! (>= (get unlocked (stx-account tx-sender)) amount-increase)
+            ERR_INSUFFICIENT_STX
+        )
+
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender (+ u1 current-cycle)
             (- prev-unlock-cycle current-cycle u1)
@@ -605,14 +608,56 @@
             new-lock-amount
         ))
 
+        (map-set staker-info tx-sender {
+            amount-ustx: new-lock-amount,
+            first-reward-cycle: (get first-reward-cycle current-info),
+            num-cycles: (+ (get num-cycles current-info) cycles-to-extend),
+        })
+
         (ok {
-            unlock-burn-height: unlock-burn-height,
+            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
             staker: tx-sender,
             pool: pool,
             prev-unlock-height: prev-unlock-cycle,
             unlock-cycle: unlock-cycle,
             num-cycles: num-cycles,
             amount-ustx: new-lock-amount,
+        })
+    )
+)
+
+;; Unstake - set your STX to unlock at the end of the current cycle
+(define-public (unstake)
+    (let (
+            (current-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKING))
+            (first-reward-cycle (get first-reward-cycle current-info))
+            ;; This is the first cycle where their STX would be unlocked
+            (prev-unlock-cycle (+ first-reward-cycle (get num-cycles current-info)))
+            (current-cycle (current-pox-reward-cycle))
+            (unlock-cycle (+ current-cycle u1))
+        )
+        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (check-caller-allowed))
+
+        ;; TODO: do not allow during a prepare phase
+
+        ;; Remove the staker from all existing cycles
+        (try! (remove-staker-from-cycles tx-sender (+ u1 current-cycle)
+            (- prev-unlock-cycle current-cycle u1)
+        ))
+
+        (map-set staker-info tx-sender {
+            amount-ustx: (get amount-ustx current-info),
+            first-reward-cycle: first-reward-cycle,
+            num-cycles: (- unlock-cycle first-reward-cycle),
+        })
+
+        (ok {
+            staker: tx-sender,
+            amount-ustx: (get amount-ustx current-info),
+            first-reward-cycle: first-reward-cycle,
+            unlock-cycle: unlock-cycle,
+            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
         })
     )
 )
@@ -1140,7 +1185,7 @@
 
 ;; What reward cycle does a bond index start at?
 (define-read-only (bond-period-to-reward-cycle (bond-index uint))
-    (+ (var-get first-pox-wf-reward-cycle) (* bond-index BOND_GAP_CYCLES))
+    (+ (var-get first-pox-5-reward-cycle) (* bond-index BOND_GAP_CYCLES))
 )
 
 ;; What's the reward cycle number of the burnchain block height?
@@ -1169,6 +1214,18 @@
 ;; What's the current PoX reward cycle?
 (define-read-only (current-pox-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height)
+)
+
+;; Used for PoX parameters discovery
+(define-read-only (get-pox-info)
+    (ok {
+        min-amount-ustx: SIGNER_SET_MIN_USTX,
+        reward-cycle-id: (current-pox-reward-cycle),
+        prepare-cycle-length: (var-get pox-prepare-cycle-length),
+        first-burnchain-block-height: (var-get first-burnchain-block-height),
+        reward-cycle-length: (var-get pox-reward-cycle-length),
+        total-liquid-supply-ustx: stx-liquid-supply,
+    })
 )
 
 (define-read-only (get-bond-allowance
@@ -1499,18 +1556,18 @@
         )
         (match prev-item
             prev-stacker
-            (let ((prev-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
-                    staker: prev-stacker,
-                    cycle: cycle,
-                }))))
-                (map-set staker-set-ll-for-cycle {
-                    cycle: cycle,
-                    staker: prev-stacker,
-                } {
-                    prev: (get prev prev-node),
-                    next: next-item,
-                })
-            )
+            (map-set staker-set-ll-for-cycle {
+                cycle: cycle,
+                staker: prev-stacker,
+            } {
+                prev: (get prev
+                    (unwrap-panic (map-get? staker-set-ll-for-cycle {
+                        staker: prev-stacker,
+                        cycle: cycle,
+                    }))
+                ),
+                next: next-item,
+            })
             ;; this is the first item
             (match next-item
                 next
@@ -1518,33 +1575,29 @@
                 ;; no previous or next - this is the only item
                 (begin
                     (map-delete staker-set-ll-last-for-cycle cycle)
-                    (map-delete staker-set-ll-for-cycle {
-                        cycle: cycle,
-                        staker: stacker,
-                    })
+                    (map-delete staker-set-ll-first-for-cycle cycle)
                 )
             )
         )
 
         (match next-item
-            next-stacker (let ((next-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
-                    staker: next-stacker,
-                    cycle: cycle,
-                }))))
-                (map-set staker-set-ll-for-cycle {
-                    cycle: cycle,
-                    staker: next-stacker,
-                } {
-                    prev: prev-item,
-                    next: (get next next-node),
-                })
-            )
+            next-stacker (map-set staker-set-ll-for-cycle {
+                cycle: cycle,
+                staker: next-stacker,
+            } {
+                prev: prev-item,
+                next: (get next
+                    (unwrap-panic (map-get? staker-set-ll-for-cycle {
+                        staker: next-stacker,
+                        cycle: cycle,
+                    }))
+                ),
+            })
             (match prev-item
-                prev-stacker (map-set staker-set-ll-last-for-cycle cycle prev-stacker)
-                (map-delete staker-set-ll-for-cycle {
-                    cycle: cycle,
-                    staker: stacker,
-                })
+                prev-stacker
+                (map-set staker-set-ll-last-for-cycle cycle prev-stacker)
+                ;; This is the only item - we've already handled this, though
+                true
             )
         )
         (map-delete staker-set-ll-for-cycle {
