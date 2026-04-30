@@ -378,57 +378,44 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         block_id: &StacksBlockId,
         cur_epoch: StacksEpoch,
     ) -> Result<RewardSet, Error> {
-        match cur_epoch.epoch_id {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21 => {
-                // Epochs 1.0 - 2.1 compute reward sets
-            }
-            StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
-                info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
-                return Ok(RewardSet::empty());
-            }
-            StacksEpochId::Epoch24 => {
-                // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
-                if burnchain
-                    .pox_constants
-                    .active_pox_contract(current_burn_height)
-                    != POX_3_NAME
-                {
-                    // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
-                    //        exists between Epoch 2.4's instantiation height and the pox-3 activation height.
-                    //  However, this *will* happen in testing if Epoch 2.4's instantiation height is set == a reward cycle
-                    //   start height
-                    info!(
-                        "PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation"
-                    );
-                    return Ok(RewardSet::empty());
-                }
-            }
-            StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
-                // Epoch 2.5 and up compute reward sets, but *only* if PoX-4 is active
-                if burnchain
-                    .pox_constants
-                    .active_pox_contract(current_burn_height)
-                    != POX_4_NAME
-                {
-                    // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
-                    //        exists between Epoch 2.5's instantiation height and the pox-4 activation height.
-                    //  However, this *will* happen in testing if Epoch 2.5's instantiation height is set == a reward cycle
-                    //   start height
-                    info!(
+        let epoch = cur_epoch.epoch_id;
+        if epoch >= StacksEpochId::Epoch25 {
+            // Epoch 2.5 and up compute reward sets, but *only* if PoX-4 is active
+            if burnchain
+                .pox_constants
+                .active_pox_contract(current_burn_height)
+                != POX_4_NAME
+            {
+                // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
+                //        exists between Epoch 2.5's instantiation height and the pox-4 activation height.
+                //  However, this *will* happen in testing if Epoch 2.5's instantiation height is set == a reward cycle
+                //   start height
+                info!(
                         "PoX reward cycle defaulting to burn in Epoch 2.5 because cycle start is before PoX-4 activation"
                     );
-                    return Ok(RewardSet::empty());
-                }
+                return Ok(RewardSet::empty());
             }
-        };
+        } else if epoch == StacksEpochId::Epoch24 {
+            // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
+            if burnchain
+                .pox_constants
+                .active_pox_contract(current_burn_height)
+                != POX_3_NAME
+            {
+                // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
+                //        exists between Epoch 2.4's instantiation height and the pox-3 activation height.
+                //  However, this *will* happen in testing if Epoch 2.4's instantiation height is set == a reward cycle
+                //   start height
+                info!(
+                        "PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation"
+                    );
+                return Ok(RewardSet::empty());
+            }
+        } else if epoch >= StacksEpochId::Epoch22 {
+            info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
+            return Ok(RewardSet::empty());
+        }
+        // else: 1.0–2.1, fall through and compute
 
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
@@ -1222,7 +1209,11 @@ impl<
         let mut revalidated_stacks_block = false;
 
         for unprocessed_block in sortitions_to_process.into_iter() {
-            let BurnchainBlockData { header, ops } = unprocessed_block;
+            let BurnchainBlockData {
+                header,
+                ops,
+                p2wsh_outputs,
+            } = unprocessed_block;
 
             // only evaluate epoch 2.x.
             // NOTE: epoch 3 starts _right after_ the first block in the first epoch3 reward cycle,
@@ -1338,6 +1329,7 @@ impl<
                             self.chain_state_db.mainnet,
                             &header,
                             ops,
+                            p2wsh_outputs,
                             &self.burnchain,
                             &last_processed_ancestor,
                             reward_cycle_info,

@@ -31,6 +31,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
+use crate::burnchains::bitcoin::WatchedP2WSHOutput;
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
     BurnchainView, Error as BurnchainError, PoxConstants, Txid,
@@ -485,7 +486,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: u32 = 11;
+pub const SORTITION_DB_VERSION: u32 = 12;
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -740,6 +741,17 @@ static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
         FOREIGN KEY(consensus_hash) REFERENCES snapshots(consensus_hash)
     );
     "#];
+
+static SORTITION_DB_SCHEMA_12: &[&str] = &[r#"CREATE TABLE IF NOT EXISTS watched_p2wsh_outputs (
+        txid TEXT NOT NULL,
+        vout INTEGER NOT NULL,
+        consensus_hash TEXT NOT NULL,
+        block_height INTEGER NOT NULL,
+        witness_script_hash TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        PRIMARY KEY(txid, vout, consensus_hash),
+        FOREIGN KEY(consensus_hash) REFERENCES snapshots(consensus_hash)
+    );"#];
 
 const LAST_SORTITION_DB_INDEX: &str =
     "stacks_chain_tips_by_burn_view_by_sortition_id_and_block_height";
@@ -2925,6 +2937,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_10(&db_tx)?;
         SortitionDB::apply_schema_11(&db_tx)?;
+        SortitionDB::apply_schema_12(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3155,20 +3168,12 @@ impl SortitionDB {
 
     /// Is a particular database version supported by a given epoch?
     pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: u32) -> bool {
-        match epoch {
-            StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version >= 1,
-            StacksEpochId::Epoch2_05 => version >= 2,
-            StacksEpochId::Epoch21 => version >= 3,
-            StacksEpochId::Epoch22 => version >= 3,
-            StacksEpochId::Epoch23 => version >= 3,
-            StacksEpochId::Epoch24 => version >= 3,
-            StacksEpochId::Epoch25 => version >= 3,
-            StacksEpochId::Epoch30 => version >= 3,
-            StacksEpochId::Epoch31 => version >= 3,
-            StacksEpochId::Epoch32 => version >= 3,
-            StacksEpochId::Epoch33 => version >= 3,
-            StacksEpochId::Epoch34 => version >= 3,
+        if epoch >= StacksEpochId::Epoch21 {
+            version >= 3
+        } else if epoch >= StacksEpochId::Epoch2_05 {
+            version >= 2
+        } else {
+            version >= 1
         }
     }
 
@@ -3434,6 +3439,19 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_12(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_12 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["12"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3502,6 +3520,10 @@ impl SortitionDB {
                     } else if version == 10 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_11(tx.deref())?;
+                        tx.commit()?;
+                    } else if version == 11 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_12(tx.deref())?;
                         tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
@@ -4244,6 +4266,7 @@ impl SortitionDB {
         mainnet: bool,
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
+        p2wsh_outputs: Vec<WatchedP2WSHOutput>,
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
@@ -4333,6 +4356,11 @@ impl SortitionDB {
         if !dryrun {
             sortition_db_handle
                 .store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
+            sortition_db_handle.store_watched_outputs(&new_snapshot.0, &p2wsh_outputs)?;
+            sortition_db_handle.prune_watched_outputs(
+                burnchain.pox_constants.reward_cycle_length,
+                new_snapshot.0.block_height,
+            )?;
         }
 
         announce_to(reward_set_info, &new_snapshot.0.consensus_hash);
@@ -6613,6 +6641,55 @@ impl SortitionHandleTx<'_> {
 
         Ok((keys, values))
     }
+
+    /// Store P2WSH outputs for a sortition, keyed by the snapshot's consensus hash.
+    pub fn store_watched_outputs(
+        &mut self,
+        snapshot: &BlockSnapshot,
+        outputs: &[WatchedP2WSHOutput],
+    ) -> Result<(), db_error> {
+        if outputs.is_empty() {
+            return Ok(());
+        }
+        let sql = "INSERT INTO watched_p2wsh_outputs
+                   (txid, vout, consensus_hash, block_height, witness_script_hash, amount)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+        for output in outputs {
+            self.execute(
+                sql,
+                params![
+                    &output.txid,
+                    output.vout,
+                    &snapshot.consensus_hash,
+                    u64_to_sql(snapshot.block_height)?,
+                    &output.witness_script_hash,
+                    u64_to_sql(output.amount)?,
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Prune watched outputs whose block height is older than 1.5 reward cycles
+    /// before `current_block_height`.
+    pub fn prune_watched_outputs(
+        &mut self,
+        reward_cycle_length: u32,
+        current_block_height: u64,
+    ) -> Result<(), db_error> {
+        let window = (3u64 * u64::from(reward_cycle_length)) / 2;
+        let threshold = current_block_height.saturating_sub(window);
+        let sql = "DELETE FROM watched_p2wsh_outputs WHERE block_height < ?1";
+        let deleted = self.execute(sql, [u64_to_sql(threshold)?])?;
+        if deleted > 0 {
+            test_debug!(
+                "Pruned {} watched outputs older than block height {}",
+                deleted,
+                threshold
+            );
+        }
+        Ok(())
+    }
 }
 
 impl ChainstateDB for SortitionDB {
@@ -6633,6 +6710,7 @@ pub mod tests {
     use stacks_common::util::vrf::*;
 
     use super::*;
+    use crate::burnchains::bitcoin::WitnessScriptHash;
     use crate::burnchains::db::BurnchainDB;
     use crate::burnchains::tests::db::make_simple_block_commit;
     use crate::burnchains::*;
@@ -6851,7 +6929,7 @@ pub mod tests {
             SortitionDB::connect_test_with_epochs(
                 first_block_height,
                 first_burn_hash,
-                StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
+                StacksEpoch::unit_test_up_to(first_block_height, StacksEpochId::Epoch20),
             )
         }
 
@@ -7186,7 +7264,7 @@ pub mod tests {
             first_block_height,
             &first_burn_hash,
             get_epoch_time_secs(),
-            &StacksEpoch::unit_test_2_05(first_block_height),
+            &StacksEpoch::unit_test_up_to(first_block_height, StacksEpochId::Epoch2_05),
             PoxConstants::test_default(),
             None,
             true,
@@ -7233,7 +7311,9 @@ pub mod tests {
         sn.block_height += 1;
         sn.num_sortitions += 1;
         sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
-        sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
+        let mut consensus_hash_input = sn_parent.consensus_hash.as_bytes().to_vec();
+        consensus_hash_input.extend_from_slice(sn.burn_header_hash.as_bytes());
+        sn.consensus_hash = ConsensusHash(Hash160::from_data(&consensus_hash_input).0);
 
         if let Some(cmt) = winning_block_commit {
             sn.sortition = true;
@@ -10807,7 +10887,7 @@ pub mod tests {
         let mut db = SortitionDB::connect_test_with_epochs(
             first_block_height,
             &first_block_header.block_hash,
-            StacksEpoch::all(0, 0, 0),
+            StacksEpoch::unit_test_2_1_with_heights(0, 0, 0),
         )
         .unwrap();
 
@@ -11222,7 +11302,7 @@ pub mod tests {
             "10000000000000000000000000000000000000000000000000000000000000ff",
         )
         .unwrap();
-        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let epochs = StacksEpoch::unit_test_epoch_only(0, StacksEpochId::Epoch30);
         let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
 
         let last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
@@ -11276,7 +11356,7 @@ pub mod tests {
             "10000000000000000000000000000000000000000000000000000000000000ff",
         )
         .unwrap();
-        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let epochs = StacksEpoch::unit_test_epoch_only(0, StacksEpochId::Epoch30);
         let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
 
         let last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
@@ -11362,7 +11442,7 @@ pub mod tests {
             "10000000000000000000000000000000000000000000000000000000000000ff",
         )
         .unwrap();
-        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let epochs = StacksEpoch::unit_test_epoch_only(0, StacksEpochId::Epoch30);
         let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
 
         let sortition_A = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
@@ -11561,6 +11641,91 @@ pub mod tests {
             // there is no tip info off of sortition C'
             let sortition_Cp_tip = get_stacks_tip_at_sortition(&db, &sortition_Cp.sortition_id);
             assert!(sortition_Cp_tip.is_none());
+        }
+    }
+
+    #[test]
+    fn prune_watched_outputs() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "10000000000000000000000000000000000000000000000000000000000000ff",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+
+        // With reward_cycle_length = 10, the retention window is (3 * 10) / 2 = 15 blocks.
+        // Pruning against a tip at height 100 keeps outputs with block_height >= 85.
+        let reward_cycle_length: u32 = 10;
+        let window: u64 = (3 * u64::from(reward_cycle_length)) / 2; // 15
+        let current_block_height: u64 = 100;
+        let threshold = current_block_height - window; // 85
+
+        let heights: &[u64] = &[1, 50, 80, 84, 85, 90, 100];
+
+        let mut tx = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
+        for &height in heights {
+            let marker = height as u8;
+            tx.execute(
+                "INSERT INTO watched_p2wsh_outputs
+                 (txid, vout, consensus_hash, block_height, witness_script_hash, amount)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    &Txid([marker; 32]),
+                    0u32,
+                    &tip.consensus_hash,
+                    u64_to_sql(height).unwrap(),
+                    &WitnessScriptHash([marker; 32]),
+                    u64_to_sql(height * 1_000).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        tx.prune_watched_outputs(reward_cycle_length, current_block_height)
+            .unwrap();
+        tx.commit().unwrap();
+
+        for &height in heights {
+            let remaining: i64 = db
+                .conn()
+                .query_row(
+                    "SELECT COUNT(*) FROM watched_p2wsh_outputs WHERE block_height = ?1",
+                    [u64_to_sql(height).unwrap()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            if height < threshold {
+                assert_eq!(
+                    remaining, 0,
+                    "Expected outputs at height {height} to be pruned (threshold={threshold})"
+                );
+            } else {
+                assert_eq!(
+                    remaining, 1,
+                    "Expected outputs at height {height} to survive (threshold={threshold})"
+                );
+            }
+        }
+
+        // When the tip is below the retention window, nothing more should be pruned.
+        let early_tip: u64 = 5;
+        let mut tx = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
+        tx.prune_watched_outputs(reward_cycle_length, early_tip)
+            .unwrap();
+        tx.commit().unwrap();
+
+        for &height in heights.iter().filter(|&&h| h >= threshold) {
+            let remaining: i64 = db
+                .conn()
+                .query_row(
+                    "SELECT COUNT(*) FROM watched_p2wsh_outputs WHERE block_height = ?1",
+                    [u64_to_sql(height).unwrap()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                remaining, 1,
+                "Expected outputs at height {height} to survive a below-window prune"
+            );
         }
     }
 }

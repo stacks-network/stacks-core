@@ -248,7 +248,7 @@ pub fn setup_states_2_1(
         pox_consts,
         initial_balances,
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 0, 0)),
+        Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0)),
     )
 }
 
@@ -266,9 +266,9 @@ pub fn setup_states_with_epochs(
 
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
-        let epochs = epochs_opt.clone().unwrap_or(StacksEpoch::unit_test(
-            stacks_epoch_id,
+        let epochs = epochs_opt.clone().unwrap_or(StacksEpoch::unit_test_up_to(
             burnchain.first_block_height,
+            stacks_epoch_id,
         ));
         let sortition_db = SortitionDB::connect(
             &burnchain.get_db_path(),
@@ -1021,7 +1021,7 @@ fn missed_block_commits_2_05() {
         pox_consts.clone(),
         Some(initial_balances),
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 0, 1000000)),
+        Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 1000000)),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
@@ -1342,7 +1342,7 @@ fn missed_block_commits_2_1() {
         pox_consts.clone(),
         Some(initial_balances),
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 0, 0)),
+        Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0)),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -1687,7 +1687,7 @@ fn late_block_commits_2_1() {
         pox_consts.clone(),
         Some(initial_balances),
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 0, 0)),
+        Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0)),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -4135,7 +4135,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         );
 
         // These expectations are according to according to hard-coded values in
-        // `StacksEpoch::unit_test_2_05`.
+        // `StacksEpoch::unit_test_up_to(_, Epoch2_05)`.
         let expected_runtime = match burn_block_height {
             x if x < 4 => u64::MAX,
             _ => 205205,
@@ -4339,7 +4339,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         );
 
         // These expectations are according to according to hard-coded values in
-        // `StacksEpoch::unit_test_2_1`.
+        // `StacksEpoch::unit_test_up_to(_, Epoch21)`.
         let expected_runtime = match burn_block_height {
             x if x < 4 => u64::MAX,
             x if x >= 4 && x < 8 => 205205,
@@ -4548,7 +4548,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         );
 
         // These expectations are according to according to hard-coded values in
-        // `StacksEpoch::unit_test_2_4`.
+        // `StacksEpoch::unit_test_up_to(_, Epoch24)`.
         let expected_runtime = match burn_block_height {
             x if x < 4 => u64::MAX,
             x if x >= 4 && x < 8 => 205205,
@@ -4947,7 +4947,7 @@ fn test_epoch_verify_active_pox_contract() {
         pox_consts.clone(),
         Some(initial_balances),
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(
+        Some(StacksEpoch::unit_test_2_1_with_heights(
             first_block_ht,
             first_block_ht + 4,
             first_block_ht + 8,
@@ -5556,7 +5556,11 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         pox_consts.clone(),
         None,
         StacksEpochId::Epoch20,
-        Some(StacksEpoch::all(0, 5, epoch_switch_ht)),
+        Some(StacksEpoch::unit_test_2_1_with_heights(
+            0,
+            5,
+            epoch_switch_ht,
+        )),
     );
 
     let mut coord = make_reward_set_coordinator(path, reward_set, pox_consts.clone());

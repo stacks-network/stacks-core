@@ -140,6 +140,18 @@ macro_rules! clarity_template {
                 (StacksEpochId::Epoch31, ClarityVersion::Clarity5) => (),
                 (StacksEpochId::Epoch32, ClarityVersion::Clarity5) => (),
                 (StacksEpochId::Epoch33, ClarityVersion::Clarity5) => (),
+                (StacksEpochId::Epoch20, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch2_05, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch21, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch22, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch23, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch24, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch25, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch30, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch31, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch32, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch33, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch34, ClarityVersion::Clarity6) => (),
                 // this will lead to a compile time failure if a pair is left out
                 //  of the clarity_template! macro list
                 $((StacksEpochId::$epoch, ClarityVersion::$clarity))|* => (),
@@ -168,6 +180,7 @@ epochs_template! {
     Epoch32,
     Epoch33,
     Epoch34,
+    Epoch35,
 }
 #[cfg(any(test, feature = "testing"))]
 clarity_template! {
@@ -201,6 +214,12 @@ clarity_template! {
     Epoch34_Clarity3: (Epoch34, Clarity3),
     Epoch34_Clarity4: (Epoch34, Clarity4),
     Epoch34_Clarity5: (Epoch34, Clarity5),
+    Epoch35_Clarity1: (Epoch35, Clarity1),
+    Epoch35_Clarity2: (Epoch35, Clarity2),
+    Epoch35_Clarity3: (Epoch35, Clarity3),
+    Epoch35_Clarity4: (Epoch35, Clarity4),
+    Epoch35_Clarity5: (Epoch35, Clarity5),
+    Epoch35_Clarity6: (Epoch35, Clarity6),
 }
 
 #[fixture]

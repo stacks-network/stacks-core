@@ -1,7 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
@@ -397,427 +396,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "90b6a1de5a9459eeb7dbb035798b32c3eed634561a42b0503622d7fee57cfdaa",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_1-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "79748cb65bc2f3f69a0fd8d117357dcba1f3f6b7457df7257582218311428f45",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_2-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f7d2477e600c46f9b432e90e3fd7207b1eac9d98e78e84b1209a9279012f23bd",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_3-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "81124bff1ce3b7c124e6a6e68ec8ce849a60a676f619755989b8d9a10f9d8715",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_4-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6a648a39581887db72c54aa4934648903e1b9cd1666291d72f89931547e1b796",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_5-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a22639c3a1221c10d45cbf138f712ab533ac8000f185a001b25f01ed8385eee5",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_0-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "24f62db41e2437d76e9dcb22f48257ef79c416e82c3cf16176dcf134c36f0ee0",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_0-Clarity3, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "59c0f200c06130ad49633b0967e31afe4f7de36d50cc9f37fbc67368d8e06f39",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_1-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "78fa6bcfd2b2af81e71d1731b9e9e2b92f16df684daa76951a2fef2f9a2a9f11",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_1-Clarity3, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4cba95e3a6310e2e7383a662c2dbb74aa4698d7ea7d858d2fe6927c362a49b23",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_2-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "253e9b060a9dd6735256ab799fd6ff9dcad8e965434cb50e66309d4ebb2d1876",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_2-Clarity3, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "adfeb062044538a7227c00e857464aa22d68852f81ec33f9cb8a44739aaceb00",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_3-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "066c7b3847feee3a350823ed5a52e4c89746c72a3752aeb2b25eec2318d653a8",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_3-Clarity3, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e4f1eafb9683b7b1d174681b3895f8ef3638511c00438c3a6a48b1bb028a3432",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_3-Clarity4, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 63,
-          read_count: 3,
-          runtime: 167,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 63,
-      read_count: 3,
-      runtime: 167,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "280ee11e28ce8f61d1aaf6e1b1017ddc8495611d01b3f9bb52b66ab1c5d791d2",
+    marf_hash: "a4fb603b0be74edaa537a69dff3aa99095e0826bc8c5dc78aa7e609e4ea4f9a5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -845,7 +424,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8821b0cd3fa532acc9ebd8dc7e5cf90372ece9643904f135b6d66eba6536895f",
+    marf_hash: "a7d5494bdd2d02531c91ec486bb85412d09265b888af12d817b2886ae5f6912f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -873,7 +452,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "46fcae34f08a84c7aa7235b8b7b7810dca45704f2530f55c9d5995da91d42991",
+    marf_hash: "fa287c64882af7aa38060396dcc81fb16d4bfa797ff106ba84ef03b0d2d2b70a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -901,7 +480,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "961b0e6f02fb8b9a8fd72172412b51d1220fdca9d803890b6db87560117d54c4",
+    marf_hash: "e9bc424f9e37164822f48ea760030244bcf2f53b2954b859000046782138a0eb",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -929,7 +508,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ad10809453ac7d493fd3a83951fee3963e9746eb57b3e0367b3d8a13848cbdd5",
+    marf_hash: "3a184b69041b37de97da5f93d359a29362941a67d5b8f72c8f61e98642c3e8c8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -959,7 +538,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bbc4f4cf49a03c7babae7a96f28ffb653e6e87e61128be5a10575696fdb044a3",
+    marf_hash: "c0dd12fd5e59abd7411a01e55c79bfd5806b1bdf7014008670654c9c77ba0ac7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -989,7 +568,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4587ec430991c89011bfc9779230d52c8724a519f14aa48c045b7f98885db148",
+    marf_hash: "995c103718c0ae40ce3cacb86fea220be44ae833f134ae77ac2b91b7973930b7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1019,7 +598,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3fd9b79729fb7483f8d41d37faac0e00bdee16fe6de360585606ba5d64f44400",
+    marf_hash: "4097b60ee03dde7aa6ab2bea44a80d1e7b87b5244048335acc37f6965535bd01",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1049,7 +628,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8c9443c6cae7f7d14bfe5576eb3db4f70d540204644f3db64cf4263aa83737d0",
+    marf_hash: "1f0146d24379a2ee8fea46d4230be99556940abefa06f16ec7017f6781655c5f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1079,7 +658,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b6e297a7fb8072977f62a5fd8806adcf8fb293f5e121cdd8ba4cc2d4da12ef7f",
+    marf_hash: "93ee5248a06aec086801c7ddbd235eb702401ece82b69fad682d8f2a7a204d52",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1109,7 +688,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e3cb87c377924dbda47a58299eeaf84dd9b7aa6544378d93337985c7294d84f5",
+    marf_hash: "1c3ff109aaca6bef2181fee15dcf365114b3c39887e5a144d306cfd3872defc5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1139,7 +718,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a278379ab628175ae4deb9434e2d4827ad410d69a2ca34629124c5ba7ef50670",
+    marf_hash: "43562c55945f9e90e0ead34b75ea87456dd676cd262a91490962ee42850f18e7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1169,7 +748,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0525c736778555fe911b7c801b489e43774fbc5de80a0062e0d7e59a772af946",
+    marf_hash: "71a937d592c3b97fffdf3726e2aaabf9000b96df6f7f380a6f617d93ce84ac44",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1199,7 +778,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bd869a13d1efd0ea52145e77713d6be6760997cada455ff31b57517fe028541a",
+    marf_hash: "96a8d166096fbb45504220041ce510158769ef552cb03dd874e21c8c99e827ac",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1229,7 +808,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "390471f53a65a46402e8065d1eeca1ec87a74142f734ed007959446e6d08ecbc",
+    marf_hash: "020909a9fd827e481642aff5926e624b3b172ae5e9b48353eaad876f37c79fe7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1259,7 +838,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "782876ce7a200e224d1726c1cf0ee3376fca1f9b0339f5a45d1b796647a97b3d",
+    marf_hash: "07da1d6321b1d000574de1c2829a5317f462d39c744357e9ebd6d28d1f22bb1e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1289,7 +868,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2cb5c3c4878d661e21ac3d2f1a5ed37df0f3c7201b9d6ad47a90121ac681ad49",
+    marf_hash: "fe9ccce4ee68e5e033c56785ce0ae0a72f6708b19ada574c990c6a20618e1896",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1319,7 +898,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ba6528051f06d763543fbe8f10037a9a2dde8a2bc4d6c7a0bd4fb161bbe1fc48",
+    marf_hash: "988bacdb9dfc82bb4ce7fe6673071d6d57ceb853d0886ee17d5730d9f900dce4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1349,7 +928,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0d871cdd238c183d2745a2c7a6d9c317b076e5dd5f78b6e37497e7c33f70b707",
+    marf_hash: "23b92d54b8209b56c94bc7a5f8362135e61b1b74c43440368cabf984ad2c81a3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1379,7 +958,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8c90d19ced408ad001973f8b169005e478f8168e9afac14156ea723e0dfa7f79",
+    marf_hash: "07693dcfb3258937a2e397494a10f792a243185c89db42d41e70738be2d17ba1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1409,7 +988,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9787ac6df2a8c6df90963e82ca7927f97c33b3029d700e5f47da25f23c499b02",
+    marf_hash: "b53b878f3b22216edf31fd4e0e30c4332f50718bbe2f2e229efb3f0fc540e8fa",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1439,11 +1018,832 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e595939434dd05425468f8f7e0bf1843d6f5c7a979860deff80b27ba7f4b707d",
+    marf_hash: "7d0c72f438ef8919c8ebb34dbee944c0090f8ac7a15ea947d0855f9519db7e6e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_4-Clarity5, function_name: trigger, function_args: [[]])",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Optional(OptionalData(
+          data: None,
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 352,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 352,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ac18e2a78612cd824d561785271cbbc1cb5ba08ca549657f3308497712e5b452",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 72,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10657,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 72,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10657,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7b1a0bf4e4fec8cdd77334c8a61361f5eff3b93319c2f5a7452c546e2be6b5c1",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 72,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10657,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 72,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10657,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b49da32e7b03262071db540951000e73ad217e9b0b2c95a449863febccce3a8d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 72,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10657,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 72,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10657,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b67a76dc5dbe487453c1ebc203a001469f664f0c8649659f2d37388beee9856e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 72,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10657,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 72,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10657,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e385d649d472e58d2f369e4bb201cb914bde9e8542466c10abf296f4f7da2886",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 72,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10657,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 72,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10657,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e8656c541d50abebf56b399460333fe1aaa43481581dc4f6cc77826238292b6b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_1-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ce8d06a15451d3da4f2d5c7680974671579dd1c42ec43c2c09589dae0565b98f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_2-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e54e0d15900c80a119e0235b833b100a6c38eb6b6b431acef15993c436f199de",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_3-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "dcfc1578440f417b97efb22f0af026983f1e9cf8ace145754627066a5223fe0c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_4-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d01b99c5f7cc6059fdcd3448c5c8ed77bf31292bedf851cb98261fb17623d325",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch2_5-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "27075780512fde42ae14a833695faeb7b0c44bceca592a72c946da6482b7a872",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_0-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1a9225dc39ea4b8e81d7d7880586830dbecdc4f1e1be823f1fb5113cfe4f7c5f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_0-Clarity3, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6beb787d80e0c843c9b6422c666cade3c26e7fc0b0a8fefe2bcda6cc2689cafe",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_1-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a0954ff6d7a9d903aa7c885032fae108cfe5786dcef3b2e58b52db31a52477cb",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_1-Clarity3, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9b811666c1bd07b60538059462f3627adb011220e780c764f92e3e45af5158d0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_2-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "94d630ccb54bc3f8181030d83a0419706fa546fb3277f7e38771810d18391c46",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_2-Clarity3, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8e3ed77f42ee809a82eff22b92375ef157c2fbdb261186baa63b99f1c0ae8b44",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_3-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6b8606843541922ef3f4baafd2105793b9c59566952d1efe33b5de211c12a6df",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_3-Clarity3, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "59575b3e7b9d8e1d1e08d898fe349344a0195eb86549dcc693b659e65ee47ae6",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_3-Clarity4, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "34771c929e6f48b31370e38a2f118e2db8777ab68007d8e028f493427a7ef98d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_4-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2eeb9ee88e34fcefd41e5f6f6b969948afdf3b40571a528324ddc574a10fbc93",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_4-Clarity3, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3e6c85321b6de09df101397dc8ede0b2a6012b8d80289fbc493f33b2b823145d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_4-Clarity4, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "801f9cbdb791743538ff5d923c059b4f64ea79ba64174218813577a6e3cad299",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_4-Clarity5, function_name: trigger, function_args: [[]])",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Optional(OptionalData(
+          data: None,
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 352,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 352,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9f337219f99eec19aa6efa6c6d3477ef666c0b7d51e174c1940541b1793d7839",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_5-Clarity2, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "883e0a7e74ea240fd03116cb06b2595439e2dd111420d14b49670b6d4599d428",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_5-Clarity3, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bd64e2a2aab4711cae41a41599848d43d9b4fbe405521dabcf20bffae21b351c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_5-Clarity4, function_name: trigger, function_args: [[]])",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 167,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 167,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "80532f15d7c6ad0bceff44f1c7f8301529e901e834f05b7950995309d400286b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_5-Clarity5, function_name: trigger, function_args: [[]])",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Optional(OptionalData(
+          data: None,
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 63,
+          read_count: 3,
+          runtime: 352,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 63,
+      read_count: 3,
+      runtime: 352,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bc5c472a237d1aacaee084ae2c4abeb5d6ff5cf4801ec2b0ea9fe3e995214f9c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_5-Clarity6, function_name: trigger, function_args: [[]])",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Optional(OptionalData(
           data: None,

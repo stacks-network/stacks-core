@@ -1,41 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "b516f9ef62928fce845a11e44db9afd41e0c586a0ab8e79c46cebf8d25017fc3",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-list-of-allowances-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: restrict-assets? expects a list of asset allowances as argument 2) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 1125,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 1125,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a527987e4e420a7282a97c27d6f2ac54fc42c1d92135f2c64cb78d45710b48bb",
+    marf_hash: "a1e7f8d8ee08363c6ea6831021aeafa3394bfea637414aa6e8aa9a18e7f233fa",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,11 +34,101 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c1d68633803355fbb32486f27658aa41e2d3d66c5ad37e97a15a38beab848d4d",
+    marf_hash: "fa4102db0a58e3c2c456dd1b1cc2399ea01fb68111b17dd760139da7cf1def8a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: exp-list-of-allowances-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: restrict-assets? expects a list of asset allowances as argument 2) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 1125,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 1125,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "11856a3b313f6f2b33b5d8f240c299e0e03aea5516a5d5c341f618942699d14b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: exp-list-of-allowances-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: restrict-assets? expects a list of asset allowances as argument 2) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 1125,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 1125,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b96eb10814862201dc6aef6626bcd5c173c673e012a15361e820b228de49b895",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: exp-list-of-allowances-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: restrict-assets? expects a list of asset allowances as argument 2) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 1125,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 1125,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0b353286601e9ed7a86f8425789883f33296b1bb1b11fccf8057ad508eaf9e1b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: exp-list-of-allowances-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: restrict-assets? expects a list of asset allowances as argument 2) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

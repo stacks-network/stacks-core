@@ -1804,6 +1804,9 @@ pub mod test {
     pub const TestBurnStateDB_34: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch34,
     };
+    pub const TestBurnStateDB_35: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch35,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
@@ -1814,6 +1817,7 @@ pub mod test {
         &TestBurnStateDB_32 as &dyn BurnStateDB,
         &TestBurnStateDB_33 as &dyn BurnStateDB,
         &TestBurnStateDB_34 as &dyn BurnStateDB,
+        &TestBurnStateDB_35 as &dyn BurnStateDB,
     ];
 
     pub const PRE_33_DBS: &[&dyn BurnStateDB] = &[
@@ -1836,6 +1840,7 @@ pub mod test {
         &TestBurnStateDB_32 as &dyn BurnStateDB,
         &TestBurnStateDB_33 as &dyn BurnStateDB,
         &TestBurnStateDB_34 as &dyn BurnStateDB,
+        &TestBurnStateDB_35 as &dyn BurnStateDB,
     ];
 
     #[test]
@@ -1940,6 +1945,9 @@ pub mod test {
         if epoch_id >= StacksEpochId::Epoch34 {
             genesis.initialize_epoch_3_4().unwrap();
         }
+        if epoch_id >= StacksEpochId::Epoch35 {
+            genesis.initialize_epoch_3_5().unwrap();
+        }
         genesis.commit_block();
 
         let burn_db = match epoch_id {
@@ -1948,6 +1956,7 @@ pub mod test {
             StacksEpochId::Epoch32 => &TestBurnStateDB_32 as &dyn BurnStateDB,
             StacksEpochId::Epoch33 => &TestBurnStateDB_33 as &dyn BurnStateDB,
             StacksEpochId::Epoch34 => &TestBurnStateDB_34 as &dyn BurnStateDB,
+            StacksEpochId::Epoch35 => &TestBurnStateDB_35 as &dyn BurnStateDB,
             _ => panic!("Unsupported epoch in test helper: {epoch_id}"),
         };
 
@@ -9152,6 +9161,7 @@ pub mod test {
                     StacksEpochId::Epoch32 => self.get_stacks_epoch(9),
                     StacksEpochId::Epoch33 => self.get_stacks_epoch(10),
                     StacksEpochId::Epoch34 => self.get_stacks_epoch(11),
+                    StacksEpochId::Epoch35 => self.get_stacks_epoch(12),
                 }
             }
             fn get_pox_payout_addrs(

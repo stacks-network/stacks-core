@@ -727,6 +727,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch33)
             } else if epoch_name == EPOCH_CONFIG_3_4_0 {
                 Ok(StacksEpochId::Epoch34)
+            } else if epoch_name == EPOCH_CONFIG_3_5_0 {
+                Ok(StacksEpochId::Epoch35)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -743,22 +745,7 @@ impl Config {
             );
         }
 
-        let expected_list = [
-            StacksEpochId::Epoch10,
-            StacksEpochId::Epoch20,
-            StacksEpochId::Epoch2_05,
-            StacksEpochId::Epoch21,
-            StacksEpochId::Epoch22,
-            StacksEpochId::Epoch23,
-            StacksEpochId::Epoch24,
-            StacksEpochId::Epoch25,
-            StacksEpochId::Epoch30,
-            StacksEpochId::Epoch31,
-            StacksEpochId::Epoch32,
-            StacksEpochId::Epoch33,
-            StacksEpochId::Epoch34,
-        ];
-        for (expected_epoch, configured_epoch) in expected_list
+        for (expected_epoch, configured_epoch) in StacksEpochId::ALL
             .iter()
             .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
         {
@@ -1723,6 +1710,7 @@ pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
+pub const EPOCH_CONFIG_3_5_0: &str = "3.5";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
