@@ -1663,7 +1663,7 @@ pub struct SquashInfo {
     /// Archival MARF root hash committed to the chain at the squash height.
     pub archival_marf_root_hash: TrieHash,
     /// Root node hash of the squash trie. i.e. `hash(consensus_bytes(root) || children_content_hashes)`
-    /// `TrieHash::from_data(&[])` if not yet computed.
+    /// `TrieHash::EMPTY` if not yet computed.
     pub squash_root_node_hash: TrieHash,
     /// Height at which the MARF was squashed.
     pub height: u32,
@@ -1775,8 +1775,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                 Some(SquashInfo {
                     archival_marf_root_hash,
                     // While creating a squash, this may still be empty.
-                    squash_root_node_hash: squash_root_node_hash_opt
-                        .unwrap_or_else(|| TrieHash::from_data(&[])),
+                    squash_root_node_hash: squash_root_node_hash_opt.unwrap_or(TrieHash::EMPTY),
                     height,
                 })
             }
