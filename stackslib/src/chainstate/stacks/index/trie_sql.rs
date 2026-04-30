@@ -104,8 +104,7 @@ CREATE TABLE IF NOT EXISTS marf_squashed_blocks (
     block_hash_hex TEXT GENERATED ALWAYS AS (hex(block_hash)) VIRTUAL,
     marf_root_hash_hex TEXT GENERATED ALWAYS AS (hex(marf_root_hash)) VIRTUAL
 );
-DELETE FROM schema_version;
-INSERT INTO schema_version (version) VALUES (3);
+UPDATE schema_version SET version = 3;
 ";
 
 pub static SQL_MARF_EXTERNAL_BLOBS_SCHEMA_VERSION: u64 = 2;
@@ -129,14 +128,19 @@ pub fn write_squash_info(
 ) -> Result<(), Error> {
     conn.execute(
         "INSERT OR REPLACE INTO marf_squash_info (id, archival_marf_root_hash, squash_height) VALUES (1, ?1, ?2)",
-        params![archival_marf_root_hash.as_bytes().to_vec(), height as i64],
+        params![archival_marf_root_hash.as_bytes().to_vec(), i64::from(height)],
     )?;
     Ok(())
 }
 
-/// Read squash metadata from the out-of-trie SQL table.
-/// Returns `None` for archival (non-squashed) MARFs.
-/// Returns `(archival_marf_root_hash, squash_root_node_hash_opt, height)`.
+/// Read the squash metadata row.
+///
+/// Returns:
+/// - `None` for archival MARFs.
+/// - `Some((archival_marf_root_hash, squash_root_node_hash_opt, height))` for squashed MARFs.
+///
+/// `squash_root_node_hash_opt` is `None` only while `squash_to_path` is building the squash;
+/// committed squashed MARFs always have it.
 pub fn read_squash_info(
     conn: &Connection,
 ) -> Result<Option<(TrieHash, Option<TrieHash>, u32)>, Error> {
