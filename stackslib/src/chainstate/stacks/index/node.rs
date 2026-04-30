@@ -1164,7 +1164,8 @@ impl TrieNode16 {
 #[derive(Clone)]
 pub struct TrieNode48 {
     pub path: Vec<u8>,
-    pub(crate) indexes: [i8; 256], // indexes[i], if non-negative, is an index into ptrs.
+    /// If indexes[i] is non-negative, then it is an index into ptrs.
+    pub indexes: [i8; 256],
     pub ptrs: [TriePtr; 48],
     /// If this node was created by copy-on-write, then this points to the node it was copied from.
     pub cowptr: Option<TrieCowPtr>,
