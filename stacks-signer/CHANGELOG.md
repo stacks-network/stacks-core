@@ -16,7 +16,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 * Fix duplicated binary name when running `stacks-signer --version` cli command
 * Fixed an issue in the signer where it would return early if it detected a message from an unrecognized signer.
 * Fixed flakiness in `check_capitulate_miner_view` test.
-* Fixed signer database migration 19 that could leave the database in corrupted, unrecoverable state.
 * When checking tenure change blocks, ensure there are no locally accepted blocks in the tenure, not just globally accepted blocks.
 
 ## [3.4.0.0.0.0]

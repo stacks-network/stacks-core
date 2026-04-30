@@ -33,7 +33,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 * Fix to clear ongoing block commits when a `send_transaction` call fails ([#6976](https://github.com/stacks-network/stacks-core/pull/6976))
 * Fixed `clarity-cli` to print errors to stderr and exit gracefully instead of panicking with a backtrace on invalid inputs.
-* Improved performance for `fold`, `map`, and `filter` Clarity functions
 * Fixed flakiness in Bitcoin integration tests due to shutdown timing.
 * Fixed flakiness in `fuzzed_median_fee_rate_estimation_test` tests.
 * Fixed flaky `miner_stackerdb_version_rollover` and `multiple_miners_mock_sign_epoch_25` integration tests by increasing polling frequency and extending the timeout in `wait_for_registered` and `wait_for_registered_both_reward_cycles`, and aligning `boot_to_epoch_25_reward_cycle` with `boot_to_epoch_3` (extended timeout plus mine-another-block recovery when the reward set isn't yet available)
