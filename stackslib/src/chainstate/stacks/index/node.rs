@@ -135,7 +135,7 @@ pub const fn clear_u64_ptr(id: u8) -> u8 {
     id & 0xdf
 }
 
-/// Clear all control bits (backptr, compressed, u64-pointer, annotation)
+/// Clear all control bits (backptr, compressed, u64-pointer, squash annotation)
 pub fn clear_ctrl_bits(id: u8) -> u8 {
     id & 0x0f
 }
