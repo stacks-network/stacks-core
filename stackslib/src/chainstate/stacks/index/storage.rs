@@ -1768,8 +1768,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     /// Detect whether this MARF was produced by a squash operation and, if
     /// so, cache the squash metadata [`SquashInfo`].
     ///
-    /// The metadata is read from the `marf_squash_info` SQL table
-    fn init_squash_info(&mut self) -> Result<(), Error> {
+    /// The metadata is read from the `marf_squash_info` SQL table.
+    fn load_squash_info(&mut self) -> Result<(), Error> {
         let squash_info = match trie_sql::read_squash_info(&self.db)? {
             Some((archival_marf_root_hash, squash_root_node_hash_opt, height)) => {
                 Some(SquashInfo {
@@ -2009,7 +2009,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             test_genesis_block: None,
         };
 
-        ret.init_squash_info()?;
+        ret.load_squash_info()?;
         Ok(ret)
     }
 
@@ -2102,7 +2102,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             test_genesis_block: self.test_genesis_block.clone(),
         };
 
-        ret.init_squash_info()?;
+        ret.load_squash_info()?;
         Ok(ret)
     }
 
@@ -2175,7 +2175,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             test_genesis_block: self.test_genesis_block.clone(),
         };
 
-        ret.init_squash_info()?;
+        ret.load_squash_info()?;
         Ok(ret)
     }
 
