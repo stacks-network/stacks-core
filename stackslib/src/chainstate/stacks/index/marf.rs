@@ -1766,7 +1766,7 @@ impl<T: MarfTrieId> MARF<T> {
         F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
     {
         let (original_block_hash, original_block_id) = storage.get_cur_block_and_id();
-        let result = Self::inner_each_leaf(storage, block_hash, &mut handle_leaf);
+        let result = Self::for_each_leaf_inner(storage, block_hash, &mut handle_leaf);
 
         storage
             .open_block_maybe_id(&original_block_hash, original_block_id)
@@ -1783,7 +1783,7 @@ impl<T: MarfTrieId> MARF<T> {
         result
     }
 
-    fn inner_each_leaf<F>(
+    fn for_each_leaf_inner<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         handle_leaf: &mut F,
@@ -1797,44 +1797,15 @@ impl<T: MarfTrieId> MARF<T> {
         let mut leaf_count = 0u64;
         let mut stack: Vec<(TriePtr, Vec<u8>, T, Option<u32>)> = Vec::new();
 
-        // Process a node: emit leaf or push children onto the stack.
-        let mut process_node = |node: TrieNodeType,
-                                prefix: Vec<u8>,
-                                block_hash: T,
-                                block_id: Option<u32>,
-                                stack: &mut Vec<(TriePtr, Vec<u8>, T, Option<u32>)>|
-         -> Result<bool, Error> {
-            let mut full_prefix = prefix;
-            full_prefix.extend_from_slice(node.path_bytes());
-
-            match node {
-                TrieNodeType::Leaf(leaf) => {
-                    if full_prefix.len() != TRIEHASH_ENCODED_SIZE {
-                        return Err(Error::CorruptionError(
-                            "Leaf path length invalid".to_string(),
-                        ));
-                    }
-                    let path = TrieHash::from_bytes(&full_prefix).ok_or_else(|| {
-                        Error::CorruptionError("Failed to decode leaf path".to_string())
-                    })?;
-                    handle_leaf(path, leaf.data)?;
-                    Ok(true)
-                }
-                _ => {
-                    for ptr in node.ptrs().iter() {
-                        if ptr.id() != TrieNodeID::Empty as u8 {
-                            let mut child_prefix = full_prefix.clone();
-                            child_prefix.push(ptr.chr());
-                            stack.push((*ptr, child_prefix, block_hash.clone(), block_id));
-                        }
-                    }
-                    Ok(false)
-                }
-            }
-        };
-
         let (cur_block, cur_id) = storage.get_cur_block_and_id();
-        if process_node(root_node, vec![], cur_block, cur_id, &mut stack)? {
+        if Self::process_leaf_walk_node(
+            root_node,
+            vec![],
+            cur_block,
+            cur_id,
+            &mut stack,
+            handle_leaf,
+        )? {
             leaf_count += 1;
         }
 
@@ -1859,12 +1830,71 @@ impl<T: MarfTrieId> MARF<T> {
             }
 
             let (node, node_block_hash, node_block_id) = Self::read_node_for_ptr(storage, &ptr)?;
-            if process_node(node, prefix, node_block_hash, node_block_id, &mut stack)? {
+            if Self::process_leaf_walk_node(
+                node,
+                prefix,
+                node_block_hash,
+                node_block_id,
+                &mut stack,
+                handle_leaf,
+            )? {
                 leaf_count += 1;
             }
         }
 
         Ok(leaf_count)
+    }
+
+    /// Process one node during the leaf-walk DFS.
+    ///
+    /// Returns:
+    ///  - `true` if `node` was a leaf and was emitted via `handle_leaf`.
+    ///  - `false` if `node` was internal and its children were queued.
+    ///
+    /// `prefix` is the path accumulated before this node.
+    ///
+    /// `block_hash` and `block_id` identify the block where queued child pointers
+    /// should be resolved. Inline children stay in the currently-open block, while
+    /// children of a node reached through a backpointer use the backpointer target
+    /// returned by `read_node_for_ptr`.
+    fn process_leaf_walk_node<F>(
+        node: TrieNodeType,
+        prefix: Vec<u8>,
+        block_hash: T,
+        block_id: Option<u32>,
+        stack: &mut Vec<(TriePtr, Vec<u8>, T, Option<u32>)>,
+        handle_leaf: &mut F,
+    ) -> Result<bool, Error>
+    where
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
+    {
+        let mut full_prefix = prefix;
+        full_prefix.extend_from_slice(node.path_bytes());
+
+        match node {
+            TrieNodeType::Leaf(leaf) => {
+                if full_prefix.len() != TRIEHASH_ENCODED_SIZE {
+                    return Err(Error::CorruptionError(
+                        "Leaf path length invalid".to_string(),
+                    ));
+                }
+                let path = TrieHash::from_bytes(&full_prefix).ok_or_else(|| {
+                    Error::CorruptionError("Failed to decode leaf path".to_string())
+                })?;
+                handle_leaf(path, leaf.data)?;
+                Ok(true)
+            }
+            _ => {
+                for ptr in node.ptrs().iter() {
+                    if ptr.id() != TrieNodeID::Empty as u8 {
+                        let mut child_prefix = full_prefix.clone();
+                        child_prefix.push(ptr.chr());
+                        stack.push((*ptr, child_prefix, block_hash.clone(), block_id));
+                    }
+                }
+                Ok(false)
+            }
+        }
     }
 
     /// Read a node referenced by `ptr`, following backpointers when necessary.
