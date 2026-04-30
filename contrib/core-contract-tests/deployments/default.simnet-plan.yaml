@@ -149,8 +149,8 @@ plan:
   - id: 4
     transactions:
     - transaction-type: emulated-contract-publish
-      contract-name: test-pox-5-pool
+      contract-name: test-pox-5-signer
       emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-      path: contracts/test-pox-5-pool.clar
+      path: contracts/test-pox-5-signer.clar
       clarity-version: 5
     epoch: '3.4'

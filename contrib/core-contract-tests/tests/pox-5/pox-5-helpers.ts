@@ -22,8 +22,8 @@ import { expect } from 'vitest';
 const contracts = projectFactory(project, 'simnet');
 export const pox5 = contracts.pox5;
 export const errorCodes = projectErrors(project).pox5;
-export const testPool = contracts.testPox5Pool;
-export const testPoolErrors = extractErrors(testPool);
+export const testSigner = contracts.testPox5Signer;
+export const testSignerErrors = extractErrors(testSigner);
 
 export function toWitnessOutput(script: Uint8Array) {
   return BTC.OutScript.encode(
@@ -61,27 +61,17 @@ export function getStartHeight() {
 }
 
 export function signSignerKeyGrant({
-  staker,
-  poxAddr,
+  signerManager,
   authId,
   signerSk,
 }: {
-  staker: string;
-  poxAddr: { version: Uint8Array; hashbytes: Uint8Array } | null;
+  signerManager: string;
   authId: bigint;
   signerSk: Uint8Array;
 }) {
   const message = Cl.tuple({
-    staker: Cl.principal(staker),
+    'signer-manager': Cl.principal(signerManager),
     topic: Cl.stringAscii('grant-authorization'),
-    'pox-addr': poxAddr
-      ? Cl.some(
-          Cl.tuple({
-            version: Cl.buffer(poxAddr.version),
-            hashbytes: Cl.buffer(poxAddr.hashbytes),
-          }),
-        )
-      : Cl.none(),
     'auth-id': Cl.uint(authId),
   });
   const fullMessage = encodeStructuredDataBytes({
@@ -98,19 +88,16 @@ export function signSignerKeyGrant({
 }
 
 export function createSignerKeyGrant({
-  staker,
+  signerManager: staker,
   signerSk,
-  poxAddr,
   authId,
 }: {
-  staker: string;
+  signerManager: string;
   signerSk: Uint8Array;
-  poxAddr: { version: Uint8Array; hashbytes: Uint8Array } | null;
   authId: bigint;
 }) {
   const signature = signSignerKeyGrant({
-    staker,
-    poxAddr,
+    signerManager: staker,
     authId,
     signerSk,
   });
@@ -118,9 +105,8 @@ export function createSignerKeyGrant({
     pox5.grantSignerKey({
       signerKey: secp256k1.getPublicKey(signerSk, true),
       signerSig: signature,
-      staker,
+      signerManager: staker,
       authId,
-      poxAddr,
     }),
     accounts.deployer.address,
   );
@@ -129,11 +115,15 @@ export function createSignerKeyGrant({
 let grantAuthIdCounter = 1000n;
 
 /** Create a signer key grant for `staker` (any pox-addr) and return the key pair. */
-export function setupSigner(staker: string) {
+export function setupSigner(signerManager: string) {
   const signerSk = secp256k1.utils.randomSecretKey();
   const signerKey = secp256k1.getPublicKey(signerSk, true);
   const authId = grantAuthIdCounter++;
-  createSignerKeyGrant({ staker, signerSk, poxAddr: null, authId });
+  createSignerKeyGrant({
+    signerManager,
+    signerSk,
+    authId,
+  });
   return { signerSk, signerKey };
 }
 
@@ -183,40 +173,58 @@ export function signPerTransactionAuth({
   return hex.decode(data.slice(2) + data.slice(0, 2));
 }
 
-// /** Register the test pool with a valid signer key grant. Returns the signer key and pox address. */
-export function registerPool({ caller }: { caller: string }) {
-  const { signerKey } = setupSigner(testPool.identifier);
+// /** Register the test signer with a valid signer key grant. Returns the signer key and pox address. */
+export function registerSigner({ caller }: { caller: string }) {
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signerKey = secp256k1.getPublicKey(signerSk, true);
+  const authId = grantAuthIdCounter++;
+  const signature = signSignerKeyGrant({
+    signerManager: testSigner.identifier,
+    authId,
+    signerSk,
+  });
   txOk(
-    testPool.registerSelf({
+    testSigner.registerSelf({
       signerKey,
-      poolOwner: testPool.identifier,
+      signerManager: testSigner.identifier,
+      authId,
+      signerSig: signature,
     }),
     caller,
   );
-  return { signerKey, pool: testPool.identifier };
+  return { signerKey, signer: testSigner.identifier };
 }
 
 /**
- * Deploy and setup a new pool
+ * Deploy and setup a new signer
  */
-export function deployTestPool(name: string) {
-  const testPool2Id = `${accounts.deployer.address}.${name}`;
-  const poolSource = simnet.getContractSource(testPool.identifier)!;
-  const testPool2 = contractFactory(
-    project.contracts.testPox5Pool,
-    testPool2Id,
+export function deployTestSigner(name: string) {
+  const testSigner2Id = `${accounts.deployer.address}.${name}`;
+  const signerSource = simnet.getContractSource(testSigner.identifier)!;
+  const testSigner2 = contractFactory(
+    project.contracts.testPox5Signer,
+    testSigner2Id,
   );
-  const { signerKey } = setupSigner(testPool2.identifier);
-  simnet.deployContract(name, poolSource, null, accounts.deployer.address);
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signerKey = secp256k1.getPublicKey(signerSk, true);
+  const authId = grantAuthIdCounter++;
+  const signature = signSignerKeyGrant({
+    signerManager: testSigner2.identifier,
+    authId,
+    signerSk,
+  });
+  simnet.deployContract(name, signerSource, null, accounts.deployer.address);
   txOk(
-    testPool2.registerSelf({
+    testSigner2.registerSelf({
       signerKey: signerKey,
-      poolOwner: testPool2.identifier,
+      signerManager: testSigner2.identifier,
+      authId,
+      signerSig: signature,
     }),
     accounts.deployer.address,
   );
 
-  return testPool2;
+  return testSigner2;
 }
 
 export function isStakerInCycle({

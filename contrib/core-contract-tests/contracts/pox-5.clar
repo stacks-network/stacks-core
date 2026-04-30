@@ -20,11 +20,11 @@
 (define-constant ERR_INVALID_NUM_CYCLES (err u20))
 (define-constant ERR_INVALID_POX_ADDRESS (err u21))
 (define-constant ERR_UNAUTHORIZED_CALLER (err u22))
-(define-constant ERR_POOL_NOT_FOUND (err u23))
+(define-constant ERR_SIGNER_NOT_FOUND (err u23))
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u24))
-(define-constant ERR_ALREADY_POOLED (err u25))
-(define-constant ERR_UNAUTHORIZED_POOL_REGISTRATION (err u26))
+(define-constant ERR_UNAUTHORIZED_SIGNER_REGISTRATION (err u26))
 (define-constant ERR_NOT_STAKING (err u27))
+(define-constant ERR_UNSTAKE_IN_PREPARE_PHASE (err u28))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -32,7 +32,7 @@
 ;; The gap between the start of different bond periods
 (define-constant BOND_GAP_CYCLES u2)
 ;; The maximum amount of time that a user can stake for
-(define-constant MAX_NUM_CYCLES u12)
+(define-constant MAX_NUM_CYCLES u96)
 
 ;; The minimum amount of uSTX that a staker must stake
 ;; to become part of the signer set
@@ -97,10 +97,6 @@
     {
         bond-index: uint,
         amount-sats: uint,
-        pox-addr: (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }),
         ;; Used to calculate claimable rewards
         reward-per-share-paid: uint,
         amount-ustx: uint,
@@ -110,42 +106,39 @@
 (define-map signer-key-grants
     {
         signer-key: (buff 33),
-        staker: principal,
+        signer-manager: principal,
     }
-    (optional {
-        version: (buff 1),
-        hashbytes: (buff 32),
-    })
+    bool
 )
 
 (define-map used-signer-key-grants
     {
         signer-key: (buff 33),
-        staker: principal,
+        signer-manager: principal,
         auth-id: uint,
     }
     bool
 )
 
-;; Mapping of staker (or pool) to signer key
-(define-map staker-signer-keys
+;; Mapping of staker (or signer) to signer key
+(define-map signer-keys
     principal
     (buff 33)
 )
 
-;; Users can stake to a pool, where the pool owner
+;; Users can stake to a signer, where the signer owner
 ;; (which is the key of this map) is able to manage
-;; the signer key for the pool.
-(define-map pools
+;; the signer key for the signer.
+(define-map signers
     principal
     (buff 33) ;; signer key
 )
 
-;; Keep track of how much total STX has been staked for a pool
+;; Keep track of how much total STX has been staked for a signer
 ;; for a given cycle
-(define-map pool-staked-per-cycle
+(define-map signer-staked-per-cycle
     {
-        pool: principal,
+        signer: principal,
         cycle: uint,
     }
     uint
@@ -161,15 +154,15 @@
     }
 )
 
-;; Per-cycle staker pool membership
-(define-map staker-pool-cycle-memberships
+;; Per-cycle staker signer membership
+(define-map staker-signer-cycle-memberships
     {
         staker: principal,
         cycle: uint,
     }
     {
         amount-ustx: uint,
-        pool: principal,
+        signer: principal,
     }
 )
 
@@ -224,10 +217,10 @@
 ;; #[allow(unused_data_var)]
 (define-data-var first-pox-5-reward-cycle uint u0)
 
-(define-trait pool-owner-trait (
+(define-trait signer-manager-trait (
     (validate-stake!
-        ;; caller, amount-ustx, num-cycles
-        (principal uint uint)
+        ;; caller, amount-ustx, num-cycles, signer-calldata
+        (principal uint uint (optional (buff 500)))
         (response bool uint)
     )
 ))
@@ -358,16 +351,7 @@
 
 (define-public (register-for-bond
         (bond-index uint)
-        ;; Where they want to receive BTC rewards. If this is `none`,
-        ;; rewards are received as sBTC
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
-        (signer-sig (optional (buff 65)))
-        (signer-key (buff 33))
-        (max-amount uint)
-        (auth-id uint)
+        (signer-manager <signer-manager-trait>)
         (amount-ustx uint)
         ;; Their BTC lockup info. If the response is `ok`, then
         ;; this is a list of outputs corresponding to their timelocks.
@@ -385,8 +369,10 @@
         }
             uint
         ))
+        (signer-calldata (optional (buff 500)))
     )
     (let (
+            (signer (contract-of signer-manager))
             (sats-total (try! (match btc-lockup
                 l1-lockups (verify-l1-lockups tx-sender bond-index l1-lockups)
                 sbtc-amount (lock-sbtc sbtc-amount)
@@ -412,13 +398,12 @@
 
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
-        (try! (check-opt-pox-addr pox-addr))
-
-        ;; Validate their signer key usage
-        (try! (validate-signer-key-usage pox-addr (current-pox-reward-cycle) "stake"
-            BOND_LENGTH_CYCLES signer-sig signer-key amount-ustx max-amount
-            auth-id tx-sender
+        ;; Validate that the staker can join this signer
+        (try! (contract-call? signer-manager validate-stake! tx-sender amount-ustx u12
+            signer-calldata
         ))
+        ;; The signer must have been registered already
+        (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
@@ -430,39 +415,35 @@
         (map-set protocol-bond-memberships tx-sender {
             bond-index: bond-index,
             amount-sats: sats-total,
-            pox-addr: pox-addr,
             reward-per-share-paid: u0,
             amount-ustx: amount-ustx,
         })
-
-        (map-set staker-signer-keys tx-sender signer-key)
-
-        (try! (add-staker-to-reward-cycles tx-sender first-reward-cycle
-            BOND_LENGTH_CYCLES
+        (try! (add-staker-to-signer-cycles tx-sender signer first-reward-cycle
+            BOND_LENGTH_CYCLES amount-ustx
         ))
 
         (ok true)
     )
 )
 
-;; Register a pool
-(define-public (register-pool
-        (pool-owner <pool-owner-trait>)
+;; Register a signer
+(define-public (register-signer
+        (signer-manager <signer-manager-trait>)
         (signer-key (buff 33))
     )
-    (let ((pool (contract-of pool-owner)))
-        ;; Because pools can have members register at any time,
+    (let ((signer (contract-of signer-manager)))
+        ;; Because signers can have members register at any time,
         ;; they must use signer key grants instead of per-tx
         ;; authorizations.
-        (try! (verify-signer-key-grant tx-sender signer-key none))
+        (try! (verify-signer-key-grant signer signer-key))
 
-        ;; Only the pool contract itself can register itself
-        (asserts! (is-eq tx-sender pool) ERR_UNAUTHORIZED_POOL_REGISTRATION)
+        ;; Only the signer contract itself can register itself
+        (asserts! (is-eq tx-sender signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
 
-        (map-set pools pool signer-key)
-        (map-set staker-signer-keys pool signer-key)
+        (map-set signers signer signer-key)
+        (map-set signer-keys signer signer-key)
         (ok {
-            pool: pool,
+            signer: signer,
             signer-key: signer-key,
         })
     )
@@ -470,39 +451,26 @@
 
 ;; Stake your STX
 (define-public (stake
-        (pool-or-signer-key (response <pool-owner-trait> (buff 33)))
+        (signer-manager <signer-manager-trait>)
         (amount-ustx uint)
         (num-cycles uint)
         (start-burn-ht uint)
+        (signer-calldata (optional (buff 500)))
     )
     (let (
-            (pool (match pool-or-signer-key
-                owner (contract-of owner)
-                signer-key tx-sender
-            ))
+            (signer (contract-of signer-manager))
             (current-cycle (current-pox-reward-cycle))
             (first-reward-cycle (+ u1 current-cycle))
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
             ;; the first cycle in which their stx are unlocked
             (unlock-cycle (+ first-reward-cycle num-cycles))
         )
-        (match pool-or-signer-key
-            ;; Validate that the staker can join this pool
-            owner
-            (begin
-                (try! (contract-call? owner validate-stake! tx-sender amount-ustx
-                    num-cycles
-                ))
-                ;; The pool must have been registered already
-                (asserts! (is-some (get-pool-info pool)) ERR_POOL_NOT_FOUND)
-            )
-            ;; Validate signer key usage
-            signer-key
-            (begin
-                (try! (verify-signer-key-grant tx-sender signer-key none))
-                (map-set staker-signer-keys tx-sender signer-key)
-            )
-        )
+        ;; Validate that the staker can join this signer
+        (try! (contract-call? signer-manager validate-stake! tx-sender amount-ustx
+            num-cycles signer-calldata
+        ))
+        ;; The signer must have been registered already
+        (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
         ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
         ;;  to "post-date" their transaction
@@ -516,8 +484,8 @@
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        ;; Cannot be already pooled
-        (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_POOLED)
+        ;; Cannot be already staked
+        (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
 
         ;;;;  tx-sender principal must not be in a bond membership
         (asserts! (is-none (get-bond-membership tx-sender)) ERR_ALREADY_STAKED)
@@ -527,8 +495,8 @@
             ERR_INSUFFICIENT_STX
         )
 
-        (try! (add-staker-to-pool-cycles tx-sender pool first-reward-cycle num-cycles
-            amount-ustx
+        (try! (add-staker-to-signer-cycles tx-sender signer first-reward-cycle
+            num-cycles amount-ustx
         ))
 
         (map-set staker-info tx-sender {
@@ -538,7 +506,7 @@
         })
 
         (ok {
-            pool: pool,
+            signer: signer,
             staker: tx-sender,
             amount-ustx: amount-ustx,
             num-cycle: num-cycles,
@@ -550,19 +518,17 @@
 )
 
 ;; A user can:
-;; - Change pools
+;; - Change signers
 ;; - Extend their lock
 ;; - Increase STX locked
 (define-public (stake-update
-        (pool-or-signer-key (response <pool-owner-trait> (buff 33)))
+        (signer-manager <signer-manager-trait>)
         (cycles-to-extend uint)
         (amount-increase uint)
+        (signer-calldata (optional (buff 500)))
     )
     (let (
-            (pool (match pool-or-signer-key
-                owner (contract-of owner)
-                signer-key tx-sender
-            ))
+            (signer (contract-of signer-manager))
             (current-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKING))
             ;; This is the first cycle where their STX would be unlocked
             (prev-unlock-cycle (+ (get first-reward-cycle current-info)
@@ -573,20 +539,12 @@
             (current-cycle (current-pox-reward-cycle))
             (num-cycles (- unlock-cycle current-cycle u1))
         )
-        ;; Validate that the staker can join this pool
-        (match pool-or-signer-key
-            owner (begin
-                (try! (contract-call? owner validate-stake! tx-sender new-lock-amount
-                    num-cycles
-                ))
-                ;; The pool must have been registered already
-                (asserts! (is-some (get-pool-info pool)) ERR_POOL_NOT_FOUND)
-            )
-            signer-key (begin
-                (try! (verify-signer-key-grant tx-sender signer-key none))
-                (map-set staker-signer-keys tx-sender signer-key)
-            )
-        )
+        ;; Validate that the staker can join this signer
+        (try! (contract-call? signer-manager validate-stake! tx-sender new-lock-amount
+            num-cycles signer-calldata
+        ))
+        ;; The signer must have been registered already
+        (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
@@ -604,8 +562,8 @@
             (- prev-unlock-cycle current-cycle u1)
         ))
 
-        (try! (add-staker-to-pool-cycles tx-sender pool (+ u1 current-cycle) num-cycles
-            new-lock-amount
+        (try! (add-staker-to-signer-cycles tx-sender signer (+ u1 current-cycle)
+            num-cycles new-lock-amount
         ))
 
         (map-set staker-info tx-sender {
@@ -617,7 +575,7 @@
         (ok {
             unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
             staker: tx-sender,
-            pool: pool,
+            signer: signer,
             prev-unlock-height: prev-unlock-cycle,
             unlock-cycle: unlock-cycle,
             num-cycles: num-cycles,
@@ -639,7 +597,10 @@
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        ;; TODO: do not allow during a prepare phase
+        ;; do not allow during a prepare phase
+        (asserts! (not (is-in-prepare-phase current-cycle))
+            ERR_UNSTAKE_IN_PREPARE_PHASE
+        )
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender (+ u1 current-cycle)
@@ -662,15 +623,26 @@
     )
 )
 
-;;;;  Remove a staker from a pool for X cycles
+;;;;  Remove a staker from a signer for X cycles
 (define-private (remove-staker-from-cycles
         (staker principal)
         (first-reward-cycle uint)
         (num-cycles uint)
     )
-    (ok (try! (fold remove-staker-from-pool-for-cycle
+    (ok (try! (fold remove-staker-from-signer-for-cycle
         ;; panic is ok here because we've already checked `num-cycles`
-        (unwrap-panic (slice? (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11) u0 num-cycles))
+        (unwrap-panic (slice?
+            (list
+                u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16
+                u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31
+                u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46
+                u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61
+                u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76
+                u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91
+                u92 u93 u94 u95
+            )
+            u0 num-cycles
+        ))
         (ok {
             staker: staker,
             first-reward-cycle: first-reward-cycle,
@@ -678,10 +650,10 @@
     )))
 )
 
-;; For a given (staker, pool, cycle), remove a staker from
-;; that pool. If the pool has gone below the minimum amount to
+;; For a given (staker, signer, cycle), remove a staker from
+;; that signer. If the signer has gone below the minimum amount to
 ;; be in the signer set, remove them from the signer set.
-(define-private (remove-staker-from-pool-for-cycle
+(define-private (remove-staker-from-signer-for-cycle
         (cycle-index uint)
         (accumulator-res (response {
             staker: principal,
@@ -695,29 +667,29 @@
             (staker (get staker accumulator))
             (cycle (+ cycle-index (get first-reward-cycle accumulator)))
             (membership (unwrap!
-                (map-get? staker-pool-cycle-memberships {
+                (map-get? staker-signer-cycle-memberships {
                     staker: staker,
                     cycle: cycle,
                 })
                 ERR_NOT_STAKING
             ))
-            (pool (get pool membership))
-            (cur-staked-for-pool (get-current-amount-staked-for-pool pool cycle))
-            (new-staked (- cur-staked-for-pool (get amount-ustx membership)))
-            (is-in-signer-set (is-some (get-staker-set-item-for-cycle pool cycle)))
+            (signer (get signer membership))
+            (cur-staked-for-signer (get-current-amount-staked-for-signer signer cycle))
+            (new-staked (- cur-staked-for-signer (get amount-ustx membership)))
+            (is-in-signer-set (is-some (get-staker-set-item-for-cycle signer cycle)))
         )
         (if (and is-in-signer-set (< new-staked SIGNER_SET_MIN_USTX))
             ;; They've crossed back below the threshold - remove from the signer set
-            (try! (remove-staker-from-set-for-cycle pool cycle))
+            (try! (remove-staker-from-set-for-cycle signer cycle))
             true
         )
-        (map-delete staker-pool-cycle-memberships {
+        (map-delete staker-signer-cycle-memberships {
             staker: staker,
             cycle: cycle,
         })
-        (map-set pool-staked-per-cycle {
+        (map-set signer-staked-per-cycle {
             cycle: cycle,
-            pool: pool,
+            signer: signer,
         }
             new-staked
         )
@@ -725,31 +697,42 @@
     )
 )
 
-(define-private (add-staker-to-pool-cycles
+(define-private (add-staker-to-signer-cycles
         (staker principal)
-        (pool principal)
+        (signer principal)
         (first-reward-cycle uint)
         (num-cycles uint)
         (amount-ustx uint)
     )
-    (ok (try! (fold add-staker-to-pool-for-cycle
+    (ok (try! (fold add-staker-to-signer-for-cycle
         ;; panic is ok here because we've already checked `num-cycles`
-        (unwrap-panic (slice? (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11) u0 num-cycles))
+        (unwrap-panic (slice?
+            (list
+                u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16
+                u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31
+                u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46
+                u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61
+                u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76
+                u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91
+                u92 u93 u94 u95
+            )
+            u0 num-cycles
+        ))
         (ok {
             staker: staker,
-            pool: pool,
+            signer: signer,
             amount-ustx: amount-ustx,
             first-reward-cycle: first-reward-cycle,
         })
     )))
 )
 
-;; For a given (staker, pool, cycle), update pool state for that
-;; cycle and lazily add the pool to the signer set if needed
-(define-private (add-staker-to-pool-for-cycle
+;; For a given (staker, signer, cycle), update signer state for that
+;; cycle and lazily add the signer to the signer set if needed
+(define-private (add-staker-to-signer-for-cycle
         (cycle-index uint)
         (accumulator-res (response {
-            pool: principal,
+            signer: principal,
             staker: principal,
             amount-ustx: uint,
             first-reward-cycle: uint,
@@ -760,25 +743,25 @@
     (let (
             (accumulator (try! accumulator-res))
             (cycle (+ cycle-index (get first-reward-cycle accumulator)))
-            (pool (get pool accumulator))
-            (cur-staked-for-pool (get-current-amount-staked-for-pool pool cycle))
-            (new-staked (+ cur-staked-for-pool (get amount-ustx accumulator)))
+            (signer (get signer accumulator))
+            (cur-staked-for-signer (get-current-amount-staked-for-signer signer cycle))
+            (new-staked (+ cur-staked-for-signer (get amount-ustx accumulator)))
         )
-        (if (and (< cur-staked-for-pool SIGNER_SET_MIN_USTX) (>= new-staked SIGNER_SET_MIN_USTX))
-            ;; They've crossed the threshold - add the pool to the signer set linked list
-            (try! (add-staker-to-set-for-cycle pool cycle))
+        (if (and (< cur-staked-for-signer SIGNER_SET_MIN_USTX) (>= new-staked SIGNER_SET_MIN_USTX))
+            ;; They've crossed the threshold - add the signer to the signer set linked list
+            (try! (add-staker-to-set-for-cycle signer cycle))
             true
         )
-        (map-set staker-pool-cycle-memberships {
+        (map-set staker-signer-cycle-memberships {
             staker: (get staker accumulator),
             cycle: cycle,
         } {
-            pool: pool,
+            signer: signer,
             amount-ustx: (get amount-ustx accumulator),
         })
-        (map-set pool-staked-per-cycle {
+        (map-set signer-staked-per-cycle {
             cycle: cycle,
-            pool: pool,
+            signer: signer,
         }
             new-staked
         )
@@ -860,11 +843,7 @@
 
 (define-public (grant-signer-key
         (signer-key (buff 33))
-        (staker principal)
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
+        (signer-manager principal)
         (auth-id uint)
         (signer-sig (buff 65))
     )
@@ -872,7 +851,7 @@
         (asserts!
             (is-none (map-get? used-signer-key-grants {
                 signer-key: signer-key,
-                staker: staker,
+                signer-manager: signer-manager,
                 auth-id: auth-id,
             }))
             ERR_SIGNER_KEY_GRANT_USED
@@ -882,7 +861,7 @@
             (is-eq
                 (unwrap!
                     (secp256k1-recover?
-                        (get-signer-grant-message-hash staker pox-addr auth-id)
+                        (get-signer-grant-message-hash signer-manager auth-id)
                         signer-sig
                     )
                     ERR_INVALID_SIGNATURE_RECOVER
@@ -895,7 +874,7 @@
         (asserts!
             (map-insert used-signer-key-grants {
                 signer-key: signer-key,
-                staker: staker,
+                signer-manager: signer-manager,
                 auth-id: auth-id,
             }
                 true
@@ -905,9 +884,9 @@
 
         (map-set signer-key-grants {
             signer-key: signer-key,
-            staker: staker,
+            signer-manager: signer-manager,
         }
-            pox-addr
+            true
         )
 
         (ok true)
@@ -919,7 +898,7 @@
 ;;
 ;; Returns a boolean indicating whether the signer key grant existed.
 (define-public (revoke-signer-grant
-        (staker principal)
+        (signer-manager principal)
         (signer-key (buff 33))
     )
     (begin
@@ -939,224 +918,38 @@
         )
         (ok (map-delete signer-key-grants {
             signer-key: signer-key,
-            staker: staker,
+            signer-manager: signer-manager,
         }))
     )
-)
-
-;; Generate a message hash for validating a signer key.
-;; The message hash follows SIP018 for signing structured data. The structured data
-;; is the tuple `{ pox-addr: { version, hashbytes }, reward-cycle, auth-id, max-amount, topic, period }`.
-;; The domain is [POX_5_SIGNER_DOMAIN].
-(define-read-only (get-signer-key-message-hash
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
-        (reward-cycle uint)
-        (topic (string-ascii 14))
-        (period uint)
-        (max-amount uint)
-        (auth-id uint)
-    )
-    (sha256 (concat SIP018_MSG_PREFIX
-        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
-            (sha256 (unwrap-panic (to-consensus-buff? {
-                pox-addr: pox-addr,
-                reward-cycle: reward-cycle,
-                topic: topic,
-                period: period,
-                auth-id: auth-id,
-                max-amount: max-amount,
-            })))
-        )))
 )
 
 ;; Construct the message hash for validating a signer key grant. Unlike [get-signer-key-message-hash],
 ;; this message hash does not include `max-amount`, `period`, or `reward-cycle`. The topic is always `"grant-authorization"`.
 ;; The `pox-addr` field is optional. When `none`, it means the signer key can be used for any PoX address.
 (define-read-only (get-signer-grant-message-hash
-        (staker principal)
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
+        (signer-manager principal)
         (auth-id uint)
     )
     (sha256 (concat SIP018_MSG_PREFIX
         (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
             (sha256 (unwrap-panic (to-consensus-buff? {
                 topic: "grant-authorization",
-                staker: staker,
-                pox-addr: pox-addr,
+                signer-manager: signer-manager,
                 auth-id: auth-id,
             })))
         )))
 )
 
-;; Verify a signature from the signing key for this specific stacker.
-;; See `get-signer-key-message-hash` for details on the message hash.
-;;
-;; Note that `reward-cycle` corresponds to the _current_ reward cycle,
-;; when used with `stack-stx` and `stack-extend`. Both the reward cycle and
-;; the lock period are inflexible, which means that the stacker must confirm their transaction
-;; during the exact reward cycle and with the exact period that the signature or authorization was
-;; generated for.
-;;
-;; The `amount` field is checked to ensure it is not larger than `max-amount`, which is
-;; a field in the authorization. `auth-id` is a random uint to prevent authorization
-;; replays.
-;;
-;; This function does not verify the payload of the authorization. The caller of
-;; this function must ensure that the payload (reward cycle, period, topic, and pox-addr)
-;; are valid according to the caller function's requirements.
-;;
-;; When `signer-sig` is present, the public key is recovered from the signature
-;; and compared to `signer-key`. If `signer-sig` is `none`, the function verifies that an authorization was previously
-;; added for this key.
-;;
-;; This function checks to ensure that the authorization hasn't been used yet, but it
-;; does _not_ store the authorization as used. The function `consume-signer-key-authorization`
-;; handles that, and this read-only function is exposed for client-side verification.
-(define-read-only (verify-signer-key-sig
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
-        (reward-cycle uint)
-        (topic (string-ascii 14))
-        (period uint)
-        (signer-sig (buff 65))
-        (signer-key (buff 33))
-        (amount uint)
-        (max-amount uint)
-        (auth-id uint)
-    )
-    (begin
-        ;; Validate that amount is less than or equal to `max-amount`
-        (asserts! (>= max-amount amount) ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH)
-        (asserts!
-            (is-none (map-get? used-signer-key-authorizations {
-                signer-key: signer-key,
-                reward-cycle: reward-cycle,
-                topic: topic,
-                period: period,
-                pox-addr: pox-addr,
-                auth-id: auth-id,
-                max-amount: max-amount,
-            }))
-            ERR_SIGNER_AUTH_USED
-        )
-        (ok (asserts!
-            (is-eq
-                (unwrap!
-                    (secp256k1-recover?
-                        (get-signer-key-message-hash pox-addr reward-cycle topic
-                            period max-amount auth-id
-                        )
-                        signer-sig
-                    )
-                    ERR_INVALID_SIGNATURE_RECOVER
-                )
-                signer-key
-            )
-            ERR_INVALID_SIGNATURE_PUBKEY
-        ))
-    )
-)
-
-;; This function does two things:
-;;
-;; - Verify that a signer key is authorized to be used
-;; - Updates the `used-signer-key-authorizations` map to prevent reuse
-;;
-;; This "wrapper" method around `verify-signer-key-sig` allows that function to remain
-;; read-only, so that it can be used by clients as a sanity check before submitting a transaction.
-(define-private (consume-signer-key-authorization
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
-        (reward-cycle uint)
-        (topic (string-ascii 14))
-        (period uint)
-        (signer-sig (buff 65))
-        (signer-key (buff 33))
-        (amount uint)
-        (max-amount uint)
-        (auth-id uint)
-    )
-    (begin
-        ;; verify the authorization
-        (try! (verify-signer-key-sig pox-addr reward-cycle topic period signer-sig
-            signer-key amount max-amount auth-id
-        ))
-        ;; update the `used-signer-key-authorizations` map
-        (asserts!
-            (map-insert used-signer-key-authorizations {
-                signer-key: signer-key,
-                reward-cycle: reward-cycle,
-                topic: topic,
-                period: period,
-                pox-addr: pox-addr,
-                auth-id: auth-id,
-                max-amount: max-amount,
-            }
-                true
-            )
-            ERR_SIGNER_AUTH_USED
-        )
-        (ok true)
-    )
-)
-
-;; if signer-sig-opt is present, verify the signature. Otherwise,
-;; verify that a grant was previously added for this key.
-(define-private (validate-signer-key-usage
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
-        (reward-cycle uint)
-        (topic (string-ascii 14))
-        (period uint)
-        (signer-sig-opt (optional (buff 65)))
-        (signer-key (buff 33))
-        (amount uint)
-        (max-amount uint)
-        (auth-id uint)
-        (staker principal)
-    )
-    (match signer-sig-opt
-        signer-sig (consume-signer-key-authorization pox-addr reward-cycle topic period
-            signer-sig signer-key amount max-amount auth-id
-        )
-        (verify-signer-key-grant staker signer-key pox-addr)
-    )
-)
-
 (define-read-only (verify-signer-key-grant
-        (staker principal)
+        (signer-manager principal)
         (signer-key (buff 33))
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
     )
     (ok (asserts!
-        (match (unwrap!
-            (map-get? signer-key-grants {
-                signer-key: signer-key,
-                staker: staker,
-            })
-            ERR_SIGNER_KEY_GRANT_NOT_FOUND
-        )
-            grant-pox-addr (is-eq grant-pox-addr
-                (unwrap! pox-addr ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH)
-            )
-            true
-        )
-        ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH
+        (is-some (map-get? signer-key-grants {
+            signer-key: signer-key,
+            signer-manager: signer-manager,
+        }))
+        ERR_SIGNER_KEY_GRANT_NOT_FOUND
     ))
 )
 
@@ -1214,6 +1007,14 @@
 ;; What's the current PoX reward cycle?
 (define-read-only (current-pox-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height)
+)
+
+;; Are we currently in a prepare phase at the end of `current-cycle`?
+(define-read-only (is-in-prepare-phase (current-cycle uint))
+    (>= burn-block-height
+        (- (reward-cycle-to-unlock-height (+ current-cycle u1))
+            (var-get pox-prepare-cycle-length)
+        ))
 )
 
 ;; Used for PoX parameters discovery
@@ -1274,80 +1075,52 @@
 ;; stake has expired, this will return `none`.
 (define-read-only (get-staker-info (staker principal))
     (match (map-get? staker-info staker)
-        pool-info
-        (if (<= (+ (get first-reward-cycle pool-info) (get num-cycles pool-info))
+        signer-info
+        (if (<=
+                (+ (get first-reward-cycle signer-info)
+                    (get num-cycles signer-info)
+                )
                 (current-pox-reward-cycle)
             )
             ;; present, but lock has expired
             none
             ;; present, and lock has not expired
-            (some pool-info)
+            (some signer-info)
         )
         ;; no state at all
         none
     )
 )
 
-(define-read-only (get-pool-info (pool principal))
-    (map-get? pools pool)
+(define-read-only (get-signer-info (signer principal))
+    (map-get? signers signer)
 )
 
-(define-read-only (get-current-amount-staked-for-pool
-        (pool principal)
+(define-read-only (get-current-amount-staked-for-signer
+        (signer principal)
         (cycle uint)
     )
     (default-to u0
-        (map-get? pool-staked-per-cycle {
+        (map-get? signer-staked-per-cycle {
             cycle: cycle,
-            pool: pool,
+            signer: signer,
         })
     )
 )
 
-;; Get per-cycle staker pool membership info
-(define-read-only (get-pool-cycle-membership
+;; Get per-cycle staker signer membership info
+(define-read-only (get-signer-cycle-membership
         (staker principal)
         (cycle uint)
     )
-    (map-get? staker-pool-cycle-memberships {
+    (map-get? staker-signer-cycle-memberships {
         staker: staker,
         cycle: cycle,
     })
 )
 
 (define-read-only (get-signer-key (staker principal))
-    (map-get? staker-signer-keys staker)
-)
-
-(define-private (check-opt-pox-addr (pox-addr-opt (optional {
-    version: (buff 1),
-    hashbytes: (buff 32),
-})))
-    (match pox-addr-opt
-        pox-addr (check-pox-addr pox-addr)
-        (ok true)
-    )
-)
-
-(define-read-only (check-pox-addr (pox-addr {
-    version: (buff 1),
-    hashbytes: (buff 32),
-}))
-    (let (
-            (version (buff-to-uint-be (get version pox-addr)))
-            (expected-len (if (<= version MAX_ADDRESS_VERSION_BUFF_20)
-                u20
-                u32
-            ))
-        )
-        (ok (asserts!
-            (and
-                (<= version MAX_ADDRESS_VERSION)
-                (is-eq (len (get hashbytes pox-addr)) expected-len)
-            )
-            ERR_INVALID_POX_ADDRESS
-        ))
-    )
+    (map-get? signer-keys staker)
 )
 
 (define-read-only (check-pox-lock-period (lock-period uint))
@@ -1605,47 +1378,5 @@
             staker: stacker,
         })
         (ok true)
-    )
-)
-
-(define-private (add-staker-to-reward-cycles
-        (staker principal)
-        (first-reward-cycle uint)
-        (num-cycles uint)
-    )
-    (let ((cycle-indexes (unwrap!
-            (slice?
-                (list
-                    u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15
-                    u16 u17 u18 u19 u20 u21 u22 u23
-                )
-                u0 num-cycles
-            )
-            ERR_INVALID_NUM_CYCLES
-        )))
-        (try! (fold add-staker-to-nth-reward-cycle cycle-indexes
-            (ok {
-                staker: staker,
-                first-reward-cycle: first-reward-cycle,
-            })
-        ))
-        (ok true)
-    )
-)
-
-(define-private (add-staker-to-nth-reward-cycle
-        (cycle-index uint)
-        (params-resp (response {
-            staker: principal,
-            first-reward-cycle: uint,
-        }
-            uint
-        ))
-    )
-    (let ((params (try! params-resp)))
-        (try! (add-staker-to-set-for-cycle (get staker params)
-            (+ (get first-reward-cycle params) cycle-index)
-        ))
-        (ok params)
     )
 )
