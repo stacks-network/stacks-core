@@ -11,6 +11,7 @@ import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { mineUntil, stxToUStx } from '../test-helpers';
 import {
   deployTestSigner,
+  errorCodes,
   expectAllSignersHaveKeys,
   getAllStakers,
   isStakerInCycle,
@@ -47,6 +48,9 @@ beforeEach(() => {
   );
 });
 
+/**
+ * Verifies that every exported PoX-5 error constant has a distinct uint code.
+ */
 test('all error codes are unique', () => {
   const used = new Set<bigint>();
   for (const error of Object.values(pox5Errors)) {
@@ -58,6 +62,9 @@ test('all error codes are unique', () => {
   }
 });
 
+/**
+ * Verifies that bond indexes map to the expected reward cycle start heights.
+ */
 test('can calculate bond start height correctly', () => {
   expect(rov(pox5.bondPeriodToBurnHeight(0n))).toBe(
     rov(pox5.rewardCycleToBurnHeight(1n)),
@@ -67,7 +74,9 @@ test('can calculate bond start height correctly', () => {
   );
 });
 
-// helper for generating the list literal for max cycle iterations
+/**
+ * Helper-only test for printing the Clarity list literal used by cycle folds.
+ */
 test.skip('can output the list literal for max cycle iterations', () => {
   const nums: string[] = [];
   for (let i = 0; i < pox5.constants.MAX_NUM_CYCLES; i++) {
@@ -76,6 +85,10 @@ test.skip('can output the list literal for max cycle iterations', () => {
   console.log(`(list ${nums.join(' ')})`);
 });
 
+/**
+ * Sets up a bond, registers two allowed participants, and checks registration
+ * limits around duplicate registration, minimum STX, and max sats.
+ */
 test('scenario - setting up and starting a bond', () => {
   const signer = testSigner.identifier;
   registerSigner({ caller: deployer });
@@ -460,6 +473,419 @@ test('scenario - unstaking', () => {
 
   // `getStakerInfo` should return `none` because it's expired
   expect(rov(pox5.getStakerInfo(alice))).toBeNull();
+});
+
+/**
+ * Distributes STX-only rewards across two signer managers with equal STX
+ * stake, after taking the reserve cut from the reward pool.
+ */
+test('stx-only rewards split across signers by staked ustx', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('stx-reward-signer-2').identifier;
+  const stakeAmount = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: stakeAmount,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer2,
+      amountUstx: stakeAmount,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([]), deployer);
+
+  expect(rov(pox5.getReserveBalance())).toBe(100n);
+  expect(rov(pox5.getClaimableRewards(signer1, 1n, false))).toBe(450n);
+  expect(rov(pox5.getClaimableRewards(signer2, 1n, false))).toBe(450n);
+});
+
+/**
+ * Distributes one bond period's rewards across two signer managers by their
+ * bonded sats share, with no residual rewards for reserve or STX-only stakers.
+ */
+test('bond rewards split across signers by staked sats', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('bond-reward-signer-2').identifier;
+  const aliceSbtc = 100000n;
+  const bobSbtc = 300000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [
+        { maxSats: aliceSbtc, staker: alice },
+        { maxSats: bobSbtc, staker: bob },
+      ],
+    }),
+    deployer,
+  );
+
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 10n, 100n)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer2,
+      amountUstx: rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, 100n)),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getClaimableRewards(signer1, 0n, true))).toBe(250n);
+  expect(rov(pox5.getClaimableRewards(signer2, 0n, true))).toBe(750n);
+  expect(rov(pox5.getReserveBalance())).toBe(0n);
+});
+
+/**
+ * Pays an underfunded bond period all available rewards and verifies that no
+ * rewards remain for reserve or STX-only stakers.
+ */
+test('bond shortfall leaves no rewards for reserve or stx-only stakers', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 400000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 10n, 100n)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 400n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getClaimableRewards(signer, 0n, true))).toBe(400n);
+  expect(rov(pox5.getClaimableRewards(signer, 1n, false))).toBe(0n);
+  expect(rov(pox5.getReserveBalance())).toBe(0n);
+});
+
+/**
+ * Runs two overlapping active bond periods with a shared reward shortfall and
+ * verifies that bond priority determines who receives the remaining rewards.
+ */
+test('concurrent bonds are paid by priority before stx-only stakers', () => {
+  const signer = testSigner.identifier;
+  const targetRate = 1200n;
+  const minUstxRatio = 100n;
+  const aliceSbtc = 400000n;
+  const bobSbtc = 400000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 20n,
+      minUstxRatio,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate,
+      stxValueRatio: 10n,
+      minUstxRatio,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [{ maxSats: bobSbtc, staker: bob }],
+    }),
+    deployer,
+  );
+
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 20n, minUstxRatio)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, minUstxRatio)),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1500n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n, 1n]), deployer);
+
+  expect(rov(pox5.getClaimableRewards(signer, 0n, true))).toBe(1000n);
+  expect(rov(pox5.getClaimableRewards(signer, 1n, true))).toBe(500n);
+  expect(rov(pox5.getClaimableRewards(signer, 3n, false))).toBe(0n);
+  expect(rov(pox5.getReserveBalance())).toBe(0n);
+});
+
+/**
+ * Runs two overlapping active bond periods plus STX-only staking across two
+ * signers, then claims each signer's bond and STX rewards in one call.
+ */
+test('concurrent bonds and stx-only rewards can be claimed together', () => {
+  const signer1 = testSigner.identifier;
+  const signer2Contract = deployTestSigner('concurrent-claim-signer-2');
+  const signer2 = signer2Contract.identifier;
+  const targetRate = 1200n;
+  const minUstxRatio = 100n;
+  const aliceSbtc = 100000n;
+  const bobSbtc = 300000n;
+  const stxStake = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 20n,
+      minUstxRatio,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate,
+      stxValueRatio: 10n,
+      minUstxRatio,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [{ maxSats: bobSbtc, staker: bob }],
+    }),
+    deployer,
+  );
+
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 20n, minUstxRatio)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer2,
+      amountUstx: rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, minUstxRatio)),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: stxStake,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer2,
+      amountUstx: stxStake,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    dave,
+  );
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 2000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n, 1n]), deployer);
+
+  expect(rov(pox5.getReserveBalance())).toBe(100n);
+  expect(rov(pox5.getClaimableRewards(signer1, 0n, true))).toBe(250n);
+  expect(rov(pox5.getClaimableRewards(signer2, 1n, true))).toBe(750n);
+  expect(rov(pox5.getClaimableRewards(signer1, 3n, false))).toBe(450n);
+  expect(rov(pox5.getClaimableRewards(signer2, 3n, false))).toBe(450n);
+
+  expect(txOk(testSigner.claimRewards([0n], 3n), deployer).value).toBe(700n);
+  expect(txOk(signer2Contract.claimRewards([1n], 3n), deployer).value).toBe(
+    1200n,
+  );
+  expect(rov(pox5.getClaimableRewards(signer1, 0n, true))).toBe(0n);
+  expect(rov(pox5.getClaimableRewards(signer1, 3n, false))).toBe(0n);
+  expect(rov(pox5.getClaimableRewards(signer2, 1n, true))).toBe(0n);
+  expect(rov(pox5.getClaimableRewards(signer2, 3n, false))).toBe(0n);
+});
+
+/**
+ * Claims all available STX-only rewards, then verifies a second zero-reward
+ * claim fails without resetting the signer's paid reward accounting.
+ */
+test('zero reward claim should not reset paid rewards', () => {
+  const signer = testSigner.identifier;
+  const stakeAmount = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([]), deployer);
+
+  expect(rov(pox5.getClaimableRewards(signer, 1n, false))).toBe(900n);
+  txOk(testSigner.claimRewards([], 1n), deployer);
+  expect(rov(pox5.getSignerRewardsPaidForCycle(signer, 1n, false))).toBe(900n);
+
+  const zeroClaim = txErr(testSigner.claimRewards([], 1n), deployer);
+  expect(zeroClaim.value).toBe(errorCodes.ERR_NO_CLAIMABLE_REWARDS);
+  expect(rov(pox5.getSignerRewardsPaidForCycle(signer, 1n, false))).toBe(900n);
 });
 
 /** Scenario: waterfall distributions
