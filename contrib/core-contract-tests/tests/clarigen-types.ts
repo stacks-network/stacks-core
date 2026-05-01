@@ -3799,6 +3799,71 @@ export const contracts = {
           bigint
         >
       >,
+      assertActiveBondIncluded: {
+        name: 'assert-active-bond-included',
+        access: 'private',
+        args: [
+          { name: 'offset', type: 'uint128' },
+          {
+            name: 'acc-res',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    {
+                      name: 'bond-periods',
+                      type: { list: { type: 'uint128', length: 6 } },
+                    },
+                    { name: 'calculation-height', type: 'uint128' },
+                    { name: 'latest-bond-index', type: 'uint128' },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  {
+                    name: 'bond-periods',
+                    type: { list: { type: 'uint128', length: 6 } },
+                  },
+                  { name: 'calculation-height', type: 'uint128' },
+                  { name: 'latest-bond-index', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          offset: TypedAbiArg<number | bigint, 'offset'>,
+          accRes: TypedAbiArg<
+            Response<
+              {
+                bondPeriods: number | bigint[];
+                calculationHeight: number | bigint;
+                latestBondIndex: number | bigint;
+              },
+              number | bigint
+            >,
+            'accRes'
+          >,
+        ],
+        Response<
+          {
+            bondPeriods: bigint[];
+            calculationHeight: bigint;
+            latestBondIndex: bigint;
+          },
+          bigint
+        >
+      >,
       calculateBondRewards: {
         name: 'calculate-bond-rewards',
         access: 'private',
@@ -3876,6 +3941,45 @@ export const contracts = {
       } as TypedAbiFunction<
         [amount: TypedAbiArg<number | bigint, 'amount'>],
         Response<bigint, bigint>
+      >,
+      matchUintInList: {
+        name: 'match-uint-in-list',
+        access: 'private',
+        args: [
+          { name: 'item', type: 'uint128' },
+          {
+            name: 'acc',
+            type: {
+              tuple: [
+                { name: 'found', type: 'bool' },
+                { name: 'needle', type: 'uint128' },
+              ],
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            tuple: [
+              { name: 'found', type: 'bool' },
+              { name: 'needle', type: 'uint128' },
+            ],
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          item: TypedAbiArg<number | bigint, 'item'>,
+          acc: TypedAbiArg<
+            {
+              found: boolean;
+              needle: number | bigint;
+            },
+            'acc'
+          >,
+        ],
+        {
+          found: boolean;
+          needle: bigint;
+        }
       >,
       removeStakerFromCycles: {
         name: 'remove-staker-from-cycles',
@@ -4612,6 +4716,24 @@ export const contracts = {
           bigint
         >
       >,
+      assertAllActiveBondsIncluded: {
+        name: 'assert-all-active-bonds-included',
+        access: 'read_only',
+        args: [
+          {
+            name: 'bond-periods',
+            type: { list: { type: 'uint128', length: 6 } },
+          },
+          { name: 'calculation-height', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          bondPeriods: TypedAbiArg<number | bigint[], 'bondPeriods'>,
+          calculationHeight: TypedAbiArg<number | bigint, 'calculationHeight'>,
+        ],
+        Response<boolean, bigint>
+      >,
       bondPeriodToBurnHeight: {
         name: 'bond-period-to-burn-height',
         access: 'read_only',
@@ -5082,6 +5204,21 @@ export const contracts = {
         [rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>],
         bigint
       >,
+      isBondActiveAtHeight: {
+        name: 'is-bond-active-at-height',
+        access: 'read_only',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'calculation-height', type: 'uint128' },
+        ],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          calculationHeight: TypedAbiArg<number | bigint, 'calculationHeight'>,
+        ],
+        boolean
+      >,
       isInPreparePhase: {
         name: 'is-in-prepare-phase',
         access: 'read_only',
@@ -5511,6 +5648,16 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
+      ERR_ACTIVE_BOND_NOT_INCLUDED: {
+        name: 'ERR_ACTIVE_BOND_NOT_INCLUDED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_ALREADY_REGISTERED: {
         name: 'ERR_ALREADY_REGISTERED',
         type: {
@@ -5984,6 +6131,10 @@ export const contracts = {
     constants: {
       BOND_GAP_CYCLES: 2n,
       BOND_LENGTH_CYCLES: 12n,
+      ERR_ACTIVE_BOND_NOT_INCLUDED: {
+        isOk: false,
+        value: 33n,
+      },
       ERR_ALREADY_REGISTERED: {
         isOk: false,
         value: 9n,

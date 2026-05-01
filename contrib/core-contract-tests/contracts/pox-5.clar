@@ -32,6 +32,7 @@
 (define-constant ERR_DISTRIBUTION_ALREADY_COMPUTED (err u30))
 (define-constant ERR_BOND_NOT_ACTIVE (err u31))
 (define-constant ERR_NO_CLAIMABLE_REWARDS (err u32))
+(define-constant ERR_ACTIVE_BOND_NOT_INCLUDED (err u33))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -366,14 +367,13 @@
         (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
 
         ;; only can be called within 2 cycles of bond start
-        ;; (asserts! (> burn-block-height (- bond-start-height )))
         (asserts!
             (or
                 ;; prevent underflow
                 (< bond-start-height
                     (* BOND_GAP_CYCLES (var-get pox-reward-cycle-length))
                 )
-                (>
+                (<=
                     (- bond-start-height
                         (* BOND_GAP_CYCLES (var-get pox-reward-cycle-length))
                     )
@@ -1128,7 +1128,9 @@
             ERR_DISTRIBUTION_ALREADY_COMPUTED
         )
 
-        ;; (try! (calculate-bonds-rewards bond-periods accrued-rewards calculation-height))
+        ;; Verify that all active bonds are included
+        (try! (assert-all-active-bonds-included bond-periods calculation-height))
+
         (let (
                 (bond-distributions (try! (fold calculate-bond-rewards bond-periods
                     (ok {
@@ -1223,6 +1225,8 @@
                 ;; In a tie-breaker, we still want deterministic results.
                 ;; Thus, enforce that the earlier bond period comes first
                 (if (is-eq stx-value-ratio last-ratio)
+                    ;; Note that < prevents the same bond period from
+                    ;; being included twice
                     (< bond-index
                         (unwrap-panic (get last-bond-index accumulator))
                     )
@@ -1365,6 +1369,82 @@
             total: (+ (get total accumulator) new-rewards),
         }
     )
+)
+
+(define-read-only (assert-all-active-bonds-included
+        (bond-periods (list 6 uint))
+        (calculation-height uint)
+    )
+    (let (
+            (calc-cycle (burn-height-to-reward-cycle calculation-height))
+            (first-bond-cycle (var-get first-bond-period-cycle))
+            (latest-bond-index (if (<= calc-cycle first-bond-cycle)
+                u0
+                (/ (- calc-cycle first-bond-cycle) BOND_GAP_CYCLES)
+            ))
+        )
+        (try! (fold assert-active-bond-included (list u0 u1 u2 u3 u4 u5)
+            (ok {
+                latest-bond-index: latest-bond-index,
+                calculation-height: calculation-height,
+                bond-periods: bond-periods,
+            })
+        ))
+        (ok true)
+    )
+)
+
+(define-private (assert-active-bond-included
+        (offset uint)
+        (acc-res (response {
+            latest-bond-index: uint,
+            calculation-height: uint,
+            bond-periods: (list 6 uint),
+        }
+            uint
+        ))
+    )
+    (let (
+            (acc (try! acc-res))
+            (latest-bond-index (get latest-bond-index acc))
+        )
+        (if (> offset latest-bond-index)
+            (ok acc)
+            (let ((bond-index (- latest-bond-index offset)))
+                (if (is-bond-active-at-height bond-index
+                        (get calculation-height acc)
+                    )
+                    (begin
+                        (asserts!
+                            (get found
+                                (fold match-uint-in-list (get bond-periods acc) {
+                                    needle: bond-index,
+                                    found: false,
+                                })
+                            )
+                            ERR_ACTIVE_BOND_NOT_INCLUDED
+                        )
+                        (ok acc)
+                    )
+                    (ok acc)
+                )
+            )
+        )
+    )
+)
+
+;; helper to check if a list contains a value
+(define-private (match-uint-in-list
+        (item uint)
+        (acc {
+            needle: uint,
+            found: bool,
+        })
+    )
+    {
+        needle: (get needle acc),
+        found: (or (get found acc) (is-eq item (get needle acc))),
+    }
 )
 
 ;; TODO: private fn to transfer funds from reserve
@@ -1566,6 +1646,22 @@
         (- (reward-cycle-to-unlock-height (+ current-cycle u1))
             (var-get pox-prepare-cycle-length)
         ))
+)
+
+(define-read-only (is-bond-active-at-height
+        (bond-index uint)
+        (calculation-height uint)
+    )
+    (let (
+            (bond-start-height (bond-period-to-burn-height bond-index))
+            (bond-end-height (bond-period-to-burn-height (+ bond-index u6)))
+        )
+        (and
+            (is-some (map-get? protocol-bonds bond-index))
+            (> calculation-height bond-start-height)
+            (<= calculation-height bond-end-height)
+        )
+    )
 )
 
 ;; Used for PoX parameters discovery

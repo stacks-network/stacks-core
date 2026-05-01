@@ -7,7 +7,7 @@ import {
 } from '@clarigen/core';
 import { accounts, project } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
-import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
+import { filterEvents, rov, rovErr, rovOk, txErr, txOk } from '@clarigen/test';
 import { mineUntil, stxToUStx } from '../test-helpers';
 import {
   deployTestSigner,
@@ -676,6 +676,19 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
     deployer,
   );
   txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 20n, minUstxRatio)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)) + 1n);
+
+  txOk(
     pox5.setupBond({
       bondIndex: 1n,
       targetRate,
@@ -685,17 +698,6 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
       allowlist: [{ maxSats: bobSbtc, staker: bob }],
     }),
     deployer,
-  );
-
-  txOk(
-    pox5.registerForBond({
-      bondIndex: 0n,
-      signerManager: signer,
-      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 20n, minUstxRatio)),
-      btcLockup: err(aliceSbtc),
-      signerCalldata: null,
-    }),
-    alice,
   );
   txOk(
     pox5.registerForBond({
@@ -765,6 +767,19 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
     deployer,
   );
   txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 20n, minUstxRatio)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)) + 1n);
+
+  txOk(
     pox5.setupBond({
       bondIndex: 1n,
       targetRate,
@@ -774,17 +789,6 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
       allowlist: [{ maxSats: bobSbtc, staker: bob }],
     }),
     deployer,
-  );
-
-  txOk(
-    pox5.registerForBond({
-      bondIndex: 0n,
-      signerManager: signer1,
-      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 20n, minUstxRatio)),
-      btcLockup: err(aliceSbtc),
-      signerCalldata: null,
-    }),
-    alice,
   );
   txOk(
     pox5.registerForBond({
@@ -1201,4 +1205,60 @@ test('scenario - waterfall distributions', () => {
   expect(transferEvents[0]!.data.recipient).toBe(signer2);
   expect(transferEvents[0]!.data.amount).toBe(signer2Claimable.toString());
   expect(transferEvents[0]!.data.sender).toBe(pox5.identifier);
+});
+
+/**
+ * Verifies that the active-bond inclusion check requires every active bond
+ * period to be present, including setup bonds that have zero bonded sats.
+ */
+test('validating that all active bonds are included in a list at a given height', () => {
+  function setupBond(bondIndex: bigint) {
+    txOk(
+      pox5.setupBond({
+        bondIndex: bondIndex,
+        targetRate: 1200n,
+        stxValueRatio: 10n,
+        minUstxRatio: 100n,
+        earlyUnlockSigners: new Uint8Array(),
+        allowlist: [{ maxSats: 100000n, staker: alice }],
+      }),
+      deployer,
+    );
+  }
+
+  setupBond(0n);
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)) + 1n);
+  setupBond(1n);
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(1n)) + 1n);
+  setupBond(2n);
+
+  expect(rov(pox5.isBondActiveAtHeight(0n, 99n))).toBeFalsy();
+  expect(rovOk(pox5.assertAllActiveBondsIncluded([], 99n))).toBeTruthy();
+
+  expect(rov(pox5.isBondActiveAtHeight(0n, 150n))).toBeTruthy();
+  expect(rov(pox5.isBondActiveAtHeight(1n, 150n))).toBeFalsy();
+  expect(rovOk(pox5.assertAllActiveBondsIncluded([0n], 150n))).toBeTruthy();
+  expect(rovOk(pox5.assertAllActiveBondsIncluded([0n, 1n], 150n))).toBeTruthy();
+  expect(rovErr(pox5.assertAllActiveBondsIncluded([], 150n))).toBe(
+    errorCodes.ERR_ACTIVE_BOND_NOT_INCLUDED,
+  );
+
+  expect(rov(pox5.isBondActiveAtHeight(0n, 350n))).toBeTruthy();
+  expect(rov(pox5.isBondActiveAtHeight(1n, 350n))).toBeTruthy();
+  expect(rov(pox5.isBondActiveAtHeight(2n, 350n))).toBeFalsy();
+  expect(rovOk(pox5.assertAllActiveBondsIncluded([0n, 1n], 350n))).toBeTruthy();
+  expect(rovErr(pox5.assertAllActiveBondsIncluded([0n], 350n))).toBe(
+    errorCodes.ERR_ACTIVE_BOND_NOT_INCLUDED,
+  );
+  expect(rovErr(pox5.assertAllActiveBondsIncluded([1n], 350n))).toBe(
+    errorCodes.ERR_ACTIVE_BOND_NOT_INCLUDED,
+  );
+
+  expect(rov(pox5.isBondActiveAtHeight(0n, 550n))).toBeTruthy();
+  expect(rov(pox5.isBondActiveAtHeight(1n, 550n))).toBeTruthy();
+  expect(rov(pox5.isBondActiveAtHeight(2n, 550n))).toBeTruthy();
+  expect(rovOk(pox5.assertAllActiveBondsIncluded([0n, 1n, 2n], 550n))).toBeTruthy();
+  expect(rovErr(pox5.assertAllActiveBondsIncluded([0n, 2n], 550n))).toBe(
+    errorCodes.ERR_ACTIVE_BOND_NOT_INCLUDED,
+  );
 });
