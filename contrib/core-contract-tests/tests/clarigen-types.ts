@@ -6273,7 +6273,7 @@ export const contracts = {
         version: '1.0.0',
       },
       PRECISION: 1_000_000_000_000_000_000n,
-      RESERVE_RATIO: 1_000n,
+      RESERVE_RATIO: 1_500n,
       SIGNER_SET_MIN_USTX: 50_000_000_000n,
       sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
       STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),

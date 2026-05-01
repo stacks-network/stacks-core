@@ -76,7 +76,7 @@
 
 ;; The % of rewards that go to reserve, expressed
 ;; in basis points
-(define-constant RESERVE_RATIO u1000)
+(define-constant RESERVE_RATIO u1500)
 
 (define-map protocol-bonds
     uint

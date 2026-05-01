@@ -35,6 +35,28 @@ const emily = accounts.wallet_5.address;
 
 const REWARD_CYCLE_LENGTH = 100n;
 const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
+const BASIS_POINTS = 10000n;
+
+function reserveRewards(rewards: bigint) {
+  return (rewards * pox5.constants.RESERVE_RATIO) / BASIS_POINTS;
+}
+
+function stxRewards(rewards: bigint) {
+  return rewards - reserveRewards(rewards);
+}
+
+function claimableRewards({
+  rewards,
+  shares,
+  totalShares,
+}: {
+  rewards: bigint;
+  shares: bigint;
+  totalShares: bigint;
+}) {
+  const rewardsPerShare = (rewards * pox5.constants.PRECISION) / totalShares;
+  return (shares * rewardsPerShare) / pox5.constants.PRECISION;
+}
 
 beforeEach(() => {
   txOk(
@@ -520,9 +542,21 @@ test('stx-only rewards split across signers by staked ustx', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([]), deployer);
 
-  expect(rov(pox5.getReserveBalance())).toBe(100n);
-  expect(rov(pox5.getClaimableRewards(signer1, 1n, false))).toBe(450n);
-  expect(rov(pox5.getClaimableRewards(signer2, 1n, false))).toBe(450n);
+  expect(rov(pox5.getReserveBalance())).toBe(reserveRewards(1000n));
+  expect(rov(pox5.getClaimableRewards(signer1, 1n, false))).toBe(
+    claimableRewards({
+      rewards: stxRewards(1000n),
+      shares: stakeAmount,
+      totalShares: stakeAmount * 2n,
+    }),
+  );
+  expect(rov(pox5.getClaimableRewards(signer2, 1n, false))).toBe(
+    claimableRewards({
+      rewards: stxRewards(1000n),
+      shares: stakeAmount,
+      totalShares: stakeAmount * 2n,
+    }),
+  );
 });
 
 /**
@@ -834,15 +868,28 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n, 1n]), deployer);
 
-  expect(rov(pox5.getReserveBalance())).toBe(100n);
+  const stxRewardAmount = stxRewards(1000n);
+  const signerStxRewards = claimableRewards({
+    rewards: stxRewardAmount,
+    shares: stxStake,
+    totalShares: stxStake * 2n,
+  });
+
+  expect(rov(pox5.getReserveBalance())).toBe(reserveRewards(1000n));
   expect(rov(pox5.getClaimableRewards(signer1, 0n, true))).toBe(250n);
   expect(rov(pox5.getClaimableRewards(signer2, 1n, true))).toBe(750n);
-  expect(rov(pox5.getClaimableRewards(signer1, 3n, false))).toBe(450n);
-  expect(rov(pox5.getClaimableRewards(signer2, 3n, false))).toBe(450n);
+  expect(rov(pox5.getClaimableRewards(signer1, 3n, false))).toBe(
+    signerStxRewards,
+  );
+  expect(rov(pox5.getClaimableRewards(signer2, 3n, false))).toBe(
+    signerStxRewards,
+  );
 
-  expect(txOk(testSigner.claimRewards([0n], 3n), deployer).value).toBe(700n);
+  expect(txOk(testSigner.claimRewards([0n], 3n), deployer).value).toBe(
+    250n + signerStxRewards,
+  );
   expect(txOk(signer2Contract.claimRewards([1n], 3n), deployer).value).toBe(
-    1200n,
+    750n + signerStxRewards,
   );
   expect(rov(pox5.getClaimableRewards(signer1, 0n, true))).toBe(0n);
   expect(rov(pox5.getClaimableRewards(signer1, 3n, false))).toBe(0n);
@@ -883,13 +930,20 @@ test('zero reward claim should not reset paid rewards', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([]), deployer);
 
-  expect(rov(pox5.getClaimableRewards(signer, 1n, false))).toBe(900n);
+  const expectedRewards = stxRewards(1000n);
+  expect(rov(pox5.getClaimableRewards(signer, 1n, false))).toBe(
+    expectedRewards,
+  );
   txOk(testSigner.claimRewards([], 1n), deployer);
-  expect(rov(pox5.getSignerRewardsPaidForCycle(signer, 1n, false))).toBe(900n);
+  expect(rov(pox5.getSignerRewardsPaidForCycle(signer, 1n, false))).toBe(
+    expectedRewards,
+  );
 
   const zeroClaim = txErr(testSigner.claimRewards([], 1n), deployer);
   expect(zeroClaim.value).toBe(errorCodes.ERR_NO_CLAIMABLE_REWARDS);
-  expect(rov(pox5.getSignerRewardsPaidForCycle(signer, 1n, false))).toBe(900n);
+  expect(rov(pox5.getSignerRewardsPaidForCycle(signer, 1n, false))).toBe(
+    expectedRewards,
+  );
 });
 
 /** Scenario: waterfall distributions
@@ -1078,16 +1132,18 @@ test('scenario - waterfall distributions', () => {
     BigInt(simnet.burnBlockHeight - 1),
   );
 
-  // reserve balance should be 10% of the extra
-  expect(rov(pox5.getReserveBalance())).toBe(
-    (extra1 * pox5.constants.RESERVE_RATIO) / 10000n,
-  );
+  expect(rov(pox5.getReserveBalance())).toBe(reserveRewards(extra1));
 
   const rewardsPerUstx = rov(pox5.getRewardsPerTokenForCycle(1n, false));
   const totalStakedUstx = rov(
     pox5.getSignerSharesStakedForCycle(signer, 1n, false),
   );
-  const rewardsForStxStakers = extra1 - rov(pox5.getReserveBalance());
+  const rewardsForStxStakers = stxRewards(extra1);
+  const claimableRewardsForStxStakers = claimableRewards({
+    rewards: rewardsForStxStakers,
+    shares: totalStakedUstx,
+    totalShares: totalStakedUstx,
+  });
   expect(totalStakedUstx).toBe(charlieStake + daveStake);
   // expect all extra rewards to be distributed to stx stakers
   expect(rewardsPerUstx).toBe(
@@ -1096,7 +1152,7 @@ test('scenario - waterfall distributions', () => {
 
   // we only have one signer, so they get all rewards
   expect(rov(pox5.getClaimableRewards(signer, 1n, false))).toBe(
-    rewardsForStxStakers,
+    claimableRewardsForStxStakers,
   );
   expect(rov(pox5.getClaimableRewards(signer, 0n, true))).toBe(
     perRewardCalcYieldPeriod1,
@@ -1150,7 +1206,11 @@ test('scenario - waterfall distributions', () => {
 
   // now, signer 1 still is the only one who can claim rewards
   expect(rov(pox5.getClaimableRewards(signer, 1n, false))).toBe(
-    rewardsForStxStakers * 2n,
+    claimableRewards({
+      rewards: rewardsForStxStakers * 2n,
+      shares: totalStakedUstx,
+      totalShares: totalStakedUstx,
+    }),
   );
   expect(rov(pox5.getClaimableRewards(signer, 0n, true))).toBe(
     perRewardCalcYieldPeriod1 * 2n,
@@ -1257,7 +1317,9 @@ test('validating that all active bonds are included in a list at a given height'
   expect(rov(pox5.isBondActiveAtHeight(0n, 550n))).toBeTruthy();
   expect(rov(pox5.isBondActiveAtHeight(1n, 550n))).toBeTruthy();
   expect(rov(pox5.isBondActiveAtHeight(2n, 550n))).toBeTruthy();
-  expect(rovOk(pox5.assertAllActiveBondsIncluded([0n, 1n, 2n], 550n))).toBeTruthy();
+  expect(
+    rovOk(pox5.assertAllActiveBondsIncluded([0n, 1n, 2n], 550n)),
+  ).toBeTruthy();
   expect(rovErr(pox5.assertAllActiveBondsIncluded([0n, 2n], 550n))).toBe(
     errorCodes.ERR_ACTIVE_BOND_NOT_INCLUDED,
   );
