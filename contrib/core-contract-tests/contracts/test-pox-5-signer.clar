@@ -35,3 +35,12 @@
     (try! (contract-call? .pox-5 register-signer signer-manager signer-key))
   )
 )
+
+(define-public (claim-rewards
+    (bond-periods (list 6 uint))
+    (reward-cycle uint)
+  )
+  (as-contract? ()
+    (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))
+  )
+)
