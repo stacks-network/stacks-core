@@ -18,6 +18,10 @@ on:
       - reopened
       - synchronize
 
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
 jobs:
   clippy_check:
     name: Clippy Check
@@ -32,6 +36,9 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
           cache: false
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Clippy
         id: clippy

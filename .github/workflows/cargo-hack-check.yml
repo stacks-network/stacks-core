@@ -5,6 +5,8 @@ on:
 
 env:
   RUST_BACKTRACE: full
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 concurrency:
   group: cargo-hack-check-${{ github.head_ref || github.ref || github.run_id }}
@@ -26,6 +28,9 @@ jobs:
         with:
           target: x86_64-pc-windows-gnu,x86_64-unknown-linux-gnu
           cache: false
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6  # v2.56.8
@@ -62,6 +67,9 @@ jobs:
         with:
           target: wasm32-unknown-unknown
           cache: false
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6 # v2.56.8
@@ -103,6 +111,9 @@ jobs:
         with:
           toolchain: nightly
           cache: false
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Check fuzz targets (clarity)
         run: |
