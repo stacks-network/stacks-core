@@ -31,6 +31,7 @@
 ;; We already calculated at the start of this cycle
 (define-constant ERR_DISTRIBUTION_ALREADY_COMPUTED (err u30))
 (define-constant ERR_BOND_NOT_ACTIVE (err u31))
+(define-constant ERR_NO_CLAIMABLE_REWARDS (err u32))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -1286,7 +1287,7 @@
     )
     (let (
             (signer contract-caller)
-            (stx-rewards (get-claimable-rewards signer reward-cycle false))
+            (stx-rewards (update-claimable-rewards signer reward-cycle false))
             (bond-rewards (get total
                 (fold update-claimable-bond-rewards bond-periods {
                     signer: signer,
@@ -1296,6 +1297,7 @@
             (total-rewards (+ stx-rewards bond-rewards))
             (prev-accrued-rewards (var-get last-accounted-rewards-only))
         )
+        (asserts! (> total-rewards u0) ERR_NO_CLAIMABLE_REWARDS)
         (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 "sbtc-token" total-rewards
@@ -1328,7 +1330,10 @@
         (index uint)
         (is-bond bool)
     )
-    (let ((new-rewards (get-claimable-rewards signer index is-bond)))
+    (let (
+            (prev-rewards (get-signer-rewards-paid-for-cycle signer index is-bond))
+            (new-rewards (get-claimable-rewards signer index is-bond))
+        )
         (print {
             topic: "update-claimable-rewards",
             new-rewards: new-rewards,
@@ -1341,7 +1346,7 @@
             signer: signer,
             is-bond: is-bond,
         }
-            new-rewards
+            (+ new-rewards prev-rewards)
         )
         new-rewards
     )

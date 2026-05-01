@@ -5691,6 +5691,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NO_CLAIMABLE_REWARDS: {
+        name: 'ERR_NO_CLAIMABLE_REWARDS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NO_SBTC_BALANCE: {
         name: 'ERR_NO_SBTC_BALANCE',
         type: {
@@ -6045,6 +6055,10 @@ export const contracts = {
       ERR_NOT_STAKING: {
         isOk: false,
         value: 27n,
+      },
+      ERR_NO_CLAIMABLE_REWARDS: {
+        isOk: false,
+        value: 32n,
       },
       ERR_NO_SBTC_BALANCE: {
         isOk: false,
