@@ -13,6 +13,8 @@ if (!process.env.SHOW_CONTRACT_PRINTS) {
   console.log = (...args) => {
     if (args.length === 1 && typeof args[0] === 'string') {
       if (args[0].includes('sbtc-registry:280')) return;
+      if (args[0].includes('add-to-allowlist')) return;
+      if (args[0].includes('transformMode')) return;
     }
     origLog(...args);
   };

@@ -15,6 +15,7 @@ import {
   getAllStakers,
   isStakerInCycle,
   registerSigner,
+  sbtcBalance,
   testSigner,
 } from './pox-5-helpers';
 
@@ -27,12 +28,11 @@ const deployer = accounts.deployer.address;
 const alice = accounts.wallet_1.address;
 const bob = accounts.wallet_2.address;
 const charlie = accounts.wallet_3.address;
-
-// function sbtcBalance(address: string): bigint {
-//   return rovOk(contracts.sbtcToken.getBalance(address));
-// }
+const dave = accounts.wallet_4.address;
+const emily = accounts.wallet_5.address;
 
 const REWARD_CYCLE_LENGTH = 100n;
+const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
 
 beforeEach(() => {
   txOk(
@@ -459,4 +459,200 @@ test('scenario - unstaking', () => {
 
   // `getStakerInfo` should return `none` because it's expired
   expect(rov(pox5.getStakerInfo(alice))).toBeNull();
+});
+
+/** Scenario: waterfall distributions
+ *
+ * - Alice and Bob are in bond period 1
+ * - Alice for 50k sats
+ * - Bob for 100k sats
+ *
+ * - Charlie is stx-only staking for 14 cycles with 10k stx
+ * - Dave is stx-only staking for 14 cycles with 5k stx
+ */
+test('scenario - waterfall distributions', () => {
+  const signer = testSigner.identifier;
+  registerSigner();
+
+  const minUstxRatio = 1n; // 0.01%
+  const stxValueRatio = 1n; // 1 ustx = 100 sat
+  const targetRate = 1000n; // 10%
+  const aliceSbtc = 50000n;
+  const bobSbtc = 100000n;
+
+  const totalSbtcPeriod1 = aliceSbtc + bobSbtc;
+  const expectedYieldPeriod1 = (totalSbtcPeriod1 * targetRate) / 10000n;
+  const perCycleYieldPeriod1 = expectedYieldPeriod1 / 24n;
+  const perRewardCalcYieldPeriod1 = perCycleYieldPeriod1 / 2n; // 2 calculations per cycle
+  console.log('test params', {
+    totalSbtcPeriod1,
+    expectedYieldPeriod1,
+    perCycleYieldPeriod1,
+    perRewardCalcYieldPeriod1,
+  });
+  console.log('perRewardCalcYieldPeriod1', perRewardCalcYieldPeriod1);
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [
+        {
+          maxSats: 100000000n,
+          staker: alice,
+        },
+        {
+          maxSats: 100000000n,
+          staker: bob,
+        },
+      ],
+    }),
+    deployer,
+  );
+
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(
+        pox5.minUstxForSatsAmount(aliceSbtc, stxValueRatio, minUstxRatio),
+      ),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(
+        pox5.minUstxForSatsAmount(bobSbtc, stxValueRatio, minUstxRatio),
+      ),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  expect(rov(pox5.getTotalSatsStaked(0n))).toBe(aliceSbtc + bobSbtc);
+
+  // charlie stakes 10k stx for 14 cycles
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: 10000n,
+      numCycles: 14n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+
+  // dave stakes 5k stx for 14 cycles
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: 5000n,
+      numCycles: 14n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    dave,
+  );
+
+  // fast forward to start of cycle 1
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
+
+  // let's send enough rewards to cover the expected yield for period 1,
+  // plus 100 sats for stakers
+  const extra1 = 100n;
+
+  txOk(
+    contracts.sbtcToken.transfer({
+      recipient: pox5.identifier,
+      amount: perRewardCalcYieldPeriod1 + extra1,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  expect(sbtcBalance(pox5.identifier)).toBe(
+    perRewardCalcYieldPeriod1 + extra1 + aliceSbtc + bobSbtc,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+
+  expect(rov(pox5.currentDistributionCycle())).toBe(3n);
+  expect(rov(pox5.distributionCycleToBurnHeight(3n))).toBe(
+    rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
+  );
+
+  // cannot provide bonds that don't exist
+  txErr(pox5.calculateRewards([1n]), deployer);
+
+  // check state before writing new rewards state
+  expect(rov(pox5.getRewards())).toBe(perRewardCalcYieldPeriod1 + extra1);
+
+  // calculate rewards
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  // We expect that bond1 earned their full expected yield
+  const rewardsPerToken = rov(pox5.getRewardsPerToken(0n, true));
+  expect(
+    (rewardsPerToken * (aliceSbtc + bobSbtc)) / pox5.constants.PRECISION,
+  ).toBe(perRewardCalcYieldPeriod1);
+
+  // time of last calculation should be updated
+  expect(rov(pox5.getLastRewardComputeHeight())).toBe(
+    BigInt(simnet.burnBlockHeight - 1),
+  );
+
+  // reserve balance should be 10% of the extra
+  expect(rov(pox5.getReserveBalance())).toBe(
+    (extra1 * pox5.constants.RESERVE_RATIO) / 10000n,
+  );
+
+  const rewardsPerUstx = rov(pox5.getRewardsPerToken(1n, false));
+  const totalStakedUstx = rov(pox5.getUstxStakedForCycle(1n));
+  const rewardsForStxStakers = extra1 - rov(pox5.getReserveBalance());
+  expect(totalStakedUstx).toBe(10000n + 5000n);
+  // expect all extra rewards to be distributed to stx stakers
+  expect(rewardsPerUstx).toBe(
+    (rewardsForStxStakers * pox5.constants.PRECISION) / totalStakedUstx,
+  );
+
+  // cant call again until next distribution cycle
+  txErr(pox5.calculateRewards([0n]), deployer);
+
+  // give some new rewards
+  const rewards2 = perRewardCalcYieldPeriod1 + extra1;
+  txOk(
+    contracts.sbtcToken.transfer({
+      recipient: pox5.identifier,
+      amount: rewards2,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  // now emily stakes 10k stx
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: 10000n,
+      numCycles: 14n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    emily,
+  );
+
+  expect(rov(pox5.getNewRewards())).toBe(rewards2);
 });

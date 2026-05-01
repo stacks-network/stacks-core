@@ -22,9 +22,15 @@
 (define-constant ERR_UNAUTHORIZED_CALLER (err u22))
 (define-constant ERR_SIGNER_NOT_FOUND (err u23))
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u24))
+(define-constant ERR_NO_SBTC_BALANCE (err u25))
 (define-constant ERR_UNAUTHORIZED_SIGNER_REGISTRATION (err u26))
 (define-constant ERR_NOT_STAKING (err u27))
 (define-constant ERR_UNSTAKE_IN_PREPARE_PHASE (err u28))
+;; Trying to pay out to bonds in an invalid order
+(define-constant ERR_INVALID_BOND_PERIOD_ORDERING (err u29))
+;; We already calculated at the start of this cycle
+(define-constant ERR_DISTRIBUTION_ALREADY_COMPUTED (err u30))
+(define-constant ERR_BOND_NOT_ACTIVE (err u31))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -62,6 +68,14 @@
 (define-constant STACKS_ADDR_VERSION_MAINNET 0x16)
 (define-constant STACKS_ADDR_VERSION_TESTNET 0x1a)
 
+;; Used to prevent fractional multiplication errors
+;; during reward calculations
+(define-constant PRECISION u100000000)
+
+;; The % of rewards that go to reserve, expressed
+;; in basis points
+(define-constant RESERVE_RATIO u1000)
+
 (define-map protocol-bonds
     uint
     {
@@ -76,8 +90,6 @@
         ;; relative to BTC for this term.
         ;; Represented in basis points.
         min-ustx-ratio: uint,
-        ;; total amount of sats staked
-        total-sats-shares: uint,
         ;; The allowed early unlock signers for this bond period
         early-unlock-signers: (buff 683),
     }
@@ -101,6 +113,12 @@
         reward-per-share-paid: uint,
         amount-ustx: uint,
     }
+)
+
+;; Total amount of sats staked per bond period
+(define-map protocol-bonds-total-staked
+    uint
+    uint
 )
 
 (define-map signer-key-grants
@@ -166,6 +184,13 @@
     }
 )
 
+;; This ONLY represents ustx staked in stx-only staking,
+;; not in protocol bonds
+(define-map ustx-staked-per-cycle
+    uint
+    uint
+)
+
 ;; allowed contract-callers
 (define-map allowance-contract-callers
     {
@@ -195,6 +220,16 @@
     bool ;; Whether the field has been used or not
 )
 
+;; State to track the per-share rewards earned for bond periods
+;; and reward cycles
+(define-map rewards-per-token
+    {
+        bond: bool,
+        index: uint,
+    }
+    uint
+)
+
 ;; The role that is allowed to set bond parameters
 (define-data-var bond-admin principal tx-sender)
 
@@ -214,8 +249,29 @@
 (define-data-var configured bool false)
 ;; The first reward cycle where pox-5 is active. This
 ;; is also equal to the first bond period.
-;; #[allow(unused_data_var)]
 (define-data-var first-pox-5-reward-cycle uint u0)
+;; The first reward cycle where the first bond period occurs
+(define-data-var first-bond-period-cycle uint u0)
+
+;;;;  The last accounted balance (of sBTC held by this contract)
+;;;;  at a time of reward computation.
+;;;;  N.B. it is critical that this value is set to the contract's
+;;;;  sBTC balance after any transfer of sBTC out of this contract.
+;; (define-data-var last-accounted-balance uint u0)
+
+;; The last accounted balance of rewards. Used to keep
+;; track of which sBTC is just for rewards, vs from
+;; staking.
+(define-data-var last-accounted-rewards-only uint u0)
+
+;; The last burn height in which rewards were calculated
+(define-data-var last-reward-compute-height uint u0)
+
+;; the amount of sBTC claimable by the reserve
+(define-data-var reserve-balance uint u0)
+
+;; The total amount of sBTC staked
+(define-data-var total-sats-staked uint u0)
 
 (define-trait signer-manager-trait (
     (validate-stake!
@@ -241,6 +297,7 @@
         (var-set pox-prepare-cycle-length prepare-cycle-length)
         (var-set pox-reward-cycle-length reward-cycle-length)
         (var-set first-pox-5-reward-cycle begin-pox5-reward-cycle)
+        (var-set first-bond-period-cycle begin-pox5-reward-cycle)
         (var-set configured true)
         (ok true)
     )
@@ -289,7 +346,6 @@
                 target-rate: target-rate,
                 stx-value-ratio: stx-value-ratio,
                 min-ustx-ratio: min-ustx-ratio,
-                total-sats-shares: u0,
                 early-unlock-signers: early-unlock-signers,
             })
             ERR_BOND_ALREADY_SETUP
@@ -386,6 +442,7 @@
                 ERR_NOT_ALLOWLISTED
             ))
             (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+            (current-staked (get-total-sats-staked-for-bond bond-index))
         )
         ;; Verify that they're sending enough STX
         (asserts!
@@ -418,6 +475,10 @@
             reward-per-share-paid: u0,
             amount-ustx: amount-ustx,
         })
+        (map-set protocol-bonds-total-staked bond-index
+            (+ current-staked sats-total)
+        )
+
         (try! (add-staker-to-signer-cycles tx-sender signer first-reward-cycle
             BOND_LENGTH_CYCLES amount-ustx
         ))
@@ -675,7 +736,8 @@
             ))
             (signer (get signer membership))
             (cur-staked-for-signer (get-current-amount-staked-for-signer signer cycle))
-            (new-staked (- cur-staked-for-signer (get amount-ustx membership)))
+            (amount (get amount-ustx membership))
+            (new-staked (- cur-staked-for-signer amount))
             (is-in-signer-set (is-some (get-staker-set-item-for-cycle signer cycle)))
         )
         (if (and is-in-signer-set (< new-staked SIGNER_SET_MIN_USTX))
@@ -692,6 +754,9 @@
             signer: signer,
         }
             new-staked
+        )
+        (map-set ustx-staked-per-cycle cycle
+            (- (get-ustx-staked-for-cycle cycle) amount)
         )
         (ok accumulator)
     )
@@ -745,7 +810,8 @@
             (cycle (+ cycle-index (get first-reward-cycle accumulator)))
             (signer (get signer accumulator))
             (cur-staked-for-signer (get-current-amount-staked-for-signer signer cycle))
-            (new-staked (+ cur-staked-for-signer (get amount-ustx accumulator)))
+            (amount (get amount-ustx accumulator))
+            (new-staked (+ cur-staked-for-signer amount))
         )
         (if (and (< cur-staked-for-signer SIGNER_SET_MIN_USTX) (>= new-staked SIGNER_SET_MIN_USTX))
             ;; They've crossed the threshold - add the signer to the signer set linked list
@@ -757,13 +823,16 @@
             cycle: cycle,
         } {
             signer: signer,
-            amount-ustx: (get amount-ustx accumulator),
+            amount-ustx: amount,
         })
         (map-set signer-staked-per-cycle {
             cycle: cycle,
             signer: signer,
         }
             new-staked
+        )
+        (map-set ustx-staked-per-cycle cycle
+            (+ (get-ustx-staked-for-cycle cycle) amount)
         )
         (ok accumulator)
     )
@@ -774,6 +843,7 @@
         (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
             transfer amount tx-sender current-contract none
         ))
+        (var-set total-sats-staked (+ (var-get total-sats-staked) amount))
         (ok amount)
     )
 )
@@ -838,6 +908,186 @@
         })
     )
 )
+
+;;; Reward calculation
+
+;; Returns the total balance of rewards received by the contract
+(define-read-only (get-rewards)
+    (let (
+            (cur-reserve (var-get reserve-balance))
+            (total-staked-sbtc (get-total-sats-staked))
+            (current-balance (unwrap-panic (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                get-balance current-contract
+            )))
+        )
+        (- current-balance total-staked-sbtc cur-reserve)
+    )
+)
+
+;; Returns the total amount of newly received sBTC rewards
+;; since the last rewards computation
+(define-read-only (get-new-rewards)
+    (let (
+            (last-accounted-rewards (var-get last-accounted-rewards-only))
+            (rewards-balance (get-rewards))
+        )
+        (- rewards-balance last-accounted-rewards)
+    )
+)
+
+(define-public (calculate-rewards (bond-periods (list 6 uint)))
+    (let (
+            (last-calc (var-get last-reward-compute-height))
+            (calculation-height (- (distribution-cycle-to-burn-height (current-distribution-cycle))
+                u1
+            ))
+            (cur-reserve (var-get reserve-balance))
+            (accrued-rewards (get-new-rewards))
+        )
+        ;; verify that we are able to compute here
+        (asserts! (> calculation-height last-calc)
+            ERR_DISTRIBUTION_ALREADY_COMPUTED
+        )
+
+        ;; (try! (calculate-bonds-rewards bond-periods accrued-rewards calculation-height))
+        (let (
+                (bond-distributions (try! (fold calculate-bond-rewards bond-periods
+                    (ok {
+                        last-bond-stx-value-ratio: none,
+                        available-rewards: accrued-rewards,
+                        last-bond-index: none,
+                        calculation-height: calculation-height,
+                    })
+                )))
+                (remaining-rewards (get available-rewards bond-distributions))
+                (new-reserve (/ (* remaining-rewards RESERVE_RATIO) u10000))
+                (stx-staker-rewards (- remaining-rewards new-reserve))
+                (stx-cycle (burn-height-to-reward-cycle calculation-height))
+                (cycle-staked-stx (get-ustx-staked-for-cycle stx-cycle))
+                (current-rewards-per-ustx (get-rewards-per-token stx-cycle false))
+                (new-rewards-per-ustx (if (is-eq cycle-staked-stx u0)
+                    ;; if there are no stx staked, we have a problem
+                    u0
+                    (/ (* stx-staker-rewards PRECISION) cycle-staked-stx)
+                ))
+                (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+            )
+            (print {
+                topic: "calculate-rewards",
+                bond-periods: bond-periods,
+                calculation-height: calculation-height,
+                remaining-rewards: remaining-rewards,
+                accrued-rewards: accrued-rewards,
+                stx-staker-rewards: stx-staker-rewards,
+                stx-cycle: stx-cycle,
+                next-rewards-per-ustx: next-rewards-per-ustx,
+            })
+            (var-set reserve-balance (+ cur-reserve new-reserve))
+            (var-set last-reward-compute-height calculation-height)
+            (var-set last-accounted-rewards-only (- accrued-rewards new-reserve))
+            (map-set rewards-per-token {
+                index: stx-cycle,
+                bond: false,
+            }
+                next-rewards-per-ustx
+            )
+            (ok true)
+        )
+    )
+)
+
+(define-private (calculate-bond-rewards
+        (bond-index uint)
+        (accumulator-res (response {
+            ;; Used to ensure that the list of bonds are sorted correctly
+            last-bond-stx-value-ratio: (optional uint),
+            ;; Used as a tie-breaker in the case of bonds with the same
+            ;; stx-value-ratio
+            last-bond-index: (optional uint),
+            ;; How much rewards are available to be distributed
+            available-rewards: uint,
+            calculation-height: uint,
+        }
+            uint
+        ))
+    )
+    (let (
+            (accumulator (try! accumulator-res))
+            (bond (unwrap! (map-get? protocol-bonds bond-index) ERR_BOND_NOT_FOUND))
+            (total-sats (get-total-sats-staked-for-bond bond-index))
+            (available-rewards (get available-rewards accumulator))
+            ;; How much sBTC the bond is supposed to earn per calculation,
+            ;; which is (totalSats * apy) / 48
+            (target-yield (/ (/ (* total-sats (get target-rate bond)) u10000) u48))
+            ;; If there is enough to cover the target yield, use that. Otherwise,
+            ;; this bond gets the remaining rewards.
+            (earned (if (>= available-rewards target-yield)
+                target-yield
+                available-rewards
+            ))
+            (stx-value-ratio (get stx-value-ratio bond))
+            (current-rewards-per-token (get-rewards-per-token bond-index true))
+            ;; Prevent divide-by-zero
+            (new-rewards-per-token (if (is-eq total-sats u0)
+                u0
+                (/ (* earned PRECISION) total-sats)
+            ))
+            (calculation-height (get calculation-height accumulator))
+            (bond-start-height (bond-period-to-burn-height bond-index))
+            (bond-end-height (bond-period-to-burn-height (+ bond-index u6)))
+        )
+        ;; Verify that we're paying out bonds in the right order
+        (match (get last-bond-stx-value-ratio accumulator)
+            last-ratio
+            (asserts!
+                ;; In a tie-breaker, we still want deterministic results.
+                ;; Thus, enforce that the earlier bond period comes first
+                (if (is-eq stx-value-ratio last-ratio)
+                    (< bond-index
+                        (unwrap-panic (get last-bond-index accumulator))
+                    )
+                    (<= stx-value-ratio last-ratio)
+                )
+                ERR_INVALID_BOND_PERIOD_ORDERING
+            )
+            ;; When `none`, this is the first bond we're processing
+            true
+        )
+
+        (map-set rewards-per-token {
+            bond: true,
+            index: bond-index,
+        }
+            (+ current-rewards-per-token new-rewards-per-token)
+        )
+
+        ;; TODO: verify that this bond is active
+        (asserts!
+            (and
+                (> calculation-height bond-start-height)
+                (<= calculation-height bond-end-height)
+            )
+            ERR_BOND_NOT_ACTIVE
+        )
+
+        (print {
+            topic: "bond-distribution",
+            bond-index: bond-index,
+            target-yield: target-yield,
+            earned: earned,
+        })
+
+        (ok {
+            last-bond-stx-value-ratio: (some stx-value-ratio),
+            last-bond-index: (some bond-index),
+            available-rewards: (- available-rewards earned),
+            calculation-height: calculation-height,
+        })
+    )
+)
+
+;; TODO: private fn to transfer funds from reserve
+;; (define-private (transfer-from-reserve (amount uint) (recipient uint)))
 
 ;;; Signer key authorization functions
 
@@ -978,7 +1228,7 @@
 
 ;; What reward cycle does a bond index start at?
 (define-read-only (bond-period-to-reward-cycle (bond-index uint))
-    (+ (var-get first-pox-5-reward-cycle) (* bond-index BOND_GAP_CYCLES))
+    (+ (var-get first-bond-period-cycle) (* bond-index BOND_GAP_CYCLES))
 )
 
 ;; What's the reward cycle number of the burnchain block height?
@@ -1007,6 +1257,26 @@
 ;; What's the current PoX reward cycle?
 (define-read-only (current-pox-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height)
+)
+
+;; At a given burn height, what distribution cycle are we in?
+;; This is zero-indexed at the first reward-cycle
+(define-read-only (burn-height-to-distribution-index (height uint))
+    (/ (- height (var-get first-burnchain-block-height))
+        (/ (var-get pox-reward-cycle-length) u2)
+    )
+)
+
+;; What's the current distribution cycle?
+(define-read-only (current-distribution-cycle)
+    (burn-height-to-distribution-index burn-block-height)
+)
+
+;; The start burn height of a given distribution cycle
+(define-read-only (distribution-cycle-to-burn-height (cycle uint))
+    (+ (var-get first-burnchain-block-height)
+        (* cycle (/ (var-get pox-reward-cycle-length) u2))
+    )
 )
 
 ;; Are we currently in a prepare phase at the end of `current-cycle`?
@@ -1121,6 +1391,42 @@
 
 (define-read-only (get-signer-key (staker principal))
     (map-get? signer-keys staker)
+)
+
+(define-read-only (get-total-sats-staked-for-bond (bond-index uint))
+    (default-to u0 (map-get? protocol-bonds-total-staked bond-index))
+)
+
+(define-read-only (get-rewards-per-token
+        (index uint)
+        (is-bond bool)
+    )
+    (default-to u0
+        (map-get? rewards-per-token {
+            index: index,
+            bond: is-bond,
+        })
+    )
+)
+
+(define-read-only (get-last-reward-compute-height)
+    (var-get last-reward-compute-height)
+)
+
+(define-read-only (get-reserve-balance)
+    (var-get reserve-balance)
+)
+
+(define-read-only (get-total-sats-staked)
+    (var-get total-sats-staked)
+)
+
+(define-read-only (get-last-accounted-rewards-only)
+    (var-get last-accounted-rewards-only)
+)
+
+(define-read-only (get-ustx-staked-for-cycle (reward-cycle uint))
+    (default-to u0 (map-get? ustx-staked-per-cycle reward-cycle))
 )
 
 (define-read-only (check-pox-lock-period (lock-period uint))

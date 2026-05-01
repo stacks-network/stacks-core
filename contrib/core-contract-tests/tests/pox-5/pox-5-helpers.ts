@@ -14,7 +14,7 @@ import {
   contractFactory,
 } from '@clarigen/core';
 import { accounts, project } from '../clarigen-types';
-import { rov, txOk } from '@clarigen/test';
+import { rov, rovOk, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { expect } from 'vitest';
@@ -24,6 +24,7 @@ export const pox5 = contracts.pox5;
 export const errorCodes = projectErrors(project).pox5;
 export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
+export const sbtc = contracts.sbtcToken;
 
 export function toWitnessOutput(script: Uint8Array) {
   return BTC.OutScript.encode(
@@ -52,6 +53,10 @@ export function serializeLockupScript({
     'DROP',
     unlockBytes,
   ]);
+}
+
+export function sbtcBalance(address: string): bigint {
+  return rovOk(sbtc.getBalance(address));
 }
 
 /** Helper that returns the start height of the next reward cycle */
@@ -174,7 +179,9 @@ export function signPerTransactionAuth({
 }
 
 // /** Register the test signer with a valid signer key grant. Returns the signer key and pox address. */
-export function registerSigner({ caller }: { caller: string }) {
+export function registerSigner(
+  { caller }: { caller: string } = { caller: accounts.deployer.address },
+) {
   const signerSk = secp256k1.utils.randomSecretKey();
   const signerKey = secp256k1.getPublicKey(signerSk, true);
   const authId = grantAuthIdCounter++;

@@ -3791,6 +3791,75 @@ export const contracts = {
           bigint
         >
       >,
+      calculateBondRewards: {
+        name: 'calculate-bond-rewards',
+        access: 'private',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          {
+            name: 'accumulator-res',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    { name: 'available-rewards', type: 'uint128' },
+                    { name: 'calculation-height', type: 'uint128' },
+                    { name: 'last-bond-index', type: { optional: 'uint128' } },
+                    {
+                      name: 'last-bond-stx-value-ratio',
+                      type: { optional: 'uint128' },
+                    },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'available-rewards', type: 'uint128' },
+                  { name: 'calculation-height', type: 'uint128' },
+                  { name: 'last-bond-index', type: { optional: 'uint128' } },
+                  {
+                    name: 'last-bond-stx-value-ratio',
+                    type: { optional: 'uint128' },
+                  },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          accumulatorRes: TypedAbiArg<
+            Response<
+              {
+                availableRewards: number | bigint;
+                calculationHeight: number | bigint;
+                lastBondIndex: number | bigint | null;
+                lastBondStxValueRatio: number | bigint | null;
+              },
+              number | bigint
+            >,
+            'accumulatorRes'
+          >,
+        ],
+        Response<
+          {
+            availableRewards: bigint;
+            calculationHeight: bigint;
+            lastBondIndex: bigint | null;
+            lastBondStxValueRatio: bigint | null;
+          },
+          bigint
+        >
+      >,
       lockSbtc: {
         name: 'lock-sbtc',
         access: 'private',
@@ -4048,6 +4117,20 @@ export const contracts = {
           caller: TypedAbiArg<string, 'caller'>,
           untilBurnHt: TypedAbiArg<number | bigint | null, 'untilBurnHt'>,
         ],
+        Response<boolean, bigint>
+      >,
+      calculateRewards: {
+        name: 'calculate-rewards',
+        access: 'public',
+        args: [
+          {
+            name: 'bond-periods',
+            type: { list: { type: 'uint128', length: 6 } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [bondPeriods: TypedAbiArg<number | bigint[], 'bondPeriods'>],
         Response<boolean, bigint>
       >,
       disallowContractCaller: {
@@ -4457,6 +4540,15 @@ export const contracts = {
         [bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>],
         bigint
       >,
+      burnHeightToDistributionIndex: {
+        name: 'burn-height-to-distribution-index',
+        access: 'read_only',
+        args: [{ name: 'height', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [height: TypedAbiArg<number | bigint, 'height'>],
+        bigint
+      >,
       burnHeightToRewardCycle: {
         name: 'burn-height-to-reward-cycle',
         access: 'read_only',
@@ -4481,12 +4573,27 @@ export const contracts = {
         [lockPeriod: TypedAbiArg<number | bigint, 'lockPeriod'>],
         boolean
       >,
+      currentDistributionCycle: {
+        name: 'current-distribution-cycle',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       currentPoxRewardCycle: {
         name: 'current-pox-reward-cycle',
         access: 'read_only',
         args: [],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<[], bigint>,
+      distributionCycleToBurnHeight: {
+        name: 'distribution-cycle-to-burn-height',
+        access: 'read_only',
+        args: [{ name: 'cycle', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
+        bigint
+      >,
       getBondAllowance: {
         name: 'get-bond-allowance',
         access: 'read_only',
@@ -4542,6 +4649,24 @@ export const contracts = {
         ],
         bigint
       >,
+      getLastAccountedRewardsOnly: {
+        name: 'get-last-accounted-rewards-only',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getLastRewardComputeHeight: {
+        name: 'get-last-reward-compute-height',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getNewRewards: {
+        name: 'get-new-rewards',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       getPoxInfo: {
         name: 'get-pox-info',
         access: 'read_only',
@@ -4576,6 +4701,33 @@ export const contracts = {
           },
           null
         >
+      >,
+      getReserveBalance: {
+        name: 'get-reserve-balance',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getRewards: {
+        name: 'get-rewards',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getRewardsPerToken: {
+        name: 'get-rewards-per-token',
+        access: 'read_only',
+        args: [
+          { name: 'index', type: 'uint128' },
+          { name: 'is-bond', type: 'bool' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          index: TypedAbiArg<number | bigint, 'index'>,
+          isBond: TypedAbiArg<boolean, 'isBond'>,
+        ],
+        bigint
       >,
       getSignerCycleMembership: {
         name: 'get-signer-cycle-membership',
@@ -4735,6 +4887,30 @@ export const contracts = {
         ],
         string | null
       >,
+      getTotalSatsStaked: {
+        name: 'get-total-sats-staked',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getTotalSatsStakedForBond: {
+        name: 'get-total-sats-staked-for-bond',
+        access: 'read_only',
+        args: [{ name: 'bond-index', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>],
+        bigint
+      >,
+      getUstxStakedForCycle: {
+        name: 'get-ustx-staked-for-cycle',
+        access: 'read_only',
+        args: [{ name: 'reward-cycle', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>],
+        bigint
+      >,
       isInPreparePhase: {
         name: 'is-in-prepare-phase',
         access: 'read_only',
@@ -4872,7 +5048,6 @@ export const contracts = {
             { name: 'min-ustx-ratio', type: 'uint128' },
             { name: 'stx-value-ratio', type: 'uint128' },
             { name: 'target-rate', type: 'uint128' },
-            { name: 'total-sats-shares', type: 'uint128' },
           ],
         },
       } as TypedAbiMap<
@@ -4882,8 +5057,28 @@ export const contracts = {
           minUstxRatio: bigint;
           stxValueRatio: bigint;
           targetRate: bigint;
-          totalSatsShares: bigint;
         }
+      >,
+      protocolBondsTotalStaked: {
+        name: 'protocol-bonds-total-staked',
+        key: 'uint128',
+        value: 'uint128',
+      } as TypedAbiMap<number | bigint, bigint>,
+      rewardsPerToken: {
+        name: 'rewards-per-token',
+        key: {
+          tuple: [
+            { name: 'bond', type: 'bool' },
+            { name: 'index', type: 'uint128' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bond: boolean;
+          index: number | bigint;
+        },
+        bigint
       >,
       signerKeyGrants: {
         name: 'signer-key-grants',
@@ -5060,6 +5255,11 @@ export const contracts = {
         },
         boolean
       >,
+      ustxStakedPerCycle: {
+        name: 'ustx-staked-per-cycle',
+        key: 'uint128',
+        value: 'uint128',
+      } as TypedAbiMap<number | bigint, bigint>,
     },
     variables: {
       BOND_GAP_CYCLES: {
@@ -5102,6 +5302,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_BOND_NOT_ACTIVE: {
+        name: 'ERR_BOND_NOT_ACTIVE',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_BOND_NOT_FOUND: {
         name: 'ERR_BOND_NOT_FOUND',
         type: {
@@ -5132,8 +5342,28 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_DISTRIBUTION_ALREADY_COMPUTED: {
+        name: 'ERR_DISTRIBUTION_ALREADY_COMPUTED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INSUFFICIENT_STX: {
         name: 'ERR_INSUFFICIENT_STX',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_BOND_PERIOD_ORDERING: {
+        name: 'ERR_INVALID_BOND_PERIOD_ORDERING',
         type: {
           response: {
             ok: 'none',
@@ -5214,6 +5444,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NOT_STAKING: {
         name: 'ERR_NOT_STAKING',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NO_SBTC_BALANCE: {
+        name: 'ERR_NO_SBTC_BALANCE',
         type: {
           response: {
             ok: 'none',
@@ -5394,6 +5634,16 @@ export const contracts = {
         name: string;
         version: string;
       }>,
+      PRECISION: {
+        name: 'PRECISION',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      RESERVE_RATIO: {
+        name: 'RESERVE_RATIO',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
       SIGNER_SET_MIN_USTX: {
         name: 'SIGNER_SET_MIN_USTX',
         type: 'uint128',
@@ -5436,6 +5686,11 @@ export const contracts = {
         type: 'bool',
         access: 'variable',
       } as TypedAbiVariable<boolean>,
+      firstBondPeriodCycle: {
+        name: 'first-bond-period-cycle',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
       firstBurnchainBlockHeight: {
         name: 'first-burnchain-block-height',
         type: 'uint128',
@@ -5446,6 +5701,16 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      lastAccountedRewardsOnly: {
+        name: 'last-accounted-rewards-only',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      lastRewardComputeHeight: {
+        name: 'last-reward-compute-height',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
       poxPrepareCycleLength: {
         name: 'pox-prepare-cycle-length',
         type: 'uint128',
@@ -5453,6 +5718,16 @@ export const contracts = {
       } as TypedAbiVariable<bigint>,
       poxRewardCycleLength: {
         name: 'pox-reward-cycle-length',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      reserveBalance: {
+        name: 'reserve-balance',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      totalSatsStaked: {
+        name: 'total-sats-staked',
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
@@ -5472,6 +5747,10 @@ export const contracts = {
         isOk: false,
         value: 4n,
       },
+      ERR_BOND_NOT_ACTIVE: {
+        isOk: false,
+        value: 31n,
+      },
       ERR_BOND_NOT_FOUND: {
         isOk: false,
         value: 7n,
@@ -5484,9 +5763,17 @@ export const contracts = {
         isOk: false,
         value: 2n,
       },
+      ERR_DISTRIBUTION_ALREADY_COMPUTED: {
+        isOk: false,
+        value: 30n,
+      },
       ERR_INSUFFICIENT_STX: {
         isOk: false,
         value: 8n,
+      },
+      ERR_INVALID_BOND_PERIOD_ORDERING: {
+        isOk: false,
+        value: 29n,
       },
       ERR_INVALID_NUM_CYCLES: {
         isOk: false,
@@ -5519,6 +5806,10 @@ export const contracts = {
       ERR_NOT_STAKING: {
         isOk: false,
         value: 27n,
+      },
+      ERR_NO_SBTC_BALANCE: {
+        isOk: false,
+        value: 25n,
       },
       ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH: {
         isOk: false,
@@ -5577,16 +5868,23 @@ export const contracts = {
         name: 'pox-5-signer',
         version: '1.0.0',
       },
+      PRECISION: 100_000_000n,
+      RESERVE_RATIO: 1_000n,
       SIGNER_SET_MIN_USTX: 50_000_000_000n,
       sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
       STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),
       STACKS_ADDR_VERSION_TESTNET: Uint8Array.from([26]),
       bondAdmin: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
       configured: false,
+      firstBondPeriodCycle: 0n,
       firstBurnchainBlockHeight: 0n,
       firstPox5RewardCycle: 0n,
+      lastAccountedRewardsOnly: 0n,
+      lastRewardComputeHeight: 0n,
       poxPrepareCycleLength: 50n,
       poxRewardCycleLength: 1_050n,
+      reserveBalance: 0n,
+      totalSatsStaked: 0n,
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
