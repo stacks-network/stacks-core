@@ -55,6 +55,7 @@ use crate::vm::ClarityVersion;
 
 mod arithmetic;
 mod assets;
+mod bitcoin;
 mod boolean;
 mod conversions;
 mod crypto;
@@ -187,6 +188,8 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, None),
     AllowanceAll("with-all-assets-unsafe", ClarityVersion::Clarity4, None),
     Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
+    VerifyMerkleProof("verify-merkle-proof", ClarityVersion::Clarity6, None),
+    GetBitcoinTxOutput("get-bitcoin-tx-output?", ClarityVersion::Clarity6, None),
 });
 
 ///
@@ -576,6 +579,14 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             Secp256r1Verify => {
                 SpecialFunction("native_secp256r1-verify", &crypto::special_secp256r1_verify)
             }
+            VerifyMerkleProof => SpecialFunction(
+                "special_verify_merkle_proof",
+                &bitcoin::special_verify_merkle_proof,
+            ),
+            GetBitcoinTxOutput => SpecialFunction(
+                "special_get_bitcoin_tx_output",
+                &bitcoin::special_get_bitcoin_tx_output,
+            ),
         };
         Some(callable)
     } else {

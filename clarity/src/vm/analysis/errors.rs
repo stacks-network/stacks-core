@@ -1108,6 +1108,14 @@ pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), Com
     }
 }
 
+pub fn get_nth_argument<T>(n: usize, args: &[T]) -> Result<&T, CommonCheckErrorKind> {
+    args.get(n)
+        .ok_or(CommonCheckErrorKind::IncorrectArgumentCount(
+            n + 1,
+            args.len(),
+        ))
+}
+
 fn formatted_expected_types(expected_types: &[TypeSignature]) -> String {
     let mut expected_types_joined = format!("'{}'", expected_types[0]);
 

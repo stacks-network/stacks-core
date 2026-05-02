@@ -20,7 +20,9 @@ use super::{
     TypeChecker, TypingContext, check_argument_count, check_arguments_at_least,
     check_arguments_at_most, compute_typecheck_cost, no_type,
 };
-use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType};
+use crate::vm::analysis::errors::{
+    StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, get_nth_argument,
+};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
@@ -868,6 +870,83 @@ fn check_get_tenure_info(
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
+/// Maximum depth of a Bitcoin merkle proof accepted by `verify-merkle-proof`.
+/// 24 = up to ~16M leaves, far beyond any plausible Bitcoin block.
+const VERIFY_MERKLE_PROOF_MAX_DEPTH: u32 = 24;
+
+fn check_verify_merkle_proof(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    check_argument_count(4, args)?;
+    checker.type_check_expects(
+        get_nth_argument(0, args)?,
+        context,
+        &TypeSignature::BUFFER_32,
+    )?;
+    checker.type_check_expects(
+        get_nth_argument(1, args)?,
+        context,
+        &TypeSignature::BUFFER_32,
+    )?;
+    checker.type_check_expects(
+        get_nth_argument(2, args)?,
+        context,
+        &TypeSignature::UIntType,
+    )?;
+    let siblings_type = TypeSignature::list_of(
+        TypeSignature::BUFFER_32,
+        VERIFY_MERKLE_PROOF_MAX_DEPTH,
+    )
+    .map_err(|_| {
+        StaticCheckErrorKind::Unreachable("FATAL: failed to build (list 24 (buff 32)) type".into())
+    })?;
+    checker.type_check_expects(get_nth_argument(3, args)?, context, &siblings_type)?;
+    Ok(TypeSignature::BoolType)
+}
+
+fn check_get_bitcoin_tx_output(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    check_argument_count(2, args)?;
+
+    checker.type_check_expects(
+        get_nth_argument(0, args)?,
+        context,
+        &TypeSignature::BUFFER_MAX,
+    )?;
+    checker.type_check_expects(
+        get_nth_argument(1, args)?,
+        context,
+        &TypeSignature::UIntType,
+    )?;
+
+    let ok_type: TypeSignature = TupleTypeSignature::try_from(vec![
+        (
+            ClarityName::from_literal("script"),
+            TypeSignature::BUFFER_1024,
+        ),
+        (ClarityName::from_literal("amount"), TypeSignature::UIntType),
+        (ClarityName::from_literal("txid"), TypeSignature::BUFFER_32),
+    ])
+    .map_err(|_| {
+        StaticCheckErrorKind::Unreachable(
+            "FATAL: failed to build get-bitcoin-tx-output? ok-tuple type".into(),
+        )
+    })?
+    .into();
+
+    TypeSignature::new_response(ok_type, TypeSignature::UIntType).map_err(|_| {
+        StaticCheckErrorKind::Unreachable(
+            "FATAL: failed to build get-bitcoin-tx-output? response type".into(),
+        )
+        .into()
+    })
+}
+
 impl TypedNativeFunction {
     pub fn type_check_application(
         &self,
@@ -1272,6 +1351,8 @@ impl TypedNativeFunction {
             | AllowanceWithStacking
             | AllowanceAll => Special(SpecialNativeFunction(&post_conditions::check_allowance_err)),
             Secp256r1Verify => Special(SpecialNativeFunction(&check_secp256r1_verify)),
+            VerifyMerkleProof => Special(SpecialNativeFunction(&check_verify_merkle_proof)),
+            GetBitcoinTxOutput => Special(SpecialNativeFunction(&check_get_bitcoin_tx_output)),
         };
 
         Ok(out)

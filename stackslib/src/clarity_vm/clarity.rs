@@ -39,11 +39,12 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE,
-    POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE,
-    POX_4_NAME, POX_5_CODE, POX_5_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY,
-    SIGNERS_NAME, SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COSTS_5,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+    COSTS_3_NAME, COSTS_4_NAME, COSTS_5_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
+    POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, POX_5_CODE,
+    POX_5_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME,
+    SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1965,7 +1966,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     })
                     .unwrap();
 
-                // require 3.5 rules henceforth in this connection as well
+                // require 4.0 rules henceforth in this connection as well
                 tx_conn.epoch = StacksEpochId::Epoch40;
             });
 
@@ -1981,9 +1982,43 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             };
 
             let boot_code_address = boot_code_addr(mainnet);
-            let boot_code_auth = boot_code_tx_auth(boot_code_address);
+
+            /////////////////// .costs-5 ////////////////////////
+            let costs_5_payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_5_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(BOOT_CODE_COSTS_5)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
+            let costs_5_contract_tx = StacksTransaction::new(
+                tx_version.clone(),
+                boot_code_tx_auth(boot_code_address.clone()),
+                costs_5_payload,
+            );
+            let costs_5_initialization_receipt = self.as_transaction(|tx_conn| {
+                info!("Instantiate .costs-5 contract");
+                StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &costs_5_contract_tx,
+                    &boot_code_account,
+                    None,
+                )
+                .expect("FATAL: Failed to process costs-5 contract initialization")
+            });
+            if costs_5_initialization_receipt.result != Value::okay_true()
+                || costs_5_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing Costs 5 contract initialization: {:#?}",
+                    &costs_5_initialization_receipt
+                );
+            }
 
             // pox-5 contract setup
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
             let pox_5_contract_id = boot_code_id(POX_5_NAME, mainnet);
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
@@ -2019,7 +2054,13 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             }
 
             info!("Epoch 4.0 initialized");
-            (old_cost_tracker, Ok(vec![pox_5_initialization_receipt]))
+            (
+                old_cost_tracker,
+                Ok(vec![
+                    costs_5_initialization_receipt,
+                    pox_5_initialization_receipt,
+                ]),
+            )
         })
     }
 
