@@ -879,7 +879,7 @@ fn check_verify_merkle_proof(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_argument_count(4, args)?;
+    check_argument_count(5, args)?;
     checker.type_check_expects(
         get_nth_argument(0, args)?,
         context,
@@ -895,6 +895,11 @@ fn check_verify_merkle_proof(
         context,
         &TypeSignature::UIntType,
     )?;
+    checker.type_check_expects(
+        get_nth_argument(3, args)?,
+        context,
+        &TypeSignature::UIntType,
+    )?;
     let siblings_type = TypeSignature::list_of(
         TypeSignature::BUFFER_32,
         VERIFY_MERKLE_PROOF_MAX_DEPTH,
@@ -902,7 +907,7 @@ fn check_verify_merkle_proof(
     .map_err(|_| {
         StaticCheckErrorKind::Unreachable("FATAL: failed to build (list 24 (buff 32)) type".into())
     })?;
-    checker.type_check_expects(get_nth_argument(3, args)?, context, &siblings_type)?;
+    checker.type_check_expects(get_nth_argument(4, args)?, context, &siblings_type)?;
     Ok(TypeSignature::BoolType)
 }
 

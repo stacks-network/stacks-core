@@ -1419,23 +1419,29 @@ NIST P-256 curve (also known as secp256r1).",
 };
 
 const VERIFY_MERKLE_PROOF_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 32), (buff 32), uint, (list 24 (buff 32))",
-    snippet: "verify-merkle-proof ${1:leaf-hash} ${2:root-hash} ${3:tx-index} ${4:sibling-hashes}",
+    input_type: "(buff 32), (buff 32), uint, uint, (list 24 (buff 32))",
+    snippet: "verify-merkle-proof ${1:leaf-hash} ${2:root-hash} ${3:tx-index} ${4:tx-count} ${5:sibling-hashes}",
     output_type: "bool",
-    signature: "(verify-merkle-proof leaf-hash root-hash tx-index sibling-hashes)",
+    signature: "(verify-merkle-proof leaf-hash root-hash tx-index tx-count sibling-hashes)",
     description:
         "The `verify-merkle-proof` function verifies a Bitcoin-style merkle inclusion proof
 using double-SHA-256 hashing with the \"duplicate the last node on odd-sized rows\" rule.
 
 Given a `leaf-hash` (typically a Bitcoin txid), the merkle `root-hash` of a block, the
-`tx-index` of the leaf within the tree (0-indexed), and the list of `sibling-hashes` along the
-path from the leaf to the root, the function returns `true` iff hashing pairwise up the tree
-in the order described by `tx-index` produces `root-hash`.
+`tx-index` of the leaf within the tree (0-indexed), the `tx-count` of transactions in the
+block, and the list of `sibling-hashes` along the path from the leaf to the root, the
+function returns `true` iff hashing pairwise up the tree in the order described by
+`tx-index` produces `root-hash`.
 
-All 32-byte hashes (leaf, root, siblings) are passed in *internal* (raw) byte order, not the
-display (reversed) order conventionally used for Bitcoin txids and block hashes. The `txid`
-returned by `get-bitcoin-tx-output?` is already in internal byte order and can be passed
-directly as `leaf-hash`.
+`tx-count` pins down the canonical Bitcoin tree shape and is required to defend against
+CVE-2012-2459-style attacks where an intermediate node in an odd-row-padded tree could
+otherwise be passed off as a leaf. The function rejects any proof whose path length doesn't
+match `ceil(log2(tx-count))` and any `tx-index` not less than `tx-count`.
+
+All 32-byte hashes (leaf, root, siblings) are passed in *internal* (raw) byte order, not
+the display (reversed) order conventionally used for Bitcoin txids and block hashes. The
+`txid` returned by `get-bitcoin-tx-output?` is already in internal byte order and can be
+passed directly as `leaf-hash`.
 
 Returns `false` for any malformed proof and `true` for a valid proof.",
     example: "
@@ -1446,6 +1452,7 @@ Returns `false` for any malformed proof and `true` for a valid proof.",
     0x3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a
     0x3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a
     u0
+    u1
     (list)) ;; Returns true",
 };
 
