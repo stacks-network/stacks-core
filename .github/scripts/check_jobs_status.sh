@@ -5,7 +5,7 @@
 #   JOBS          - JSON object of job results
 #
 # Optional env vars:
-#   SUMMARY_PRINT - "true" to append a failure summary to $GITHUB_STEP_SUMMARY; defaults to "true"
+#   SUMMARY_PRINT - "true" to append a failure summary to $GITHUB_STEP_SUMMARY; defaults to "false"
 #
 # Exit behaviour:
 #   - All jobs succeeded  → exits 0
@@ -29,7 +29,7 @@ done
 
 ## ── Validate required inputs ────────────────────────────────────────────────
 : "${JOBS:?JOBS env var is required}"
-SUMMARY_PRINT="${SUMMARY_PRINT:-true}"
+SUMMARY_PRINT="${SUMMARY_PRINT:-false}"
 
 ## ── Validate JOBS is parseable JSON ─────────────────────────────────────────
 if ! jq -e type <<< "${JOBS}" > /dev/null 2>&1; then

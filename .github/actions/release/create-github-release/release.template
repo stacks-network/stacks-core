@@ -3,6 +3,8 @@ This release is compatible with chainstate directories from ${node_epoch}.
 
 ${companion_line}
 
+This release is recommended for all Stacks node operators.
+
 ${changelog_section}
 
 Docker images have been published to GitHub Container Registry:
@@ -15,5 +17,3 @@ Docker images have been published to GitHub Container Registry:
   ```sh
   docker pull ghcr.io/${repo_owner}/stacks-signer:${signer_tag}
   ```
-
-This release is recommended for all Stacks node operators.

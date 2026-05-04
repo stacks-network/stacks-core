@@ -19,21 +19,15 @@ hl() {
 # Info logging to stderr
 info() {
     echo "${COLGREEN}INFO:${COLRESET}    $*" >&2
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        echo "**INFO:** $(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
-    fi
 }
 # Warn log to stderr
 warn() {
     echo "${COLYELLOW}WARN:${COLRESET}    $*" >&2
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        echo "**WARN:** $(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
-    fi
 }
 # Error log to stderr (do not exit here, let the calling script determine how to handle an error)
 error() {
     echo "${COLRED}ERROR:${COLRESET}   $*" >&2
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        echo "**ERROR:** $(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
+        echo "$(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
     fi
 }

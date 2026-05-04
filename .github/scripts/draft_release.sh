@@ -65,7 +65,7 @@ changelog_content=$(awk -v ver="## [${VERSION}]" '
 
 ## ── Build changelog section (omitted entirely when content is empty) ────────
 if [[ "${RELEASE_TYPE}" == "stacks-signer" ]]; then
-    changelog_link="https://github.com/${REPO}/blob/${signer_tag}/stacks-signer/CHANGELOG.md"
+    changelog_link="https://github.com/${REPO}/blob/signer-${signer_tag}/stacks-signer/CHANGELOG.md"
 else
     changelog_link="https://github.com/${REPO}/blob/${node_tag}/CHANGELOG.md"
 fi
