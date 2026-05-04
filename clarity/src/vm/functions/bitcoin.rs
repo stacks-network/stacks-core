@@ -46,23 +46,52 @@ use crate::vm::{LocalContext, eval};
 /// Maximum supported merkle proof depth for `(verify-merkle-proof ...)`.
 const VERIFY_MERKLE_PROOF_MAX_DEPTH: u32 = 24;
 
+/// Maximum supported `scriptPubKey` size for `(get-bitcoin-tx-output? ...)`.
+const GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN: usize = 1024;
+
+/// Failure modes of `(get-bitcoin-tx-output? ...)`. Mapped to Clarity `(err
+/// uN)` codes so callers can distinguish "the tx didn't parse" from "the tx
+/// parsed but the output you asked for doesn't exist" without re-parsing.
+#[derive(Debug, PartialEq, Eq)]
+enum ParseTxError {
+    /// Tx bytes failed to deserialize as a Bitcoin transaction, or had
+    /// trailing bytes after a successful parse.
+    InvalidTx,
+    /// `vout` is `>=` the number of outputs in the tx.
+    VoutOutOfRange,
+    /// The output's `scriptPubKey` is larger than
+    /// `GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN`.
+    ScriptTooLarge,
+}
+
+impl ParseTxError {
+    /// Clarity `(err uN)` code that this failure is reported as.
+    fn as_error_code(&self) -> u128 {
+        match self {
+            ParseTxError::InvalidTx => 1,
+            ParseTxError::VoutOutOfRange => 2,
+            ParseTxError::ScriptTooLarge => 3,
+        }
+    }
+}
+
 /// Parse a Bitcoin transaction (SegWit or non-SegWit) and pluck the output at
 /// `vout`, along with the canonical (non-witness) txid in internal byte order.
-///
-/// Returns `None` if the bytes don't form a valid Bitcoin tx, if `vout` is
-/// out of range, or if there are trailing bytes after the tx.
-fn parse_tx_output(raw: &[u8], vout: u64) -> Option<(Vec<u8>, u64, [u8; 32])> {
-    let tx: Transaction = btc_deserialize(raw).ok()?;
-    let vout_idx = usize::try_from(vout).ok()?;
-    let txout = tx.output.get(vout_idx)?;
+fn parse_tx_output(raw: &[u8], vout: u64) -> Result<(Vec<u8>, u64, [u8; 32]), ParseTxError> {
+    let tx: Transaction = btc_deserialize(raw).map_err(|_| ParseTxError::InvalidTx)?;
+    let vout_idx = usize::try_from(vout).map_err(|_| ParseTxError::VoutOutOfRange)?;
+    let txout = tx
+        .output
+        .get(vout_idx)
+        .ok_or(ParseTxError::VoutOutOfRange)?;
     let script_bytes = txout.script_pubkey.as_bytes();
-    if script_bytes.len() > 1024 {
-        return None;
+    if script_bytes.len() > GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN {
+        return Err(ParseTxError::ScriptTooLarge);
     }
     let script = script_bytes.to_vec();
     let amount = txout.value;
     let txid = tx.txid().0;
-    Some((script, amount, txid))
+    Ok((script, amount, txid))
 }
 
 /// Canonical Bitcoin merkle-tree depth for a block containing `tx_count`
@@ -244,7 +273,10 @@ pub fn special_verify_merkle_proof(
 /// `(get-bitcoin-tx-output? tx-bytes vout)` returns
 /// `(response { script: (buff 1024), amount: uint, txid: (buff 32) } uint)`,
 /// where the txid is in internal byte order (ready for `verify-merkle-proof`).
-/// On any parse failure or out-of-range vout, returns `(err u1)`.
+/// On failure, returns one of:
+/// - `(err u1)` — `tx-bytes` did not deserialize as a Bitcoin transaction.
+/// - `(err u2)` — `vout` is out of range for this tx.
+/// - `(err u3)` — the output's `scriptPubKey` exceeds the 1024-byte cap.
 pub fn special_get_bitcoin_tx_output(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -285,11 +317,15 @@ pub fn special_get_bitcoin_tx_output(
 
     let vout_u64 = match u64::try_from(vout) {
         Ok(v) => v,
-        Err(_) => return Ok(Value::error(Value::UInt(1))?),
+        Err(_) => {
+            return Ok(Value::error(Value::UInt(
+                ParseTxError::VoutOutOfRange.as_error_code(),
+            ))?);
+        }
     };
 
     let result = match parse_tx_output(&tx_bytes, vout_u64) {
-        Some((script, amount, txid)) => {
+        Ok((script, amount, txid)) => {
             let tuple = TupleData::from_data(vec![
                 (
                     ClarityName::from_literal("script"),
@@ -311,7 +347,7 @@ pub fn special_get_bitcoin_tx_output(
             })?;
             Value::okay(Value::Tuple(tuple))?
         }
-        None => Value::error(Value::UInt(1))?,
+        Err(e) => Value::err_uint(e.as_error_code()),
     };
 
     Ok(result)
@@ -368,13 +404,38 @@ mod tests {
     #[test]
     fn parse_rejects_out_of_range_vout() {
         let raw = hex(SAMPLE_TX_HEX);
-        assert!(parse_tx_output(&raw, 1).is_none());
+        assert_eq!(parse_tx_output(&raw, 1), Err(ParseTxError::VoutOutOfRange));
     }
 
     #[test]
     fn parse_rejects_truncated_tx() {
         let raw = hex(SAMPLE_TX_HEX);
-        assert!(parse_tx_output(&raw[..raw.len() - 1], 0).is_none());
+        assert_eq!(
+            parse_tx_output(&raw[..raw.len() - 1], 0),
+            Err(ParseTxError::InvalidTx),
+        );
+    }
+
+    #[test]
+    fn parse_rejects_oversized_script() {
+        // Build a tx with a single output whose scriptPubKey is 1025 bytes
+        // (one byte over the cap). The serialized length prefix uses a
+        // CompactSize: 0xfd 0x01 0x04 = 0x401 = 1025.
+        let mut raw = hex(concat!(
+            "01000000",                                                         // version
+            "01",                                                               // n_in
+            "0000000000000000000000000000000000000000000000000000000000000000", // prev txid
+            "00000000",                                                         // prev vout
+            "00",                                                               // scriptSig len
+            "ffffffff",                                                         // sequence
+            "01",                                                               // n_out
+            "e803000000000000",                                                 // amount
+            "fd0104",                                                           // script len = 1025
+        ));
+        raw.extend(std::iter::repeat_n(0x51u8, 1025)); // 1025 bytes of OP_1
+        raw.extend_from_slice(&hex("00000000")); // locktime
+
+        assert_eq!(parse_tx_output(&raw, 0), Err(ParseTxError::ScriptTooLarge),);
     }
 
     #[test]

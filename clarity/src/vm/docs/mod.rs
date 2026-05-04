@@ -1471,7 +1471,10 @@ passed directly to `verify-merkle-proof` as the leaf hash. The `script` is the r
 P2WSH (`0x00 0x20 ...`), P2TR (`0x51 0x20 ...`), P2WPKH (`0x00 0x14 ...`), OP_RETURN
 (`0x6a ...`), or any other output script.
 
-Returns `(err u1)` if the transaction bytes are malformed or `vout` is out of range.
+Returns one of three error codes on failure:
+- `(err u1)` — `tx-bytes` did not deserialize as a Bitcoin transaction.
+- `(err u2)` — `vout` is out of range for this transaction.
+- `(err u3)` — the output's `scriptPubKey` exceeds the 1024-byte cap.
 
 This builtin is intended to be paired with `verify-merkle-proof` and the burn-block header
 data exposed by `get-burn-block-info?` to verify that a Bitcoin output exists on-chain
