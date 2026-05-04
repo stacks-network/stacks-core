@@ -991,7 +991,7 @@ impl StacksEpochId {
             .iter()
             .position(|&e| e == end)
             .expect("end epoch not found in ALL");
-        assert!(start_idx <= end_idx, "start epoch must be <= end epoch",);
+        assert!(start_idx <= end_idx, "start epoch must be <= end epoch");
 
         &Self::ALL[start_idx..=end_idx]
     }
