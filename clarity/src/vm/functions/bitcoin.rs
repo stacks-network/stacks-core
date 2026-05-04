@@ -32,6 +32,7 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
+use crate::vm::analysis::errors::get_nth_argument;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -149,7 +150,7 @@ pub fn special_verify_merkle_proof(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(5, args)?;
 
-    let leaf_value = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let leaf_value = eval(get_nth_argument(0, args)?, exec_state, invoke_ctx, context)?;
     let leaf = match buff_to_array_32(leaf_value.as_ref()) {
         Some(b) => b,
         None => {
@@ -161,7 +162,7 @@ pub fn special_verify_merkle_proof(
         }
     };
 
-    let root_value = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let root_value = eval(get_nth_argument(1, args)?, exec_state, invoke_ctx, context)?;
     let root = match buff_to_array_32(root_value.as_ref()) {
         Some(b) => b,
         None => {
@@ -173,7 +174,7 @@ pub fn special_verify_merkle_proof(
         }
     };
 
-    let tx_index_value = eval(&args[2], exec_state, invoke_ctx, context)?;
+    let tx_index_value = eval(get_nth_argument(2, args)?, exec_state, invoke_ctx, context)?;
     let tx_index = match tx_index_value.as_ref() {
         Value::UInt(v) => *v,
         _ => {
@@ -185,7 +186,7 @@ pub fn special_verify_merkle_proof(
         }
     };
 
-    let tx_count_value = eval(&args[3], exec_state, invoke_ctx, context)?;
+    let tx_count_value = eval(get_nth_argument(3, args)?, exec_state, invoke_ctx, context)?;
     let tx_count = match tx_count_value.as_ref() {
         Value::UInt(v) => *v,
         _ => {
@@ -197,7 +198,7 @@ pub fn special_verify_merkle_proof(
         }
     };
 
-    let siblings_value = eval(&args[4], exec_state, invoke_ctx, context)?;
+    let siblings_value = eval(get_nth_argument(4, args)?, exec_state, invoke_ctx, context)?;
     let siblings_data = match siblings_value.as_ref() {
         Value::Sequence(SequenceData::List(ListData { data, .. })) => data.clone(),
         _ => {
@@ -252,7 +253,7 @@ pub fn special_get_bitcoin_tx_output(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let tx_value = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let tx_value = eval(get_nth_argument(0, args)?, exec_state, invoke_ctx, context)?;
     let tx_bytes = match tx_value.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => data.clone(),
         _ => {
@@ -264,7 +265,7 @@ pub fn special_get_bitcoin_tx_output(
         }
     };
 
-    let vout_value = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let vout_value = eval(get_nth_argument(1, args)?, exec_state, invoke_ctx, context)?;
     let vout = match vout_value.as_ref() {
         Value::UInt(v) => *v,
         _ => {
