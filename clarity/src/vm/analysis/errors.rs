@@ -544,6 +544,10 @@ pub enum RuntimeCheckErrorKind {
     /// Memory usage during type-checking exceeds the allocated budget.
     /// The first `u64` represents the total consumed memory, and the second represents the memory limit.
     MemoryBalanceExceeded(u64, u64),
+    /// Temporary guard for oversized `restrict-assets?` allowance payloads.
+    /// The first `u64` represents the tracked execution-memory total and the second the guard limit.
+    /// TODO(epoch-3.5): remove this special case and make `MemoryBalanceExceeded` rejectable instead.
+    RestrictAssetsMemoryExceeded(u64, u64),
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
@@ -665,7 +669,11 @@ impl RuntimeCheckErrorKind {
     /// Currently identical to `is_unreachable()` since `Unreachable` is the only
     /// rejectable variant, but they answer different questions and may diverge.
     pub fn rejectable(&self) -> bool {
-        matches!(self, RuntimeCheckErrorKind::Unreachable(_))
+        matches!(
+            self,
+            RuntimeCheckErrorKind::Unreachable(_)
+                | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
+        )
     }
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.

@@ -133,6 +133,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             invalid_characters_detected_invalid_ascii,
             invalid_characters_detected_invalid_utf8
         ]),
+        RestrictAssetsMemoryExceeded(_, _) => todo!(),
         InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         },
