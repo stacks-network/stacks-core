@@ -138,20 +138,20 @@ impl<T: ClarityMarfTrieId> PartialEq for TrieMerkleProofType<T> {
 
 pub fn hashes_fmt(hashes: &[TrieHash]) -> String {
     let mut strs = vec![];
-    let zero = TrieHash([0; 32]);
+    let zero = &TrieHash::ZERO;
     if hashes.len() < 48 {
         for i in 0..hashes.len() {
-            strs.push(format!("{:?}", hashes.get(i).unwrap_or(&zero)));
+            strs.push(format!("{:?}", hashes.get(i).unwrap_or(zero)));
         }
         strs.join(",")
     } else {
         for i in 0..hashes.len() / 4 {
             strs.push(format!(
                 "{:?},{:?},{:?},{:?}",
-                hashes.get(4 * i).unwrap_or(&zero),
-                hashes.get(4 * i + 1).unwrap_or(&zero),
-                hashes.get(4 * i + 2).unwrap_or(&zero),
-                hashes.get(4 * i + 3).unwrap_or(&zero),
+                hashes.get(4 * i).unwrap_or(zero),
+                hashes.get(4 * i + 1).unwrap_or(zero),
+                hashes.get(4 * i + 2).unwrap_or(zero),
+                hashes.get(4 * i + 3).unwrap_or(zero),
             ));
         }
         format!("\n{}", strs.join("\n"))
@@ -316,17 +316,17 @@ impl<T: MarfTrieId> StacksMessageCodec for TrieMerkleProofType<T> {
 
         let codec = match type_byte {
             TrieMerkleProofTypeIndicator::Node4 => {
-                TrieMerkleProofType::Node4(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 3]))
+                TrieMerkleProofType::Node4(deserialize_id_hash_node!(fd, [TrieHash::ZERO; 3]))
             }
             TrieMerkleProofTypeIndicator::Node16 => {
-                TrieMerkleProofType::Node16(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 15]))
+                TrieMerkleProofType::Node16(deserialize_id_hash_node!(fd, [TrieHash::ZERO; 15]))
             }
             TrieMerkleProofTypeIndicator::Node48 => {
-                TrieMerkleProofType::Node48(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 47]))
+                TrieMerkleProofType::Node48(deserialize_id_hash_node!(fd, [TrieHash::ZERO; 47]))
             }
-            TrieMerkleProofTypeIndicator::Node256 => TrieMerkleProofType::Node256(
-                deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 255]),
-            ),
+            TrieMerkleProofTypeIndicator::Node256 => {
+                TrieMerkleProofType::Node256(deserialize_id_hash_node!(fd, [TrieHash::ZERO; 255]))
+            }
             TrieMerkleProofTypeIndicator::Leaf => {
                 let id = read_next(fd)?;
                 let leaf_node = read_next(fd)?;
