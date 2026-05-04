@@ -11,7 +11,7 @@
 #   - Branch does not match             → exits 0 (all outputs empty/false; downstream
 #                                         jobs guard themselves with is_node/signer_release checks)
 # Outputs:
-#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stdout if unset
+#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
 #   node_tag          - node release tag       (e.g. 1.0.0.0.0)         empty for signer-only releases
 #   signer_tag        - signer release tag     (e.g. signer-1.0.0.0.0.0)
 #   is_node_release   - "true" if this is a node release branch

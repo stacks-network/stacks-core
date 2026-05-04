@@ -7,7 +7,7 @@
 # Arguments:
 #   START_MAJOR  Optional integer major version to start discovery from (default: 25)
 #
-# Output (stdout):
+# Output:
 #   {
 #     "start_major": <number>,
 #     "major_versions": [<major>, ...],

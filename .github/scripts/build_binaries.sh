@@ -10,7 +10,7 @@
 #   SIGNER_ONLY  - "true" to build only stacks-signer; defaults to "false" (build all)
 #
 # Outputs:
-#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stdout if unset
+#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
 #   target       - Rust target triple (e.g. x86_64-unknown-linux-gnu)
 #   zipfile_name - Base archive filename without extension (e.g. linux-glibc-x64)
 set -euo pipefail
@@ -27,7 +27,7 @@ signer_only="${SIGNER_ONLY:-false}"
 # musl.cc has aggressive rate limits from Azure IPs; use the GitHub mirror instead
 musl_linker_archive="https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/aarch64-linux-musl-cross.tgz"
 
-## ── Preserve cargo color output in CI (cargo disables color when stdout is not a TTY)
+## ── Preserve cargo color output in CI (cargo disables color when not a TTY)
 export CARGO_TERM_COLOR=always
 
 ## ── Check for required binaries ─────────────────────────────────────────────

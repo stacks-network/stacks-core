@@ -16,7 +16,7 @@
 #   ${changelog_content}- extracted changelog block (may be empty for signer releases)
 #
 # Outputs:
-#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stdout if unset
+#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
 set -euo pipefail
 
 # Load logging functions

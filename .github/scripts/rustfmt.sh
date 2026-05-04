@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs cargo fmt --check and reports formatting errors to stdout and $GITHUB_STEP_SUMMARY.
+# Runs cargo fmt --check and reports formatting errors to stderr and $GITHUB_STEP_SUMMARY.
 #
 # Required env vars (set by the calling workflow step):
 #   FMT_ALIAS         - cargo alias to use for fmt (e.g. fmt-stacks); defaults to "fmt-stacks"

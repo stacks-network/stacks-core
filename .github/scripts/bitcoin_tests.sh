@@ -12,7 +12,7 @@
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
 #
 # Outputs:
-#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stdout if unset
+#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
 set -euo pipefail
 
 # Load logging functions from logging.sh for color and standardized output
