@@ -39,7 +39,9 @@ use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
-use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4};
+use crate::chainstate::stacks::boot::{
+    BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COSTS_5,
+};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::tests::consensus::{
     ConsensusTest, ConsensusUtils, ExpectedResult, TestBlock,
@@ -196,7 +198,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 )
                 .unwrap();
             }
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 | StacksEpochId::Epoch40 => {
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => {
                 let (ast, _analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-4", false),
@@ -209,6 +211,25 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     ClarityVersion::Clarity2,
                     &ast,
                     BOOT_CODE_COSTS_4,
+                    None,
+                    |_, _| None,
+                    None,
+                )
+                .unwrap();
+            }
+            StacksEpochId::Epoch40 => {
+                let (ast, _analysis) = tx
+                    .analyze_smart_contract(
+                        &boot_code_id("costs-5", false),
+                        ClarityVersion::Clarity2,
+                        BOOT_CODE_COSTS_5,
+                    )
+                    .unwrap();
+                tx.initialize_smart_contract(
+                    &boot_code_id("costs-5", false),
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    BOOT_CODE_COSTS_5,
                     None,
                     |_, _| None,
                     None,
