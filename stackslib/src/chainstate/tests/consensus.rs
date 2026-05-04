@@ -1608,13 +1608,13 @@ pub struct ConsensusMacroUnitReport {
 /// helping in writing consensus unit-tests
 pub struct ContractTxReport {
     /// the block epoch where this tx was included
-    pub block_epoch: StacksEpochId,
+    block_epoch: StacksEpochId,
     /// the epoch in which the smart contract was deployed
-    pub contract_epoch: StacksEpochId,
+    contract_epoch: StacksEpochId,
     /// the clarity version used for the smart contract.
-    pub contract_clarity: ClarityVersion,
+    contract_clarity: ClarityVersion,
     /// the tx result
-    pub outcome: TxOutcome,
+    outcome: TxOutcome,
 }
 
 /// Describe the tx result
@@ -1634,12 +1634,20 @@ impl ContractTxReport {
 
     /// The tx has been executed and related state changes committed.
     pub fn committed(&self) -> bool {
-        matches!(
-            &self.outcome,
-            TxOutcome::BlockAccepted(t)
-                if t.vm_error.is_none()
-                && matches!(&t.return_type, ClarityValue::Response(r) if r.committed),
-        )
+        self.executed()
+            && matches!(
+                &self.outcome,
+                TxOutcome::BlockAccepted(t)
+                    if matches!(
+                        &t.return_type,
+                        ClarityValue::Response(r) if r.committed
+                    )
+            )
+    }
+
+    /// Whether this tx was rejected.
+    pub fn rejected(&self) -> bool {
+        matches!(&self.outcome, TxOutcome::BlockAccepted(t) if t.vm_error.is_some())
     }
 
     /// Return the tx result if included in an accepted block,
@@ -1660,6 +1668,21 @@ impl ContractTxReport {
             TxOutcome::BlockAccepted(t) => t.vm_error.as_deref(),
             TxOutcome::BlockRejected(_) => panic!("block has been rejected!"),
         }
+    }
+
+    /// Return the epoch in which the smart contract was deployed.
+    pub fn contract_epoch(&self) -> &StacksEpochId {
+        &self.contract_epoch
+    }
+
+    /// Return the clarity version used for the smart contract.
+    pub fn contract_clarity(&self) -> &ClarityVersion {
+        &self.contract_clarity
+    }
+
+    /// Return the epoch where the block containing this tx was executed.
+    pub fn block_epoch(&self) -> &StacksEpochId {
+        &self.block_epoch
     }
 
     /// Whether the block containing this tx was rejected.

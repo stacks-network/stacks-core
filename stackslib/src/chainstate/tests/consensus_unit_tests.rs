@@ -64,7 +64,7 @@ fn test_example_2_ccall() {
     let txs = report.contract_calls();
 
     for each in txs {
-        let expected = if each.block_epoch <= StacksEpochId::Epoch34 {
+        let expected = if each.block_epoch() <= &StacksEpochId::Epoch34 {
             Value::okay(Value::list_from(vec![Value::Int(10)]).unwrap()).unwrap()
         } else {
             Value::okay(Value::list_from(vec![]).unwrap()).unwrap()
