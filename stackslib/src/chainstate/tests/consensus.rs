@@ -1072,7 +1072,10 @@ impl ContractConsensusTest<'_> {
                 supported_versions
                     .iter()
                     .any(|version| clarity_versions.contains(version)),
-                "Epoch {epoch} does not have any of the requested Clarity versions available",
+                "Epoch {epoch} does not have any of the requested Clarity versions available. \
+                 Requested: {:?}. Supported for this epoch: {:?}",
+                clarity_versions,
+                supported_versions,
             );
         }
         let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
