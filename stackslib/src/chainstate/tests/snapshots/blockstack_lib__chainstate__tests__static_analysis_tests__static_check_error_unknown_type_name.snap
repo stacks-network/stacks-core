@@ -124,11 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "978562e73485b741b782d7947b88c41f8e2746f379d8750a6148b780b3d768c2",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e1b80490214f618a09435ec3bb8e380dc34350e38f2850102eb21870338b5b95",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-type-name-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a59c11cb019fd351ba881c84ceed3e5a19eb1f232aa8df6ae1b9a1d631457ddd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9f98c87d205cf6f0c32c28fd76672165b384c6ef7b1fbc3113c26eb8ef13d192",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-type-name-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0965cc40b68277f662e50a36db6860d826211d074a72682138b7e13d8e570e20",
-    evaluated_epoch: Epoch35,
+    marf_hash: "81efa1a1766ba2f1456110a0416d6b835764dad17ad587bfe9c520a14157d871",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-type-name-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5eb30bff046a8d4464c3d8aaf3f29e57655a217565cca90b9792af19b7074af8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6ada9090e48ba01d424314a096218ef4cf377e6c13f36ab0025938a48bed3478",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-type-name-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "15aafdad8668c32da495bb11a20ea9d3fdd1a94564bacc7c9c914a9a2c5643c6",
-    evaluated_epoch: Epoch35,
+    marf_hash: "972905158fde15d2a08e235afd22894d1e708a5fc3013ea64c8690c1511c1cdc",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-type-name-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

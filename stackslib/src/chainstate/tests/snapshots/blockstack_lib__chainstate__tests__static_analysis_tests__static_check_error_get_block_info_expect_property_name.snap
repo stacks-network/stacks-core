@@ -64,11 +64,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3a0edef8b06bd9f62aa99acb8c044851c4731608f8fd8b33a59d34fd0ba9a8ce",
-    evaluated_epoch: Epoch35,
+    marf_hash: "16e8376e8905ef27f7ee2b977b50993621b7233b5ebaa2e2e1fa0d2d8832b176",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: info-exp-prop-name-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: info-exp-prop-name-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: missing property name for block info introspection) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -94,11 +94,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b151acdaf5626726aa9d0a0f0919ec2028d895c3da9434129aa0e1e5b3125de0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4bc24efa9cec21f1d0d7231b5be6fcc687b389411b00f52c3142336c4e555fe1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: info-exp-prop-name-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: info-exp-prop-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: missing property name for block info introspection) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

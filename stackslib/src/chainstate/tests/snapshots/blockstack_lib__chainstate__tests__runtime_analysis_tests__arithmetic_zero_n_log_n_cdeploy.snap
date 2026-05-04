@@ -542,11 +542,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a86ed593b538c83a349cc9b79550ad79232c5feaa5227d30fe2f60be2e842aa9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "85584b8e7b76e4bd4f925eaaf9d4d7b036da85e4536a2c1a538a4f42cf0cba5b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -572,11 +572,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fadb93b787dac757b966a6fc63aafe3f4bae6fb00548de5fd784a80dc88be7a4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9063077070c415c81dbc92591b57b272bb0aaa574d3cc52175f6027802ad202d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -602,11 +602,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "00489038b45d9eeb2ed87be1677bcd4dafd4f194f47580c5c1fc45e4d4101ad3",
-    evaluated_epoch: Epoch35,
+    marf_hash: "523fb31caec06c939750d80969a30a72a4d97c533c9d6d86b3e319078007714d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -632,11 +632,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f768119fff3bb560d780e600d9dafc5ddd3a6d8de2717beda25726f0024f054d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "012866dc6a4792e700848d0ff63e8a39d94d2220caef3cdd4bacaef94c9a314a",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -660,11 +660,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e276b5473ce6323576d32d588b3d58632ef3d9d9c2d826ac0c9d36ef7d98d43a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cd834f215e7d206a571cc805d89b2689b28af698df6590c15bbc5331c2898489",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,

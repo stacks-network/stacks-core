@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a6ea9416cecbb5f9949b9f33140a87e67e31b912682e902a69cc1b7142c08a0e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d43aa9b89025faa9c3ab621c6da8b87fc5fd31f0b253eef3898fa181962abb28",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: bad-syntax-binding-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "55d7135811813ba403b1924ba44c6587fb2e60d29797fa16a3546bc056df97d5",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2dd8dfd9966e1eb3c914fe580d51b3d89eb8a614b78ad89cf480d0b2864eec1c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: bad-syntax-binding-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "80c0fae87e715c964b19f8c66f8016b31a32b2cb88ed9e7ac631d176c7cabcb9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "492c6abd83862ea4f8d3483511642cbede8c4bcb6e99e6ab947ed3b595998545",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: bad-syntax-binding-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3349cd04e64d84af4e6faf5cef287819910e3fdbe5cd0fa84f928a8e0ef2de4c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d469cf8d8c8e2ec647a16a9f353a9eae02e240a3e24767c205f103c3662b8f8c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: bad-syntax-binding-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b556c080c409f384f839d3e9904dd4eff0b6a00c4404a29514af482272a27e51",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cf1c08c9020af9f8d25398ee838a5f760690427e0f3e4332f5e3d6a6a7d9fed2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: bad-syntax-binding-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "15e9b24c370295f236a9b65af9ccb84c60649c557dca13a1e885c20d601f3f0a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "255f70742dec4ec497eb71dad9264a200d52184120466df31c01a4b75d83f265",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-syntax-binding-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: bad-syntax-binding-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: invalid syntax binding: Let-binding item #1 is not a two-element list) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

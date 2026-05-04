@@ -1744,11 +1744,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "15ecdfe6a2c5263fde6f0c307b14d30dd47a2a629a938d1c87c39ce17226bc67",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2e6e98d5b0ed0c8b44de3e547b30e2f77139b4523b176e8a00ce741385fbd332",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1772,11 +1772,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1fbe3d7fa8808a0b3072ca315384610bf09512f38eeae97a65d192e0977909a0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ee05c74136686c9e9523bb5a6b534d63ca54b1fb972fe16fb0f5d224229a6fbc",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1800,11 +1800,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bfb020d7c56b47bd56cba04bcf2d8c413f2631929ef8b78ff55b83f31aa1f009",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2d4892717fdadece6f0bc77a986ba5e8dcdae74cb5f8e9876519009e1676c64f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1828,11 +1828,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "df8bcb73ab080564c98c38d74312975a572aa7e2d7b05ace4dfad0240a672186",
-    evaluated_epoch: Epoch35,
+    marf_hash: "aaa482ef2d89d3be6e116362534dded68c995a640cd54a160f413fb521d108f1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1856,11 +1856,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3dc57e6e24fe35f16cf3f58d498ba1958ca2bb3aa28c6f2ac1b858ad9ee63dc8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6afd6e13efd2c0ad158ce2ba8309e9547eb78e21f316de033a2636ab81acb90f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1884,11 +1884,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "abbe93c137534cccea1cd212beb1023c72f7b62b6fdfc9d4c099f66895ba7fb7",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3b246c4377c06e0fcc2b3970262f9749b006d669a86ba79f8d483987e157d17d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1912,8 +1912,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a2bc56e0357e6bdf1c8f9d66adc80fde60815f35148881ca991d8b1567b8a04b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2e8edddf069b59fc3ec123cef74cad0db4946580187837313de7f48298dfc905",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_0-Clarity1, function_name: trigger, function_args: [[]])",
@@ -1942,8 +1942,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "000f2b79498067964626055ed0866c76f12fb5890c35683b1222e93d51a01c99",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3bf16a17cc3b673d6c5d8219ba646ac87455b3e02eab13393d7e080d585da8f6",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_05-Clarity1, function_name: trigger, function_args: [[]])",
@@ -1972,8 +1972,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c2f6f7ede2479147d43222a852a38e30602ebcb3afbef1be9e53231d670d688b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7c0643f0fa873303113d74372210f713468144d26b477814d0b643841104a049",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_1-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2002,8 +2002,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0548ceee1884cc6f8abbe3622fba8c1ef21da208e298f3373ee778420cfc7fb2",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8916d3fdbfdfc307bc49f3e616ef5c7f3d7f2360877968b8ed723ca35c154c31",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_1-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2032,8 +2032,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "80aaa363dd4e7b5bac90daa115ff3b7d744dee998622b073880be9d391894706",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e342a20353bb30f671cf861aaae6cdac9e874dce6bc7688a34a3b5dceb895f5c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_2-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2062,8 +2062,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "33db8e9a9a72f9c9c36654194c9b94895b9a7d86a0ecc8732c7c0afcf29cb7e5",
-    evaluated_epoch: Epoch35,
+    marf_hash: "40edc326b95d1daad36f3471ece2069e156c939b714527f28599435482a9a4ff",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_2-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2092,8 +2092,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "13395a3da0286f55cd79e3988727c445e3384a9b590635293c129477eec3afd4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "375f6a8a4022df10584a8ac08ef50373ba3d2eb1ed52637fa8397e596bbd0415",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_3-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2122,8 +2122,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d5204df17408953c5636accccbd96e60ea0a859dcc83d417ec50ed21ccd81350",
-    evaluated_epoch: Epoch35,
+    marf_hash: "48543b3b1f26bb7f492b9d3a47abbcca8e80dc2819872b2a56a144b7498de04d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_3-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2152,8 +2152,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1c63b5b6a04bfa80ee86e315d9ea67ed62d54c95d493c3c7bd7f1f1a2d812fc5",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a150004024332a3ff905d9104533afb8462c7ccb60735e271c58ad66d2f9b4a2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_4-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2182,8 +2182,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0d4ee7975ce27dbeeab70ff3213390f376e575824f3dc95ca8eaf9e1f257a002",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9c445686f1c916e8813e1851c4b49f53db85a6129ce1595fab291e89c73f7b07",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_4-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2212,8 +2212,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "82d59a2a0fb6c7bc37469abaaef30a66f326bbd217ac0e7c9db0ebdefab0889c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "fd0ca460325e838697aa01079b1a02b4bd5eb4910dd2dc718b5e64d86dc4af2c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_5-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2242,8 +2242,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2fb0232cfdbaf165cf1b74fb5f7f8e291ddc9373037a784e0e1151fe6d64e0bd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6465ebdd3f58b75c7a8bebffcbf4718b353bfe3f25a360fc7d93a08d75c0503d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch2_5-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2272,8 +2272,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2af837866c414938a944db05e8ff834049ff799a4f85445ed8df2969a9d76e4f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ca64294008c16fac3198548c118133dbee5cd7fa579c9e96826201ac75c5ad75",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_0-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2302,8 +2302,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bfb9f122498c8597dc248c71e30cc63feef83ddf457a89c2b0f6d174f2dd9778",
-    evaluated_epoch: Epoch35,
+    marf_hash: "dca514d5ee52a81cb15be64aa656f1ff61fe5c9d3303ca229e2c2cca7da9bebe",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_0-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2332,8 +2332,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8882127e5962884b52898b0618ff8ee2ace79bec6b1ee043fa594ca10033462b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f00037e6332719f28f8664f1d143302e246de9e8021396479e615d3fde7f09f0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_0-Clarity3, function_name: trigger, function_args: [[]])",
@@ -2362,8 +2362,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "126845b86b4fa1615e0111e689cbc3ca88b627cf2bdb926364b8bae398b58ab9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8971c82048e8635f42c057934855dae120a5aabc7788dd195805630bc32d2b53",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_1-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2392,8 +2392,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "131ce98763274c4267a8d50998ee19f2e3fd8e8938743ce86500e560aede263e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e3ba7aacea9aa82b3f5bf0c38d6fb1b8eeffa72d00d8e003fcf5e2eacbfd9185",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_1-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2422,8 +2422,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9eabb941a41b8f2e1c60d9c4ad5dd9ac650ba511f3c9f1bf1ac823f4aef71971",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4073c7309f8f70a2aafe1002656159fbbb42670ccb1ecd057e0cd1fc7c1213e0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_1-Clarity3, function_name: trigger, function_args: [[]])",
@@ -2452,8 +2452,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bd1a2fa9a9b6ef606fb23ec112cd474ed327e0987ddce482582e828996bede63",
-    evaluated_epoch: Epoch35,
+    marf_hash: "065063ffc4c2f6db6e472b116ab78c4a677de49e6aad44de1f7a33c0eb9aad85",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_2-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2482,8 +2482,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b8d825d797d8fd9a5215ab2936dbeed9cbca5fc103eb882aafefe92316590057",
-    evaluated_epoch: Epoch35,
+    marf_hash: "62cee81ddd12fd04972734dab3a2c5fe558a4145ed01e9804e55fe9575f0e34c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_2-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2512,8 +2512,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "77d0c5ef0789cd4e6256207609d42db2803b0f9e01117727a591ac38d9dacfc1",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6e153f18cbb5d816d69d6471e543834f40d181a197fb7966e246aaaf88f216d5",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_2-Clarity3, function_name: trigger, function_args: [[]])",
@@ -2542,8 +2542,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d7e18316a9cfde342d0ffb8c9070fe5815a7838a881fe77aba80985ede961ec9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d7e0499fb3dcf5498dbe87cfe9a09608d5530eed1b938bc6c42f06fa5857c52f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_3-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2572,8 +2572,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "beea88a2521e54ae78c140dec636f4051f7c10ba1881341c44f72159ccfdf7fc",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b9fb43d01a0bbb1d26fe0511d2a7c101b0b9c831b59076f5ba9512f570661c36",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_3-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2602,8 +2602,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "32c24053bfc3a21a98f0436172254707705629dab7af8aae315bcd5329130dd0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b2054f4d8e52e72a5675289ebc21cd68bb2a098caa0f4500651370eb14f9655a",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_3-Clarity3, function_name: trigger, function_args: [[]])",
@@ -2632,8 +2632,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c738c1907997c57445773a77673ee889dd974c756e72128bcaab6cd2be114386",
-    evaluated_epoch: Epoch35,
+    marf_hash: "319280b77bf797cae35cb6c08469b775455c02d89d8ae539ec04c50b46e9e0be",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_3-Clarity4, function_name: trigger, function_args: [[]])",
@@ -2662,8 +2662,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "11b25e912d6a02d84d86aedd6eb58823ef9ab1ed87d8905ec6a74e9671092de3",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8ed30fc6d916b24537bc45ebb613660e7bcb7dfae391e2d553dfdc35d3753bed",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_4-Clarity1, function_name: trigger, function_args: [[]])",
@@ -2692,8 +2692,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "af48264c7f9379b6a43b7d8ee52e330941f85efb4ac566fed43b53b78968797c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "05e1b1fa8accf549e5b76c7565d7ca72985de319a4efd80c5a5848f09ffedf86",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_4-Clarity2, function_name: trigger, function_args: [[]])",
@@ -2722,8 +2722,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "99ee0720c6d3750e9c0c6fb6ff804afb222c52c27f7f2e23d3b4ccafb16bd648",
-    evaluated_epoch: Epoch35,
+    marf_hash: "fef6b8d2be405ee36e0995579539fa7bce9aec08b469e63ebd105a8b9e56710b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_4-Clarity3, function_name: trigger, function_args: [[]])",
@@ -2752,8 +2752,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3dd3e568bf39e14c30d629ce8154d539694fb18fc4ec95e4fbabdc94dcec0513",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3366927eca4a175ba6f6c2932a600864d23fb447868320e4593310bebb24230e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_4-Clarity4, function_name: trigger, function_args: [[]])",
@@ -2782,8 +2782,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fc411d133753651473a9e7e43415d45a8d36c79f153a79ae3bb2dc9af0c26e10",
-    evaluated_epoch: Epoch35,
+    marf_hash: "799d24d83169faa257acb571e26aa402133b8ef9ac4000830ccfeb7cd7bbf43f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_4-Clarity5, function_name: trigger, function_args: [[]])",
@@ -2812,11 +2812,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "768e784846ed8b662aaa2be085578379b6cca3be75117dc558e7d077ac2fbf4c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0e3eba31ff4b95768383e1936b93de9289749cab589601d0ce16e4057e5e56d8",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_5-Clarity1, function_name: trigger, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch4_0-Clarity1, function_name: trigger, function_args: [[]])",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2842,11 +2842,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f05e9769ee1612069aa9e1e2ddcf497e89dd35dffeff8cff5b64fdbad8aab4b4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3dcdb3221953e20ba6491f9c6ce902da1f86f947c7061205befaf2be3902ce10",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_5-Clarity2, function_name: trigger, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch4_0-Clarity2, function_name: trigger, function_args: [[]])",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2872,11 +2872,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b1fb38d97b2bc67a36a58f6af0a8d9a69c94433d01e3aaa262e7d5d61856e297",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6cce503bfba4f3916cf33bf506402b7e636e532b98615167fde02e62b3a1da4e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_5-Clarity3, function_name: trigger, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch4_0-Clarity3, function_name: trigger, function_args: [[]])",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2902,11 +2902,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cd12bcc6506cb2d3cd71f71fea59f1e1619289c7653b783ac632d5a00bfa2712",
-    evaluated_epoch: Epoch35,
+    marf_hash: "af9b92b29e2cc3f3acf7cab1241a92e0ef45b051f68df644e54b8a4a0f97f30f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_5-Clarity4, function_name: trigger, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch4_0-Clarity4, function_name: trigger, function_args: [[]])",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2932,11 +2932,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d16070bfe7a3564f9a28afeaff243992f9a060ee0abeefc9f8ae6c71e3cb941d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "70c1ac350e71af3bd0c0e9143929d47124619dfab49769639597f8e1cddf092d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_5-Clarity5, function_name: trigger, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch4_0-Clarity5, function_name: trigger, function_args: [[]])",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -2962,11 +2962,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b0739430b339c71e6064cbeb1e00916fe7a81ada75893b12d620488620028d3d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "984aff51c90620313af60185dfa444023a1fc1e7c7369cea206c90236d427950",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch3_5-Clarity6, function_name: trigger, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: division-by-zero-Epoch4_0-Clarity6, function_name: trigger, function_args: [[]])",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

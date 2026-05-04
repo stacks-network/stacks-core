@@ -62,8 +62,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1540074a9fffbe2241736ad404593141c62c7d4237d153a65ca122abd2d33915",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1cc24c94add39697ee501ce856db6e51774ff4de012f462db1e2fe2f0b7ab4dd",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",

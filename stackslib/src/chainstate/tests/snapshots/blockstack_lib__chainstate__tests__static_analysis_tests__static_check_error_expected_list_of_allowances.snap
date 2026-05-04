@@ -64,11 +64,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "11856a3b313f6f2b33b5d8f240c299e0e03aea5516a5d5c341f618942699d14b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "de0f2a24fdee40557a29ecc6480c9c39360023ae7f812718f87a49ff085c9f0d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-list-of-allowances-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: exp-list-of-allowances-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: restrict-assets? expects a list of asset allowances as argument 2) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -94,11 +94,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b96eb10814862201dc6aef6626bcd5c173c673e012a15361e820b228de49b895",
-    evaluated_epoch: Epoch35,
+    marf_hash: "61b38cdea3a1570a08043023a9ab197ad4da755f82fcaeaf42a0221755eb5b17",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-list-of-allowances-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: exp-list-of-allowances-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: restrict-assets? expects a list of asset allowances as argument 2) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -124,11 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0b353286601e9ed7a86f8425789883f33296b1bb1b11fccf8057ad508eaf9e1b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1ac313206f148cd387496be95537ab05df18bc73d2eac04bc4ec895efb126786",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-list-of-allowances-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: exp-list-of-allowances-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: restrict-assets? expects a list of asset allowances as argument 2) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

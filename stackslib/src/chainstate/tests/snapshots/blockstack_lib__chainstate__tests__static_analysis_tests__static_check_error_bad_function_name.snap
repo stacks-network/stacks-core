@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d388686ac59bab849dd4a3e9623c8b2279bb833e909ce55c0eb6f0e474dfa244",
-    evaluated_epoch: Epoch35,
+    marf_hash: "c4208ca373b8f9a2de84bbf21a76e703f907b7d4ae8a0db2d1fc905f91247956",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-func-name-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: bad-func-name-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "64a4cbee5c38d808a9bb91c9fb0117d4dfc109b80294c7ba4e02aa8406eb7e72",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7d7e6dc2123ec8b468828056723d0aaf51db0998c88ebaada3d57ffa46aa44c3",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-func-name-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: bad-func-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8b4eb687174bd42c27997447f4890795dd26d51f25e985a4db89e31a915485e2",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d2ba7facac58e620765928412f5047db1312e92b65a7ff5f95d6786f36634e37",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-func-name-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: bad-func-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c647a38c7c7979baff0d8cd922d29e942818b3145009c692c39dbf749cf70170",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d24b9818ca21058631f4ce170a654c05971b5042a69a2f85d72341b886938c90",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-func-name-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: bad-func-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d85bcad4ef6d90b86485fa7681f28a7a34a14dd008f52f080d45ebb763f6593e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d5282de9efa28dac32119ba923bb613019afd0f90141a4081045391e842923e7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-func-name-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: bad-func-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "912bc42b23fb658e9a9a8df881e5f3613be39910cb66d395f5b563785a8acabf",
-    evaluated_epoch: Epoch35,
+    marf_hash: "87ccd9b13fe50193a6551d774c4559f38c011fecb2d50d6eaa16333c1d950011",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-func-name-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: bad-func-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

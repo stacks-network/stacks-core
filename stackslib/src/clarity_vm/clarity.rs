@@ -1948,25 +1948,25 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
-    pub fn initialize_epoch_3_5(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
+    pub fn initialize_epoch_4_0(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
         using!(self.cost_track, "cost tracker", |old_cost_tracker| {
             // epoch initialization is *free*.
             // NOTE: this also means that cost functions won't be evaluated.
             self.cost_track.replace(LimitedCostTracker::new_free());
-            self.epoch = StacksEpochId::Epoch35;
+            self.epoch = StacksEpochId::Epoch40;
             self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch35)?;
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch40)?;
                         Ok(())
                     })
                     .unwrap();
 
                 // require 3.5 rules henceforth in this connection as well
-                tx_conn.epoch = StacksEpochId::Epoch35;
+                tx_conn.epoch = StacksEpochId::Epoch40;
             });
 
             let boot_code_account = self
@@ -2018,7 +2018,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 );
             }
 
-            info!("Epoch 3.5 initialized");
+            info!("Epoch 4.0 initialized");
             (old_cost_tracker, Ok(vec![pox_5_initialization_receipt]))
         })
     }

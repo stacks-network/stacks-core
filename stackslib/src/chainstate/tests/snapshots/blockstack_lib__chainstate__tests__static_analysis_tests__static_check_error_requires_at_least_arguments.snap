@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d09b4b45e2d718a1b8ae13e9b5e29c058f0c566e071849c39027075fb32e5670",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b810de952ea2cc39d7509fbb565405c555ddd4165b64fcd7e558f5663dfe1c44",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: requires-at-least-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: requires-at-least-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: expecting >= 1 arguments, got 0) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ff2bc1b292500b9168b226ece9c072e49925aa482b840e4721f34df5b957b367",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5f53624e5582108a7d61792a3df2619e230a3156bfe70729355977059cbfd73f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: requires-at-least-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: requires-at-least-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: expecting >= 1 arguments, got 0) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "56c1b6ef8b303b297244d1b20cd57e35c40ad340d4e0a7d749621a882cb82f68",
-    evaluated_epoch: Epoch35,
+    marf_hash: "38196ceb8be121fa32fcd4c3936c085b02e147086e313c23c882c2d657b4468c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: requires-at-least-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: requires-at-least-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: expecting >= 1 arguments, got 0) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "144961aa18fa269ac7ce66c38e726eb46570ff7ffa82befc9f4c227217a0894e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b6090f98a8499d421acac752bd44262fa55c0f97fbf6804cdcccb52ff4e106a5",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: requires-at-least-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: requires-at-least-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: expecting >= 1 arguments, got 0) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f1c1db6f9d5e6224c53b2ac8e167afca5b95180a5ad34d92c54948b7812027d4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "c453d08cfa1aab4ac15455e151a7a5fce3a4c79ee2cdcf88686fb5b37d5d44cc",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: requires-at-least-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: requires-at-least-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expecting >= 1 arguments, got 0) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b5ac8e1de6badad1ce2683f5760da85723feea7c1088ea59e877d53695df226b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "54e49b21d979303df5f5a6b672e7e16ae6a0d07c1e34f0f8d634f9372160fb5e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: requires-at-least-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: requires-at-least-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: expecting >= 1 arguments, got 0) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

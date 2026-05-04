@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bd8b4f036863befcc3dd122b75565d5916c68c63aa41b6fc41c523220162ba8e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "867a80fd54da591d751b551c70097598b0a87187c0facb19f469a0b1b10950b4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: empty-tuples-not-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: empty-tuples-not-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: tuple types may not be empty) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b8b2b6abf5740ded818cf547dfff540aee589d8ccd0ca3fcda99fe8770150d89",
-    evaluated_epoch: Epoch35,
+    marf_hash: "15714a732a6f9524530f2ce58e6ded491941fb5cf41ada953305a70d75b6bb29",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: empty-tuples-not-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: empty-tuples-not-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: tuple types may not be empty) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4bf82daa7d0e34c21766395488f63024bb464755234ce0de4d5b73388aebb544",
-    evaluated_epoch: Epoch35,
+    marf_hash: "050bc3c97bed2237efeae283e29956f2874beb0aeb8c64562fb5a39405636306",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: empty-tuples-not-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: empty-tuples-not-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: tuple types may not be empty) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f448f102c480ab24a96c4fa95dce9d764bbf56671312cdb9b7b1e15c0bd2ada3",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3cd63633fd3a9355cc96978c50f55e55648a721d865ab1bdf42e8af4fadde4cb",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: empty-tuples-not-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: empty-tuples-not-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: tuple types may not be empty) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0e500d74c40f98e51691246d6860a29860d56d6479f3b1e985faf0f376b820ca",
-    evaluated_epoch: Epoch35,
+    marf_hash: "c60f045330402d3b0a08d59c2ac6cd01d57f5f57016d6b6aee0f24f62f99a638",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: empty-tuples-not-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: empty-tuples-not-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: tuple types may not be empty) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2089f06c807ddb2fef653f728bfa9cbc8cfa99d877a9a5bc96f7680c42d90412",
-    evaluated_epoch: Epoch35,
+    marf_hash: "fd40e027e9415060047d98c12433219d1f44345f2dd5b24a5c53390d8964ba58",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: empty-tuples-not-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: empty-tuples-not-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: tuple types may not be empty) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

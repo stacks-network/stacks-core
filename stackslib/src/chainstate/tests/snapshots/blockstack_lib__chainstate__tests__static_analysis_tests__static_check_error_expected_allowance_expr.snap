@@ -64,11 +64,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f596df7c9aa121b3371fc906b087f35ff219e8d62695fc662e5060b59fb0949b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f514ae5148ea7791fa702d21d9daa557f0d400b4fb9036a4950d765528e9bc6f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-allowa-expr-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: exp-allowa-expr-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: expected an allowance expression, got: not) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -94,11 +94,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8f6f5cbcf514abdf943ba766541a2c93ce231c35cc6b257d88a0b73f3ac6e635",
-    evaluated_epoch: Epoch35,
+    marf_hash: "827423e1dc5b589a4fdbf237a0bc782bf786a30b86fbecd00f402ae020601b3c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-allowa-expr-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: exp-allowa-expr-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expected an allowance expression, got: not) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -124,11 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5de38b8e3c3e08bdbecfa4b6ac559431c9e120fec7b1e0797486f0d339f03f1d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "30a74aa70c099c6e52f531b0258dcc83dfe1e6dde99647493f9a801ace4cb6e9",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-allowa-expr-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: exp-allowa-expr-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: expected an allowance expression, got: not) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
