@@ -1982,9 +1982,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             };
 
             let boot_code_address = boot_code_addr(mainnet);
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
             /////////////////// .costs-5 ////////////////////////
-            let costs_5_payload = TransactionPayload::SmartContract(
+            let costs_5_contract_id = boot_code_id(COSTS_5_NAME, mainnet);
+            let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
                     name: ContractName::try_from(COSTS_5_NAME)
                         .expect("FATAL: invalid boot-code contract name"),
@@ -1993,32 +1995,32 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 },
                 None,
             );
-            let costs_5_contract_tx = StacksTransaction::new(
-                tx_version.clone(),
-                boot_code_tx_auth(boot_code_address.clone()),
-                costs_5_payload,
-            );
+
+            let costs_5_contract_tx =
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
+
             let costs_5_initialization_receipt = self.as_transaction(|tx_conn| {
-                info!("Instantiate .costs-5 contract");
-                StacksChainState::process_transaction_payload(
+                debug!("Instantiate {} contract", &costs_5_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
                     tx_conn,
                     &costs_5_contract_tx,
                     &boot_code_account,
                     None,
                 )
-                .expect("FATAL: Failed to process costs-5 contract initialization")
+                .expect("FATAL: Failed to process .costs-5 contract initialization");
+                receipt
             });
+
             if costs_5_initialization_receipt.result != Value::okay_true()
                 || costs_5_initialization_receipt.post_condition_aborted
             {
                 panic!(
-                    "FATAL: Failure processing Costs 5 contract initialization: {:#?}",
+                    "FATAL: Failure processing .costs-5 contract initialization: {:#?}",
                     &costs_5_initialization_receipt
                 );
             }
 
-            // pox-5 contract setup
-            let boot_code_auth = boot_code_tx_auth(boot_code_address);
+            /////////////////// .pox-5 ////////////////////////
             let pox_5_contract_id = boot_code_id(POX_5_NAME, mainnet);
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
@@ -2048,7 +2050,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 || pox_5_initialization_receipt.post_condition_aborted
             {
                 panic!(
-                    "FATAL: Failure processing pox-5 contract initialization: {:#?}",
+                    "FATAL: Failure processing .pox-5 contract initialization: {:#?}",
                     &pox_5_initialization_receipt
                 );
             }
