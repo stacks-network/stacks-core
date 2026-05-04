@@ -1053,13 +1053,19 @@ impl ContractConsensusTest<'_> {
         contract_code: &str,
         function_name: &str,
         function_args: &[ClarityValue],
-        clarity_versions: &[ClarityVersion],
+        mut clarity_versions: &[ClarityVersion],
         setup_contracts: &[SetupContract],
     ) -> Self {
         assert!(
             !deploy_epochs.is_empty(),
             "At least one deploy epoch is required"
         );
+
+        // If not specified, enable all clarity versions.
+        if clarity_versions.is_empty() {
+            clarity_versions = ClarityVersion::ALL;
+        }
+
         for epoch in deploy_epochs {
             let supported_versions = clarity_versions_for_epoch(*epoch);
             assert!(
