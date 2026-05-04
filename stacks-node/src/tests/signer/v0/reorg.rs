@@ -4545,11 +4545,13 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
         |config| {
-            config.miner.max_execution_time_secs = Some(0);
+            config.miner.max_execution_time_secs = 0;
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
         |config| {
-            config.miner.max_execution_time_secs = None;
+            // Effectively disable the timeout for miner 2 so it can complete the tx
+            // that miner 1 skipped due to the 0-second timeout.
+            config.miner.max_execution_time_secs = u64::MAX;
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
     );
@@ -4685,11 +4687,13 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
         |config| {
-            config.miner.max_execution_time_secs = Some(0);
+            config.miner.max_execution_time_secs = 0;
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
         |config| {
-            config.miner.max_execution_time_secs = None;
+            // Effectively disable the timeout for miner 2 so it can complete the tx
+            // that miner 1 skipped due to the 0-second timeout.
+            config.miner.max_execution_time_secs = u64::MAX;
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
     );

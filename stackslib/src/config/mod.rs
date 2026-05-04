@@ -1154,9 +1154,7 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: false,
-            max_execution_time: miner_config
-                .max_execution_time_secs
-                .map(Duration::from_secs),
+            max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
         }
@@ -1204,9 +1202,7 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: true,
-            max_execution_time: miner_config
-                .max_execution_time_secs
-                .map(Duration::from_secs),
+            max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
         }
@@ -3078,17 +3074,20 @@ pub struct MinerConfig {
     ///   "20" = 45
     ///   "30" = 0
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
-    /// Defines the maximum execution time (in seconds) allowed for a single contract call transaction.
+    /// Defines the maximum execution time (in seconds) allowed for a single contract call
+    /// transaction during mining.
     ///
-    /// When processing a transaction (contract call or smart contract deployment),
-    /// if this option is set, and the execution time exceeds this limit, the
-    /// transaction processing fails with an `ExecutionTimeout` error, and the
-    /// transaction is skipped. This prevents potentially long-running or
-    /// infinite-loop transactions from blocking block production.
+    /// When processing a transaction (contract call or smart contract deployment), if the
+    /// execution time exceeds this limit, the transaction processing fails with an
+    /// `ExecutionTimeout` error and the transaction is skipped. This prevents
+    /// long-running or infinite-loop transactions from blocking block production.
+    ///
+    /// Mining always enforces a limit; there is no way to disable it. To effectively
+    /// "turn it off," set this to a value larger than any tx is expected to take.
     /// ---
-    /// @default: Some([`DEFAULT_MAX_EXECUTION_TIME_SECS`])
+    /// @default: [`DEFAULT_MAX_EXECUTION_TIME_SECS`]
     /// @units: seconds
-    pub max_execution_time_secs: Option<u64>,
+    pub max_execution_time_secs: u64,
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
     /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
     pub replay_transactions: bool,
@@ -3162,7 +3161,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
-            max_execution_time_secs: Some(DEFAULT_MAX_EXECUTION_TIME_SECS),
+            max_execution_time_secs: DEFAULT_MAX_EXECUTION_TIME_SECS,
             replay_transactions: false,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
@@ -4307,7 +4306,9 @@ impl MinerConfigFile {
                 }
             },
 
-            max_execution_time_secs: self.max_execution_time_secs,
+            max_execution_time_secs: self
+                .max_execution_time_secs
+                .unwrap_or(miner_default_config.max_execution_time_secs),
             replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
