@@ -1848,6 +1848,20 @@ impl ConsensusMacroUnitReport {
         assert!(!tx_reports.is_empty(), "tx reports cannot be empty!");
         tx_reports
     }
+
+    /// Writes a snapshot file to the system temp directory with `file_name`,
+    /// providing a full overview of the consensus test result for debugging purposes.
+    pub fn debug_snapshot(&self, file_name: &str) {
+        let mut settings = insta::Settings::clone_current();
+        settings.set_snapshot_path(std::env::temp_dir());
+        settings.set_prepend_module_to_snapshot(false);
+
+        settings.bind(|| {
+            // just in case the source is the `function_name!` macro
+            let file_name = file_name.replace("::", "_");
+            insta::assert_ron_snapshot!(file_name, self.get_expected_results());
+        });
+    }
 }
 
 macro_rules! contract_call_consensus_unit_test {
