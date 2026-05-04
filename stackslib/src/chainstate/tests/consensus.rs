@@ -187,6 +187,9 @@ pub struct ExpectedFailureOutput {
     /// Cannot match on the exact Error directly as they do not implement
     /// Serialize/Deserialize or PartialEq
     pub error: String,
+    /// List of the txs attempted to be included in the test block
+    #[serde(skip)]
+    pub attempted_txs: Vec<TransactionPayload>,
 }
 
 /// Represents the expected result of a consensus test.
@@ -203,6 +206,7 @@ impl ExpectedResult {
         result: Result<StacksEpochReceipt, ChainstateError>,
         marf_hash: TrieHash,
         evaluated_epoch: StacksEpochId,
+        test_block: &TestBlock,
     ) -> Self {
         match result {
             Ok(epoch_receipt) => {
@@ -229,10 +233,18 @@ impl ExpectedResult {
                     total_block_cost: epoch_receipt.anchored_block_cost,
                 })
             }
-            Err(e) => ExpectedResult::Failure(ExpectedFailureOutput {
-                error: e.to_string(),
-                evaluated_epoch,
-            }),
+            Err(e) => {
+                let attempted_txs: Vec<TransactionPayload> = test_block
+                    .transactions
+                    .iter()
+                    .map(|t| t.payload.clone())
+                    .collect();
+                ExpectedResult::Failure(ExpectedFailureOutput {
+                    error: e.to_string(),
+                    evaluated_epoch,
+                    attempted_txs,
+                })
+            }
         }
     }
 }
@@ -486,9 +498,9 @@ impl ConsensusChain<'_> {
     /// # Returns
     ///
     /// A [`ExpectedResult`] with the outcome of the block processing.
-    fn append_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
-        debug!("--------- Running block {block:?} ---------");
-        let (nakamoto_block, _block_size) = self.construct_nakamoto_block(block);
+    fn append_nakamoto_block(&mut self, test_block: TestBlock) -> ExpectedResult {
+        debug!("--------- Running block {test_block:?} ---------");
+        let (nakamoto_block, _block_size) = self.construct_nakamoto_block(&test_block);
         let mut sortdb = self.test_chainstate.sortdb.take().unwrap();
         let mut stacks_node = self.test_chainstate.stacks_node.take().unwrap();
         let chain_tip =
@@ -525,7 +537,7 @@ impl ConsensusChain<'_> {
                 .epoch_id;
 
         let remapped_result = res.map(|receipt| receipt.unwrap());
-        ExpectedResult::create_from(remapped_result, expected_marf, current_epoch)
+        ExpectedResult::create_from(remapped_result, expected_marf, current_epoch, &test_block)
     }
 
     /// Appends a single block to the chain as a Pre-Nakamoto block and returns the result.
@@ -541,9 +553,9 @@ impl ConsensusChain<'_> {
     /// # Returns
     ///
     /// A [`ExpectedResult`] with the outcome of the block processing.
-    fn append_pre_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
-        debug!("--------- Running Pre-Nakamoto block {block:?} ---------");
-        let (pre_nakamoto_block, burn_ops) = self.construct_pre_nakamoto_block(block);
+    fn append_pre_nakamoto_block(&mut self, test_block: TestBlock) -> ExpectedResult {
+        debug!("--------- Running Pre-Nakamoto block {test_block:?} ---------");
+        let (pre_nakamoto_block, burn_ops) = self.construct_pre_nakamoto_block(&test_block);
         let (block_height, _, consensus_hash) = self.test_chainstate.next_burnchain_block(burn_ops);
         let mut stacks_node = self.test_chainstate.stacks_node.take().unwrap();
         let mut sortdb = self.test_chainstate.sortdb.take().unwrap();
@@ -589,7 +601,7 @@ impl ConsensusChain<'_> {
             receipt.tx_receipts = sanitized_receipts;
             receipt
         });
-        ExpectedResult::create_from(remapped_result, expected_marf, current_epoch)
+        ExpectedResult::create_from(remapped_result, expected_marf, current_epoch, &test_block)
     }
 
     /// Appends a single block to the chain and returns the result.
@@ -624,7 +636,7 @@ impl ConsensusChain<'_> {
     /// Constructs a pre-Nakamoto block with the given [`TestBlock`] configuration.
     fn construct_pre_nakamoto_block(
         &mut self,
-        test_block: TestBlock,
+        test_block: &TestBlock,
     ) -> (StacksBlock, Vec<BlockstackOperationType>) {
         let microblock_privkey = self.test_chainstate.miner.next_microblock_privkey();
         let microblock_pubkeyhash =
@@ -741,7 +753,7 @@ impl ConsensusChain<'_> {
     }
 
     /// Constructs a Nakamoto block with the given [`TestBlock`] configuration.
-    fn construct_nakamoto_block(&mut self, test_block: TestBlock) -> (NakamotoBlock, usize) {
+    fn construct_nakamoto_block(&mut self, test_block: &TestBlock) -> (NakamotoBlock, usize) {
         let chain_tip = NakamotoChainState::get_canonical_block_header(
             self.test_chainstate
                 .stacks_node
@@ -775,7 +787,7 @@ impl ConsensusChain<'_> {
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
             },
-            txs: test_block.transactions,
+            txs: test_block.transactions.clone(),
         };
 
         let tx_merkle_root = {
@@ -1577,8 +1589,252 @@ impl TestTxFactory {
     }
 }
 
+/// Wrapper around a list of [`ExpectedResult`] for
+/// helping in writing consensus unit-tests
 pub struct ConsensusUnitReport {
-    pub expected_results: Vec<ExpectedResult>,
+    expected_results: Vec<ExpectedResult>,
+}
+
+/// Wrapper around a smart-contract based tx (deploy or call)
+/// helping in writing consensus unit-tests
+pub struct ContractTxReport {
+    /// the block epoch where this tx was included
+    pub block_epoch: StacksEpochId,
+    /// the epoch in which the smart contract was deployed
+    pub contract_epoch: StacksEpochId,
+    /// the clarity version used for the smart contract.
+    pub contract_clarity: ClarityVersion,
+    /// the tx result
+    pub outcome: TxOutcome,
+}
+
+/// Describe the tx result
+pub enum TxOutcome {
+    /// In case the tx included in an accepted block, it contains the relevant tx output
+    BlockAccepted(ExpectedTransactionOutput),
+    /// In case the tx evaluated in a rejected block, it contains the block-level error
+    BlockRejected(String),
+}
+
+impl ContractTxReport {
+    /// Whether this tx was executed without aborting.
+    /// (independent of whether the returned Response is ok or err)
+    pub fn executed(&self) -> bool {
+        matches!(&self.outcome, TxOutcome::BlockAccepted(t) if t.vm_error.is_none())
+    }
+
+    /// The tx has been executed and related state changes committed.
+    pub fn committed(&self) -> bool {
+        matches!(
+            &self.outcome,
+            TxOutcome::BlockAccepted(t)
+                if t.vm_error.is_none()
+                && matches!(&t.return_type, ClarityValue::Response(r) if r.committed),
+        )
+    }
+
+    /// Return the tx result if included in an accepted block,
+    /// panics otherwise
+    pub fn return_value(&self) -> &ClarityValue {
+        match &self.outcome {
+            TxOutcome::BlockAccepted(t) => &t.return_type,
+            TxOutcome::BlockRejected(err) => {
+                panic!("block rejected tx has no result: {err}")
+            }
+        }
+    }
+
+    /// Return the `vm error` in case of block accepted tx,
+    /// panics otherwise.
+    pub fn vm_error(&self) -> Option<&str> {
+        match &self.outcome {
+            TxOutcome::BlockAccepted(t) => t.vm_error.as_deref(),
+            TxOutcome::BlockRejected(_) => panic!("block has been rejected!"),
+        }
+    }
+
+    /// Whether the block containing this tx was rejected.
+    pub fn block_rejected(&self) -> bool {
+        matches!(&self.outcome, TxOutcome::BlockRejected(_))
+    }
+
+    /// Return the block rejected error, panics otherwise.
+    pub fn block_error(&self) -> &str {
+        match &self.outcome {
+            TxOutcome::BlockAccepted(_) => panic!("block has been accepted!"),
+            TxOutcome::BlockRejected(err) => err,
+        }
+    }
+}
+
+impl std::fmt::Debug for ContractTxReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TxReport {{ block_epoch={}, contract_epoch={}, contract_clarity={:?}, payload: ",
+            self.block_epoch, self.contract_epoch, self.contract_clarity
+        )?;
+
+        match &self.outcome {
+            TxOutcome::BlockAccepted(t) => {
+                match &t.tx {
+                    Some(TransactionPayload::SmartContract(
+                        TransactionSmartContract { name, code_body: _ },
+                        clarity_version,
+                    )) => {
+                        write!(
+                            f,
+                            "SmartContract(name: {}, clarity_version: {:?})",
+                            name, clarity_version
+                        )?
+                    }
+                    Some(TransactionPayload::ContractCall(TransactionContractCall {
+                        address,
+                        contract_name,
+                        function_name,
+                        function_args,
+                    })) => {
+                        write!(
+                            f,
+                            "ContractCall(address: {}, contract_name: {}, function_name: {}, function_args: {:?})",
+                            address, contract_name, function_name, function_args
+                        )?
+                    }
+                    _ => write!(f, "Tx format not managed for {:?}", t.tx)?,
+                }
+            }
+            TxOutcome::BlockRejected(err) => write!(f, "BlockRejected({})", err)?,
+        }
+
+        write!(f, " }}")
+    }
+}
+
+/// Parses the epoch and Clarity version encoded in a mangled contract name.
+///
+/// Contract names in this format are generated by consensus test macros built
+/// on top of [`ContractConsensusTest`]. The mangled name format is:
+/// `<name>-Epoch<epoch>-Clarity<version>`
+fn parse_epoch_clarity(contract_name: &str) -> Option<(StacksEpochId, ClarityVersion)> {
+    let (_, rest) = contract_name.rsplit_once("-Epoch")?;
+    let (epoch_raw, clarity_raw) = rest.split_once("-Clarity")?;
+    let epoch: StacksEpochId = epoch_raw.replace('_', ".").parse().ok()?;
+    let clarity: ClarityVersion = format!("Clarity{clarity_raw}").parse().ok()?;
+    Some((epoch, clarity))
+}
+
+fn parse_epoch_clarity_or_panic(contract_name: &str) -> (StacksEpochId, ClarityVersion) {
+    parse_epoch_clarity(contract_name).unwrap_or_else(|| {
+        panic!(
+            "Contract name `{contract_name}` does not match the \
+            `-Epoch{{X_Y}}-Clarity{{N}}` naming convention"
+        )
+    })
+}
+
+impl ConsensusUnitReport {
+    /// Creates a new report from a non-empty set of expected results.
+    pub fn new(expected_results: Vec<ExpectedResult>) -> Self {
+        assert!(
+            !expected_results.is_empty(),
+            "expected result vec cannot be empty!"
+        );
+        Self { expected_results }
+    }
+
+    /// Returns the raw [`ExpectedResult`]s associated with this report.
+    pub fn get_expected_results(&self) -> &[ExpectedResult] {
+        &self.expected_results
+    }
+
+    /// Returns `true` if all evaluated blocks were accepted.
+    pub fn all_blocks_accepted(&self) -> bool {
+        self.expected_results
+            .iter()
+            .all(|r| matches!(r, ExpectedResult::Success(_)))
+    }
+
+    /// Collects reports for all smart-contract deployment transactions.
+    pub fn contract_deploys(&self) -> Vec<ContractTxReport> {
+        let mut tx_reports = Vec::new();
+        for result in &self.expected_results {
+            match result {
+                ExpectedResult::Success(block) => {
+                    for tx in &block.transactions {
+                        let Some(TransactionPayload::SmartContract(cc, _)) = &tx.tx else {
+                            continue;
+                        };
+                        let (target_epoch, target_clarity) =
+                            parse_epoch_clarity_or_panic(&cc.name.to_string());
+                        tx_reports.push(ContractTxReport {
+                            block_epoch: block.evaluated_epoch,
+                            contract_epoch: target_epoch,
+                            contract_clarity: target_clarity,
+                            outcome: TxOutcome::BlockAccepted(tx.clone()),
+                        });
+                    }
+                }
+                ExpectedResult::Failure(failure) => {
+                    for payload in &failure.attempted_txs {
+                        let TransactionPayload::SmartContract(cc, _) = payload else {
+                            continue;
+                        };
+                        let (target_epoch, target_clarity) =
+                            parse_epoch_clarity_or_panic(&cc.name.to_string());
+                        tx_reports.push(ContractTxReport {
+                            block_epoch: failure.evaluated_epoch,
+                            contract_epoch: target_epoch,
+                            contract_clarity: target_clarity,
+                            outcome: TxOutcome::BlockRejected(failure.error.clone()),
+                        });
+                    }
+                }
+            }
+        }
+        assert!(!tx_reports.is_empty(), "tx reports cannot be empty!");
+        tx_reports
+    }
+
+    /// Collects reports for all smart-contract call transactions.
+    pub fn contract_calls(&self) -> Vec<ContractTxReport> {
+        let mut tx_reports = Vec::new();
+        for result in &self.expected_results {
+            match result {
+                ExpectedResult::Success(block) => {
+                    for tx in &block.transactions {
+                        let Some(TransactionPayload::ContractCall(cc)) = &tx.tx else {
+                            continue;
+                        };
+                        let (target_epoch, target_clarity) =
+                            parse_epoch_clarity_or_panic(&cc.contract_name.to_string());
+                        tx_reports.push(ContractTxReport {
+                            block_epoch: block.evaluated_epoch,
+                            contract_epoch: target_epoch,
+                            contract_clarity: target_clarity,
+                            outcome: TxOutcome::BlockAccepted(tx.clone()),
+                        });
+                    }
+                }
+                ExpectedResult::Failure(failure) => {
+                    for payload in &failure.attempted_txs {
+                        let TransactionPayload::ContractCall(cc) = payload else {
+                            continue;
+                        };
+                        let (target_epoch, target_clarity) =
+                            parse_epoch_clarity_or_panic(&cc.contract_name.to_string());
+                        tx_reports.push(ContractTxReport {
+                            block_epoch: failure.evaluated_epoch,
+                            contract_epoch: target_epoch,
+                            contract_clarity: target_clarity,
+                            outcome: TxOutcome::BlockRejected(failure.error.clone()),
+                        });
+                    }
+                }
+            }
+        }
+        assert!(!tx_reports.is_empty(), "tx reports cannot be empty!");
+        tx_reports
+    }
 }
 
 macro_rules! contract_call_consensus_unit_test {
@@ -1623,9 +1879,7 @@ macro_rules! contract_call_consensus_unit_test {
             setup_contracts,
         );
         let result = contract_test.run();
-        ConsensusUnitReport {
-            expected_results: result
-        }
+        ConsensusUnitReport::new(result)
     }};
 }
 pub(crate) use contract_call_consensus_unit_test;
@@ -1680,7 +1934,7 @@ macro_rules! contract_call_consensus_snap_test {
         let result = $crate::chainstate::tests::consensus::contract_call_consensus_unit_test! {
             $($tt)*
         };
-        insta::assert_ron_snapshot!(result.expected_results);
+        insta::assert_ron_snapshot!(result.get_expected_results());
     }};
 }
 pub(crate) use contract_call_consensus_snap_test;
@@ -1747,7 +2001,7 @@ macro_rules! contract_deploy_consensus_snap_test {
         let result = $crate::chainstate::tests::consensus::contract_deploy_consensus_unit_test! {
             $($tt)*
         };
-        insta::assert_ron_snapshot!(result.expected_results);
+        insta::assert_ron_snapshot!(result.get_expected_results());
     }};
 }
 pub(crate) use contract_deploy_consensus_snap_test;
