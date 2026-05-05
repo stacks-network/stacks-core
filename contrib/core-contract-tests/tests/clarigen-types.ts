@@ -9177,7 +9177,7 @@ export const contracts = {
       } as TypedAbiVariable<string>,
     },
     constants: {
-      DEPLOY_BLOCK_HEIGHT: 6n,
+      DEPLOY_BLOCK_HEIGHT: 5n,
       ERR_INVALID_RECIPIENT: 103n,
       ERR_NOTHING_TO_CLAIM: 102n,
       ERR_NOT_ALLOWED: 101n,
@@ -9593,6 +9593,16 @@ export const contracts = {
       >,
     },
     variables: {
+      ERR_NO_CLAIMABLE_REWARDS: {
+        name: 'ERR_NO_CLAIMABLE_REWARDS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       PRECISION: {
         name: 'PRECISION',
         type: 'uint128',
@@ -9604,11 +9614,18 @@ export const contracts = {
         access: 'variable',
       } as TypedAbiVariable<string>,
     },
-    constants: {},
+    constants: {
+      ERR_NO_CLAIMABLE_REWARDS: {
+        isOk: false,
+        value: 1_001n,
+      },
+      PRECISION: 1_000_000_000_000_000_000n,
+      allowedCaller: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
+    },
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch34',
-    clarity_version: 'Clarity5',
+    epoch: 'Epoch33',
+    clarity_version: 'Clarity4',
     contractName: 'test-pox-5-signer',
   },
 } as const;

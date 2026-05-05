@@ -19,6 +19,7 @@ import {
   sbtc,
   sbtcBalance,
   testSigner,
+  testSignerErrors,
 } from './pox-5-helpers';
 
 const contracts = projectFactory(project, 'simnet');
@@ -972,6 +973,205 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
   expect(rov(pox5.getClaimableRewards(signer2, 3n, false)).rewardsPending).toBe(
     0n,
   );
+});
+
+test('stx-only stakers claim rewards after signer claims', () => {
+  const signer = testSigner.identifier;
+  const aliceStake = stxToUStx(50_000);
+  const bobStake = stxToUStx(150_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: aliceStake,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: bobStake,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    bob,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([]), deployer);
+
+  const stakerRewards = stxRewards(1000n);
+  const aliceRewards = claimableRewards({
+    rewards: stakerRewards,
+    shares: aliceStake,
+    totalShares: aliceStake + bobStake,
+  });
+  const bobRewards = claimableRewards({
+    rewards: stakerRewards,
+    shares: bobStake,
+    totalShares: aliceStake + bobStake,
+  });
+
+  expect(
+    rov(testSigner.getClaimableRewards(alice, 1n, false)).rewardsPending,
+  ).toBe(0n);
+
+  txOk(testSigner.claimRewards([], 1n), deployer);
+
+  expect(
+    rov(testSigner.getClaimableRewards(alice, 1n, false)).rewardsPending,
+  ).toBe(aliceRewards);
+  expect(
+    rov(testSigner.getClaimableRewards(bob, 1n, false)).rewardsPending,
+  ).toBe(bobRewards);
+
+  const aliceBalance = sbtcBalance(alice);
+  const bobBalance = sbtcBalance(bob);
+
+  const aliceClaim = txOk(testSigner.claimStakerRewards(1n, false), alice);
+  const aliceTransfer = filterEvents(
+    aliceClaim.events,
+    CoreNodeEventType.FtTransferEvent,
+  )[0]!;
+  expect(aliceTransfer.data.sender).toBe(signer);
+  expect(aliceTransfer.data.recipient).toBe(alice);
+  expect(aliceTransfer.data.amount).toBe(aliceRewards.toString());
+  expect(
+    rov(testSigner.getClaimableRewards(alice, 1n, false)).rewardsPending,
+  ).toBe(0n);
+
+  txOk(testSigner.claimStakerRewards(1n, false), bob);
+  expect(sbtcBalance(alice)).toBe(aliceBalance + aliceRewards);
+  expect(sbtcBalance(bob)).toBe(bobBalance + bobRewards);
+});
+
+test('bond participants claim rewards after signer claims', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+  const bobSbtc = 300000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [
+        { maxSats: aliceSbtc, staker: alice },
+        { maxSats: bobSbtc, staker: bob },
+      ],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 10n, 100n)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, 100n)),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+  txOk(testSigner.claimRewards([0n], 1n), deployer);
+
+  expect(
+    rov(testSigner.getClaimableRewards(alice, 0n, true)).rewardsPending,
+  ).toBe(250n);
+  expect(
+    rov(testSigner.getClaimableRewards(bob, 0n, true)).rewardsPending,
+  ).toBe(750n);
+
+  const aliceBalance = sbtcBalance(alice);
+  const bobBalance = sbtcBalance(bob);
+
+  txOk(testSigner.claimStakerRewards(0n, true), alice);
+  txOk(testSigner.claimStakerRewards(0n, true), bob);
+
+  expect(sbtcBalance(alice)).toBe(aliceBalance + 250n);
+  expect(sbtcBalance(bob)).toBe(bobBalance + 750n);
+  expect(
+    rov(testSigner.getClaimableRewards(alice, 0n, true)).rewardsPending,
+  ).toBe(0n);
+  expect(
+    rov(testSigner.getClaimableRewards(bob, 0n, true)).rewardsPending,
+  ).toBe(0n);
+});
+
+test('stakers cannot claim before signer receives rewards', () => {
+  const signer = testSigner.identifier;
+  const stakeAmount = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([]), deployer);
+
+  const claim = txErr(testSigner.claimStakerRewards(1n, false), alice);
+  expect(claim.value).toBe(testSignerErrors.ERR_NO_CLAIMABLE_REWARDS);
+  expect(
+    rov(testSigner.getClaimableRewards(alice, 1n, false)).rewardsPending,
+  ).toBe(0n);
 });
 
 /**

@@ -1,6 +1,8 @@
 (impl-trait .pox-5.signer-manager-trait)
 (use-trait signer-manager-trait .pox-5.signer-manager-trait)
 
+(define-constant ERR_NO_CLAIMABLE_REWARDS (err u1001))
+
 ;; Used to prevent fractional multiplication errors
 ;; during reward calculations
 (define-constant PRECISION u1000000000000000000) ;; 1e18
@@ -109,6 +111,7 @@
             (rewards-pending (get rewards-pending rewards))
             (rewards-paid (get rewards-paid rewards))
         )
+        (asserts! (> rewards-pending u0) ERR_NO_CLAIMABLE_REWARDS)
         (map-set staker-rewards-paid-for-cycle {
             index: index,
             is-bond: is-bond,
