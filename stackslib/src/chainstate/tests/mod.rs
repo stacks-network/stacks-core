@@ -25,7 +25,7 @@ use clarity::consts::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_3_5, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, STACKS_EPOCH_MAX,
 };
 use clarity::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -1767,11 +1767,11 @@ impl<'a> TestChainstate<'a> {
                 network_epoch: PEER_VERSION_EPOCH_3_4,
             },
             StacksEpoch {
-                epoch_id: StacksEpochId::Epoch35,
+                epoch_id: StacksEpochId::Epoch40,
                 start_height: first_burnchain_height + 5,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-                network_epoch: PEER_VERSION_EPOCH_3_5,
+                network_epoch: PEER_VERSION_EPOCH_4_0,
             },
         ])
     }
@@ -1876,11 +1876,11 @@ impl<'a> TestChainstate<'a> {
                 network_epoch: PEER_VERSION_EPOCH_3_4,
             },
             StacksEpoch {
-                epoch_id: StacksEpochId::Epoch35,
+                epoch_id: StacksEpochId::Epoch40,
                 start_height: first_burnchain_height + 33,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-                network_epoch: PEER_VERSION_EPOCH_3_5,
+                network_epoch: PEER_VERSION_EPOCH_4_0,
             },
         ])
     }
@@ -1921,7 +1921,7 @@ fn advance_through_all_epochs() {
         StacksEpochId::Epoch32,
         StacksEpochId::Epoch33,
         StacksEpochId::Epoch34,
-        StacksEpochId::Epoch35,
+        StacksEpochId::Epoch40,
     ] {
         chainstate.advance_to_epoch_boundary(&privk, target_epoch);
         let burn_block_height = chainstate.get_burn_block_height();

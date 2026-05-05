@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cd2e7ea2ae09e1e36f417876088d776f0ab117bfbbeea83ec42428fe436189ee",
-    evaluated_epoch: Epoch35,
+    marf_hash: "40fbb4a15b1f25787f7f9fa197274db266e5b31a18812ee34a97cd2810966168",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1b2760897999b9286c0b3edaa63973ce1413838c4b0302052f82b209b5cfc6c1",
-    evaluated_epoch: Epoch35,
+    marf_hash: "fd379c7274c38c87aeb3d2bb0f14f1f9b4113c22ea1a4be8f387b979a7380d24",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "417953f732187804532e0c66b72f3da1109091c4a5a5f9e4b6380d60ed2c0955",
-    evaluated_epoch: Epoch35,
+    marf_hash: "56cafe53357ce1373d3f83e68a9bded4f7a1bb566dfb9f2271e4eb050a31fcf0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2d87d677148b4cbb6a40eb87b794297cc3d884b14958f5e82a86624104746a21",
-    evaluated_epoch: Epoch35,
+    marf_hash: "22dc0a2b7c0ca38c62db873a96cb86724507e63cdc12f495dc2a2eea7a41bc12",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "df4000c505d04bc8331b432dfabc8d24926033f9be55d2f9c9ca9f08417b2b5e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "64690831f515cf6f6e4d78f7a302468129c5e2bdbc16063aaca00a86912443c1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "83b652889d9c3162107936c0cee9d88795240bce57cd3b716a855e76d0598324",
-    evaluated_epoch: Epoch35,
+    marf_hash: "28597e09bb69bb8894006de05dfd0a47bfdb0db259322ceb95de3031fed47ba5",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ee1acd916fdc0d396d140817d42b892dfa99c15a006a4bbd1cf0b3ed19b51739",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f43534540497bd3c4386798e50a9a0ed594ef0794c8a82467c18f6178235dd99",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "96c0f6d12bb2d1283e8dd360e94da69afb67421cb890df219b4c766423320b9c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "74f17fd8c8c5d7cc66960875ff6b354cd291ef94d00c77c1c979fda2ab900057",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3e081d624912a229574b43a53b6843bf64c850043c91afd07dc228daac51dfc6",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2afcfc201b174410b62c31f4f9d7e54f6e67dd5c18aca052ae4f7c524309db41",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "62133dc9f4840b328a2cec5e896e974742ac03869b960ea79e6e0e781bf458e4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d79d4a2899a3317ee26f674689b2862fbff0ae8690f2ad462af8fece6f7cf382",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "03a5a89c20d1235fb03e120a8534b85998ca2051b9408641b9dddfc757387cdd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2ee84c0b3cc7ef679db56235f04dbbdb1d114580e2d614643462671f0773380d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "164ce903b7f4643231e1a388bc014db34d1a4a3526f5254235c79d2a479f9126",
-    evaluated_epoch: Epoch35,
+    marf_hash: "058a66b45c7500d23948879f26174d393fdb54f0c9497e00b30576e6975ee3e1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: could-not-determine-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

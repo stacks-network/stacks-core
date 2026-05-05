@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a5ce8f6a3de30a6b51ba6e726e96f5bb850826b93548b3bd78797275067c45dd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3540a360f8953ee625a47a3d443479a2adb490175e1342e3de96a4d575b90d0e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dc4ccf66d0fd8d7211b3e4dcb130130cb4262c1f24a755402c03d4065dadf896",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8b849ce891a5444f52e476ba41230efaa1ed927c2ca1d31d72cfda8676576002",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a52b6ab3e703b842b389846cb979ebbd2fae8d69203fa6f41134ef99ecfde4cc",
-    evaluated_epoch: Epoch35,
+    marf_hash: "07a663418942ef7d644c5bb828eca87bab2b909926cc9644883922787c77a806",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6526539b9a28c1cb3f36c8724ed2de368361c70b342419ada1e24983fd669cd2",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d3859258c0a960d5557fbb21f9fc5d4e7af39dd89098981cac3198477f3031a8",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f613af1e3893e16e93310b0906764b0b081aafd779f7e2cd1fcd5b699fd92e03",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5f446b6fc5b01052826bbd1e7088aa24cd33986711aeb299717c474a72cf4657",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e7c44c4d9de47e112eb75d607f365fe1db7d88b0345bb2fd3d079cc62c4dc231",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2ac2c866ea3ac4f4c0e71008413fb4352c369b05204079fe1f50206474894bac",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

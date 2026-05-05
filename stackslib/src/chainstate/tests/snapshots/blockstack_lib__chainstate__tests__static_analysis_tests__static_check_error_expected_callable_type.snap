@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5ce8697be407fe27b0a696df10dd9d49b73787fcff07f40f974aae4970c765e8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b4df98ddfb5b8920f612fd087168a22d1c5a59900722431b960c9e6017ee488f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: exp-callable-type-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: use of undeclared trait <bad-contract>) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6cc3650d6f161ecfa371414c03a17d3c4b0a3b6b833724f4639a19dc4148de1d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b2e8c7fd99e5b001e34f88f26869479046f5ce8afdad8bbb4e28c518130b47d0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: exp-callable-type-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bd490be38826f3ec557024959655a33e7a465b3b57a1502e91aacfda8330f809",
-    evaluated_epoch: Epoch35,
+    marf_hash: "16b4aa21bcbedebd26534c3d1cfc616aea1ec001e07061b74c0f47b6040873b9",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: exp-callable-type-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "60e8d86e5119ec651614d051bd31cf43bfd7eb4590c91a124a03e3ff9e26c855",
-    evaluated_epoch: Epoch35,
+    marf_hash: "351b22f73d16da95e5a1d7366c17a3fdb930d23329d5510160b219351d249733",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: exp-callable-type-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "93d845dd05fbae1458357add833cd4a85e697d64f2360b468c031b1f3e524ea4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9f5d36d67726142dd6e794ae5e71daa0777b3e40858f596969eb4e48ef13fc63",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: exp-callable-type-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "196051590f19c6ee9a8fccadc1242fcec6fa94b442f415cebae9e1cff4705877",
-    evaluated_epoch: Epoch35,
+    marf_hash: "53edfe334a00ecf5764b25c369710f158037e2bf76bb18895db4672cf69045c0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: exp-callable-type-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

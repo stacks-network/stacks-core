@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8acad758971fdb32f443414061e58f5351994394a823bd4a24c7df83e072f1f9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1583dd4c15cfb7e36eccdf15339620b8844ff7d189e363b83f9034f843960d04",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: type-error-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: type-error-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: expecting expression of type \'int\', found \'bool\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "03a070709d7b6dfb1917ef9e951fafb1b974d509efba4d798d03f7aeb04c2a12",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2ecf7e14e2dad1c3df2114e64909335a9ec69b91cd2b487cc97a4895ccb02662",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: type-error-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: type-error-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: expecting expression of type \'int\', found \'bool\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6fe5f042600dbaab22dc435048559ebd7fdac7e5884282c6be14e7fb68687a5d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "30422a57f6a0e3c0a26c8145b942924219edb950f1b4555f6fe95eeaa9d86fd0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: type-error-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: type-error-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: expecting expression of type \'int\', found \'bool\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5b6b7f449c17ba6e344a7c26e2f264b9f9144bfbd184bb622f192c8aa72c8007",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ae544fd634b4650e0dd826ab77d5f8a19a8b528ac7ac6f582acf5de256e7ed54",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: type-error-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: type-error-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: expecting expression of type \'int\', found \'bool\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "64c66b494eef6684f65fd42c22951e8e7dae5f9287c13e47000c4c6f2f50231d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9b85cf581e320904abb1a4cf5350d37418edbb96d1818a03316b12aaf4330e16",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: type-error-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: type-error-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: expecting expression of type \'int\', found \'bool\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cbc1fac62f85d70473e7935f2aa9ad7189e20d472175f99d059a40650bb056da",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9d905dfbe56bd813a70da83f377fc52ef733a45b8dce5545203dcd5520dd2191",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: type-error-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: type-error-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: expecting expression of type \'int\', found \'bool\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

@@ -55,7 +55,7 @@ pub use stacks_common::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_EPOCH_3_5, PEER_VERSION_MAINNET, PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET,
+    PEER_VERSION_EPOCH_4_0, PEER_VERSION_MAINNET, PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET,
     PEER_VERSION_TESTNET_MAJOR, STACKS_EPOCH_MAX,
 };
 
@@ -116,8 +116,8 @@ pub const BITCOIN_MAINNET_STACKS_32_BURN_HEIGHT: u64 = 907_740;
 pub const BITCOIN_MAINNET_STACKS_33_BURN_HEIGHT: u64 = 923_222;
 /// This is Epoch-3.4, activation timing proposed in SIP-039
 pub const BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT: u64 = 943_333;
-/// This is Epoch-3.5, activation timing TBD. Placeholder until scheduled.
-pub const BITCOIN_MAINNET_STACKS_35_BURN_HEIGHT: u64 = 3_500_000;
+/// This is Epoch-4.0, activation timing TBD. Placeholder until scheduled.
+pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 4_000_000;
 
 /// Bitcoin mainline testnet3 activation heights.
 /// TODO: No longer used since testnet3 is dead, so remove.
@@ -136,7 +136,7 @@ pub const BITCOIN_TESTNET_STACKS_31_BURN_HEIGHT: u64 = 30_000_001;
 pub const BITCOIN_TESTNET_STACKS_32_BURN_HEIGHT: u64 = 30_000_002;
 pub const BITCOIN_TESTNET_STACKS_33_BURN_HEIGHT: u64 = 30_000_003;
 pub const BITCOIN_TESTNET_STACKS_34_BURN_HEIGHT: u64 = 30_000_004;
-pub const BITCOIN_TESTNET_STACKS_35_BURN_HEIGHT: u64 = 30_000_005;
+pub const BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT: u64 = 40_000_000;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -342,16 +342,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT,
-            end_height: BITCOIN_MAINNET_STACKS_35_BURN_HEIGHT,
+            end_height: BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_4
         },
         StacksEpoch {
-            epoch_id: StacksEpochId::Epoch35,
-            start_height: BITCOIN_MAINNET_STACKS_35_BURN_HEIGHT,
+            epoch_id: StacksEpochId::Epoch40,
+            start_height: BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21,
-            network_epoch: PEER_VERSION_EPOCH_3_5
+            network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
 }
@@ -445,16 +445,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: BITCOIN_TESTNET_STACKS_34_BURN_HEIGHT,
-            end_height: BITCOIN_TESTNET_STACKS_35_BURN_HEIGHT,
+            end_height: BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_4
         },
         StacksEpoch {
-            epoch_id: StacksEpochId::Epoch35,
-            start_height: BITCOIN_TESTNET_STACKS_35_BURN_HEIGHT,
+            epoch_id: StacksEpochId::Epoch40,
+            start_height: BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21,
-            network_epoch: PEER_VERSION_EPOCH_3_5
+            network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
 }
@@ -553,11 +553,11 @@ lazy_static! {
             network_epoch: PEER_VERSION_EPOCH_3_4
         },
         StacksEpoch {
-            epoch_id: StacksEpochId::Epoch35,
+            epoch_id: StacksEpochId::Epoch40,
             start_height: 12001,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21,
-            network_epoch: PEER_VERSION_EPOCH_3_5
+            network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
 }
@@ -609,9 +609,9 @@ pub static STACKS_EPOCH_3_3_MARKER: u8 = 0x0f;
 /// *or greater*.
 pub static STACKS_EPOCH_3_4_MARKER: u8 = 0x10;
 
-/// Stacks 3.5 epoch marker.  All block-commits in 3.5 must have a memo bitfield with this value
+/// Stacks 4.0 epoch marker.  All block-commits in 4.0 must have a memo bitfield with this value
 /// *or greater*.
-pub static STACKS_EPOCH_3_5_MARKER: u8 = 0x11;
+pub static STACKS_EPOCH_4_0_MARKER: u8 = 0x11;
 
 /// Latest Stacks epoch marker. Automatically uses the marker for the highest supported epoch.
 pub static STACKS_EPOCH_LATEST_MARKER: u8 =
@@ -632,7 +632,7 @@ pub const fn marker_for_epoch(epoch_id: StacksEpochId) -> Option<u8> {
         StacksEpochId::Epoch32 => Some(STACKS_EPOCH_3_2_MARKER),
         StacksEpochId::Epoch33 => Some(STACKS_EPOCH_3_3_MARKER),
         StacksEpochId::Epoch34 => Some(STACKS_EPOCH_3_4_MARKER),
-        StacksEpochId::Epoch35 => Some(STACKS_EPOCH_3_5_MARKER),
+        StacksEpochId::Epoch40 => Some(STACKS_EPOCH_4_0_MARKER),
     }
 }
 

@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e551ec889054076fbff5fb0b5b660d83c1e0d61a0500162fd0df4f3f8ab70b3f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "412dcb48a6cef32f9a98cd60f57f4fe3c4281d7a79bb68f299705f705c4e7223",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: trait-or-field-ref-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "63fdff434d00b9d8469febf68fdeb7af020691ca5ff0cf8a509e80d94fc61cc7",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0eb7839f2799c72abb94b975184bf3f73cc5aa7277faa67394a8e3ed5e7521ff",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: trait-or-field-ref-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e6d12a477aa9cd67152b8abad6914be5aba54f17157c2810af85b104a18ff308",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2c3e7f3ddaa759e53ab4e6258c77a0c920d44b2a702099a5d89e1b9abbb926e7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: trait-or-field-ref-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "66054a51e6bddc227005a310b0e0f39f9c02f32be359feb569628cdb2998b27b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ca9f33f1493cfb8373f9b51e5d5268479958e634ad6be027cc54e75fa3ee487e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: trait-or-field-ref-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4e7cd28dff1a71939b71618e5438134c06b2bfa124836c9d04d7ae0425822f1d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7ef7cbc4cf7724306209a6e033b8e3e31e7d6e352c4c1487198a28fe8cb291dc",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: trait-or-field-ref-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e9180437b8ab69c89921e5a33519fed8b50e8e27ab0c783f7dd5e0fd6f5c64a8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "fba3c163a767ba4fc36c8247076bd4fda7f92dc319f83ad579b42099ef87bb19",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: trait-or-field-ref-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

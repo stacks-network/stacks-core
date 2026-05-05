@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3590c58b8b22d0adb6827593e13d4206251dd604f07a4b43ee9c0bbb9ec1a710",
-    evaluated_epoch: Epoch35,
+    marf_hash: "724910ce3ab87a0d5cafbef5918234f6bf094399d7014a84058160195f3d9d44",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: ccall-expect-name-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: ccall-expect-name-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: missing contract name for call) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0bac13f7c97613e62118b442e2204bca8814819463c3ce90f1026b757ec0e23e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "c6b7918cd1b05bccc878a7567823e37f45bab93877a97ed4b8f3bf96fce5a073",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: ccall-expect-name-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: ccall-expect-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: missing contract name for call) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2853479172b52d0ff18b8c5ac939529651446e8b4dc9d0ee84fb90176afaad04",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b5e0a77c350daee77df02eddf9dabfe50e4b1e939d28c5b6f2e65b209fd3bb81",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: ccall-expect-name-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: ccall-expect-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: missing contract name for call) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1d22b224d6fe3388505dac9cf4e09852ac4c7d649542940f99dfa42ad416b4ac",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6d04954ae4e87ab38e712c30b8c41240e7db5a4b2b4212e8964614bdad4831c4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: ccall-expect-name-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: ccall-expect-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: missing contract name for call) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "377a63d4e78ca6101e2b35892872fc4e548d18ae0b75daeab88bd160ef866a6f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "54cbfa71516a6b39baf73bc978f4bc247c59e1fc7881d2333c60938b82129aa8",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: ccall-expect-name-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: ccall-expect-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: missing contract name for call) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "90351ae4b6f4b06efe2b3daf29f63d698735c5975af1796033ef513fea0d18a8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f84607789ceff0a435c8cea42c143599dffb0c769c1166136d315fef590488d9",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: ccall-expect-name-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: ccall-expect-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: missing contract name for call) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

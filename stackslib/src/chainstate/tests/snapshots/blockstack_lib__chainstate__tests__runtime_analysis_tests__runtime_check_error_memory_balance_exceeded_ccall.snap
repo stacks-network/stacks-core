@@ -1280,11 +1280,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3814b87ed92354dc27fc9e55a98cd3dba35d43579d2bebd0e74ab8d4f6b64434",
-    evaluated_epoch: Epoch35,
+    marf_hash: "27b59451348886f4997aabfc7c42afc1251cd826a19511813d385a24e4629a7e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1308,11 +1308,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d8097f5936f6994ac243392e2a40e48adae56f3c8b2e2b72f9432b4b18e513b9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3d48e8c35c8857f416f8715cd37fc749ae0e921666fda210fa38d06aff96edbc",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1336,11 +1336,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d9837e77984fdb06924dc36e4d5aa8e4a7a2f292faa76ec7c602e9de461601ec",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8b6c67c6b248c7243bb51b93a4d95c858552b20b2496beec2500dd091c9ba963",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1364,11 +1364,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "037a778b603b5acfe1fa7669b7af2e6eaf8c62112dd53603a300bba42ca6ffa2",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3eb78ad5d1f0734f3937478e688cca40b66e288db801b1f51e24dc6dbb264e7f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1392,11 +1392,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a432be5e51eb7b4b1fdb9e052b6f4a64666118109c8de1d30cb3ba5e5a3cd535",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ae099f43f69db9c5c5e1494026cacdbab1bf3344127edce4701c21b0ef1134f1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1420,11 +1420,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cee3b8b6a848765e538460deea54a25d88db3f6de93b84b467159428cd13b662",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cd28dafba30b9ac4f4edb84a0e6cf1d20f70b25b3d055ed2a4e1f0d8790c5192",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -1448,8 +1448,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "157ce5200cb7490874fc4c14d6c5b6256796e564f345dea4e604cbf605c72701",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a339e4b26252a83ee02a79eb7921ec48a89b670ede1f24adf3554889050f1a4f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_4-Clarity1, function_name: create-many-references, function_args: [[]])",
@@ -1478,8 +1478,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ad5e7d0f5ca6a0757a5544f877b2612b15a118583c38baff76c4cde9387c1d07",
-    evaluated_epoch: Epoch35,
+    marf_hash: "61277371ac72d09523e4e6c9c396a8cceed43a109cb82f8b182ab5c84d94c0b0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_4-Clarity2, function_name: create-many-references, function_args: [[]])",
@@ -1508,8 +1508,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "95f6ae392ac6bc4d6fc749359b5d6a290f9ecfa9b2f2c6efc755b37f4bca17a1",
-    evaluated_epoch: Epoch35,
+    marf_hash: "06d9baaf2417a5b837dd9b24a0ec25ae5efbdb48bbf53a0376fc1c1c23820acd",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_5-Clarity1, function_name: create-many-references, function_args: [[]])",
@@ -1538,8 +1538,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d302a77b487c8b114ab2abb2825af569ff64d169774b3861c3633feec62e150b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d5c04dc3bb4b5cc77d7efb333c5361be2b68d84dfc082f73ca0a2380de45f238",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_5-Clarity2, function_name: create-many-references, function_args: [[]])",
@@ -1568,8 +1568,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f2b2a222a13b38c398455d567dbb168e11ed9f02a02fbaf2252f6a72f2022831",
-    evaluated_epoch: Epoch35,
+    marf_hash: "55fe60ca08f626bc65b319e0c63b581355eeabd8fa7c3546cb1ce7a02fa8c42d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity1, function_name: create-many-references, function_args: [[]])",
@@ -1598,8 +1598,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "300d91580230b8ca8404b4ff3785cfae45bb5b9ab723422aed77c1b8237034ff",
-    evaluated_epoch: Epoch35,
+    marf_hash: "fff725c85ffef2fb5bb49f2789d213eb8793998018378e90f172852cef5bb11b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity2, function_name: create-many-references, function_args: [[]])",
@@ -1628,8 +1628,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e6fd81d0dbc2711e073b7cd997ae28166c32b827928c10924d39f8afc9675b60",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9d8f8a2772beb253204d7b72eed6f52d7ae6e5783ba05b55206e1808e0351bff",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity3, function_name: create-many-references, function_args: [[]])",
@@ -1658,8 +1658,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "90331b5169371c744fd66f1e60c47b476cca9de2f38bc46770b9a6ad35014e61",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0eeffef2b6f3a7b945631628b705ff3144df32dcc75189422e7720ae4467af48",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity1, function_name: create-many-references, function_args: [[]])",
@@ -1688,8 +1688,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "745c46a5f9fab6fc13257664c3e9a819f21e233594f75021d120068fcc8348c6",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e92ebffe7dbd72d80afd1d2b4d2789c7695bd7ab66484f1e4c2f7ebf47c4f021",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity2, function_name: create-many-references, function_args: [[]])",
@@ -1718,8 +1718,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "42f7f0f52a5cb6bd270a5d038ff1783cf651e24fda39104f4fc275059b304128",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0044d77c63d7608bb294f8eb1787660f113b8a7b46a4553a4a0ee67e8d1d5a8e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity3, function_name: create-many-references, function_args: [[]])",
@@ -1748,8 +1748,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "14fd7d7082e53abf3905bd598af4c35c2a759c768cb7250feaffc4090b7f0e89",
-    evaluated_epoch: Epoch35,
+    marf_hash: "08157b495fef39eb601893c3e8a4e1d6c7a46cfb400b8646320d6bf9b664b2cc",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity1, function_name: create-many-references, function_args: [[]])",
@@ -1778,8 +1778,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b2bef988c6d458fe0169306b5f35857b3c45f2ec772cc46f87c9abbc683d8aea",
-    evaluated_epoch: Epoch35,
+    marf_hash: "22698dd3f3c6a6a1338b2b47e16ec0699ab32f45d171230cf388ef33c44e0f89",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity2, function_name: create-many-references, function_args: [[]])",
@@ -1808,8 +1808,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "355fa05e54830aeda5adac41357bdec67b841f0f978a0c4b39cf73dc589c21db",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4d893f0fa0c993e26b331c4b321aea5fe4407101ee770f95b296c82875a9b77d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity3, function_name: create-many-references, function_args: [[]])",
@@ -1838,8 +1838,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d16f013f9b6729d83bc48fc22c64b04cc4d50ae4093adc11d910fe35fa1a8579",
-    evaluated_epoch: Epoch35,
+    marf_hash: "73a542e8845bf7988f8343bf2ec774860e467dc6c72dadf7f653807cf664dd2f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity1, function_name: create-many-references, function_args: [[]])",
@@ -1868,8 +1868,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "38d55a6acc737d18de1fcdcec1818642ac14320491d78ed1bce86a692c7c5fe4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "533338178bba9e68fc6acaed27f51022035a567e47bf918a3e1efe414baccf8e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity2, function_name: create-many-references, function_args: [[]])",
@@ -1898,8 +1898,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8550eabd13faa200f07a8d367e2e2f8cffc900a29e699ff4e687af89aa10ce2c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2b1f995856da58b0c3cb9e8448b2a4f6dc395b053c4f43ad1baf8fd46c1af0d8",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity3, function_name: create-many-references, function_args: [[]])",
@@ -1928,8 +1928,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "15096d82228e07e564f0638464936f3b9685cc16e274225808ac8812d421aa15",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e728144ced6869fc8a5f2fffb3630e068d7bd260f8f8141fb95514b405deffbb",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity4, function_name: create-many-references, function_args: [[]])",
@@ -1958,8 +1958,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e1764775d4b4df48a10d790a95da69f997f0e242b0464e03e852577e1282d8b5",
-    evaluated_epoch: Epoch35,
+    marf_hash: "429c01ef922b8405323a2bbd41d463063b5d1d0ac392c642bc1f5e833fae4463",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity1, function_name: create-many-references, function_args: [[]])",
@@ -1988,8 +1988,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7ecfeaaeed11e87a53587acac27a6630a2a1c037e9b2e5e472a1a676db67b903",
-    evaluated_epoch: Epoch35,
+    marf_hash: "007276c375d2d9edc74315ccc5d594911743559c2f5f168606807f36983e9f80",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity2, function_name: create-many-references, function_args: [[]])",
@@ -2018,8 +2018,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "274df3b1a49de7344dfe54104e3ddcbcd10f29c29651e46211396d23215c7f72",
-    evaluated_epoch: Epoch35,
+    marf_hash: "8105e34e501abe0d83afb4b2f89313858cf64e509465976d8fb938e763494815",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity3, function_name: create-many-references, function_args: [[]])",
@@ -2048,8 +2048,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5a6e3b8b75e65d5f99ef8c5ac89d510eae2e6b361b2796ffb47d1ce5dfcf2c99",
-    evaluated_epoch: Epoch35,
+    marf_hash: "757257e643a16451bfc1436161542732c79c788c319ecbff3548f0962b91c5a8",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity4, function_name: create-many-references, function_args: [[]])",
@@ -2078,8 +2078,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d1c50b6b4a8beaf07ba7a8ef57a518d63be629239b9accf422047d7a3be32545",
-    evaluated_epoch: Epoch35,
+    marf_hash: "11ba7dc8c0166115500ff1b5c0fe363ee5ece3fa439eb07423f2dd35b07577ac",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity5, function_name: create-many-references, function_args: [[]])",
@@ -2108,27 +2108,27 @@ expression: result
     ),
   )),
   Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block fcb69ef8eda540a9014039f94e520050748631a2367a60e1702b34f3dbf8ddaf: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    evaluated_epoch: Epoch40,
+    error: "Invalid Stacks block eafccd14854a3d61fde4dc571a7bd3163e18bb10836a7699802daf87218bf856: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block 7d9a299d07d87e76655b817207392029270937963b9a61b6f72714bbd17d175f: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    evaluated_epoch: Epoch40,
+    error: "Invalid Stacks block e9efdc35d198a2f655d06eb08904881b9ba34bc11f0f195312bfca25161bc2fb: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block 34db08ef8c529fa9fd6d48e8025b679c6381569412cdcc53accfe5ef011f5d55: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    evaluated_epoch: Epoch40,
+    error: "Invalid Stacks block 7972022fe83c6c52d990f28e0ce8ae0727ecb3846d4761da794999d1be26d422: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block 18af1ddfe325846e802be0a04a67622e27b66afe61a1ce39cf29eff5eb918a81: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    evaluated_epoch: Epoch40,
+    error: "Invalid Stacks block 490d37d678d6589a8cd73a67ef68d6bc972bf5340bc4d7cd14597283345abfda: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block e65a7d178876e3c8e610aeba588a0c88136305c67296bf8ce1fe193bf793cff3: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    evaluated_epoch: Epoch40,
+    error: "Invalid Stacks block e751aa4ac709715b67f5d57a1994494226e3b84942763d7c441c817410dc9d3d: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block 6fcb873c473f7c21d3fa4562bff5290ab44bb70f0ed6b73c1eca4ba4962b043a: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    evaluated_epoch: Epoch40,
+    error: "Invalid Stacks block 9d5ab3c73cf63b391431cbb6172bb47cc65d43d6b8b9da412dc49e12ee518666: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
 ]

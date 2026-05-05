@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e53e5aec8778cdd50831ebcfa4843f599a2597826b45000195dac9f04d8fc317",
-    evaluated_epoch: Epoch35,
+    marf_hash: "27c1829c7ce2c4b356fd734ea1686638e7723302428703a64624d97b766bb8d4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: overflow-pow-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9ba63b3c9f189fdcebc0eebe44d0c928836b9a58681be4e51593440d09aaf0dd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e68f600f2a84bc0305718e99cc47d8c8f8a729fd13cb615cd4353a5c4ecb5d7d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: overflow-pow-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9b7371c51ca851bbec07cd9b883ece31b1363618c3fee67eca0b54b93c4d8cfd",
-    evaluated_epoch: Epoch35,
+    marf_hash: "ff75e51e85bf63d4daf77356e2a0b7a17abd7b26fac2fa9c9c2d7b35f72e662d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: overflow-pow-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "68c3c7c68945482809764c4ae7c8f93cadc0b2312bd08cd33321b34efba018d1",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4f3d09446a6c40004f31b72fa285c91417ca114eac78c5011a6c2066859045f3",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: overflow-pow-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fe891dbe879c07aca026932ad5148fb0f7bff06182b997f4c841af2b65e399a7",
-    evaluated_epoch: Epoch35,
+    marf_hash: "77bb0a836e4843c244addd0e76a829fb759b3ad8c02daebf5c04b1406be24321",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: overflow-pow-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ba933b0629b3b646d9c522b8c21ffcbd67230475dd13151e08dac82f85056174",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9746e11aa71cb71632961efd0b0ef77133657fc004655ef373f415736db7bc34",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: overflow-pow-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

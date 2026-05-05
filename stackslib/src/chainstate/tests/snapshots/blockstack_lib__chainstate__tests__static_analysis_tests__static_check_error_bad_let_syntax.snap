@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a9baa817237ad588420e721fe9705ef0e5888e3141c5da3de71f6c54cf944dbc",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0c41466bd0976466acd7bbe0da949329eba9b6c8586049f5c810d9fb8752e0e0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-let-syntax-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: bad-let-syntax-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "84d88430e01f72eff9e2633b6c7530991b932964bd3544ad7f60f462f5c28d4f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "804c4aa8e2baa3f138077975cac0c2563adaa18df808a28533aaef0484c42443",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-let-syntax-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: bad-let-syntax-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b5638924205fcc5e46eac92f0e17af15b8ea26aefab6415334719813b62f656f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "86ab7cfce5bc84123d7d6a84e8e4575c8b128459637d06fa4c89d596ac261143",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-let-syntax-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: bad-let-syntax-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "532df668b40626f1fd1f8248af6edb6a2a5d4dd3a2b5281a2f9e30a5048e914a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "07494dc6680cef799125878f166c608532336dd103083f06f01eaf60a6c91478",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-let-syntax-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: bad-let-syntax-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "679a42179b6ba734bc37e6fd19498071f58c22400e3aa0bc32f0aff1b96d9efc",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b33b2ed2913af32b4835dc22ba5f53cf797d5e098e06e17eadd5c46a03e6f6da",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-let-syntax-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: bad-let-syntax-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "819bc5f66e8ba12ce1f2dbaccea185cd2972fa87400b4f7b879794c8096568e6",
-    evaluated_epoch: Epoch35,
+    marf_hash: "613cbc461420d768f12165bbd71b99894cde4876cdaf3f22a09908b7d4360f86",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-let-syntax-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: bad-let-syntax-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

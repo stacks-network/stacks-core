@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "32335e919ed621144dd8116019b8fb520834eeb8e3c6d78a9517125d9f4ee664",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1a2e5368d210711eb911bb8c1466296543a21f058dd9ff78664ea0915285b211",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: to-uint-negative-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a3a1fdee2f9e4e8b8ba6b6ce62a77290b04df82111eebf8f07008489af898b9a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3fa9380771872deec747d97073abcfcfa55cdad999cbe56cf40c1d178e8d0165",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: to-uint-negative-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "065a082231cad4d96f3031297803f3884225192656edc44e0381272008cf5a91",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2d46432d71c72f41d9c16981a5c2516bfa650ab8ab06fac67fbc2c81c4f793d1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: to-uint-negative-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bbe98cf05306150d7592532c6cab0441384bc9d44441c1e258b87f4f8058e612",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4555b47d5f3e17a8f027bdc9da9e7a7c6dd9e1bd82fb83107c475b3c3ba0b7c4",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: to-uint-negative-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d896678d52dc39dff5610216fd1806b5d058c82aa297b4bbffc8a38ebe26c3af",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f83699b7e4100939f903852f2daf1c26b35158ab6ea6634aa68748dc5a6b3fad",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: to-uint-negative-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c90b21b31d0ab6a03d7d25620928ae488f96204b68a484b60b8ab17f80b0b494",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e3d4f39064832db83705ec2b0352e115060a05e75eae8a24005ef0d62119bb73",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: to-uint-negative-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: to-uint-negative-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

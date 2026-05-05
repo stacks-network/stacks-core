@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8ec0f705d71c2be683efb8f390332b3dbd3dbf5d345015efa1853393ab8d3834",
-    evaluated_epoch: Epoch35,
+    marf_hash: "4dba30f5e135474023fb301ca314ea62bfe0dc3c8e7f6970315e62ce45b5a640",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dc6a05e35b1ed3de29a1a227a8cb0b9402cf4bb647ecaba73af50234b2704c0d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "07c2f513d4c993884b70a23597806f4ed20b37d2eb4debb007458ed2e768119e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e0619cd70713261fb3e79692d6375b46a9d42e53fa94c8cf04988360c9303974",
-    evaluated_epoch: Epoch35,
+    marf_hash: "c7c5ce57404d527515a5fef451dcf1e7253c4f1b5d11546a82d2eeac3aac15f1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4f28e6e486165292131110553ee8deba0aa2dfcb68f784eb6657a1550a682577",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f11e560bbb25ea696ef3f4ce3f3f3664da18f08433dd931f67be98121bfc4499",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a223e955bd982c72fb9073a637b7454bcb4c75b0746d2a5367a982ffc1937083",
-    evaluated_epoch: Epoch35,
+    marf_hash: "815a053cfb5848abe1edaf51e42e2a9c608bf0d64d7eac9a980a915b8cd3d6b1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "560f4d0c0d76326085a9c0e27daa94330dd14c540f8f02dbce51ca29b136b946",
-    evaluated_epoch: Epoch35,
+    marf_hash: "581d6d77506bd716cc8f9eaceb3811b8615ba6769da6480bfe14246d53e610c7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: division-by-zero-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

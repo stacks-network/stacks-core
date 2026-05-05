@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3ee3f2a40c5e6d0ee81889d193ad03a99efe0dc609d4d7546fec1202aa4b653b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d844bbeb4c52a528f9fdb3d5c0d4d3c46e63d4aa746cd557302b456a9ce4e817",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: wrong-byte-length-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: wrong-byte-length-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fe21d3e6114de0c2b5b0821bee9282ec858f22037dfff49c61f09c1b927acd7b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "77b2de399f737841ccac7806c77183baf5d87b49e0a27a542d7b830baa2ea681",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: wrong-byte-length-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: wrong-byte-length-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6985168bdab11ffb4b8688c19efca2594fb35213e0cb890a7a3dbb3b52fdb904",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6e2b99f067b9f146ead3979dc369da309af1f7c65d658f796e74bae8e6f9d9cf",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: wrong-byte-length-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: wrong-byte-length-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1e3e92ea8487c5306e1e09597280157f989139d4358d4ced320cabf7efe96926",
-    evaluated_epoch: Epoch35,
+    marf_hash: "79ca0d6d20ed4b518900547be7c87eefb9d024b73eda061dbdb87ed7bd704216",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: wrong-byte-length-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: wrong-byte-length-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "95dd38d87e329a81cac0464d68e899a7cd829080c4e377896e700b2bde25ec43",
-    evaluated_epoch: Epoch35,
+    marf_hash: "34fda1b910f50a4d67c256b77ab3a038df5097117416e642852857f5350deca1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: wrong-byte-length-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: wrong-byte-length-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "76223326156126eb2535c934c80a38cbe22bdee7ffb04fc483ec8da78d755d53",
-    evaluated_epoch: Epoch35,
+    marf_hash: "62ad806cc8d7579606054ef04277a4c2c84b98f22141e9c193515920274c6d73",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: wrong-byte-length-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: wrong-byte-length-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

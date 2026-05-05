@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "469be275c32a174d47657c56d4aeef33bd5352c80abe355f5d60d7d91586e90c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "58901d2b306184665b1f86143905c2b1722e2c0bab628a25dba13c821272b84f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-option-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: bad-match-option-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expecting 4 arguments, got 3) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3e0f47add3bd32afd70e7b02fa86b95b365db3b86542156e3e888e23ec839588",
-    evaluated_epoch: Epoch35,
+    marf_hash: "012ee0cb65b3cf0de630373e9becb920e6dc2c99ddedb6bcd1910a6ff9a39d51",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-option-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: bad-match-option-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expecting 4 arguments, got 3) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "87f714051b8f5c97b24064f13326da4a5847ff9c59a8256711d75c0d962dbd32",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6f0bba96303d3be181133d3762a17e5affd638a269a5352bca56afd6d345b061",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-option-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: bad-match-option-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expecting 4 arguments, got 3) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4abde679a21696884e6df679a3841724b923edafcf958085109ff57024579506",
-    evaluated_epoch: Epoch35,
+    marf_hash: "bb894699b3625ded86a09ff87e2d8924434226e5984e680fe7c26af467f7b7da",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-option-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: bad-match-option-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expecting 4 arguments, got 3) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "60f59883523435dc723dc939c56541c58cdc9af6ca808bdbf655f0a7ed897b36",
-    evaluated_epoch: Epoch35,
+    marf_hash: "aa35a6f6c7e44dc89a714ace38fe95184a29d4a9b7a6ccc69f09c4fbb20521d7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-option-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: bad-match-option-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expecting 4 arguments, got 3) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a60567a64c236c70d25eb42fb7bf906b3e235dbfa368c86c3d7ab380a0e3187c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d966fae59a24cd5c40ba5e5744cceaa519179f71b18dbf43a546362b5b17e869",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-option-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: bad-match-option-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expecting 4 arguments, got 3) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

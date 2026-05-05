@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8fc8befb88ba48ffce221e839764ef9801025739259b2a92780a773767c3985f",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a528dd426e6edefcd865538ff4cec920df2d6aeaa2415df4141a4f5571981820",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-stacks-info-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: no-such-stacks-info-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: use of unresolved function \'get-stacks-block-info?\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e4b1de19ca884e845f4f0ec198a78d2de2933eb64edcf20c6778f377ff8af65d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9e142dd8665ff2d4430c3efbc12f921d407789c28766b55bc174c771674689b7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-stacks-info-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: no-such-stacks-info-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: use of unresolved function \'get-stacks-block-info?\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cf1da62b39b14ef2ddf75622beef32ec293ffdad055df9c8f194fc5f5c2070d4",
-    evaluated_epoch: Epoch35,
+    marf_hash: "840c4762c40b7b0f0c4f6744e63c53e6f6e4f06f08d2614d066ec40e188e3f4c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-stacks-info-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: no-such-stacks-info-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: use of unknown stacks block property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f31971c537b7ca096c34fb415c9008689d6c7d8158d50c2f9300f97dcc1914c0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1c9c57813bc9082cd0575abc7ad5157ffe78bdb62c1e6db437d448e71bd06ce1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-stacks-info-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: no-such-stacks-info-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: use of unknown stacks block property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1278b3ab4a3b72f073628c91eae0960f4776de6fd4165a3018a824fe35405a7e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "0d9b0f8c68388208347280a8d8ba0dfdfaec61c79bb57e25dc3b2da3fdbf514f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-stacks-info-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: no-such-stacks-info-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: use of unknown stacks block property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8d98239c49950c798fe4ea143868a540351c496ba6d88e2038d2ae3d92c83a53",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a8e09f00de86218a85af7b3063e57f807b873ad238dfe0244a2426a1bd084519",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-stacks-info-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: no-such-stacks-info-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: use of unknown stacks block property \'none\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

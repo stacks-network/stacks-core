@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "364576f9a5f22b13003bd7b504c767075421dae91fdfa8b008be3fbf8e9129ee",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3d328255441876a1fc81e36b0395b1a7366f1562d8578c8f44f29b4350df858f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: no-such-map-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "22b067f5e3f237dfa6c464ae35e5510c4520164dffd56e8bba2ecf726d632c13",
-    evaluated_epoch: Epoch35,
+    marf_hash: "fa880049aa5ee6aecd61c0d82bffa24b6ba1cd487dcd6cb20c9a14f6dc644990",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: no-such-map-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bea946da3692a7644e40336c706631aa6b8615b972a12272222d846f0499c223",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5a9fd33585b9ea7017cce316eda4b60748827f27023b345e8a1378242a447e6e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: no-such-map-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d0d5887cf3b20834750ee251294eb9b8ae0589cf7a5c6a6701cd446d89b0d571",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1a1fb94d35d10ac270d55e48543fb344128c45a3c9df830da56b089d62426b49",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: no-such-map-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c475f42fa67e0717f0a09409803a04f6330da2dfa9561f8e9c63b924857e41d9",
-    evaluated_epoch: Epoch35,
+    marf_hash: "023127809078584f7a59ab79652bdfb5fd48253166d71faa735d46760ba6022c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: no-such-map-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "192bcac31bcf69ec7f2ef6f4e76d25cbe1c0ba27880a44c1e4e2a286e9c1112a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "593523170a6518c6b18933397b5853ff7adaefaa70e7431a101f795ca6b48b70",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-map-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: no-such-map-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: use of unresolved map \'non-existent\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

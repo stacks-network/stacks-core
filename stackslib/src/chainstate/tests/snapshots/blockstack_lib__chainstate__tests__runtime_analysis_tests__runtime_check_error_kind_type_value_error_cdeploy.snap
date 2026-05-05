@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f504fa1925227e1c277fe3c48dc65e5421cd747be5e4081a9db6d1b56727ed9a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "cb1659f9a5cbb0aa0d59e344dc35eac4578bac156c497ad1464dd9e757105fc2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: check-error-kind-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: check-error-kind-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "142eeb5bca8fdcb6ba5422f225ff5699cd05bc36d01b703597a727a1b83da357",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7d0d6a4bc83e8bb40b17c0db0c344c45f86ba9c49ba826dd7d965bcd3068284b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: check-error-kind-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: check-error-kind-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5b7e4e1b4608eb42382dd2ab282a67adb0586126231805aa7e19aa9eef3c5f2e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6a18e70e01e0a6d2ca7ab37804f9d973588331d67eaea7aa985dc6cdcfc374fe",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: check-error-kind-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: check-error-kind-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "03617530eb137394ce2d2e93e7f6bbe640c94a29c3690d315087c637068b5f5a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "53b638f6658559a98ac2dcee825d11912e42269676da06d0e86ca6b4f7e83f18",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: check-error-kind-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: check-error-kind-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9402eeeee79120248f2b3dbb171cd0783220f252a94ac417f5d1450ac4f017f7",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2e4c3b231735cf2d6eb5420f3dd80431461835486326d13f05e56724db507702",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: check-error-kind-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: check-error-kind-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b5ee31ef15f237fdfa71c3607a3b38b78f5ddfcb9ff812f9cc42b261ab4048fc",
-    evaluated_epoch: Epoch35,
+    marf_hash: "11d03d97ea4527e66efcbc739e43f454f7cfd69c053081e8b853390c9d8dbd61",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: check-error-kind-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: check-error-kind-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

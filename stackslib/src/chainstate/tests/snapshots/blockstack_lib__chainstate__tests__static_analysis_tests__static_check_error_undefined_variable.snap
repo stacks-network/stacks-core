@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "18ef531d206d61d2d48d65a773626204745778dc7e57189a76a2a626ef7005a1",
-    evaluated_epoch: Epoch35,
+    marf_hash: "84fb01038a3fa961a888679cf26e9569649acc7fc9fba5272fdd3b8f89d3a486",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undefined-variable-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: undefined-variable-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8552fda8aca3b23170fb1196f5bbfbd3b89bc7ef44866094b9e7c2bdaa243c02",
-    evaluated_epoch: Epoch35,
+    marf_hash: "b92b32594ac2ff613e3fa9b660cbbfce457aa902bd38036fb4bed16c875c081e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undefined-variable-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: undefined-variable-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "775a8ec21ee842e1f67c3f52e6bb3fa72776cd6fbd2567804f124786c474c05a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7bdec9704c0ae6acadfbd72af32edcc4bd06381898432ae764506d51d391e51c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undefined-variable-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: undefined-variable-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "eac94d5134485c8975ac93766926edcd1f200358b4fed66af266ed475c7a00b6",
-    evaluated_epoch: Epoch35,
+    marf_hash: "44873804992af9ea4a3a2a0f3d1625d9113eb307dd4009f649ab1861837cf6f6",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undefined-variable-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: undefined-variable-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "041e9f1a387dce65c6ccdd9dce2e02fe8a4e19fc2f2a332a17d77af78cfa00a6",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a73ed533db1be576aefc701f2b13008d9b63b4ef00ca114913844e96862dfb3c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undefined-variable-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: undefined-variable-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e9e954db01fe8b13df3d19989ea98631143bcb6585c7d527e18fe785fa96ca1d",
-    evaluated_epoch: Epoch35,
+    marf_hash: "77c19507347db5acf9ff9462007643910718457b84adc4d418948d33c584aa96",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: undefined-variable-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: undefined-variable-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

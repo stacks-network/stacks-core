@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "48ea981228e788437b00e61fcda577bd44914579b63f7ae7fd0208dbe896c543",
-    evaluated_epoch: Epoch35,
+    marf_hash: "bf39fa26ee8e9b96f2924570d624924407611fb1ce4caeeadf710636c869cce2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-tuple-f-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: no-such-tuple-f-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: cannot find field \'value\' in tuple \'(tuple (name int))\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "57190923382d04b9cb4f5fad89787bd9ad12699b516f1da85930f48a7ac3b583",
-    evaluated_epoch: Epoch35,
+    marf_hash: "68649232b832adacc1fb153fc75d26d7e2722216882a056b155d703189bbbdcb",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-tuple-f-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: no-such-tuple-f-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: cannot find field \'value\' in tuple \'(tuple (name int))\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9f8400ff9605a3fd16d8c53f2cff91736a3dec17e14be37ebf84db729a558878",
-    evaluated_epoch: Epoch35,
+    marf_hash: "a9838ee1041ba9d870de803e082a4af88d0b5d665eac598713bf3732b4938b48",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-tuple-f-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: no-such-tuple-f-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: cannot find field \'value\' in tuple \'(tuple (name int))\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ef38d8651ea3c10eaac2a38e6296bab8719a49d1210b4059f358ccb48e4a521c",
-    evaluated_epoch: Epoch35,
+    marf_hash: "e2a3459af2efc2996daae4fd527e7ef365c03f0bf6c1ae507b909ade23406301",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-tuple-f-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: no-such-tuple-f-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: cannot find field \'value\' in tuple \'(tuple (name int))\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "523b8354b4dca0d2eb9eca2773b94b5c28ed318cbd1ac3ad612ce8c4f1ed23ab",
-    evaluated_epoch: Epoch35,
+    marf_hash: "f0fe9cca37eff92749bbc0ce7a4baf09853e3ce8ab60ebc78d8ca2ed89e5c3c0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-tuple-f-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: no-such-tuple-f-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: cannot find field \'value\' in tuple \'(tuple (name int))\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c4d3175f05f991812c3fafaa0ab7c978f256713a588cc2bd40d4fb157c271850",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5f8699f66563b1a53ef9768302c864fa45c17784bfc6875ce44cc8a9a03f20a1",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-tuple-f-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: no-such-tuple-f-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: cannot find field \'value\' in tuple \'(tuple (name int))\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

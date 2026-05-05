@@ -154,11 +154,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "560ad31c7b7b36f947046afe93148810c3178fe6ef6b51a656e3c731c699eccf",
-    evaluated_epoch: Epoch35,
+    marf_hash: "2e0912c110a8c26b52a0cf50b029c6efba2dfceb50b0a371f6f908d94b892945",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-input-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: bad-match-input-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(:0:0: match requires an input of either a response or optional, found input: \'int\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -184,11 +184,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "55a148eba671fb7ce80a581d0984be9610dc2172b25f413ee569a73f5a4dbcb8",
-    evaluated_epoch: Epoch35,
+    marf_hash: "201d6537dbfeab01a9f4c12067f016c3bec8f4de6fdd5ae3a2be23310d32eacd",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-input-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: bad-match-input-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(:0:0: match requires an input of either a response or optional, found input: \'int\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -214,11 +214,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "28c1609e05042276110132c90abf6b97523537813498887a33d2de0dc3229d80",
-    evaluated_epoch: Epoch35,
+    marf_hash: "bded4f18b3117cc433969ed5983d584054a540f704c5cd02fe0a176133127df6",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-input-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: bad-match-input-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(:0:0: match requires an input of either a response or optional, found input: \'int\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -244,11 +244,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e40ce2df057e8df9c49f627e83e9f7dce315c59dd371e9720c9b846798cf3109",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7e259e8a00e56c127fd8a3e4f093c7918660c7202a5eb138396caa78a4530f7c",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-input-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: bad-match-input-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(:0:0: match requires an input of either a response or optional, found input: \'int\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -274,11 +274,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9304be5951f92dc73192792e376ee83feb3054ef9cfa5fee760efdbe13ff59b7",
-    evaluated_epoch: Epoch35,
+    marf_hash: "9a6034f9ea5fd8e70e57e3b3e5b47e8f094c5962de35d776c7f29e03b1ffc7f5",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-input-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: bad-match-input-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: match requires an input of either a response or optional, found input: \'int\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -304,11 +304,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "331c82d5b841d1576ab68360ba2e6ab72026ec0ef3427820cede07c8e4fe54b0",
-    evaluated_epoch: Epoch35,
+    marf_hash: "d16cb89bcc274f10f5a0c52ad59f836086481b3efa397d77bd8a643a49c33ad8",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-input-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: bad-match-input-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: match requires an input of either a response or optional, found input: \'int\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

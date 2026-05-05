@@ -178,11 +178,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "494d816858e5eef531a7fb2fe36ef842955f7a02a48907f61fe57f1cb89fdb52",
-    evaluated_epoch: Epoch35,
+    marf_hash: "1547093843a7f8c04e203f4b7a51852c3034fb479a67a3983d32efe1462174ed",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -206,11 +206,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7e5a9a907a21660ebcb4730942f852b20c7478a8e13cb93685317e695cce4f3b",
-    evaluated_epoch: Epoch35,
+    marf_hash: "96df3cfadbe18b930a07dc24ef42d80afe7016259af35ffd39c4312946885f26",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -234,11 +234,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "640dc87db5cfe46011c507b67eff0ff6a0dd71aba9660c80a14106a7cd9d61e7",
-    evaluated_epoch: Epoch35,
+    marf_hash: "58ec48be0fad36449539936e753d65735dc18f1b587a5c511c14a4513908bc75",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-Epoch3_5-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        tx: "SmartContract(name: contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
@@ -262,8 +262,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "71920034d33a903004861a0b5b0da431f5f468244e20b5517e19f5e570d1acda",
-    evaluated_epoch: Epoch35,
+    marf_hash: "6e181c0fb4f428d53e042c9640d3d75d773557fdb5499948b9dc11f33c96e49e",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch3_3-Clarity4, function_name: trigger-error, function_args: [[]])",
@@ -292,8 +292,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bfa9b9ab6c8e2b0c6ffc308c77f5a7f2e68f6665a9c9da4028b8f1f0e0aabc68",
-    evaluated_epoch: Epoch35,
+    marf_hash: "711efaedbfe056c11332d7159fc5ad80bbbdf1276e574a49a545c29bf8e2fef7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch3_4-Clarity4, function_name: trigger-error, function_args: [[]])",
@@ -322,8 +322,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "db41ea73013997c9ac769620c21d1f5a8ef789a6791786dc6929618b550cc674",
-    evaluated_epoch: Epoch35,
+    marf_hash: "da34a05d842f57354f13231efc3cd654ce02cdd678693902998a8bdcf4c71ec7",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch3_4-Clarity5, function_name: trigger-error, function_args: [[]])",
@@ -352,11 +352,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f98133ea1d138c8bcd56ce8f4f27bebec2e3d2fc3d81de93a8f4433c0177c882",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3e956f4aba03fab4d2d40dd0c3b786a450f2ef30ba8070f5d03fd53a8070c71f",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch3_5-Clarity4, function_name: trigger-error, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch4_0-Clarity4, function_name: trigger-error, function_args: [[]])",
         vm_error: "Some(ExpectedContractPrincipalValue(\"Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)))\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -382,11 +382,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d7961d85f50f792a8e3dedf7424b1667481f052c285293f4807356e4b64eb863",
-    evaluated_epoch: Epoch35,
+    marf_hash: "dd3073bbde3e56bfac416d16f4d7662cd2117b2d0af4b499b4648bfa15c1cd6d",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch3_5-Clarity5, function_name: trigger-error, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch4_0-Clarity5, function_name: trigger-error, function_args: [[]])",
         vm_error: "Some(ExpectedContractPrincipalValue(\"Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)))\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -412,11 +412,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1a907e0d6ed658e7e2e0de19fa486791a77e2a4bbc8bbba2e0d1fe6d7344e68e",
-    evaluated_epoch: Epoch35,
+    marf_hash: "07308bb6e51c5b862a857802453e09ee34346fdcd8a5544173132af08a30aaf0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch3_5-Clarity6, function_name: trigger-error, function_args: [[]])",
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch4_0-Clarity6, function_name: trigger-error, function_args: [[]])",
         vm_error: "Some(ExpectedContractPrincipalValue(\"Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)))\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
