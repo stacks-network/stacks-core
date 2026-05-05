@@ -23,6 +23,7 @@ use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
@@ -520,7 +521,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     }
 
     /// Set an abort callback that will be checked at every Clarity `eval` call.
-    pub fn set_abort_callback(&mut self, callback: clarity::vm::contexts::AbortCallback) {
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
         self.block.set_abort_callback(callback);
     }
 

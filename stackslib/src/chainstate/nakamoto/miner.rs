@@ -15,7 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityError;
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
+use stacks_common::alloc_tracker::thread_allocated;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
@@ -51,24 +53,23 @@ use crate::net::relay::Relayer;
 /// `limit_bytes`. Intended to be called once per transaction so each
 /// transaction gets a fresh baseline.
 ///
+/// This is only called from block assembly and proposal validation contexts,
+/// and *not* during normal block append or block replay.
+///
 /// Requires a [`TrackingAllocator`](stacks_common::alloc_tracker::TrackingAllocator)
 /// to be set as the `#[global_allocator]` in the binary crate. If no
 /// tracking allocator is active the counters remain at 0 and the callback
 /// will never trigger (safe degradation).
-pub fn make_mem_abort_callback(limit_bytes: u64) -> Option<clarity::vm::contexts::AbortCallback> {
-    use stacks_common::alloc_tracker::{thread_allocated, thread_deallocated};
-
+pub fn make_mem_abort_callback(limit_bytes: u64) -> Option<AbortCallback> {
     if limit_bytes == 0 {
         return None;
     }
 
-    let baseline_alloc = thread_allocated();
-    let baseline_dealloc = thread_deallocated();
+    let baseline = thread_allocated();
 
     Some(std::sync::Arc::new(move || {
-        let alloc = thread_allocated().saturating_sub(baseline_alloc);
-        let dealloc = thread_deallocated().saturating_sub(baseline_dealloc);
-        let net_alloc = alloc.saturating_sub(dealloc);
+        let current = thread_allocated();
+        let net_alloc = current.net_allocated(&baseline);
         if net_alloc > limit_bytes {
             Err(format!(
                 "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"

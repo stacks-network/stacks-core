@@ -1875,6 +1875,7 @@ fn test_abort_callback_stops_execution() {
     use std::sync::Arc;
 
     use crate::vm::execute_with_parameters_and_call_in_global_context;
+    let abort_msg = "abort callback fired";
 
     // An abort callback that always fires
     let result = execute_with_parameters_and_call_in_global_context(
@@ -1884,7 +1885,7 @@ fn test_abort_callback_stops_execution() {
         false,
         clarity_types::types::StandardPrincipalData::transient(),
         |g| {
-            g.abort_callback = Some(Arc::new(|| Err("memory limit exceeded".into())));
+            g.abort_callback = Some(Arc::new(|| Err(abort_msg.into())));
             Ok(())
         },
         |_| Ok(()),
@@ -1892,7 +1893,7 @@ fn test_abort_callback_stops_execution() {
     match result {
         Err(ClarityEvalError::Vm(e)) => {
             let expected = VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "memory limit exceeded".into(),
+                abort_msg.into(),
             ));
             assert_eq!(e, expected);
         }

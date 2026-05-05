@@ -245,8 +245,9 @@ pub struct BlockBuilderSettings {
     pub max_tenure_bytes: u64,
     /// Transaction IDs to temporarily exclude from block building (e.g., signer-rejected txs)
     pub temporarily_excluded_txids: HashSet<Txid>,
-    /// Maximum bytes the miner thread may allocate during block assembly.
-    /// 0 means no limit.
+    /// Sets a limit for the bytes that the miner thread may have
+    /// allocated at any one time during block assembly. 0 means no
+    /// limit.
     pub max_assembly_mem_bytes: u64,
 }
 
