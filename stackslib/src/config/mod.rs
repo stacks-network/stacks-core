@@ -59,6 +59,7 @@ use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, U
 use crate::net::atlas::AtlasConfig;
 use crate::net::connection::{
     ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
+    DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
@@ -3673,6 +3674,17 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS`]
     /// @units: seconds
     pub block_proposal_validation_timeout_secs: Option<u64>,
+
+    /// Maximum time (in seconds) to spend executing a single transaction
+    /// during block proposal validation. This is a per-transaction cap that
+    /// is applied independently from the overall block validation timeout.
+    /// A transaction that exceeds this limit on its own is classified as
+    /// problematic; a transaction interrupted because the overall block
+    /// validation budget was exceeded is not.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS`]
+    /// @units: seconds
+    pub block_proposal_max_tx_execution_time_secs: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3830,6 +3842,9 @@ impl ConnectionOptionsFile {
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
+            block_proposal_max_tx_execution_time_secs: self
+                .block_proposal_max_tx_execution_time_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS),
             ..default
         })
     }

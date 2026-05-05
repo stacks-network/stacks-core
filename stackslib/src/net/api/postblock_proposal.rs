@@ -352,12 +352,19 @@ impl NakamotoBlockProposal {
         connection_opts: &ConnectionOptions,
     ) -> Result<JoinHandle<()>, std::io::Error> {
         let timeout_secs = connection_opts.block_proposal_validation_timeout_secs;
+        let max_tx_execution_time_secs = connection_opts.block_proposal_max_tx_execution_time_secs;
         let auth_token = connection_opts.auth_token.clone();
         thread::Builder::new()
             .name("block-proposal".into())
             .spawn(move || {
                 let result = self
-                    .validate(&sortdb, &mut chainstate, timeout_secs, auth_token)
+                    .validate(
+                        &sortdb,
+                        &mut chainstate,
+                        timeout_secs,
+                        max_tx_execution_time_secs,
+                        auth_token,
+                    )
                     .map_err(|reason| BlockValidateReject {
                         signer_signature_hash: self.block.header.signer_signature_hash(),
                         reason_code: reason.reason_code,
@@ -531,6 +538,7 @@ impl NakamotoBlockProposal {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
         timeout_secs: u64,
+        max_tx_execution_time_secs: u64,
         auth_token: Option<String>,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
         fault_injection_validation_stall(auth_token);
@@ -723,9 +731,25 @@ impl NakamotoBlockProposal {
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
+        let per_tx_max_execution_time = Duration::from_secs(max_tx_execution_time_secs);
         let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
-            let remaining = block_deadline.saturating_duration_since(Instant::now());
+            // Enforce the overall block validation budget between txs. A tx
+            // running over its own per-tx limit is the tx's fault and is
+            // handled below; running out of overall budget is the block's
+            // fault and shouldn't flag any specific tx as problematic.
+            if Instant::now() >= block_deadline {
+                warn!(
+                    "Rejected block proposal";
+                    "reason" => "Block validation timed out",
+                    "next_tx_index" => i,
+                );
+                return Err(BlockValidateRejectReason {
+                    reason: format!("Block validation timed out before tx {i} could be processed"),
+                    reason_code: ValidateRejectCode::InvalidBlock,
+                    failed_txid: None,
+                });
+            }
 
             let tx_len = tx.tx_len();
 
@@ -734,7 +758,7 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                Some(remaining),
+                Some(per_tx_max_execution_time),
                 &mut receipts_total,
             );
             let reason = match tx_result {

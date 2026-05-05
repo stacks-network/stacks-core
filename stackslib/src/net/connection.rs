@@ -46,6 +46,10 @@ pub const DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
 /// The default maximum time to spend validating a block proposal in seconds
 pub const DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS: u64 = 60;
 
+/// The default maximum time, in seconds, to spend executing a single
+/// transaction during block proposal validation.
+pub const DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS: u64 = 30;
+
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
 /// in another thread) via the given `receiver_input` channel.
@@ -491,6 +495,13 @@ pub struct ConnectionOptions {
 
     /// Maximum time to spend validating a block proposal in seconds
     pub block_proposal_validation_timeout_secs: u64,
+
+    /// Maximum time, in seconds, to spend executing a single transaction
+    /// during block proposal validation. A transaction that exceeds this
+    /// limit on its own is classified as problematic; a transaction
+    /// interrupted because the overall block proposal validation budget was
+    /// exceeded is not.
+    pub block_proposal_max_tx_execution_time_secs: u64,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -604,6 +615,8 @@ impl std::default::Default for ConnectionOptions {
 
             read_only_max_execution_time_secs: 30,
             block_proposal_validation_timeout_secs: DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
+            block_proposal_max_tx_execution_time_secs:
+                DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
         }
     }
 }
