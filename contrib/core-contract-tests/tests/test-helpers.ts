@@ -2,6 +2,7 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { randomBytes } from '@noble/hashes/utils.js';
 import { ripemd160 } from '@noble/hashes/legacy.js';
 import { getAddressFromPublicKey } from '@stacks/transactions';
+import * as dnum from 'dnum';
 
 export function randomSecretKey(seed?: Uint8Array) {
   return secp256k1.utils.randomSecretKey(seed);
@@ -29,4 +30,8 @@ export function randomPoxAddress(seed?: Uint8Array) {
 
 export function mineUntil(blockHeight: number | bigint) {
   simnet.mineEmptyBurnBlocks(Number(blockHeight) - simnet.burnBlockHeight);
+}
+
+export function stxToUStx(stx: number | bigint): bigint {
+  return dnum.mul(stx, 1_000_000n)[0];
 }
