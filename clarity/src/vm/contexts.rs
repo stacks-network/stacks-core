@@ -300,7 +300,8 @@ pub struct GlobalContext<'a, 'hooks> {
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: ExecutionTimeTracker,
     /// Optional callback checked at every `eval` call. When it returns
-    /// `Err(reason)`, execution is aborted with `VmExecutionError::RuntimeCheck(Unreachable)`.
+    /// `Err(reason)`, execution is aborted with
+    /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`.
     pub abort_callback: Option<AbortCallback>,
 }
 

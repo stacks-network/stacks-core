@@ -561,6 +561,14 @@ pub enum RuntimeCheckErrorKind {
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     Unreachable(String),
 
+    /// Execution was deliberately aborted by the per-`eval` abort callback
+    /// installed on the `GlobalContext` (e.g., a per-transaction heap budget
+    /// exceeded by the miner or proposal validator). Carries the human-readable
+    /// reason returned by the callback. Unlike `Unreachable`, this does not
+    /// indicate a VM bug, but is still treated as `rejectable()` so that any
+    /// block including such a transaction is invalidated.
+    AbortedByExecutionHook(String),
+
     // List typing errors
     /// List elements have mismatched types, violating type consistency.
     ListTypesMustMatch,
@@ -661,11 +669,17 @@ pub struct StaticCheckError {
 }
 
 impl RuntimeCheckErrorKind {
-    /// This check indicates that the transaction should be rejected.
-    /// Currently identical to `is_unreachable()` since `Unreachable` is the only
-    /// rejectable variant, but they answer different questions and may diverge.
+    /// This check indicates that the transaction should be rejected. This is a
+    /// strict superset of `is_unreachable()`: `Unreachable` flags a suspected
+    /// VM bug (and is also rejectable), while `AbortedByExecutionHook` is a
+    /// deliberate runtime abort that must still invalidate any block
+    /// containing the offending transaction without being reported as a bug.
     pub fn rejectable(&self) -> bool {
-        matches!(self, RuntimeCheckErrorKind::Unreachable(_))
+        matches!(
+            self,
+            RuntimeCheckErrorKind::Unreachable(_)
+                | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
+        )
     }
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.

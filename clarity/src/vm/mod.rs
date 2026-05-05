@@ -501,7 +501,7 @@ fn check_max_execution_time_expired(
         && let Err(reason) = cb()
     {
         return Err(VmExecutionError::RuntimeCheck(
-            RuntimeCheckErrorKind::Unreachable(reason),
+            RuntimeCheckErrorKind::AbortedByExecutionHook(reason),
         ));
     }
 

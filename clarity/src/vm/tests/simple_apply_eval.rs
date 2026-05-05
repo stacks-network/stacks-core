@@ -1892,12 +1892,12 @@ fn test_abort_callback_stops_execution() {
     );
     match result {
         Err(ClarityEvalError::Vm(e)) => {
-            let expected = VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                abort_msg.into(),
-            ));
+            let expected = VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::AbortedByExecutionHook(abort_msg.into()),
+            );
             assert_eq!(e, expected);
         }
-        other => panic!("Expected unreachable error, got: {other:?}"),
+        other => panic!("Expected aborted-by-execution-hook error, got: {other:?}"),
     }
 }
 
