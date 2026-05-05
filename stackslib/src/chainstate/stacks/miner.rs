@@ -42,8 +42,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
-    convert_clarity_error_to_transaction_result, handle_clarity_runtime_error,
-    ClarityRuntimeTxError,
+    finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
@@ -1104,7 +1103,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let cost_before = clarity_tx.cost_so_far();
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet, None) {
             Ok((_fee, receipt)) => TransactionResult::success(&tx, receipt),
-            Err(e) => convert_clarity_error_to_transaction_result(clarity_tx, &tx, &cost_before, e),
+            Err(e) => finalize_failed_transaction(clarity_tx, &tx, &cost_before, e),
         }
     }
 
@@ -2508,12 +2507,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
-                        return convert_clarity_error_to_transaction_result(
-                            clarity_tx,
-                            tx,
-                            &cost_before,
-                            e,
-                        );
+                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
                     }
                 };
             info!("Include tx";
@@ -2557,12 +2551,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
-                        return convert_clarity_error_to_transaction_result(
-                            clarity_tx,
-                            tx,
-                            &cost_before,
-                            e,
-                        );
+                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
                     }
                 };
             debug!(

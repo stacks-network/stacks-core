@@ -449,7 +449,11 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
     }
 }
 
-pub fn convert_clarity_error_to_transaction_result(
+/// Classify a failed transaction into a `TransactionResult`. For failures that
+/// charged execution cost before bailing (problematic txs and cost overflows),
+/// roll back the cost so the failure does not shrink the remaining block
+/// budget for subsequent honest txs.
+pub fn finalize_failed_transaction(
     clarity_tx: &mut ClarityTx,
     tx: &StacksTransaction,
     cost_before: &ExecutionCost,
@@ -464,11 +468,11 @@ pub fn convert_clarity_error_to_transaction_result(
         TransactionResult::problematic(tx, error)
     } else {
         match &error {
-            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
+            Error::CostOverflowError(overflow_cost_before, cost_after, total_budget) => {
                 // note: this path _does_ not perform the tx block budget % heuristic,
                 //  because this code path is not directly called with a mempool handle.
                 clarity_tx.reset_cost(cost_before.clone());
-                if total_budget.proportion_largest_dimension(cost_before)
+                if total_budget.proportion_largest_dimension(overflow_cost_before)
                     < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                 {
                     warn!(
@@ -477,7 +481,7 @@ pub fn convert_clarity_error_to_transaction_result(
                         100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                     );
                     let mut measured_cost = cost_after.clone();
-                    let measured_cost = if measured_cost.sub(cost_before).is_ok() {
+                    let measured_cost = if measured_cost.sub(overflow_cost_before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -12208,12 +12212,7 @@ pub mod test {
         );
 
         // Exercise the miner-level wrapper: it should classify as Problematic and reset the cost.
-        let result = convert_clarity_error_to_transaction_result(
-            &mut conn,
-            &signed_tx,
-            &cost_before_deploy,
-            err,
-        );
+        let result = finalize_failed_transaction(&mut conn, &signed_tx, &cost_before_deploy, err);
         assert!(
             matches!(result, TransactionResult::Problematic(_)),
             "expected Problematic verdict, got {result:?}",
@@ -12268,12 +12267,8 @@ pub mod test {
         );
 
         // Exercise the miner-level wrapper for the contract-call path too.
-        let result = convert_clarity_error_to_transaction_result(
-            &mut conn,
-            &signed_call_tx,
-            &cost_before_call,
-            err,
-        );
+        let result =
+            finalize_failed_transaction(&mut conn, &signed_call_tx, &cost_before_call, err);
         assert!(
             matches!(result, TransactionResult::Problematic(_)),
             "expected Problematic verdict, got {result:?}",
