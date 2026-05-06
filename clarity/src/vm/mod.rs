@@ -497,9 +497,7 @@ fn check_max_execution_time_expired(
             }
         }
     }
-    if let Some(ref cb) = global_context.abort_callback
-        && let Err(reason) = cb()
-    {
+    if let Err(reason) = global_context.abort_callback.check() {
         return Err(VmExecutionError::RuntimeCheck(
             RuntimeCheckErrorKind::AbortedByExecutionHook(reason),
         ));

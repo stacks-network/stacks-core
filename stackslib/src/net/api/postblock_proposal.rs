@@ -738,11 +738,9 @@ impl NakamotoBlockProposal {
             let tx_len = tx.tx_len();
 
             if max_tx_mem_bytes > 0 {
-                if let Some(cb) =
-                    crate::chainstate::nakamoto::miner::make_mem_abort_callback(max_tx_mem_bytes)
-                {
-                    tenure_tx.set_abort_callback(cb);
-                }
+                tenure_tx.set_abort_callback(
+                    crate::chainstate::nakamoto::miner::make_mem_abort_callback(max_tx_mem_bytes),
+                );
             }
 
             let tx_result = builder.try_mine_tx_with_len(

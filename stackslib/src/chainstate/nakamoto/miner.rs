@@ -48,10 +48,11 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 
-/// Build an [`AbortCallback`] that checks per-thread allocation deltas
-/// and aborts when net allocation since the callback was created exceeds
-/// `limit_bytes`. Intended to be called once per transaction so each
-/// transaction gets a fresh baseline.
+/// Build an [`AbortCallback`] that aborts when per-thread net heap
+/// allocation exceeds `limit_bytes`. Should be called once per
+/// transaction so each transaction gets a fresh baseline.
+///
+/// Returns `AbortCallback::None` when `limit_bytes` is 0 (disabled).
 ///
 /// This is only called from block assembly and proposal validation contexts,
 /// and *not* during normal block append or block replay.
@@ -60,27 +61,17 @@ use crate::net::relay::Relayer;
 /// to be set as the `#[global_allocator]` in the binary crate. If no
 /// tracking allocator is active the counters remain at 0 and the callback
 /// will never trigger (safe degradation).
-pub fn make_mem_abort_callback(limit_bytes: u64) -> Option<AbortCallback> {
+pub fn make_mem_abort_callback(limit_bytes: u64) -> AbortCallback {
     if limit_bytes == 0 {
-        return None;
+        return AbortCallback::None;
     }
-
-    let baseline = thread_allocated();
-
-    Some(std::sync::Arc::new(move || {
-        let current = thread_allocated();
-        let net_alloc = current.net_allocated(&baseline);
-        if net_alloc > limit_bytes {
-            Err(format!(
-                "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"
-            ))
-        } else {
-            Ok(())
-        }
-    }))
+    AbortCallback::MemAbort {
+        baseline: thread_allocated(),
+        limit_bytes,
+    }
 }
 
-/// Nakamaoto tenure information
+/// Nakamoto tenure information
 #[derive(Debug, Default)]
 pub struct NakamotoTenureInfo {
     /// Coinbase tx, if this is a new tenure

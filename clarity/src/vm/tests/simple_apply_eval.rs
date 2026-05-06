@@ -1872,8 +1872,7 @@ fn test_execution_time_expiration() {
 
 #[test]
 fn test_abort_callback_stops_execution() {
-    use std::sync::Arc;
-
+    use crate::vm::contexts::AbortCallback;
     use crate::vm::execute_with_parameters_and_call_in_global_context;
     let abort_msg = "abort callback fired";
 
@@ -1885,7 +1884,7 @@ fn test_abort_callback_stops_execution() {
         false,
         clarity_types::types::StandardPrincipalData::transient(),
         |g| {
-            g.abort_callback = Some(Arc::new(|| Err(abort_msg.into())));
+            g.abort_callback = AbortCallback::AlwaysAbort(abort_msg.into());
             Ok(())
         },
         |_| Ok(()),
@@ -1899,26 +1898,4 @@ fn test_abort_callback_stops_execution() {
         }
         other => panic!("Expected aborted-by-execution-hook error, got: {other:?}"),
     }
-}
-
-#[test]
-fn test_abort_callback_ok_allows_execution() {
-    use std::sync::Arc;
-
-    use crate::vm::execute_with_parameters_and_call_in_global_context;
-
-    // An abort callback that never fires
-    let result = execute_with_parameters_and_call_in_global_context(
-        "(+ 1 1)",
-        ClarityVersion::Clarity1,
-        StacksEpochId::Epoch20,
-        false,
-        clarity_types::types::StandardPrincipalData::transient(),
-        |g| {
-            g.abort_callback = Some(Arc::new(|| Ok(())));
-            Ok(())
-        },
-        |_| Ok(()),
-    );
-    assert_eq!(result.unwrap().unwrap(), Value::Int(2));
 }

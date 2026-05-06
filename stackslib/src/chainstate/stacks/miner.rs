@@ -2688,11 +2688,11 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                 fault_injection_stall_tx();
 
                 if settings.max_assembly_mem_bytes > 0 {
-                    if let Some(cb) = crate::chainstate::nakamoto::miner::make_mem_abort_callback(
-                        settings.max_assembly_mem_bytes,
-                    ) {
-                        epoch_tx.set_abort_callback(cb);
-                    }
+                    epoch_tx.set_abort_callback(
+                        crate::chainstate::nakamoto::miner::make_mem_abort_callback(
+                            settings.max_assembly_mem_bytes,
+                        ),
+                    );
                 }
 
                 let tx_result = builder.try_mine_tx_with_len(
