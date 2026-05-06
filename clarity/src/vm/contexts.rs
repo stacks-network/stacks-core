@@ -328,12 +328,6 @@ impl AbortCallback {
     }
 }
 
-impl Default for AbortCallback {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
 /** GlobalContext represents the outermost context for a single transaction's
      execution. It tracks an asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
