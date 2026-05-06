@@ -2132,7 +2132,7 @@
     )
 )
 
-(define-public (remove-staker-from-set-for-cycle
+(define-private (remove-staker-from-set-for-cycle
         (stacker principal)
         (cycle uint)
     )

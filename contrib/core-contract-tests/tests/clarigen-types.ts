@@ -4020,6 +4020,21 @@ export const contracts = {
           bigint
         >
       >,
+      removeStakerFromSetForCycle: {
+        name: 'remove-staker-from-set-for-cycle',
+        access: 'private',
+        args: [
+          { name: 'stacker', type: 'principal' },
+          { name: 'cycle', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          stacker: TypedAbiArg<string, 'stacker'>,
+          cycle: TypedAbiArg<number | bigint, 'cycle'>,
+        ],
+        Response<boolean, bigint>
+      >,
       removeStakerFromSignerForCycle: {
         name: 'remove-staker-from-signer-for-cycle',
         access: 'private',
@@ -4575,21 +4590,6 @@ export const contracts = {
           },
           bigint
         >
-      >,
-      removeStakerFromSetForCycle: {
-        name: 'remove-staker-from-set-for-cycle',
-        access: 'public',
-        args: [
-          { name: 'stacker', type: 'principal' },
-          { name: 'cycle', type: 'uint128' },
-        ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [
-          stacker: TypedAbiArg<string, 'stacker'>,
-          cycle: TypedAbiArg<number | bigint, 'cycle'>,
-        ],
-        Response<boolean, bigint>
       >,
       revokeSignerGrant: {
         name: 'revoke-signer-grant',
