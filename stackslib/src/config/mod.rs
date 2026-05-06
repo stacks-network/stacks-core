@@ -140,10 +140,10 @@ const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Default maximum memory allocation during miner block assembly
-const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 5 * 1024 * 1024 * 1024; // 5 GB
+const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
 /// Default maximum memory allocation during block proposal evaluation. Defaults higher than miner default
 ///  to avoid miner/signer environment skews.
-pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 8 * 1024 * 1024 * 1024; // 8 GB
+pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
