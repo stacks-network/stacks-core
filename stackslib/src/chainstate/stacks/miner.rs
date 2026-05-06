@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
 
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::VmExecutionError;
 use serde::Deserialize;
@@ -39,6 +40,7 @@ use stacks_common::util::vrf::*;
 use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
+use crate::chainstate::nakamoto::miner::make_mem_abort_callback;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
@@ -2688,11 +2690,9 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                 fault_injection_stall_tx();
 
                 if settings.max_assembly_mem_bytes > 0 {
-                    epoch_tx.set_abort_callback(
-                        crate::chainstate::nakamoto::miner::make_mem_abort_callback(
-                            settings.max_assembly_mem_bytes,
-                        ),
-                    );
+                    epoch_tx.set_abort_callback(make_mem_abort_callback(
+                        settings.max_assembly_mem_bytes,
+                    ));
                 }
 
                 let tx_result = builder.try_mine_tx_with_len(
@@ -2703,6 +2703,8 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     settings.max_execution_time,
                     &mut receipts_total,
                 );
+
+                epoch_tx.set_abort_callback(AbortCallback::None);
 
                 let result_event = tx_result.convert_to_event();
                 match tx_result {

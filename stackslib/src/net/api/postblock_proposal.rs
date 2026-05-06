@@ -21,6 +21,7 @@ use std::sync::LazyLock;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{ResponseData, TupleData};
@@ -37,7 +38,9 @@ use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
+use crate::chainstate::nakamoto::miner::{
+    make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
+};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
@@ -738,9 +741,7 @@ impl NakamotoBlockProposal {
             let tx_len = tx.tx_len();
 
             if max_tx_mem_bytes > 0 {
-                tenure_tx.set_abort_callback(
-                    crate::chainstate::nakamoto::miner::make_mem_abort_callback(max_tx_mem_bytes),
-                );
+                tenure_tx.set_abort_callback(make_mem_abort_callback(max_tx_mem_bytes));
             }
 
             let tx_result = builder.try_mine_tx_with_len(
@@ -751,6 +752,9 @@ impl NakamotoBlockProposal {
                 Some(remaining),
                 &mut receipts_total,
             );
+
+            tenure_tx.set_abort_callback(AbortCallback::None);
+
             let reason = match tx_result {
                 TransactionResult::Success(success_result) => {
                     let all_events_valid = success_result
