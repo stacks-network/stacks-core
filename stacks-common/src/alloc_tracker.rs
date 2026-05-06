@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,42 +12,36 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use core::cell::Cell;
 use std::alloc::{GlobalAlloc, Layout};
-use std::cell::Cell;
 
 thread_local! {
     static THREAD_ALLOCATIONS: Cell<AllocationCounter> = const { Cell::new(AllocationCounter::ZERO) };
 }
 
-/// Counter for allocated and deallocated bytes
+/// Counter for net allocated bytes
 #[derive(Clone, Copy)]
 pub struct AllocationCounter {
-    allocated: u64,
-    deallocated: u64,
+    net_allocated: u64,
 }
 
 impl AllocationCounter {
-    pub const ZERO: Self = Self {
-        allocated: 0,
-        deallocated: 0,
-    };
+    pub const ZERO: Self = Self { net_allocated: 0 };
 
     /// Net allocation (allocated - deallocated) over a `baseline`
     pub fn net_allocated(&self, baseline: &AllocationCounter) -> u64 {
-        let alloc = self.allocated.saturating_sub(baseline.allocated);
-        let dealloc = self.deallocated.saturating_sub(baseline.deallocated);
-        alloc.saturating_sub(dealloc)
+        self.net_allocated.saturating_sub(baseline.net_allocated)
     }
 
-    /// Return `self` with allocated incremented by `increment`
-    fn increment_alloc(mut self, increment: u64) -> Self {
-        self.allocated += increment;
+    /// Return `self` with net allocated incremented by `increment`
+    fn increment(mut self, increment: u64) -> Self {
+        self.net_allocated = self.net_allocated.saturating_add(increment);
         self
     }
 
-    /// Return `self` with deallocated incremented by `increment`
-    fn increment_dealloc(mut self, increment: u64) -> Self {
-        self.deallocated += increment;
+    /// Return `self` with net allocated decremented by `decrement`
+    fn decrement(mut self, decrement: u64) -> Self {
+        self.net_allocated = self.net_allocated.saturating_sub(decrement);
         self
     }
 }
@@ -76,7 +69,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
         let ptr = unsafe { self.inner.alloc(layout) };
         if !ptr.is_null() {
             let _ = THREAD_ALLOCATIONS.try_with(|c| {
-                let next = c.get().increment_alloc(layout.size() as u64);
+                let next = c.get().increment(layout.size() as u64);
                 c.set(next);
             });
         }
@@ -86,7 +79,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         unsafe { self.inner.dealloc(ptr, layout) };
         let _ = THREAD_ALLOCATIONS.try_with(|c| {
-            let next = c.get().increment_dealloc(layout.size() as u64);
+            let next = c.get().decrement(layout.size() as u64);
             c.set(next);
         });
     }
@@ -95,7 +88,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
         let ptr = unsafe { self.inner.alloc_zeroed(layout) };
         if !ptr.is_null() {
             let _ = THREAD_ALLOCATIONS.try_with(|c| {
-                let next = c.get().increment_alloc(layout.size() as u64);
+                let next = c.get().increment(layout.size() as u64);
                 c.set(next);
             });
         }
@@ -110,8 +103,8 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
             let _ = THREAD_ALLOCATIONS.try_with(|c| {
                 let next = c
                     .get()
-                    .increment_dealloc(layout.size() as u64)
-                    .increment_alloc(new_size as u64);
+                    .decrement(layout.size() as u64)
+                    .increment(new_size as u64);
                 c.set(next);
             });
         }

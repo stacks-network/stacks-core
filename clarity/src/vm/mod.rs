@@ -483,7 +483,11 @@ pub fn apply_evaluated(
     )
 }
 
-fn check_max_execution_time_expired(
+/// Check for interpreter-level abort conditions.
+///
+/// Currently, this is either the AbortCallback or the execution
+///  time limit.
+fn check_interpreter_abort_condition(
     global_context: &GlobalContext,
 ) -> Result<(), VmExecutionError> {
     match global_context.execution_time_tracker {
@@ -516,7 +520,7 @@ pub fn eval<'a>(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    check_max_execution_time_expired(exec_state.global_context)?;
+    check_interpreter_abort_condition(exec_state.global_context)?;
 
     if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
