@@ -41,6 +41,7 @@ use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::nakamoto::signer_set::{pox_5_sbtc_contract, SBTC_TOKEN_MAINNET_CONTRACT};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::{StacksChainState, StacksDBConn};
 use crate::chainstate::stacks::Error;
@@ -129,7 +130,6 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{POX_3_BODY}");
     pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
-    pub static ref POX_5_CODE: String = POX_5_BODY.to_string();
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -195,6 +195,29 @@ pub fn make_sip_031_body(is_mainnet: bool) -> String {
         &format!("(define-data-var recipient principal '{addr})"),
         1,
     )
+}
+
+/// Generate the contract body for the pox-5 contract.
+///
+/// On mainnet the body is used verbatim, with the canonical sBTC contract
+/// literal baked in. On non-mainnet networks, every occurrence of the
+/// canonical literal is rewritten to point at the configured sBTC token
+/// contract via [`set_pox_5_sbtc_contract`] (typically configured from the
+/// node config file), falling back to a well-known testnet default when
+/// unset. Calling this with `is_mainnet = true` ignores the override
+/// entirely.
+///
+/// NB: We left multiple literals in the body instead of defining a constant
+/// because the read-only checker only resolves the read-only-ness of
+/// `(contract-call? <X> ...)` for *literal* contract principals — not for
+/// `define-constant`s — and pox-5 has read-only functions that call the
+/// sBTC token's `get-balance`.
+pub fn make_pox_5_body(is_mainnet: bool) -> String {
+    if is_mainnet {
+        return POX_5_BODY.to_string();
+    }
+    let sbtc_contract = pox_5_sbtc_contract(is_mainnet);
+    POX_5_BODY.replace(SBTC_TOKEN_MAINNET_CONTRACT, &sbtc_contract.to_string())
 }
 
 pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
@@ -1433,6 +1456,50 @@ pub mod pox_4_tests;
 pub mod signers_tests;
 
 #[cfg(test)]
+mod pox_5_body_tests {
+    use super::*;
+    use crate::chainstate::nakamoto::signer_set::{
+        set_pox_5_sbtc_contract, SBTC_TOKEN_TESTNET_CONTRACT,
+    };
+
+    #[test]
+    fn make_pox_5_body_substitution() {
+        // Reset the global to a known state; another test may have left a
+        // value behind.
+        set_pox_5_sbtc_contract(None);
+
+        // Mainnet body preserves the canonical literal verbatim regardless of
+        // any override.
+        let body_mainnet = make_pox_5_body(true);
+        assert!(body_mainnet.contains(SBTC_TOKEN_MAINNET_CONTRACT));
+
+        // With no override, non-mainnet falls back to the testnet default.
+        let body_non_mainnet_default = make_pox_5_body(false);
+        assert!(body_non_mainnet_default.contains(SBTC_TOKEN_TESTNET_CONTRACT));
+        assert!(!body_non_mainnet_default.contains(SBTC_TOKEN_MAINNET_CONTRACT));
+
+        // With an override, the canonical literal is replaced on non-mainnet
+        // but ignored on mainnet.
+        let alt = QualifiedContractIdentifier::parse(
+            "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtc-token",
+        )
+        .unwrap();
+        set_pox_5_sbtc_contract(Some(alt.clone()));
+
+        let body_override = make_pox_5_body(false);
+        assert!(body_override.contains(&alt.to_string()));
+        assert!(!body_override.contains(SBTC_TOKEN_MAINNET_CONTRACT));
+
+        let body_mainnet_with_override = make_pox_5_body(true);
+        assert!(body_mainnet_with_override.contains(SBTC_TOKEN_MAINNET_CONTRACT));
+        assert!(!body_mainnet_with_override.contains(&alt.to_string()));
+
+        // Clean up so we don't leak into other tests in this binary.
+        set_pox_5_sbtc_contract(None);
+    }
+}
+
+#[cfg(test)]
 pub mod test {
     use std::collections::HashSet;
 
@@ -1526,6 +1593,7 @@ pub mod test {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

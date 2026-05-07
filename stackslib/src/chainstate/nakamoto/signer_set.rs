@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
@@ -35,6 +36,47 @@ use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
+
+/// The default mainnet sBTC token contract.
+pub const SBTC_TOKEN_MAINNET_CONTRACT: &str =
+    "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+/// The default testnet sBTC token contract.
+/// Used as the default on any testnet unless overridden via
+/// [`set_pox_5_sbtc_contract`], typically via the `pox_5_sbtc_contract`
+/// field in the node config file.
+pub const SBTC_TOKEN_TESTNET_CONTRACT: &str = "SN69P7RZRKK8ERQCCABHT2JWKB2S4DHH9H74231T.sbtc-token";
+
+/// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
+/// references. Read in two places:
+///   * `make_pox_5_body` rewrites the canonical mainnet sBTC literal in the
+///     contract source so pox-5's `(contract-call? ... get-balance ...)`
+///     hits this contract.
+///   * signer-set computation reads `get-current-aggregate-pubkey` from this
+///     contract to derive the per-cycle sBTC waterfall recipient.
+///
+/// Set once at node startup from `NodeConfig::pox_5_sbtc_contract`. Goes away
+/// when PoX-5 routing is wired and the aggregate pubkey lives on-chain.
+static POX_5_SBTC_CONTRACT: RwLock<Option<QualifiedContractIdentifier>> = RwLock::new(None);
+
+/// Set the configured PoX-5 sBTC contract id. Call once during node startup
+/// from the run-loop, with the value parsed out of `NodeConfig`.
+pub fn set_pox_5_sbtc_contract(contract_id: Option<QualifiedContractIdentifier>) {
+    *POX_5_SBTC_CONTRACT.write().unwrap() = contract_id;
+}
+
+pub fn pox_5_sbtc_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
+    let contract_id = POX_5_SBTC_CONTRACT.read().unwrap().clone();
+    if let Some(contract_id) = contract_id {
+        contract_id
+    } else if is_mainnet {
+        QualifiedContractIdentifier::parse(SBTC_TOKEN_MAINNET_CONTRACT)
+            .expect("Invalid default mainnet sBTC contract ID")
+    } else {
+        QualifiedContractIdentifier::parse(SBTC_TOKEN_TESTNET_CONTRACT)
+            .expect("Invalid default testnet sBTC contract ID")
+    }
+}
 
 pub struct NakamotoSigners();
 
