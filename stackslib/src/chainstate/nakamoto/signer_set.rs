@@ -15,25 +15,33 @@
 
 use std::collections::HashMap;
 use std::sync::RwLock;
+use std::sync::{LazyLock, Mutex};
 
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
+};
 use clarity::vm::{ClarityName, SymbolicExpression, Value};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
-    SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, PoxVersions, RawRewardSetEntry, RewardSet, WaterfallCycleSet, POX_5_NAME,
+    SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN, SIGNERS_UPDATE_STATE,
+    SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use crate::chainstate::stacks::sbtc::sbtc_deposit_taproot_output_key;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
+use crate::core::POX_5_SBTC_DEPOSIT_MAX_FEE_SATS;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 
@@ -46,6 +54,18 @@ pub const SBTC_TOKEN_MAINNET_CONTRACT: &str =
 /// [`set_pox_5_sbtc_contract`], typically via the `pox_5_sbtc_contract`
 /// field in the node config file.
 pub const SBTC_TOKEN_TESTNET_CONTRACT: &str = "SN69P7RZRKK8ERQCCABHT2JWKB2S4DHH9H74231T.sbtc-token";
+
+pub static SBTC_TOKEN_MAINNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| {
+        QualifiedContractIdentifier::parse(SBTC_TOKEN_MAINNET_CONTRACT)
+            .expect("Invalid default mainnet sBTC contract ID")
+    });
+
+pub static SBTC_TOKEN_TESTNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| {
+        QualifiedContractIdentifier::parse(SBTC_TOKEN_TESTNET_CONTRACT)
+            .expect("Invalid default mainnet sBTC contract ID")
+    });
 
 /// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
 /// references. Read in two places:
@@ -66,15 +86,14 @@ pub fn set_pox_5_sbtc_contract(contract_id: Option<QualifiedContractIdentifier>)
 }
 
 pub fn pox_5_sbtc_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
+    if is_mainnet {
+        return SBTC_TOKEN_MAINNET_CONTRACT_ID.clone();
+    }
     let contract_id = POX_5_SBTC_CONTRACT.read().unwrap().clone();
     if let Some(contract_id) = contract_id {
         contract_id
-    } else if is_mainnet {
-        QualifiedContractIdentifier::parse(SBTC_TOKEN_MAINNET_CONTRACT)
-            .expect("Invalid default mainnet sBTC contract ID")
     } else {
-        QualifiedContractIdentifier::parse(SBTC_TOKEN_TESTNET_CONTRACT)
-            .expect("Invalid default testnet sBTC contract ID")
+        SBTC_TOKEN_TESTNET_CONTRACT_ID.clone()
     }
 }
 
@@ -95,6 +114,46 @@ pub fn set_pox_5_bond_admin(principal: Option<PrincipalData>) {
 /// Read the configured PoX-5 bond admin principal, if one was set.
 pub fn pox_5_bond_admin() -> Option<PrincipalData> {
     POX_5_BOND_ADMIN.read().unwrap().clone()
+}
+
+/// Test-only override: when set, `pox_5_compute_and_update_signers` substitutes
+/// these `(signer_key, amount_ustx)` pairs in place of what the (placeholder)
+/// PoX-5 contract body would produce for the given reward cycle. The pairs are
+/// fed through `pox_5_make_signer_set` so threshold/weight/sort all match the
+/// production code path.
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_WATERFALL_SIGNER_SET_OVERRIDE: LazyLock<
+    TestFlag<HashMap<u64, Vec<([u8; SIGNERS_PK_LEN], u128)>>>,
+> = LazyLock::new(TestFlag::default);
+
+/// Test-only override: when set to `Some(true)`, force the PoX-5 dispatch arm
+/// in `check_and_handle_prepare_phase_start` to run as soon as
+/// `epoch >= Epoch40`. Without this, `PoxConstants::active_pox_contract` never
+/// returns `pox-5` (production routing for PoX-5 is not yet wired), so the
+/// PoX-5 code path is unreachable.
+///
+/// DELETE once PoX-5 activation height is set in PoxConstants
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_FORCE_POX_5_ACTIVE: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+#[cfg(any(test, feature = "testing"))]
+fn waterfall_signer_set_override(reward_cycle: u64) -> Option<Vec<([u8; SIGNERS_PK_LEN], u128)>> {
+    TEST_WATERFALL_SIGNER_SET_OVERRIDE
+        .get_opt()
+        .and_then(|map| map.get(&reward_cycle).cloned())
+}
+#[cfg(not(any(test, feature = "testing")))]
+fn waterfall_signer_set_override(_reward_cycle: u64) -> Option<Vec<([u8; SIGNERS_PK_LEN], u128)>> {
+    None
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn force_pox_5_active() -> bool {
+    TEST_FORCE_POX_5_ACTIVE.get_opt().unwrap_or(false)
+}
+#[cfg(not(any(test, feature = "testing")))]
+fn force_pox_5_active() -> bool {
+    false
 }
 
 pub struct NakamotoSigners();
@@ -199,8 +258,210 @@ impl RawRewardSetEntry {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub enum RawPox5EntryInfo {
+    Pool(PrincipalData),
+    Solo {
+        pox_addr: PoxAddress,
+        signer_key: [u8; 33],
+    },
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct RawPox5Entry {
+    pub(crate) user: StandardPrincipalData,
+    pub(crate) num_cycles: u128,
+    pub(crate) amount_ustx: u128,
+    pub(crate) first_reward_cycle: u128,
+    pub(crate) signer_key: [u8; SIGNERS_PK_LEN],
+}
+
+impl RawPox5Entry {
+    /// Try parsing a value from PoX-5 into a `RawPox5Entry`, if any step of the parsing
+    /// (or validation) fails, return a string error.
+    fn try_parse(user: PrincipalData, value: Value, is_mainnet: bool) -> Result<Self, String> {
+        let PrincipalData::Standard(user) = user else {
+            return Err("Expected a standard principal, not a contract".into());
+        };
+        if is_mainnet != user.is_mainnet() {
+            return Err("Expected in-network principal version".into());
+        }
+        let mut value = value
+            .expect_tuple()
+            .map_err(|_| "Staking entry should be a tuple")?;
+        let num_cycles = value
+            .data_map
+            .get("num-cycles")
+            .ok_or_else(|| "Staking entry should have num-cycles")?
+            .clone()
+            .expect_u128()
+            .map_err(|_| "Staking entry should be uint")?;
+        let first_reward_cycle = value
+            .data_map
+            .get("first-reward-cycle")
+            .ok_or_else(|| "Staking entry should have first-reward-cycle")?
+            .clone()
+            .expect_u128()
+            .map_err(|_| "Staking entry should be uint")?;
+        let amount_ustx = value
+            .data_map
+            .get("amount-ustx")
+            .ok_or_else(|| "Staking entry should have amount-ustx")?
+            .clone()
+            .expect_u128()
+            .map_err(|_| "Staking entry should be uint")?;
+        let signer_key_buff = value
+            .data_map
+            .remove("signer-key")
+            .ok_or_else(|| "Staking entry should have signer-key")?
+            .expect_buff(SIGNERS_PK_LEN)
+            .map_err(|_| format!("Staking signer-key should be (buff {SIGNERS_PK_LEN})"))?;
+        let signer_key = signer_key_buff
+            .try_into()
+            .unwrap_or_else(|_| [0; SIGNERS_PK_LEN]);
+
+        Ok(Self {
+            user,
+            num_cycles,
+            first_reward_cycle,
+            amount_ustx,
+            signer_key,
+        })
+    }
+}
+
+pub struct StakeEntryIteratorPox5<'a, 'b, 'c> {
+    current_staker: Option<PrincipalData>,
+    pox_contract: QualifiedContractIdentifier,
+    is_mainnet: bool,
+    clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
+    reward_cycle_clar: SymbolicExpression,
+    pox_constants: PoxConstants,
+}
+
+#[derive(Debug)]
+pub enum PoxEntryParsingError {
+    /// Errors for which PoX set calculation should continue, but skip
+    ///  the offending entry.
+    Skip(String),
+    /// Errors for which PoX set calculation should abort.
+    Abort(String),
+}
+
+impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
+    fn fallible_next(&mut self) -> Result<Option<RawPox5Entry>, PoxEntryParsingError> {
+        let Some(cur_staker) = self.current_staker.take() else {
+            return Ok(None);
+        };
+
+        let lookup_staker = SymbolicExpression::atom_value(Value::Principal(cur_staker.clone()));
+        // update the iterator using the linked list
+        let next_staker = self
+            .clarity
+            .eval_method_read_only(
+                &self.pox_contract,
+                "get-staker-set-next-item-for-cycle",
+                &[lookup_staker.clone(), self.reward_cycle_clar.clone()],
+            )
+            .map_err(|e| PoxEntryParsingError::Abort(e.to_string()))?
+            .expect_optional()
+            .map_err(|_| {
+                PoxEntryParsingError::Abort(
+                    "get-staker-set-next-item-for-cycle did not return optional".into(),
+                )
+            })?
+            .map(|entry| entry.expect_principal())
+            .transpose()
+            .map_err(|_| {
+                PoxEntryParsingError::Abort(
+                    "get-staker-set-next-item-for-cycle did not return principal".into(),
+                )
+            })?;
+        self.current_staker = next_staker;
+
+        // errors below this point just continue the iterator, while errors above should
+        //  cancel the calculation.
+        let staker_entry_clar = self
+            .clarity
+            .eval_method_read_only(&self.pox_contract, "get-staker-info", &[lookup_staker])
+            .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
+            .expect_optional()
+            .map_err(|_| {
+                PoxEntryParsingError::Skip("get-staker-info did not return optional".into())
+            })?
+            .ok_or_else(|| {
+                PoxEntryParsingError::Skip(format!(
+                    "get-staker-info did not return Some: {cur_staker}"
+                ))
+            })?;
+
+        let staker_entry = RawPox5Entry::try_parse(cur_staker, staker_entry_clar, self.is_mainnet)
+            .map_err(PoxEntryParsingError::Skip)?;
+
+        Ok(Some(staker_entry))
+    }
+}
+
+impl<'a, 'b, 'c> Iterator for StakeEntryIteratorPox5<'a, 'b, 'c> {
+    type Item = Result<RawPox5Entry, PoxEntryParsingError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        StakeEntryIteratorPox5::fallible_next(self).transpose()
+    }
+}
+
 impl NakamotoSigners {
-    fn get_reward_slots(
+    fn pox_5_stake_entries<'a, 'b, 'c>(
+        clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
+        reward_cycle: u64,
+        pox_contract: &str,
+        pox_constants: PoxConstants,
+    ) -> Result<StakeEntryIteratorPox5<'a, 'b, 'c>, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        let _pox_version = if let Some(pox_version) = PoxVersions::lookup_by_name(pox_contract) {
+            if pox_version < PoxVersions::Pox5 {
+                error!("Invoked PoX-5 reward-set fetch on lower than pox-5 contract");
+                return Err(ChainstateError::DefunctPoxContract);
+            }
+            pox_version
+        } else {
+            error!("Invalid pox contract");
+            return Err(ChainstateError::DefunctPoxContract);
+        };
+
+        let pox_contract = boot_code_id(pox_contract, is_mainnet);
+        let reward_cycle_clar = SymbolicExpression::atom_value(Value::UInt(reward_cycle.into()));
+        let current_staker = clarity
+            .eval_method_read_only(
+                &pox_contract,
+                "get-staker-set-first-item-for-cycle",
+                &[reward_cycle_clar.clone()],
+            )?
+            .expect_optional()
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "get-staker-set-first-item-for-cycle did not return optional".into(),
+                )
+            })?
+            .map(|value| value.expect_principal())
+            .transpose()
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "get-staker-set-first-item-for-cycle did not return optional principal".into(),
+                )
+            })?;
+
+        Ok(StakeEntryIteratorPox5 {
+            current_staker,
+            pox_contract,
+            is_mainnet,
+            clarity,
+            reward_cycle_clar,
+            pox_constants,
+        })
+    }
+
+    fn get_pox_4_reward_slots(
         clarity: &mut ClarityTransactionConnection,
         reward_cycle: u64,
         pox_contract: &str,
@@ -210,9 +471,10 @@ impl NakamotoSigners {
             PoxVersions::lookup_by_name(pox_contract),
             Some(PoxVersions::Pox4)
         ) {
-            error!("Invoked Nakamoto reward-set fetch on non-pox-4 contract");
+            error!("Invoked Nakamoto PoX-4 reward-set fetch on non-pox-4 contract");
             return Err(ChainstateError::DefunctPoxContract);
         }
+
         let pox_contract = &boot_code_id(pox_contract, is_mainnet);
 
         let list_length = clarity
@@ -250,44 +512,26 @@ impl NakamotoSigners {
                 })?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
-
             slots.push(entry)
         }
 
         Ok(slots)
     }
 
-    /// Compute the reward set for the next reward cycle, store it, and write it to the .signers
-    /// contract.  `reward_cycle` is the _current_ reward cycle.
-    pub fn handle_signer_stackerdb_update(
+    fn update_signers(
         clarity: &mut ClarityTransactionConnection,
-        pox_constants: &PoxConstants,
         reward_cycle: u64,
-        pox_contract: &str,
+        signers: &Vec<NakamotoSignerEntry>,
+        signers_contract: &QualifiedContractIdentifier,
+        has_participation: bool,
         coinbase_height: u64,
-    ) -> Result<SignerCalculation, ChainstateError> {
-        let is_mainnet = clarity.is_mainnet();
+        is_mainnet: bool,
+    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
-        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
-
-        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
-        let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            pox_constants,
-            &reward_slots[..],
-            liquid_ustx,
-        );
-        let reward_set =
-            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
-
-        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
-        let stackerdb_list = if participation == 0 {
+        let stackerdb_list = if !has_participation {
             vec![]
         } else {
-            reward_set
-                .signers
-                .as_ref()
-                .ok_or(ChainstateError::PoxNoRewardCycle)?
+            signers
                 .iter()
                 .map(|signer| {
                     let signer_hash = Hash160::from_data(&signer.signing_key);
@@ -309,13 +553,10 @@ impl NakamotoSigners {
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        let signers_list = if participation == 0 {
+        let signers_list = if !has_participation {
             vec![]
         } else {
-            reward_set
-                .signers
-                .as_ref()
-                .ok_or(ChainstateError::PoxNoRewardCycle)?
+            signers
                 .iter()
                 .map(|signer| {
                     let signer_hash = Hash160::from_data(&signer.signing_key);
@@ -405,7 +646,203 @@ impl NakamotoSigners {
             }
         }
 
+        Ok(events)
+    }
+
+    /// For PoX-4, compute the reward set for the next reward cycle,
+    /// store it, and write it to the .signers contract.
+    ///
+    /// * `reward_cycle` is the reward cycle for the calculation (i.e., the next cycle).
+    fn pox_4_compute_and_update_signers(
+        clarity: &mut ClarityTransactionConnection,
+        pox_constants: &PoxConstants,
+        reward_cycle: u64,
+        pox_contract: &str,
+        coinbase_height: u64,
+    ) -> Result<SignerCalculation, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
+
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
+        let reward_slots = Self::get_pox_4_reward_slots(clarity, reward_cycle, pox_contract)?;
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            pox_constants,
+            &reward_slots[..],
+            liquid_ustx,
+        );
+
+        let reward_set =
+            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
+
+        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
+
+        let events = Self::update_signers(
+            clarity,
+            reward_cycle,
+            reward_set
+                .signers()
+                .ok_or(ChainstateError::PoxNoRewardCycle)?,
+            signers_contract,
+            participation > 0,
+            coinbase_height,
+            is_mainnet,
+        )?;
+
         Ok(SignerCalculation { events, reward_set })
+    }
+
+    /// For PoX-5, compute the reward set for the next reward cycle,
+    /// store it, and write it to the .signers contract.
+    ///
+    /// * `reward_cycle` is the reward cycle for the calculation (i.e., the next cycle).
+    fn pox_5_compute_and_update_signers(
+        clarity: &mut ClarityTransactionConnection,
+        pox_constants: &PoxConstants,
+        reward_cycle: u64,
+        pox_contract: &str,
+        coinbase_height: u64,
+        _current_calculation_btc_height: u32,
+        _current_epoch: &StacksEpochId,
+    ) -> Result<SignerCalculation, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
+
+        // Build the `(signer_key, amount_ustx)` pair stream: either from a test
+        // override (while the PoX-5 contract is unimplemented)
+        let signer_set = if let Some(override_pairs) = waterfall_signer_set_override(reward_cycle) {
+            let stub_user = StandardPrincipalData::transient();
+            let stub_first_reward_cycle = u128::from(reward_cycle);
+            let mut entries = override_pairs
+                .into_iter()
+                .map(move |(signer_key, amount_ustx)| {
+                    Ok(RawPox5Entry {
+                        user: stub_user.clone(),
+                        num_cycles: 1,
+                        amount_ustx,
+                        first_reward_cycle: stub_first_reward_cycle,
+                        signer_key,
+                    })
+                });
+            Self::pox_5_make_signer_set(&mut entries, pox_constants)?
+        } else {
+            let mut entries = Self::pox_5_stake_entries(
+                clarity,
+                reward_cycle,
+                pox_contract,
+                pox_constants.clone(),
+            )?;
+            let _pox_contract_id = boot_code_id(pox_contract, is_mainnet);
+            Self::pox_5_make_signer_set(&mut entries, pox_constants)?
+        };
+
+        let events = Self::update_signers(
+            clarity,
+            reward_cycle,
+            &signer_set,
+            signers_contract,
+            signer_set.len() > 0,
+            coinbase_height,
+            is_mainnet,
+        )?;
+
+        let sbtc_contract_id = pox_5_sbtc_contract(is_mainnet);
+
+        let pubkey_buff = clarity
+            .eval_method_read_only(&sbtc_contract_id, "get-current-aggregate-pubkey", &[])?
+            .expect_buff(33)
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "get-current-aggregate-pubkey did not return a buffer of <= 33 bytes".into(),
+                )
+            })?;
+        if pubkey_buff.len() != 33 {
+            return Err(ChainstateError::Expects(format!(
+                    "get-current-aggregate-pubkey returned {} bytes; expected exactly 33 (compressed secp256k1)",
+                    pubkey_buff.len()
+                )));
+        }
+        let pubkey_array: [u8; 33] = pubkey_buff.try_into().expect("length checked above");
+
+        let recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
+        let output_key = sbtc_deposit_taproot_output_key(
+            &pubkey_array,
+            &recipient,
+            POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,
+        )?;
+
+        let sbtc_address = PoxAddress::Addr32(is_mainnet, PoxAddressType32::P2TR, output_key);
+
+        // if we want to "write-back" any state to PoX-5 (e.g., computed weights)
+        //  we should do it here
+
+        Ok(SignerCalculation {
+            reward_set: RewardSet::Waterfall(WaterfallCycleSet {
+                sbtc_address,
+                signers: signer_set,
+            }),
+            events,
+        })
+    }
+
+    pub(crate) fn pox_5_make_signer_set<I>(
+        entries: &mut I,
+        pox_constants: &PoxConstants,
+    ) -> Result<Vec<NakamotoSignerEntry>, ChainstateError>
+    where
+        I: Iterator<Item = Result<RawPox5Entry, PoxEntryParsingError>>,
+    {
+        let mut signer_set = HashMap::new();
+        let mut total_ustx_locked = 0u128;
+        for entry_res in entries {
+            let entry = match entry_res {
+                Ok(x) => x,
+                Err(PoxEntryParsingError::Skip(err_str)) => {
+                    warn!(
+                        "Error while iterating PoX-5 entries, impacting a single entry. Dropping entry from signer set";
+                        "error" => err_str
+                    );
+                    continue;
+                }
+                Err(PoxEntryParsingError::Abort(err_str)) => {
+                    error!(
+                        "Abort-triggering error while iterating PoX-5 entries";
+                        "error" => err_str
+                    );
+                    return Err(ChainstateError::PoxNoRewardCycle);
+                }
+            };
+
+            total_ustx_locked += entry.amount_ustx;
+
+            signer_set
+                .entry(entry.signer_key)
+                .and_modify(|existing_entry| *existing_entry += entry.amount_ustx)
+                .or_insert_with(|| entry.amount_ustx);
+        }
+
+        let threshold = total_ustx_locked / u128::from(pox_constants.reward_slots());
+
+        let mut signer_set: Vec<_> = signer_set
+            .into_iter()
+            .filter_map(|(signing_key, stacked_amt)| {
+                let weight = u32::try_from(stacked_amt / threshold)
+                    .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
+                if weight == 0 {
+                    return None;
+                }
+                Some(NakamotoSignerEntry {
+                    signing_key,
+                    stacked_amt,
+                    weight,
+                })
+            })
+            .collect();
+
+        // finally, we must sort the signer set: the signer participation bit vector depends
+        //  on a consensus-critical ordering of the signer set.
+        signer_set.sort_by_key(|entry| entry.signing_key);
+
+        Ok(signer_set)
     }
 
     /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
@@ -417,7 +854,7 @@ impl NakamotoSigners {
         clarity_tx: &mut ClarityTx,
         first_block_height: u64,
         pox_constants: &PoxConstants,
-        burn_tip_height: u64,
+        burn_tip_height: u32,
         coinbase_height: u64,
     ) -> Result<Option<SignerCalculation>, ChainstateError> {
         let current_epoch = clarity_tx.get_epoch();
@@ -425,27 +862,36 @@ impl NakamotoSigners {
             // before Epoch-2.5, no need for special handling
             return Ok(None);
         }
+
         // now, determine if we are in a prepare phase, and we are the first
         //  block in this prepare phase in our fork
-        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height) {
+        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height.into()) {
             // if we're not in a prepare phase, don't need to do anything
             return Ok(None);
         }
 
         let Some(cycle_of_prepare_phase) =
-            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height)
+            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height.into())
         else {
             // if we're not in a prepare phase, don't need to do anything
             return Ok(None);
         };
 
-        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height);
-        if !matches!(
-            PoxVersions::lookup_by_name(active_pox_contract),
-            Some(PoxVersions::Pox4)
-        ) {
+        let active_pox_contract = if force_pox_5_active() && current_epoch >= StacksEpochId::Epoch40
+        {
+            POX_5_NAME
+        } else {
+            pox_constants.active_pox_contract(burn_tip_height.into())
+        };
+
+        let Some(current_pox_version) = PoxVersions::lookup_by_name(active_pox_contract) else {
+            debug!("Active PoX contract is not a recognized version, skipping .signers updates");
+            return Ok(None);
+        };
+
+        if current_pox_version < PoxVersions::Pox4 {
             debug!(
-                "Active PoX contract is not PoX-4, skipping .signers updates until PoX-4 is active"
+                "Active PoX contract is lower than PoX-4, skipping .signers updates until PoX-4 is active"
             );
             return Ok(None);
         }
@@ -453,7 +899,7 @@ impl NakamotoSigners {
         let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
 
         // are we the first block in the prepare phase in our fork?
-        let needs_update: Result<_, ChainstateError> = clarity_tx
+        let needs_update_result: Result<_, ChainstateError> = clarity_tx
             .connection()
             .with_clarity_db_readonly(|clarity_db| {
                 if !clarity_db.has_contract(signers_contract) {
@@ -472,10 +918,13 @@ impl NakamotoSigners {
                 })?;
                 // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
                 //  the .signers state.
-                Ok(cycle_number < u128::from(cycle_of_prepare_phase))
+                let needs_update = cycle_number < u128::from(cycle_of_prepare_phase);
+                Ok(needs_update)
             });
 
-        if !needs_update? {
+        let needs_update = needs_update_result?;
+
+        if !needs_update {
             debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
             return Ok(None);
         }
@@ -490,14 +939,28 @@ impl NakamotoSigners {
 
         clarity_tx
             .connection()
-            .as_free_transaction(|clarity| {
-                Self::handle_signer_stackerdb_update(
+            .as_free_transaction(|clarity| match current_pox_version {
+                PoxVersions::Pox1 | PoxVersions::Pox2 | PoxVersions::Pox3 => {
+                    Err(ChainstateError::Expects(
+                        "Unexpected Pre-Nakamoto PoX version when computing signer set".into(),
+                    ))
+                }
+                PoxVersions::Pox4 => Self::pox_4_compute_and_update_signers(
                     clarity,
                     pox_constants,
                     cycle_of_prepare_phase,
                     active_pox_contract,
                     coinbase_height,
-                )
+                ),
+                PoxVersions::Pox5 => Self::pox_5_compute_and_update_signers(
+                    clarity,
+                    pox_constants,
+                    cycle_of_prepare_phase,
+                    active_pox_contract,
+                    coinbase_height,
+                    burn_tip_height,
+                    &current_epoch,
+                ),
             })
             .map(Some)
     }

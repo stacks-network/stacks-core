@@ -123,7 +123,7 @@ impl StandardPrincipalData {
         (version, bytes)
     }
 
-    pub fn is_mainnet(self) -> bool {
+    pub fn is_mainnet(&self) -> bool {
         self.0 == C32_ADDRESS_VERSION_MAINNET_MULTISIG
             || self.0 == C32_ADDRESS_VERSION_MAINNET_SINGLESIG
     }

@@ -52,7 +52,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
-    PoxStartCycleInfo, COSTS_2_NAME, POX_1_NAME, POX_2_NAME, POX_3_NAME,
+    PoxStartCycleInfo, RewardSetV0, COSTS_2_NAME, POX_1_NAME, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{
@@ -485,14 +485,14 @@ impl RewardSetProvider for StubbedRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, chainstate::coordinator::Error> {
-        Ok(RewardSet {
+        Ok(RewardSet::V0(RewardSetV0 {
             rewarded_addresses: self.0.clone(),
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
             signers: None,
             pox_ustx_threshold: None,
-        })
+        }))
     }
 
     fn get_reward_set_nakamoto(
@@ -663,6 +663,8 @@ fn make_genesis_block_with_recipients(
 
     let commit_outs = if let Some(recipients) = recipients {
         let mut commit_outs = recipients
+            .as_v0()
+            .unwrap()
             .recipients
             .iter()
             .map(|(a, _)| a.clone())
@@ -939,6 +941,8 @@ fn make_stacks_block_with_input(
 
     let commit_outs = if let Some(recipients) = recipients {
         let mut commit_outs = recipients
+            .as_v0()
+            .unwrap()
             .recipients
             .iter()
             .map(|(a, _)| a.clone())
@@ -2315,7 +2319,7 @@ fn test_sortition_with_reward_set() {
             .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
-            for (addr, _) in next_block_recipients.recipients.iter() {
+            for (addr, _) in next_block_recipients.as_v0().unwrap().recipients.iter() {
                 assert!(
                     !reward_recipients.contains(addr),
                     "Reward set should not already contain address {}",
@@ -2392,11 +2396,11 @@ fn test_sortition_with_reward_set() {
                     .map(|ix| (pox_addr_from(&StacksPrivateKey::random()), ix as u16))
                     .collect()
             };
-            let bad_block_recipients = Some(RewardSetInfo {
+            let bad_block_recipients = Some(RewardSetInfo::V0(RewardSetInfoV0 {
                 anchor_block: BlockHeaderHash([0; 32]),
                 recipients,
                 allow_nakamoto_punishment: false,
-            });
+            }));
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
@@ -2580,7 +2584,7 @@ fn test_sortition_with_burner_reward_set() {
             .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
-            for (addr, _) in next_block_recipients.recipients.iter() {
+            for (addr, _) in next_block_recipients.as_v0().unwrap().recipients.iter() {
                 if !addr.is_burn() {
                     assert!(
                         !reward_recipients.contains(addr),
@@ -2634,11 +2638,11 @@ fn test_sortition_with_burner_reward_set() {
                     .map(|ix| (pox_addr_from(&StacksPrivateKey::random()), ix as u16))
                     .collect()
             };
-            let bad_block_recipients = Some(RewardSetInfo {
+            let bad_block_recipients = Some(RewardSetInfo::V0(RewardSetInfoV0 {
                 anchor_block: BlockHeaderHash([0; 32]),
                 recipients,
                 allow_nakamoto_punishment: false,
-            });
+            }));
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
@@ -2829,7 +2833,7 @@ fn test_pox_btc_ops() {
         }
 
         if let Some(ref next_block_recipients) = next_block_recipients {
-            for (addr, _) in next_block_recipients.recipients.iter() {
+            for (addr, _) in next_block_recipients.as_v0().unwrap().recipients.iter() {
                 eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
                 reward_recipients.insert(addr.clone());
             }
@@ -3116,7 +3120,7 @@ fn test_stx_transfer_btc_ops() {
         }
 
         if let Some(ref next_block_recipients) = next_block_recipients {
-            for (addr, _) in next_block_recipients.recipients.iter() {
+            for (addr, _) in next_block_recipients.as_v0().unwrap().recipients.iter() {
                 eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
                 reward_recipients.insert(addr.clone());
             }
@@ -5383,7 +5387,7 @@ fn test_sortition_with_sunset() {
         if let Some(ref next_block_recipients) = next_block_recipients {
             // this is only Some(..) if we're pre-sunset
             assert!(burnchain_tip.block_height <= sunset_ht);
-            for (addr, _) in next_block_recipients.recipients.iter() {
+            for (addr, _) in next_block_recipients.as_v0().unwrap().recipients.iter() {
                 if !addr.is_burn() {
                     assert!(
                         !reward_recipients.contains(addr),
@@ -5724,7 +5728,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
                 burnchain_tip.block_height <= sunset_ht
                     || cur_epoch.epoch_id >= StacksEpochId::Epoch21
             );
-            for (addr, _) in next_block_recipients.recipients.iter() {
+            for (addr, _) in next_block_recipients.as_v0().unwrap().recipients.iter() {
                 if !addr.is_burn() {
                     assert!(
                         !reward_recipients.contains(addr),

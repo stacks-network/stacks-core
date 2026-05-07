@@ -218,8 +218,11 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         // This method should only ever called if the current reward cycle is a nakamoto reward cycle
         //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
         //  Non participation is fatal.
-        if reward_set.rewarded_addresses.is_empty() {
-            // no one is stacking
+        if reward_set
+            .rewarded_addresses()
+            .map_or(false, |addrs| addrs.is_empty())
+        {
+            // no one is stacking (V0 with empty rewarded_addresses)
             err_or_debug!(debug_log, "No PoX participation");
             return Err(Error::PoXAnchorBlockRequired);
         }
@@ -233,7 +236,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             "burn_header_height" => reward_set_block.burn_header_height,
         );
 
-        if reward_set.signers.is_none() {
+        if reward_set.signers().is_none() {
             err_or_debug!(
                 debug_log,
                 "FATAL: PoX reward set did not specify signer set in Nakamoto"

@@ -1294,7 +1294,7 @@ fn get_signer_index(
     stacker_set: &GetStackersResponse,
     signer_key: &Secp256k1PublicKey,
 ) -> Result<usize, String> {
-    let Some(ref signer_set) = stacker_set.stacker_set.signers else {
+    let Some(signer_set) = stacker_set.stacker_set.signers() else {
         return Err("Empty signer set for reward cycle".into());
     };
     let signer_key_bytes = signer_key.to_bytes_compressed();
@@ -3071,12 +3071,16 @@ fn correct_burn_outs() {
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let stacker_response = get_stacker_set(&http_origin, first_epoch_3_cycle).unwrap();
-    assert!(stacker_response.stacker_set.signers.is_some());
+    assert!(stacker_response.stacker_set.signers().is_some());
+    assert_eq!(stacker_response.stacker_set.signers().unwrap().len(), 1);
     assert_eq!(
-        stacker_response.stacker_set.signers.as_ref().unwrap().len(),
+        stacker_response
+            .stacker_set
+            .rewarded_addresses()
+            .unwrap()
+            .len(),
         1
     );
-    assert_eq!(stacker_response.stacker_set.rewarded_addresses.len(), 1);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 

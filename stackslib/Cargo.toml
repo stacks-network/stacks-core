@@ -16,6 +16,7 @@ name = "blockstack_lib"
 path = "src/lib.rs"
 
 [dependencies]
+bitcoin = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 rand_chacha = { workspace = true }

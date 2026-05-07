@@ -416,6 +416,9 @@ impl PoxConstants {
         )
     }
 
+    /// Note: even in PoX-waterfall, the number of reward slots is used to
+    ///  set signer-weights. Any future cleanup of `OUTPUTS_PER_COMMIT` or `reward_slots`
+    ///  will need to contend with this.
     pub fn reward_slots(&self) -> u32 {
         (self.reward_cycle_length - self.prepare_length)
             * u32::try_from(OUTPUTS_PER_COMMIT).expect("FATAL: > 2^32 outputs per commit")
@@ -579,6 +582,25 @@ impl PoxConstants {
     /// this is the modulo 0 block
     pub fn nakamoto_first_block_of_cycle(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         first_block_height + reward_cycle * u64::from(self.reward_cycle_length)
+    }
+
+    /// First burn block whose leader-block-commits use the PoX-5 waterfall
+    /// single-output format: the start of the first reward cycle whose start
+    /// is strictly after `epoch_4_0_start_height`.
+    ///
+    /// The reward cycle that *contains* `epoch_4_0_start_height` is the last
+    /// classic-PoX cycle; the next reward cycle is the first to follow
+    /// waterfall rules.
+    ///
+    /// Returns `None` if `epoch_4_0_start_height < first_block_height`
+    pub fn first_pox_waterfall_block(
+        &self,
+        first_block_height: u64,
+        epoch_4_0_start_height: u64,
+    ) -> Option<u64> {
+        let initial_rc =
+            self.block_height_to_reward_cycle(first_block_height, epoch_4_0_start_height)?;
+        Some(self.nakamoto_first_block_of_cycle(first_block_height, initial_rc.saturating_add(1)))
     }
 
     pub fn reward_cycle_index(&self, first_block_height: u64, burn_height: u64) -> Option<u64> {

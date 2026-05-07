@@ -37,7 +37,7 @@ use crate::burnchains::{
     BurnchainView, Error as BurnchainError, PoxConstants, Txid,
 };
 use crate::chainstate::burn::operations::leader_block_commit::{
-    MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT,
+    MissedBlockCommit, RewardSetInfo, RewardSetInfoV0, RewardSetInfoWaterfall, OUTPUTS_PER_COMMIT,
 };
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, StackStxOp,
@@ -51,7 +51,7 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::PoxStartCycleInfo;
+use crate::chainstate::stacks::boot::{PoxStartCycleInfo, RewardSet};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::index::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
@@ -937,6 +937,10 @@ impl db_keys {
         "sortition_db::reward_set::size"
     }
 
+    pub fn pox_reward_set_wf_activated() -> &'static str {
+        "sortition_db::reward_set::waterfall_activated"
+    }
+
     pub fn pox_reward_set_entry(ix: u16) -> String {
         format!("sortition_db::reward_set::entry::{}", ix)
     }
@@ -1221,6 +1225,22 @@ pub trait SortitionHandle {
             false,
         );
         return Ok(false);
+    }
+
+    /// Return the bitcoin block height of the first bitcoin block where
+    /// miner commitments use waterfall PoX.
+    ///
+    /// This is the first block of the cycle whose start height is after Epoch40.
+    fn get_first_pox_waterfall_block(&self) -> Result<u64, db_error> {
+        let Some(epoch_wf) =
+            SortitionDB::get_stacks_epoch_by_epoch_id(self.sqlite(), &StacksEpochId::Epoch40)?
+        else {
+            warn!("Attempted to query first PoX waterfall block when epoch is undefined, returning u32::max");
+            return Ok(u32::MAX.into());
+        };
+        self.pox_constants()
+            .first_pox_waterfall_block(self.first_burn_block_height(), epoch_wf.start_height)
+            .ok_or(db_error::Corruption)
     }
 }
 
@@ -1660,6 +1680,102 @@ impl SortitionHandleTx<'_> {
         Ok(())
     }
 
+    /// Get the expected PoX recipients (reward set) for the next sortition by querying information
+    ///  for the next reward cycle.
+    ///
+    /// Returns None if:
+    ///   * The reward cycle had an anchor block, but it isn't known by this node.
+    ///   * The reward cycle did not have anchor block
+    ///   * The block is in the prepare phase of a reward cycle, in which case miners must burn
+    ///   * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
+    fn pick_recipients_from_next_cycle(
+        &mut self,
+        burnchain: &Burnchain,
+        block_height: u64,
+        reward_set_vrf_seed: &SortitionHash,
+        next_pox_info: &RewardCycleInfo,
+        epoch_id: StacksEpochId,
+    ) -> Result<Option<RewardSetInfo>, BurnchainError> {
+        let PoxAnchorBlockStatus::SelectedAndKnown(ref anchor_block, ref _txid, ref reward_set) =
+            next_pox_info.anchor_status
+        else {
+            test_debug!(
+                "No anchor block known for this reward cycle (starting at {})",
+                block_height
+            );
+            return Ok(None);
+        };
+        if epoch_id.uses_waterfall_pox() {
+            // this epoch-id sanity check only works because this codepath is reachable only at the reward cycle
+            // boundary, so therefore `epoch_id.uses_waterfall_pox` implies that the reward set calculated must be a waterfall one.
+            // HOWEVER, it is not generally true that `uses_waterfall_pox` implies that the current commits are waterfall commits.
+            // (this is because there will be one "last" classic PoX cycle to finish before the first waterfall cycle).
+            let RewardSet::Waterfall(wf_reward_set) = reward_set else {
+                error!("Attempted to use non-waterfall reward set in epoch with waterfall PoX");
+                return Err(BurnchainError::NoStacksEpoch);
+            };
+            return Ok(Some(RewardSetInfo::Waterfall(RewardSetInfoWaterfall {
+                anchor_block: anchor_block.clone(),
+                sbtc_address: wf_reward_set.sbtc_address.clone(),
+            })));
+        }
+
+        if burnchain.is_in_prepare_phase(block_height) {
+            debug!(
+                "No recipients for block {}, since in prepare phase",
+                block_height
+            );
+            return Ok(None);
+        }
+
+        let rewarded_addresses = match reward_set.rewarded_addresses() {
+            Some(addrs) => addrs,
+            None => return Ok(None),
+        };
+
+        test_debug!(
+            "Pick recipients for anchor block {} -- {} reward recipient(s)",
+            anchor_block,
+            rewarded_addresses.len()
+        );
+        if rewarded_addresses.is_empty() {
+            return Ok(None);
+        }
+
+        if OUTPUTS_PER_COMMIT != 2 {
+            unreachable!(
+                "BUG: PoX reward address selection only implemented for OUTPUTS_PER_COMMIT = 2"
+            );
+        }
+
+        let chosen_recipients = reward_set_vrf_seed.choose_two(
+            rewarded_addresses
+                .len()
+                .try_into()
+                .expect("BUG: u32 overflow in PoX outputs per commit"),
+        );
+
+        Ok(Some(RewardSetInfo::V0(RewardSetInfoV0 {
+            anchor_block: anchor_block.clone(),
+            recipients: chosen_recipients
+                .into_iter()
+                .map(|ix| {
+                    let recipient = rewarded_addresses
+                        .get(ix as usize)
+                        .expect("Chosen reward set index not found in reward set")
+                        .clone();
+                    debug!("PoX recipient chosen";
+                    "recipient" => recipient.to_burnchain_repr(),
+                    "block_height" => block_height,
+                    "anchor_stacks_block_hash" => &anchor_block,
+                     );
+                    (recipient, u16::try_from(ix).unwrap())
+                })
+                .collect(),
+            allow_nakamoto_punishment: epoch_id.allows_pox_punishment(),
+        })))
+    }
+
     /// Get the expected PoX recipients (reward set) for the next sortition, either by querying information
     ///  from the current reward cycle, or if `next_pox_info` is provided, by querying information
     ///  for the next reward cycle.
@@ -1676,110 +1792,69 @@ impl SortitionHandleTx<'_> {
         reward_set_vrf_seed: &SortitionHash,
         next_pox_info: Option<&RewardCycleInfo>,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
-        let allow_nakamoto_punishment = SortitionDB::get_stacks_epoch(self.sqlite(), block_height)?
+        let epoch_id = SortitionDB::get_stacks_epoch(self.sqlite(), block_height)?
             .ok_or_else(|| BurnchainError::NoStacksEpoch)?
-            .epoch_id
-            .allows_pox_punishment();
+            .epoch_id;
 
         if let Some(next_pox_info) = next_pox_info {
-            if let PoxAnchorBlockStatus::SelectedAndKnown(
-                ref anchor_block,
-                ref _txid,
-                ref reward_set,
-            ) = next_pox_info.anchor_status
-            {
-                if burnchain.is_in_prepare_phase(block_height) {
-                    debug!(
-                        "No recipients for block {}, since in prepare phase",
-                        block_height
-                    );
-                    return Ok(None);
-                }
+            return self.pick_recipients_from_next_cycle(
+                burnchain,
+                block_height,
+                reward_set_vrf_seed,
+                next_pox_info,
+                epoch_id,
+            );
+        };
 
-                test_debug!(
-                    "Pick recipients for anchor block {} -- {} reward recipient(s)",
-                    anchor_block,
-                    reward_set.rewarded_addresses.len()
-                );
-                if reward_set.rewarded_addresses.is_empty() {
-                    return Ok(None);
-                }
+        // otherwise, query from the current reward cycle
+        let last_anchor = self.get_last_anchor_block_hash()?;
+        let Some(anchor_block) = last_anchor else {
+            // no anchor block selected
+            test_debug!("No anchor block selected for this reward cycle");
+            return Ok(None);
+        };
 
-                if OUTPUTS_PER_COMMIT != 2 {
-                    unreachable!("BUG: PoX reward address selection only implemented for OUTPUTS_PER_COMMIT = 2");
-                }
+        let is_waterfall_activated = self.is_waterfall_reward_set_activated()?;
+        if is_waterfall_activated {
+            let recipient = self.get_reward_set_entry(0)?;
+            debug!("Waterfall PoX recipient chosen";
+                   "recipient" => recipient.to_burnchain_repr(),
+                   "block_height" => block_height,
+                   "stacks_block_hash" => %anchor_block
+            );
+            return Ok(Some(RewardSetInfo::Waterfall(RewardSetInfoWaterfall {
+                anchor_block,
+                sbtc_address: recipient,
+            })));
+        }
 
-                let chosen_recipients = reward_set_vrf_seed.choose_two(
-                    reward_set
-                        .rewarded_addresses
-                        .len()
-                        .try_into()
-                        .expect("BUG: u32 overflow in PoX outputs per commit"),
-                );
-
-                Ok(Some(RewardSetInfo {
-                    anchor_block: anchor_block.clone(),
-                    recipients: chosen_recipients
-                        .into_iter()
-                        .map(|ix| {
-                            let recipient = reward_set
-                                .rewarded_addresses
-                                .get(ix as usize)
-                                .expect("Chosen reward set index not found in reward set")
-                                .clone();
-                            debug!("PoX recipient chosen";
-                               "recipient" => recipient.to_burnchain_repr(),
-                               "block_height" => block_height,
-                               "anchor_stacks_block_hash" => &anchor_block,
-                            );
-                            (recipient, u16::try_from(ix).unwrap())
-                        })
-                        .collect(),
-                    allow_nakamoto_punishment,
-                }))
-            } else {
-                test_debug!(
-                    "No anchor block known for this reward cycle (starting at {})",
-                    block_height
-                );
-                Ok(None)
-            }
+        // otherwise, query from the current reward cycle using classic PoX slot selection
+        // get the reward set size
+        let reward_set_size = self.get_reward_set_size()?;
+        if reward_set_size == 0 {
+            test_debug!(
+                "No more reward recipients descending from anchor block {}",
+                anchor_block
+            );
+            Ok(None)
         } else {
-            let last_anchor = self.get_last_anchor_block_hash()?;
-            if let Some(anchor_block) = last_anchor {
-                // known
-                // get the reward set size
-                let reward_set_size = self.get_reward_set_size()?;
-                if reward_set_size == 0 {
-                    test_debug!(
-                        "No more reward recipients descending from anchor block {}",
-                        anchor_block
-                    );
-                    Ok(None)
-                } else {
-                    let chosen_recipients = reward_set_vrf_seed.choose_two(reward_set_size as u32);
-                    let mut recipients = vec![];
-                    for ix in chosen_recipients.into_iter() {
-                        let ix = u16::try_from(ix).unwrap();
-                        let recipient = self.get_reward_set_entry(ix)?;
-                        debug!("PoX recipient chosen";
-                           "recipient" => recipient.to_burnchain_repr(),
-                           "block_height" => block_height,
-                           "stacks_block_hash" => %anchor_block
-                        );
-                        recipients.push((recipient, ix));
-                    }
-                    Ok(Some(RewardSetInfo {
-                        anchor_block,
-                        recipients,
-                        allow_nakamoto_punishment,
-                    }))
-                }
-            } else {
-                // no anchor block selected
-                test_debug!("No anchor block selected for this reward cycle");
-                Ok(None)
+            let chosen_recipients = reward_set_vrf_seed.choose_two(reward_set_size as u32);
+            let mut recipients = vec![];
+            for ix in chosen_recipients.into_iter() {
+                let ix = u16::try_from(ix).unwrap();
+                let recipient = self.get_reward_set_entry(ix)?;
+                debug!("PoX recipient chosen";
+                       "recipient" => recipient.to_burnchain_repr(),
+                       "block_height" => block_height,
+                       "stacks_block_hash" => %anchor_block
+                );
+                recipients.push((recipient, ix));
             }
+            Ok(Some(RewardSetInfo::V0(RewardSetInfoV0 {
+                anchor_block,
+                recipients,
+                allow_nakamoto_punishment: epoch_id.allows_pox_punishment(),
+            })))
         }
     }
 
@@ -1819,6 +1894,14 @@ impl SortitionHandleTx<'_> {
                 )
             });
         Ok(PoxAddress::from_db_string(&entry_str).expect("FATAL: could not decode PoX address"))
+    }
+
+    fn is_waterfall_reward_set_activated(&mut self) -> Result<bool, db_error> {
+        let sortition_id = &self.context.chain_tip.clone();
+        let has_entry = self
+            .get_indexed(sortition_id, &db_keys::pox_reward_set_wf_activated())?
+            .is_some();
+        Ok(has_entry)
     }
 
     fn get_reward_set_entry(&mut self, entry_ix: u16) -> Result<PoxAddress, db_error> {
@@ -3682,8 +3765,7 @@ impl SortitionDB {
         };
 
         reward_set
-            .signers
-            .clone()
+            .signers()
             .map(|x| x.len())
             .unwrap_or(0)
             .try_into()
@@ -6012,7 +6094,14 @@ impl SortitionHandleTx<'_> {
     }
 
     /// Get the expected number of PoX payouts per output
-    fn get_num_pox_payouts(&self, burn_block_height: u64) -> usize {
+    fn get_num_pox_payouts(
+        &self,
+        burn_block_height: u64,
+        always_expects_one_output: bool,
+    ) -> usize {
+        if always_expects_one_output {
+            return 1;
+        }
         let op_num_outputs = if PoxConstants::static_is_in_prepare_phase(
             self.context.first_block_height,
             u64::from(self.context.pox_constants.reward_cycle_length),
@@ -6032,13 +6121,18 @@ impl SortitionHandleTx<'_> {
     /// sent across all miners.
     /// * in a prepare phase, where there is only one output, this value is the total amount of
     /// tokens sent across all miners.
-    fn get_pox_payout_per_output(&self, block_ops: &[BlockstackOperationType]) -> u128 {
+    fn get_pox_payout_per_output(
+        &self,
+        block_ops: &[BlockstackOperationType],
+        always_expects_one_output: bool,
+    ) -> u128 {
         let mut total = 0u128;
         for block_op in block_ops.iter() {
             if let BlockstackOperationType::LeaderBlockCommit(ref op) = block_op {
                 // burn_fee = pox_fee * OUTPUTS_PER_COMMIT
                 // we're finding sum(pox_fee)
-                let num_outputs = self.get_num_pox_payouts(op.block_height);
+                let num_outputs =
+                    self.get_num_pox_payouts(op.block_height, always_expects_one_output);
                 total += (op.burn_fee as u128) / (num_outputs as u128);
             }
         }
@@ -6137,7 +6231,8 @@ impl SortitionHandleTx<'_> {
 
         // if this is the start of a reward cycle, store the new PoX keys.
         // Get the PoX payouts while doing so.
-        let pox_payout = self.get_pox_payout_per_output(block_ops);
+        let always_expects_one_output = matches!(recipient_info, Some(RewardSetInfo::Waterfall(_)));
+        let pox_payout = self.get_pox_payout_per_output(block_ops, always_expects_one_output);
         let mut pox_payout_addrs = if !snapshot.is_initial() {
             if let Some(reward_info) = next_pox_info {
                 let mut pox_id = self.get_pox_id()?;
@@ -6191,54 +6286,74 @@ impl SortitionHandleTx<'_> {
                 // if we've selected an anchor _and_ know of the anchor,
                 //  write the reward set information
                 if let Some(mut reward_set) = reward_info.known_selected_anchor_block_owned() {
-                    // record payouts separately from the remaining addresses, since some of them
-                    // could have just been consumed.
-                    if reward_set.rewarded_addresses.is_empty() {
-                        // no payouts
-                        pox_payout_addrs = vec![];
-                    } else {
-                        // if we have a reward set, then we must also have produced a recipient
-                        //   info for this block
-                        let mut recipients_to_remove: Vec<_> = recipient_info
-                            .unwrap()
-                            .recipients
-                            .iter()
-                            .map(|(addr, ix)| (addr.clone(), *ix))
-                            .collect();
-                        recipients_to_remove.sort_unstable_by(|(_, a), (_, b)| b.cmp(a));
-                        // remove from the reward set any consumed addresses in this first reward block
-                        let mut addrs = vec![];
-                        for (addr, ix) in recipients_to_remove.iter() {
-                            addrs.push(addr.clone());
-                            assert_eq!(reward_set.rewarded_addresses.remove(*ix as usize).to_burnchain_repr(), addr.to_burnchain_repr(),
-                                       "BUG: Attempted to remove used address from reward set, but failed to do so safely");
+                    match &mut reward_set {
+                        RewardSet::V0(v0) => {
+                            // record payouts separately from the remaining addresses, since some of them
+                            // could have just been consumed.
+                            if v0.rewarded_addresses.is_empty() {
+                                // no payouts
+                                pox_payout_addrs = vec![];
+                            } else {
+                                // if we have a reward set, then we must also have produced a recipient
+                                //   info for this block
+                                let recipient_v0 = recipient_info
+                                    .unwrap()
+                                    .as_v0()
+                                    .expect("BUG: V0 reward set with non-V0 recipient info");
+                                let mut recipients_to_remove: Vec<_> = recipient_v0
+                                    .recipients
+                                    .iter()
+                                    .map(|(addr, ix)| (addr.clone(), *ix))
+                                    .collect();
+                                recipients_to_remove.sort_unstable_by(|(_, a), (_, b)| b.cmp(a));
+                                // remove from the reward set any consumed addresses in this first reward block
+                                let mut addrs = vec![];
+                                for (addr, ix) in recipients_to_remove.iter() {
+                                    addrs.push(addr.clone());
+                                    assert_eq!(v0.rewarded_addresses.remove(*ix as usize).to_burnchain_repr(), addr.to_burnchain_repr(),
+                                               "BUG: Attempted to remove used address from reward set, but failed to do so safely");
+                                }
+                                pox_payout_addrs = addrs;
+                            }
+
+                            keys.push(db_keys::pox_reward_set_size().to_string());
+                            values.push(db_keys::reward_set_size_to_string(
+                                v0.rewarded_addresses.len(),
+                            ));
+
+                            // NOTE: the pox_addr _must_ come from the reward set (i.e. from the PoX
+                            // contract), since we _must_ know the hash modes for standard addresses.  This
+                            // information cannot be learned from the burnchain alone.
+                            for (ix, pox_addr) in v0.rewarded_addresses.iter().enumerate() {
+                                keys.push(db_keys::pox_reward_set_entry(ix as u16));
+                                values.push(pox_addr.to_db_string());
+                            }
+                            // if there are qualifying auto-unlocks, record them
+                            if !v0.start_cycle_state.is_empty() {
+                                let cycle_number =
+                                    PoxConstants::static_block_height_to_reward_cycle(
+                                        snapshot.block_height,
+                                        self.context.first_block_height,
+                                        self.context.pox_constants.reward_cycle_length.into(),
+                                    )
+                                    .expect(
+                                        "FATAL: PoX reward cycle started before first block height",
+                                    );
+
+                                keys.push(db_keys::pox_reward_cycle_unlocks(cycle_number));
+                                values.push(v0.start_cycle_state.serialize());
+                            }
                         }
-                        pox_payout_addrs = addrs;
-                    }
-
-                    keys.push(db_keys::pox_reward_set_size().to_string());
-                    values.push(db_keys::reward_set_size_to_string(
-                        reward_set.rewarded_addresses.len(),
-                    ));
-
-                    // NOTE: the pox_addr _must_ come from the reward set (i.e. from the PoX
-                    // contract), since we _must_ know the hash modes for standard addresses.  This
-                    // information cannot be learned from the burnchain alone.
-                    for (ix, pox_addr) in reward_set.rewarded_addresses.iter().enumerate() {
-                        keys.push(db_keys::pox_reward_set_entry(ix as u16));
-                        values.push(pox_addr.to_db_string());
-                    }
-                    // if there are qualifying auto-unlocks, record them
-                    if !reward_set.start_cycle_state.is_empty() {
-                        let cycle_number = PoxConstants::static_block_height_to_reward_cycle(
-                            snapshot.block_height,
-                            self.context.first_block_height,
-                            self.context.pox_constants.reward_cycle_length.into(),
-                        )
-                        .expect("FATAL: PoX reward cycle started before first block height");
-
-                        keys.push(db_keys::pox_reward_cycle_unlocks(cycle_number));
-                        values.push(reward_set.start_cycle_state.serialize());
+                        RewardSet::Waterfall(wf) => {
+                            // Waterfall cycles have a single PoX address
+                            pox_payout_addrs = vec![wf.sbtc_address.clone()];
+                            keys.push(db_keys::pox_reward_set_size().to_string());
+                            values.push(db_keys::reward_set_size_to_string(1));
+                            keys.push(db_keys::pox_reward_set_entry(0 as u16));
+                            values.push(wf.sbtc_address.to_db_string());
+                            keys.push(db_keys::pox_reward_set_wf_activated().to_string());
+                            values.push("1".to_string());
+                        }
                     }
                 } else {
                     // no anchor block; we're burning
@@ -6254,68 +6369,75 @@ impl SortitionHandleTx<'_> {
 
                 pox_payout_addrs
             } else {
-                // if this snapshot consumed some reward set entries AND
-                //  this isn't the start of a new reward cycle,
-                //   update the reward set
-                if let Some(reward_info) = recipient_info {
-                    let mut current_len = self.get_reward_set_size()?;
-                    let payout_addrs: Vec<_> = reward_info
-                        .recipients
-                        .iter()
-                        .map(|(addr, _)| addr.clone())
-                        .collect();
-                    let mut recipient_indexes: Vec<_> =
-                        reward_info.recipients.iter().map(|(_, x)| *x).collect();
-                    let mut remapped_entries = HashMap::new();
-                    // sort in decrementing order
-                    recipient_indexes.sort_unstable_by(|a, b| b.cmp(a));
-                    for index in recipient_indexes.into_iter() {
-                        // sanity check
-                        if index >= current_len {
-                            unreachable!(
+                match recipient_info {
+                    Some(RewardSetInfo::V0(reward_info_v0)) => {
+                        // if this snapshot consumed some reward set entries AND
+                        //  this isn't the start of a new reward cycle AND
+                        //  this isn't a waterfall reward set, then
+                        //   update the reward set
+                        let mut current_len = self.get_reward_set_size()?;
+                        let payout_addrs: Vec<_> = reward_info_v0
+                            .recipients
+                            .iter()
+                            .map(|(addr, _)| addr.clone())
+                            .collect();
+                        let mut recipient_indexes: Vec<_> =
+                            reward_info_v0.recipients.iter().map(|(_, x)| *x).collect();
+                        let mut remapped_entries = HashMap::new();
+                        // sort in decrementing order
+                        recipient_indexes.sort_unstable_by(|a, b| b.cmp(a));
+                        for index in recipient_indexes.into_iter() {
+                            // sanity check
+                            if index >= current_len {
+                                unreachable!(
                                 "Supplied index should never be greater than recipient set size"
                             );
-                        } else if index + 1 == current_len {
-                            // selected index is the last element: no need to swap, just decrement len
-                            current_len -= 1;
-                        } else {
-                            let replacement = current_len - 1; // if current_len were 0, we would already have panicked.
-                            let replace_with = if let Some((_prior_ix, replace_with)) =
-                                remapped_entries.remove_entry(&replacement)
-                            {
-                                // the entry to swap in was itself swapped, so let's use the new value instead
-                                replace_with
+                            } else if index + 1 == current_len {
+                                // selected index is the last element: no need to swap, just decrement len
+                                current_len -= 1;
                             } else {
-                                self.get_reward_set_entry(replacement)?
-                            };
+                                let replacement = current_len - 1; // if current_len were 0, we would already have panicked.
+                                let replace_with = if let Some((_prior_ix, replace_with)) =
+                                    remapped_entries.remove_entry(&replacement)
+                                {
+                                    // the entry to swap in was itself swapped, so let's use the new value instead
+                                    replace_with
+                                } else {
+                                    self.get_reward_set_entry(replacement)?
+                                };
 
-                            // NOTE: we have to have a hash mode for the address -- i.e. we have to be
-                            // able to conver it to a clarity tuple -- since this data must be available
-                            // via `get-burn-block-info?`.
-                            assert!(
-                                replace_with.as_clarity_tuple().is_some(),
-                                "FATAL: do not know hash mode for next PoX address"
-                            );
+                                // NOTE: we have to have a hash mode for the address -- i.e. we have to be
+                                // able to conver it to a clarity tuple -- since this data must be available
+                                // via `get-burn-block-info?`.
+                                assert!(
+                                    replace_with.as_clarity_tuple().is_some(),
+                                    "FATAL: do not know hash mode for next PoX address"
+                                );
 
-                            // swap and decrement to remove from set
-                            remapped_entries.insert(index, replace_with);
-                            current_len -= 1;
+                                // swap and decrement to remove from set
+                                remapped_entries.insert(index, replace_with);
+                                current_len -= 1;
+                            }
                         }
-                    }
-                    // store the changes in the new trie
-                    keys.push(db_keys::pox_reward_set_size().to_string());
-                    values.push(db_keys::reward_set_size_to_string(current_len as usize));
+                        // store the changes in the new trie
+                        keys.push(db_keys::pox_reward_set_size().to_string());
+                        values.push(db_keys::reward_set_size_to_string(current_len as usize));
 
-                    for (recipient_index, replace_with) in remapped_entries.into_iter() {
-                        keys.push(db_keys::pox_reward_set_entry(recipient_index));
-                        values.push(replace_with.to_db_string());
-                    }
+                        for (recipient_index, replace_with) in remapped_entries.into_iter() {
+                            keys.push(db_keys::pox_reward_set_entry(recipient_index));
+                            values.push(replace_with.to_db_string());
+                        }
 
-                    // reward-phase PoX payout addresses
-                    payout_addrs
-                } else {
-                    // in prepare phase (no recipient info), so no payouts
-                    vec![]
+                        // reward-phase PoX payout addresses
+                        payout_addrs
+                    }
+                    Some(RewardSetInfo::Waterfall(wf)) => {
+                        vec![wf.sbtc_address.clone()]
+                    }
+                    None => {
+                        // in prepare phase (no recipient info), so no payouts
+                        vec![]
+                    }
                 }
             }
         } else {
@@ -6357,7 +6479,8 @@ impl SortitionHandleTx<'_> {
         };
 
         // pox payout addrs must include burn addresses
-        let num_pox_payouts = self.get_num_pox_payouts(snapshot.block_height);
+        let num_pox_payouts =
+            self.get_num_pox_payouts(snapshot.block_height, always_expects_one_output);
         while pox_payout_addrs.len() < num_pox_payouts {
             // NOTE: while this coerces mainnet, it's totally fine in practice because the address
             // version is not exposed to Clarity.  Clarity only sees a PoX-specific version and the
