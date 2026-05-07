@@ -269,22 +269,32 @@ pub fn read_squash_block_height<T: MarfTrieId>(
 }
 
 /// Read the block hash for a given height from the squashed blocks table.
-/// This is the reverse lookup: height -> block_hash.
 /// Returns `None` if the height is not in the squashed range.
 #[cfg(test)]
-pub fn read_squash_block_height_reverse<T: MarfTrieId>(
+pub fn read_squash_block_hash<T: MarfTrieId>(
     conn: &Connection,
     height: u32,
 ) -> Result<Option<T>, Error> {
-    let result: Option<T> = conn
+    let result: Option<Vec<u8>> = conn
         .query_row(
-            "SELECT block_hash_hex FROM marf_squashed_blocks WHERE height = ?1",
+            "SELECT block_hash FROM marf_squashed_blocks WHERE height = ?1",
             params![i64::from(height)],
             |row| row.get(0),
         )
         .optional()?;
 
-    Ok(result)
+    match result {
+        Some(bytes) => {
+            let arr: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+                Error::CorruptionError(format!(
+                    "Invalid squash block_hash length {} at height {height}",
+                    bytes.len()
+                ))
+            })?;
+            Ok(Some(T::from_bytes(arr)))
+        }
+        None => Ok(None),
+    }
 }
 
 /// Bulk-read all confirmed block entries from `marf_data`.
