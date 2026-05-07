@@ -2653,17 +2653,15 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         // the archival trie hash directly).
         if let Some(info) = self.data.squash_info.clone() {
             for h in 0..=info.height {
-                let bh: T = match trie_sql::read_squash_block_height_reverse(self.sqlite_conn(), h)
-                {
-                    Ok(Some(bh)) => bh,
-                    _ => continue,
+                let Some(bh) = trie_sql::read_squash_block_hash::<T>(self.sqlite_conn(), h)? else {
+                    continue;
                 };
 
-                let archival_trie_hash =
-                    match trie_sql::read_squash_archival_marf_root_hash(self.sqlite_conn(), h) {
-                        Ok(Some(h)) => h,
-                        _ => continue,
-                    };
+                let Some(archival_trie_hash) =
+                    trie_sql::read_squash_archival_marf_root_hash(self.sqlite_conn(), h)?
+                else {
+                    continue;
+                };
 
                 ret.insert(archival_trie_hash, bh);
             }
