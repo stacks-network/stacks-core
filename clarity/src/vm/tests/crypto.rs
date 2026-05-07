@@ -17,7 +17,9 @@ use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{PrivateKey, PublicKey, StacksEpochId};
 use stacks_common::util::hash::{Sha256Sum, hex_bytes, to_hex};
-use stacks_common::util::secp256k1::{MessageSignature as Secp256k1Signature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{
+    MessageSignature as Secp256k1Signature, Secp256k1PrivateKey, Secp256k1PublicKey,
+};
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
 
 use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
@@ -1292,5 +1294,36 @@ proptest! {
         .expect("should return a value");
 
         prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256k1_decompress_matches_public_key(
+        seed in any::<[u8; 32]>(),
+    ) {
+        let mut privk = Secp256k1PrivateKey::from_seed(&seed);
+
+        privk.set_compress_public(true);
+        let pubkey_compressed_bytes = Secp256k1PublicKey::from_private(&privk).to_bytes_compressed();
+
+        privk.set_compress_public(false);
+        let pubkey_uncompressed_bytes = Secp256k1PublicKey::from_private(&privk).to_bytes();
+
+        let program = format!(
+            "(is-eq (unwrap! (secp256k1-decompress? {}) (err u1)) {})",
+            buff_literal(&pubkey_compressed_bytes),
+            buff_literal(&pubkey_uncompressed_bytes),
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(true), result);
     }
 }
