@@ -698,7 +698,6 @@ impl TriePtr {
             // Backpointers and squash annotations append a 4-byte `back_block` after the compressed ptr payload.
             let back_block_offset = TriePtr::encoded_size_compressed_for_id(encoded_id);
             let back_block_end = back_block_offset + 4;
-            // Backpointers append a 4-byte `back_block` after the compressed ptr payload.
             assert!(bytes.len() >= back_block_end);
             u32::from_be_bytes(bytes[back_block_offset..back_block_end].try_into().unwrap())
         } else {
