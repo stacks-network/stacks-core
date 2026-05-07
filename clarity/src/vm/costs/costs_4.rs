@@ -473,4 +473,8 @@ impl CostValues for Costs4 {
     fn cost_secp256r1verify(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Ok(ExecutionCost::runtime(51750))
     }
+
+    fn cost_secp256k1decompress(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(123456))
+    }
 }

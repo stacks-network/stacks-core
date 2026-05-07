@@ -765,4 +765,8 @@ impl CostValues for Costs2Testnet {
     fn cost_secp256r1verify(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Err(RuntimeError::NotImplemented.into())
     }
+
+    fn cost_secp256k1decompress(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Err(RuntimeError::NotImplemented.into())
+    }
 }

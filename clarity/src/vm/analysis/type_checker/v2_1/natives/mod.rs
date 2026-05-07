@@ -775,6 +775,16 @@ fn check_secp256r1_verify(
     Ok(TypeSignature::BoolType)
 }
 
+fn check_secp256k1_decompress(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    check_argument_count(1, args)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
+    Ok(TypeSignature::BoolType)
+}
+
 fn check_get_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -1272,6 +1282,7 @@ impl TypedNativeFunction {
             | AllowanceWithStacking
             | AllowanceAll => Special(SpecialNativeFunction(&post_conditions::check_allowance_err)),
             Secp256r1Verify => Special(SpecialNativeFunction(&check_secp256r1_verify)),
+            Secp256k1Decompress => Special(SpecialNativeFunction(&check_secp256k1_decompress)),
         };
 
         Ok(out)

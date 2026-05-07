@@ -1418,6 +1418,20 @@ NIST P-256 curve (also known as secp256r1).",
     0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns false"
 };
 
+const SECP256K1DECOMPRESS_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 33)",
+    snippet: "secp256k1-decompress? ${1:compressed-public-key})",
+    output_type: "(response (buff 65) uint)",
+    signature: "(secp256r1-decompress? public-key)",
+    description: "The `secp256r1-decompress?` function decompress the provided (compressed) public key.",
+    example: "(secp256r1-decompress? 0x44acf6b7e36c1342c2c5897204fe09504e1e2efb1a900377dbc4e7a6a133ec56
+    0xf3ac8061b514795b8843e3d6629527ed2afd6b1f6a555a7acabb5e6f79c8c2ac8bf77819ca05a6b2786c76262bf7371cef97b218e96f175a3ccdda2acc058903
+    0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns true
+(secp256r1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
+    0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+    0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns false"
+};
+
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     snippet: "contract-call? ${1:contract-principal} ${2:func} ${3:arg1}",
@@ -2900,6 +2914,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AllowanceWithStacking => make_for_special(&ALLOWANCE_WITH_STACKING, function),
         AllowanceAll => make_for_special(&ALLOWANCE_WITH_ALL, function),
         Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
+        Secp256k1Decompress => make_for_special(&SECP256K1DECOMPRESS_API, function),
     }
 }
 

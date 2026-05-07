@@ -161,6 +161,7 @@ define_named_enum!(ClarityCostFunction {
     RestrictAssets("cost_restrict_assets"),
     AsContractSafe("cost_as_contract_safe"),
     Secp256r1verify("cost_secp256r1verify"),
+    Secp256k1decompress("cost_secp256k1decompress"),
     Unimplemented("cost_unimplemented"),
 });
 
@@ -339,6 +340,7 @@ pub trait CostValues {
     fn cost_restrict_assets(n: u64) -> Result<ExecutionCost, VmExecutionError>;
     fn cost_as_contract_safe(n: u64) -> Result<ExecutionCost, VmExecutionError>;
     fn cost_secp256r1verify(n: u64) -> Result<ExecutionCost, VmExecutionError>;
+    fn cost_secp256k1decompress(n: u64) -> Result<ExecutionCost, VmExecutionError>;
 }
 
 impl ClarityCostFunction {
@@ -496,6 +498,7 @@ impl ClarityCostFunction {
             ClarityCostFunction::RestrictAssets => C::cost_restrict_assets(n),
             ClarityCostFunction::AsContractSafe => C::cost_as_contract_safe(n),
             ClarityCostFunction::Secp256r1verify => C::cost_secp256r1verify(n),
+            ClarityCostFunction::Secp256k1decompress => C::cost_secp256k1decompress(n),
             ClarityCostFunction::Unimplemented => Err(RuntimeError::NotImplemented.into()),
         }
     }

@@ -439,9 +439,6 @@ pub fn secp256k1_verify(
 }
 
 pub fn secp256k1_decompress(compressed_pubkey_arr: &[u8]) -> Result<[u8; 65], LibSecp256k1Error> {
-    if compressed_pubkey_arr.len() != 33 {
-        return Err(Error::InvalidPublicKey);
-    }
     let pubkey = LibSecp256k1PublicKey::from_slice(compressed_pubkey_arr)?;
     Ok(pubkey.serialize_uncompressed())
 }
