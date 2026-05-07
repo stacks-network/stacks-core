@@ -1645,8 +1645,8 @@ impl ContractTxReport {
             )
     }
 
-    /// Whether this tx was rejected.
-    pub fn rejected(&self) -> bool {
+    /// Whether this tx aborted at the VM level in an accepted block.
+    pub fn aborted(&self) -> bool {
         matches!(&self.outcome, TxOutcome::BlockAccepted(t) if t.vm_error.is_some())
     }
 
