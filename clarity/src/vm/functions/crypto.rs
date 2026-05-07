@@ -340,7 +340,7 @@ pub fn special_secp256k1_decompress(
     invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    // (secp256r1-decompress? public-key)
+    // (secp256k1-decompress? public-key)
     // public-key: (buff 33)
     check_argument_count(1, args)?;
 
