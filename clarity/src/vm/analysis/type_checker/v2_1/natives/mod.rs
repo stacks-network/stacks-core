@@ -782,7 +782,10 @@ fn check_secp256k1_decompress(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
-    Ok(TypeSignature::BoolType)
+    Ok(
+        TypeSignature::new_response(TypeSignature::BUFFER_65, TypeSignature::UIntType)
+            .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
+    )
 }
 
 fn check_get_block_info(
