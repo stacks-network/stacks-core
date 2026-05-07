@@ -91,18 +91,12 @@ CREATE TABLE IF NOT EXISTS marf_squash_info (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     archival_marf_root_hash BLOB NOT NULL,
     squash_root_node_hash BLOB,
-    squash_height INTEGER NOT NULL,
-    -- Read-only hex projections
-    archival_marf_root_hash_hex TEXT GENERATED ALWAYS AS (hex(archival_marf_root_hash)) VIRTUAL,
-    squash_root_node_hash_hex TEXT GENERATED ALWAYS AS (hex(squash_root_node_hash)) VIRTUAL
+    squash_height INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS marf_squashed_blocks (
     height INTEGER PRIMARY KEY,
     block_hash BLOB NOT NULL UNIQUE,
-    marf_root_hash BLOB NOT NULL,
-    -- Read-only hex projections
-    block_hash_hex TEXT GENERATED ALWAYS AS (hex(block_hash)) VIRTUAL,
-    marf_root_hash_hex TEXT GENERATED ALWAYS AS (hex(marf_root_hash)) VIRTUAL
+    marf_root_hash BLOB NOT NULL
 );
 UPDATE schema_version SET version = 3;
 ";
