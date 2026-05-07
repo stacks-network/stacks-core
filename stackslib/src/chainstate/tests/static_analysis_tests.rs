@@ -22,6 +22,7 @@ use clarity::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRA
 #[allow(unused_imports)]
 use clarity::vm::analysis::StaticCheckErrorKind;
 use clarity::vm::types::MAX_TYPE_DEPTH;
+use clarity::vm::ClarityVersion;
 
 use crate::chainstate::tests::consensus::{
     clarity_versions_for_epoch, contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils,

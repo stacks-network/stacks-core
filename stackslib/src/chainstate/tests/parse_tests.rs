@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use clarity::types::StacksEpochId;
 use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_STRING_LEN};
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;

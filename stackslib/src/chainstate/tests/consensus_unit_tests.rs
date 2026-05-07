@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::types::StacksEpochId;
-use clarity::vm::Value;
+use clarity::vm::{ClarityVersion, Value};
 
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_unit_test, contract_deploy_consensus_unit_test,
@@ -25,8 +25,8 @@ fn test_example_1_cdeploy() {
     let report = contract_deploy_consensus_unit_test!(
         contract_name: "map_empty",
         contract_code: "(map + (list) (list 10 20))",
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch20),
-        clarity_versions: &ClarityVersion::ALL,
+        deploy_epochs: StacksEpochId::since(StacksEpochId::Epoch20),
+        clarity_versions: ClarityVersion::ALL,
     );
 
     assert!(report.all_blocks_accepted());
@@ -57,6 +57,8 @@ fn test_example_2_ccall() {
         ",
         function_name: "trigger",
         function_args: &[],
+        deploy_epochs: StacksEpochId::since(StacksEpochId::Epoch20),
+        clarity_versions: ClarityVersion::ALL,
     );
 
     assert!(report.all_blocks_accepted());

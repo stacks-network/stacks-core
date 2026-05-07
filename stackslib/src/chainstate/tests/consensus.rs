@@ -1898,25 +1898,18 @@ macro_rules! contract_call_consensus_unit_test {
         $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {{
-        use $crate::chainstate::tests::consensus::{
-            EPOCHS_TO_TEST, ConsensusMacroUnitReport,
-            ContractConsensusTest, SetupContract,
-        };
-        use clarity::types::StacksEpochId;
-        use clarity::vm::ClarityVersion;
-
         // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-        let deploy_epochs = &StacksEpochId::since(StacksEpochId::Epoch20);
+        let deploy_epochs = &clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
         $(let deploy_epochs = $deploy_epochs;)?
 
         // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-        let call_epochs = EPOCHS_TO_TEST;
+        let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
         $(let call_epochs = $call_epochs;)?
-        let setup_contracts: &[SetupContract] = &[];
+        let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
         $(let setup_contracts = $setup_contracts;)?
-        let clarity_versions: &[ClarityVersion] = ClarityVersion::ALL;
+        let clarity_versions: &[clarity::vm::ClarityVersion] = clarity::vm::ClarityVersion::ALL;
         $(let clarity_versions = $clarity_versions;)?
-        let contract_test = ContractConsensusTest::new(
+        let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
             function_name!(),
             vec![],
             deploy_epochs,
@@ -1929,7 +1922,7 @@ macro_rules! contract_call_consensus_unit_test {
             setup_contracts,
         );
         let result = contract_test.run();
-        ConsensusMacroUnitReport::new(result)
+        $crate::chainstate::tests::consensus::ConsensusMacroUnitReport::new(result)
     }};
 }
 pub(crate) use contract_call_consensus_unit_test;
