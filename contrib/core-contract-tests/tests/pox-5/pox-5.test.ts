@@ -164,10 +164,9 @@ test('scenario - setting up and starting a bond', () => {
 
   const aliceInfo = rov(pox5.getBondMembership(alice))!;
   expect(aliceInfo).toEqual({
-    amountSats: sbtcAmount,
     amountUstx: minAmountUstx,
     bondIndex: 0n,
-    rewardPerSharePaid: 0n,
+    signer,
   });
   expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
     sbtcAmount,
@@ -1136,6 +1135,200 @@ test('bond participants claim rewards after signer claims', () => {
   expect(
     rov(testSigner.getClaimableRewards(bob, 0n, true)).rewardsPending,
   ).toBe(0n);
+});
+
+test('bond participant can update signer before bond starts', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner(
+    'bond-update-before-start-signer-2',
+  ).identifier;
+  const aliceSbtc = 100000n;
+  const aliceUstx = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: aliceUstx,
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(rov(pox5.getSignerCycleMembership(alice, 1n))).toEqual({
+    amountUstx: aliceUstx,
+    signer: signer2,
+  });
+  expect(rov(pox5.getAmountDelegatedForSigner(signer1, 1n))).toBe(0n);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer2, 1n))).toBe(aliceUstx);
+  expect(isStakerInCycle({ staker: signer1, cycle: 1n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: signer2, cycle: 1n })).toBeTruthy();
+});
+
+test('bond participant signer update changes signer set starting next cycle', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner(
+    'bond-update-mid-period-signer-2',
+  ).identifier;
+  const aliceSbtc = 100000n;
+  const aliceUstx = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: aliceUstx,
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(rov(pox5.getAmountDelegatedForSigner(signer1, 1n))).toBe(aliceUstx);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer1, 2n))).toBe(aliceUstx);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer2, 1n))).toBe(0n);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer2, 2n))).toBe(0n);
+  expect(isStakerInCycle({ staker: signer1, cycle: 1n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: signer1, cycle: 2n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: signer2, cycle: 1n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: signer2, cycle: 2n })).toBeFalsy();
+
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)) + 1n);
+
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(rov(pox5.getSignerCycleMembership(alice, 1n))).toEqual({
+    amountUstx: aliceUstx,
+    signer: signer1,
+  });
+  expect(rov(pox5.getSignerCycleMembership(alice, 2n))).toEqual({
+    amountUstx: aliceUstx,
+    signer: signer2,
+  });
+  expect(rov(pox5.getSignerCycleMembership(alice, 3n))).toEqual({
+    amountUstx: aliceUstx,
+    signer: signer2,
+  });
+  expect(rov(pox5.getSignerCycleMembership(alice, 12n))).toEqual({
+    amountUstx: aliceUstx,
+    signer: signer2,
+  });
+
+  expect(rov(pox5.getAmountDelegatedForSigner(signer1, 1n))).toBe(aliceUstx);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer1, 2n))).toBe(0n);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer1, 3n))).toBe(0n);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer1, 12n))).toBe(0n);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer2, 2n))).toBe(aliceUstx);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer2, 3n))).toBe(aliceUstx);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer2, 12n))).toBe(aliceUstx);
+
+  expect(rov(pox5.getUstxDelegatedForCycle(1n))).toBe(aliceUstx);
+  expect(rov(pox5.getUstxDelegatedForCycle(2n))).toBe(aliceUstx);
+  expect(rov(pox5.getUstxDelegatedForCycle(12n))).toBe(aliceUstx);
+
+  expect(isStakerInCycle({ staker: signer1, cycle: 1n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: signer1, cycle: 2n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: signer1, cycle: 12n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: signer2, cycle: 1n })).toBeFalsy();
+  expect(isStakerInCycle({ staker: signer2, cycle: 2n })).toBeTruthy();
+  expect(isStakerInCycle({ staker: signer2, cycle: 12n })).toBeTruthy();
+});
+
+test('bond participant rewards follow updated signer', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('bond-update-reward-signer-2').identifier;
+  const aliceSbtc = 400000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getClaimableRewards(signer1, 0n, true)).rewardsPending).toBe(
+    0n,
+  );
+  expect(rov(pox5.getClaimableRewards(signer2, 0n, true)).rewardsPending).toBe(
+    1000n,
+  );
 });
 
 test('stakers cannot claim before signer receives rewards', () => {

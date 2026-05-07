@@ -33,6 +33,8 @@
 (define-constant ERR_BOND_NOT_ACTIVE (err u31))
 (define-constant ERR_NO_CLAIMABLE_REWARDS (err u32))
 (define-constant ERR_ACTIVE_BOND_NOT_INCLUDED (err u33))
+;; Not actively in a bond
+(define-constant ERR_NOT_BOND_PARTICIPANT (err u34))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -78,6 +80,7 @@
 ;; in basis points
 (define-constant RESERVE_RATIO u1500)
 
+;; Core properties of protocol bonds
 (define-map protocol-bonds
     uint
     {
@@ -110,10 +113,8 @@
     principal
     {
         bond-index: uint,
-        amount-sats: uint,
-        ;; Used to calculate claimable rewards
-        reward-per-share-paid: uint,
         amount-ustx: uint,
+        signer: principal,
     }
 )
 
@@ -140,12 +141,6 @@
     bool
 )
 
-;; Mapping of staker (or signer) to signer key
-(define-map signer-keys
-    principal
-    (buff 33)
-)
-
 ;; Users can stake to a signer, where the signer owner
 ;; (which is the key of this map) is able to manage
 ;; the signer key for the signer.
@@ -156,7 +151,8 @@
 
 ;; Keep track of how much total STX has been delegated for a signer
 ;; for a given cycle. This includes from both protocol bonds and STX-only
-;; stakers.
+;; stakers. This is the value that should be used to determine signer weight
+;; when approving blocks.
 (define-map signer-delegated-per-cycle
     {
         signer: principal,
@@ -189,7 +185,7 @@
     }
 )
 
-;; Per-cycle staker signer membership. Only used for stx-only staking.
+;; Per-cycle staker signer membership.
 (define-map staker-signer-cycle-memberships
     {
         staker: principal,
@@ -362,6 +358,17 @@
     )
 )
 
+;; Setup a new protocol bond by providing parameters and the
+;; allowlist for the bond.
+;;
+;; @param target-rate; target yield rate (apy) in basis points
+;; @param stx-value-ratio; representation of STX:BTC price
+;; @param min-ustx-ratio; minimum amount of STX that must be locked
+;; relative to BTC for this term. Represented in basis points.
+;; @param early-exit-signers: An allowlist of bond members that can
+;; participate in the bond.
+;;
+;; This function can only be called once.
 (define-public (setup-bond
         (bond-index uint)
         (target-rate uint)
@@ -463,6 +470,12 @@
     )
 )
 
+;; Register for a protocol bond. In order the call this function,
+;; the bond must already have been created, and `contract-caller`
+;; must be in the allowlist.
+;;
+;; The caller must either provide sBTC that they want to lockup,
+;; or they must provide proof of their L1 BTC lockup.
 (define-public (register-for-bond
         (bond-index uint)
         (signer-manager <signer-manager-trait>)
@@ -531,9 +544,8 @@
 
         (map-set protocol-bond-memberships tx-sender {
             bond-index: bond-index,
-            amount-sats: sats-total,
-            reward-per-share-paid: u0,
             amount-ustx: amount-ustx,
+            signer: signer,
         })
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
@@ -568,6 +580,99 @@
     )
 )
 
+;; As a bond participant, update your signer. This takes effect
+;; in the next reward cycle where this bond participant is active.
+;;
+;; Note that if the bond hasn't started yet, it's possible for the staker
+;; to not be active in the next reward cycle. In that case, the signer is updated
+;; from the start of the bond period.
+(define-public (update-bond-registration
+        (signer-manager <signer-manager-trait>)
+        (signer-calldata (optional (buff 500)))
+    )
+    (let (
+            (signer (contract-of signer-manager))
+            (current-membership (unwrap! (get-bond-membership tx-sender) ERR_NOT_BOND_PARTICIPANT))
+            (current-signer (get signer current-membership))
+            (bond-index (get bond-index current-membership))
+            (amount-sats (get-staker-shares-staked-for-cycle tx-sender bond-index true
+                current-signer
+            ))
+            (bond-start-cycle (bond-period-to-reward-cycle bond-index))
+            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
+            (next-cycle (+ (current-pox-reward-cycle) u1))
+            (current-signer-total-sats (get-signer-shares-staked-for-cycle current-signer bond-index true))
+            (new-signer-total-sats (get-signer-shares-staked-for-cycle signer bond-index true))
+            ;; If the bond hasn't started yet, then the first cycle where
+            ;; this new signer is active is the start cycle. Otherwise, it's the next reward
+            ;; cycle. In other words, `max(bond-start-cycle, current-cycle + 1)`
+            (first-reward-cycle (if (> bond-start-cycle next-cycle)
+                bond-start-cycle
+                next-cycle
+            ))
+            (num-cycles (- bond-end-cycle first-reward-cycle))
+        )
+        ;; Validate that the staker can join this signer
+        (try! (contract-call? signer-manager validate-stake! tx-sender
+            (get amount-ustx current-membership) amount-sats num-cycles true
+            signer-calldata
+        ))
+
+        ;; The signer must have been registered already
+        (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
+
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (check-caller-allowed))
+
+        ;; Remove the staker from all existing cycles
+        (try! (remove-staker-from-cycles tx-sender first-reward-cycle num-cycles false))
+
+        ;; Re-add to existing cycles with the new signer
+        (try! (add-staker-to-signer-cycles tx-sender signer first-reward-cycle
+            num-cycles (get amount-ustx current-membership) false
+        ))
+
+        ;; Remove the sBTC shares from the current signer
+        (map-delete staker-shares-staked-for-cycle {
+            index: bond-index,
+            staker: tx-sender,
+            signer: current-signer,
+            is-bond: true,
+        })
+        (map-set signer-shares-staked-for-cycle {
+            index: bond-index,
+            is-bond: true,
+            signer: current-signer,
+        }
+            (- current-signer-total-sats amount-sats)
+        )
+
+        ;; Add the sBTC shares to the current signer
+        (map-set staker-shares-staked-for-cycle {
+            index: bond-index,
+            staker: tx-sender,
+            signer: signer,
+            is-bond: true,
+        }
+            amount-sats
+        )
+        (map-set signer-shares-staked-for-cycle {
+            index: bond-index,
+            signer: signer,
+            is-bond: true,
+        }
+            (+ new-signer-total-sats amount-sats)
+        )
+        (map-set protocol-bond-memberships tx-sender {
+            bond-index: bond-index,
+            amount-ustx: (get amount-ustx current-membership),
+            signer: signer,
+        })
+
+        (ok true)
+    )
+)
+
 ;; Register a signer
 (define-public (register-signer
         (signer-manager <signer-manager-trait>)
@@ -583,7 +688,6 @@
         (asserts! (is-eq tx-sender signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
 
         (map-set signers signer signer-key)
-        (map-set signer-keys signer signer-key)
         (ok {
             signer: signer,
             signer-key: signer-key,
@@ -1281,7 +1385,6 @@
             (+ current-rewards-per-token new-rewards-per-token)
         )
 
-        ;; TODO: verify that this bond is active
         (asserts!
             (and
                 (> calculation-height bond-start-height)
@@ -1788,17 +1891,14 @@
 ;; stake has expired, this will return `none`.
 (define-read-only (get-staker-info (staker principal))
     (match (map-get? staker-info staker)
-        signer-info
-        (if (<=
-                (+ (get first-reward-cycle signer-info)
-                    (get num-cycles signer-info)
-                )
+        info
+        (if (<= (+ (get first-reward-cycle info) (get num-cycles info))
                 (current-pox-reward-cycle)
             )
             ;; present, but lock has expired
             none
             ;; present, and lock has not expired
-            (some signer-info)
+            (some info)
         )
         ;; no state at all
         none
@@ -1835,7 +1935,7 @@
 )
 
 (define-read-only (get-signer-key (staker principal))
-    (map-get? signer-keys staker)
+    (map-get? signers staker)
 )
 
 (define-read-only (get-total-sats-staked-for-bond (bond-index uint))

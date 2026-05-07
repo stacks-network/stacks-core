@@ -4837,6 +4837,24 @@ export const contracts = {
           bigint
         >
       >,
+      updateBondRegistration: {
+        name: 'update-bond-registration',
+        access: 'public',
+        args: [
+          { name: 'signer-manager', type: 'trait_reference' },
+          {
+            name: 'signer-calldata',
+            type: { optional: { buffer: { length: 500 } } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          signerManager: TypedAbiArg<string, 'signerManager'>,
+          signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
+        ],
+        Response<boolean, bigint>
+      >,
       assertAllActiveBondsIncluded: {
         name: 'assert-all-active-bonds-included',
         access: 'read_only',
@@ -4965,10 +4983,9 @@ export const contracts = {
           type: {
             optional: {
               tuple: [
-                { name: 'amount-sats', type: 'uint128' },
                 { name: 'amount-ustx', type: 'uint128' },
                 { name: 'bond-index', type: 'uint128' },
-                { name: 'reward-per-share-paid', type: 'uint128' },
+                { name: 'signer', type: 'principal' },
               ],
             },
           },
@@ -4976,10 +4993,9 @@ export const contracts = {
       } as TypedAbiFunction<
         [staker: TypedAbiArg<string, 'staker'>],
         {
-          amountSats: bigint;
           amountUstx: bigint;
           bondIndex: bigint;
-          rewardPerSharePaid: bigint;
+          signer: string;
         } | null
       >,
       getClaimableRewards: {
@@ -5486,19 +5502,17 @@ export const contracts = {
         key: 'principal',
         value: {
           tuple: [
-            { name: 'amount-sats', type: 'uint128' },
             { name: 'amount-ustx', type: 'uint128' },
             { name: 'bond-index', type: 'uint128' },
-            { name: 'reward-per-share-paid', type: 'uint128' },
+            { name: 'signer', type: 'principal' },
           ],
         },
       } as TypedAbiMap<
         string,
         {
-          amountSats: bigint;
           amountUstx: bigint;
           bondIndex: bigint;
-          rewardPerSharePaid: bigint;
+          signer: string;
         }
       >,
       protocolBonds: {
@@ -5574,11 +5588,6 @@ export const contracts = {
         },
         boolean
       >,
-      signerKeys: {
-        name: 'signer-keys',
-        key: 'principal',
-        value: { buffer: { length: 33 } },
-      } as TypedAbiMap<string, Uint8Array>,
       signerPendingStakedUstxPerCycle: {
         name: 'signer-pending-staked-ustx-per-cycle',
         key: {
@@ -6002,6 +6011,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NOT_BOND_PARTICIPANT: {
+        name: 'ERR_NOT_BOND_PARTICIPANT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NOT_STAKING: {
         name: 'ERR_NOT_STAKING',
         type: {
@@ -6376,6 +6395,10 @@ export const contracts = {
       ERR_NOT_ALLOWLISTED: {
         isOk: false,
         value: 11n,
+      },
+      ERR_NOT_BOND_PARTICIPANT: {
+        isOk: false,
+        value: 34n,
       },
       ERR_NOT_STAKING: {
         isOk: false,
