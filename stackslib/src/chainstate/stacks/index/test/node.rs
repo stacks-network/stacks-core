@@ -5160,6 +5160,54 @@ fn trieptr_compressed_roundtrip_backptr() {
 }
 
 #[test]
+fn trieptr_compressed_roundtrip_inline_back_block() {
+    // Non-backptr pointer with a non-zero `back_block`: the compressed wire
+    // format sets the inline-annotation bit (0x10) on the encoded id and
+    // appends a 4-byte back_block payload. The annotation bit is cleared on
+    // read, but the back_block value must round-trip.
+    let cases: [(u64, u32); 6] = [
+        (0u64, 1u32),
+        (0u64, u32::MAX),
+        (u64::from(u32::MAX), 0xdead_beef),
+        (u64::from(u32::MAX) + 1, 1u32),
+        (u64::from(u32::MAX) + 1, 0x01020304),
+        ((1u64 << 56) - 3, u32::MAX),
+    ];
+
+    for (ptr_value, back_block) in cases {
+        let ptr = TriePtr {
+            id: TrieNodeID::Node16 as u8,
+            chr: 0x55,
+            ptr: ptr_value,
+            back_block,
+        };
+
+        let mut bytes = vec![];
+        ptr.write_bytes_compressed(&mut bytes).unwrap();
+
+        let raw_encoded_id = if ptr_value > u64::from(u32::MAX) {
+            set_u64_ptr(TrieNodeID::Node16 as u8)
+        } else {
+            TrieNodeID::Node16 as u8
+        };
+        let expected_first_byte = set_inline_back_block(set_compressed(raw_encoded_id));
+        assert_eq!(expected_first_byte, bytes[0]);
+        assert_eq!(
+            TriePtr::compressed_size_for_id(expected_first_byte),
+            bytes.len()
+        );
+        assert_eq!(bytes.len(), ptr.compressed_size());
+
+        let decoded = TriePtr::from_bytes_compressed(&bytes);
+        assert_eq!(ptr, decoded);
+        assert_eq!(
+            ptr,
+            TriePtr::read_bytes_compressed(&mut Cursor::new(&bytes)).unwrap()
+        );
+    }
+}
+
+#[test]
 fn trieptr_large_offsets_set_u64_bit() {
     let ptr = TriePtr::new(TrieNodeID::Node4 as u8, 0x1, u64::from(u32::MAX) + 1);
     let mut bytes = vec![];
