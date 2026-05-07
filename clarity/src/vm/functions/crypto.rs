@@ -18,6 +18,7 @@ use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::ed25519::ed25519_verify;
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
 use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
@@ -328,6 +329,73 @@ pub fn special_secp256r1_verify(
     } else {
         secp256r1_verify_digest(message, signature, pubkey)
     };
+
+    Ok(Value::Bool(verify_result.is_ok()))
+}
+
+pub fn special_ed25519_verify(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    // (ed25519-verify message signature public-key)
+    // message: (buff 1024), signature: (buff 64), public-key: (buff 32)
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::Ed25519verify, exec_state, 0)?;
+
+    let arg0 = args
+        .first()
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(0, 3))?;
+    let message_value = eval(arg0, exec_state, invoke_ctx, context)?;
+    let message = match message_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= 1024 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_MAX),
+                message_value.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let arg1 = args
+        .get(1)
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 3))?;
+    let signature_value = eval(arg1, exec_state, invoke_ctx, context)?;
+    let signature = match signature_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= 64 => {
+            if data.len() != 64 {
+                return Ok(Value::Bool(false));
+            }
+            data
+        }
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_64),
+                signature_value.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let arg2 = args
+        .get(2)
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3))?;
+    let pubkey_value = eval(arg2, exec_state, invoke_ctx, context)?;
+    let pubkey = match pubkey_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                pubkey_value.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let verify_result = ed25519_verify(message, signature, pubkey);
 
     Ok(Value::Bool(verify_result.is_ok()))
 }

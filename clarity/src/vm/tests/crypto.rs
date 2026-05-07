@@ -16,6 +16,7 @@ use pinny::tag;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{PrivateKey, StacksEpochId};
+use stacks_common::util::ed25519::{Ed25519PrivateKey, Ed25519PublicKey, MessageSignature};
 use stacks_common::util::hash::{Sha256Sum, to_hex};
 use stacks_common::util::secp256k1::MessageSignature as Secp256k1Signature;
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
@@ -734,6 +735,64 @@ fn test_secp256k1_recover_invalid_signature_returns_err_code() {
         }
         other => panic!("expected err response, found {other:?}"),
     }
+}
+
+#[test]
+fn test_ed25519_verify_valid_signature_returns_true() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let signature = sk.sign(message).unwrap();
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&signature.to_bytes()),
+        buff_literal(&pk.to_bytes())
+    );
+
+    assert_eq!(
+        Value::Bool(true),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
+fn test_ed25519_verify_invalid_signature_returns_false() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let signature = MessageSignature::empty();
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&signature.to_bytes()),
+        buff_literal(&pk.to_bytes())
+    );
+
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
 }
 
 proptest! {

@@ -188,6 +188,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
         RestrictAssets => "(restrict-assets? tx-sender () (+ u1 u2))",
         AsContractSafe => "(as-contract? () (+ u1 u2))",
         Secp256r1Verify => "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8 0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd310eac59293c23e6d6aa8b0c5d9e4e48fa4c4fdf1ace2ba618dc0263b5e90a0903 0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e)",
+        Ed25519Verify => "(ed25519-verify 0x68656c6c6f20776f726c64 0x7e8346b0d9ef1151608df9d436c646b9df23758b292e0df400032f2603417724a25997d81a95a8997a55252813589b9409893df1ec75249a5b6f38753232810e 0xec172b93ad5e563bf49683c1397357b1af93d4e937abda610c10ccc6112217c0)",
         // These expressions are not usable in this context, since they are
         // only allowed within `restrict-assets?` or `as-contract?`
         AllowanceWithStx

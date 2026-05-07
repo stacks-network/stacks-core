@@ -187,6 +187,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, None),
     AllowanceAll("with-all-assets-unsafe", ClarityVersion::Clarity4, None),
     Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
+    Ed25519Verify("ed25519-verify", ClarityVersion::Clarity6, None),
 });
 
 ///
@@ -575,6 +576,9 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             }
             Secp256r1Verify => {
                 SpecialFunction("native_secp256r1-verify", &crypto::special_secp256r1_verify)
+            }
+            Ed25519Verify => {
+                SpecialFunction("native_ed25519-verify", &crypto::special_ed25519_verify)
             }
         };
         Some(callable)

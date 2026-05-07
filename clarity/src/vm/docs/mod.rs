@@ -1418,6 +1418,20 @@ NIST P-256 curve (also known as secp256r1).",
     0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns false"
 };
 
+const ED25519VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 1024), (buff 64), (buff 32)",
+    snippet: "ed25519-verify ${1:message} ${2:signature} ${3:public-key})",
+    output_type: "bool",
+    signature: "(ed25519-verify message signature public-key)",
+    description: "The `ed25519-verify` function verifies that the provided signature of the message
+was signed with the private key that generated the public key.",
+    example: "(ed25519-verify 0x68656c6c6f20776f726c64
+    0x7e8346b0d9ef1151608df9d436c646b9df23758b292e0df400032f2603417724a25997d81a95a8997a55252813589b9409893df1ec75249a5b6f38753232810e
+    0xec172b93ad5e563bf49683c1397357b1af93d4e937abda610c10ccc6112217c0) ;; Returns true
+(ed25519-verify 0x00000000000000000000000000000000000000 0x7e8346b0d9ef1151608df9d436c646b9df23758b292e0df400032f2603417724a25997d81a95a8997a55252813589b9409893df1ec75249a5b6f38753232810e
+    0xec172b93ad5e563bf49683c1397357b1af93d4e937abda610c10ccc6112217c0) ;; Returns false"
+};
+
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     snippet: "contract-call? ${1:contract-principal} ${2:func} ${3:arg1}",
@@ -2900,6 +2914,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AllowanceWithStacking => make_for_special(&ALLOWANCE_WITH_STACKING, function),
         AllowanceAll => make_for_special(&ALLOWANCE_WITH_ALL, function),
         Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
+        Ed25519Verify => make_for_special(&ED25519VERIFY_API, function),
     }
 }
 
