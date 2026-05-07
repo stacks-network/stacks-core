@@ -21,6 +21,7 @@ use super::ExecutionCost;
 /// overrides only `cost_contract_hash`.
 use super::cost_functions::CostValues;
 use super::costs_3::Costs3;
+use crate::vm::RuntimeError;
 use crate::vm::costs::cost_functions::linear;
 use crate::vm::errors::VmExecutionError;
 
@@ -475,6 +476,6 @@ impl CostValues for Costs4 {
     }
 
     fn cost_secp256k1decompress(n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(123456))
+        Err(RuntimeError::NotImplemented.into())
     }
 }
