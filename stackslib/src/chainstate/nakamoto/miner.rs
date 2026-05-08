@@ -66,7 +66,9 @@ pub fn make_mem_abort_callback(limit_bytes: u64) -> AbortCallback {
         return AbortCallback::None;
     }
     if !tracking_allocator_installed() {
-        panic!("Tracking allocator must be installed to set a memory limit");
+        error!(
+            "TrackingAllocator is not installed as the global allocator; any miner or signer configured memory limits will never trigger"
+        );
     }
     AbortCallback::MemAbort {
         baseline: thread_allocated(),
