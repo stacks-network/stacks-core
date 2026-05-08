@@ -35,6 +35,9 @@
 (define-constant ERR_ACTIVE_BOND_NOT_INCLUDED (err u33))
 ;; Not actively in a bond
 (define-constant ERR_NOT_BOND_PARTICIPANT (err u34))
+;; A call to announce an early unlock was made
+;; for a bond membership that has an L2 lockup
+(define-constant ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK (err u35))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -97,6 +100,8 @@
         min-ustx-ratio: uint,
         ;; The allowed early unlock signers for this bond period
         early-unlock-signers: (buff 683),
+        ;; The Stacks principal that can announce early L1 unlocks
+        early-unlock-admin: principal,
     }
 )
 
@@ -115,6 +120,7 @@
         bond-index: uint,
         amount-ustx: uint,
         signer: principal,
+        is-l1-lock: bool,
     }
 )
 
@@ -375,6 +381,7 @@
         (stx-value-ratio uint)
         (min-ustx-ratio uint)
         (early-unlock-signers (buff 683))
+        (early-unlock-admin principal)
         (allowlist (list 1000 {
             staker: principal,
             max-sats: uint,
@@ -412,6 +419,7 @@
                 stx-value-ratio: stx-value-ratio,
                 min-ustx-ratio: min-ustx-ratio,
                 early-unlock-signers: early-unlock-signers,
+                early-unlock-admin: early-unlock-admin,
             })
             ERR_BOND_ALREADY_SETUP
         )
@@ -546,6 +554,7 @@
             bond-index: bond-index,
             amount-ustx: amount-ustx,
             signer: signer,
+            is-l1-lock: (is-ok btc-lockup),
         })
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
@@ -667,6 +676,7 @@
             bond-index: bond-index,
             amount-ustx: (get amount-ustx current-membership),
             signer: signer,
+            is-l1-lock: (get is-l1-lock current-membership),
         })
 
         (ok true)
@@ -827,6 +837,47 @@
             num-cycles: num-cycles,
             amount-ustx: new-lock-amount,
         })
+    )
+)
+
+(define-public (announce-l1-early-exit (staker principal))
+    (let (
+            (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
+            (bond-index (get bond-index membership))
+            (signer (get signer membership))
+            (bond (unwrap-panic (get-protocol-bond bond-index)))
+            (amount-sats (get-staker-shares-staked-for-cycle staker bond-index true signer))
+            (current-total-shares (get-total-shares-staked-for-cycle bond-index true))
+            (current-shares (get-signer-shares-staked-for-cycle signer bond-index true))
+        )
+        (asserts!
+            (and (is-eq contract-caller tx-sender) (is-eq contract-caller (get early-unlock-admin bond)))
+            ERR_UNAUTHORIZED
+        )
+        (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
+
+        (map-set staker-shares-staked-for-cycle {
+            is-bond: true,
+            staker: staker,
+            signer: signer,
+            index: bond-index,
+        }
+            u0
+        )
+        (map-set signer-shares-staked-for-cycle {
+            is-bond: true,
+            signer: signer,
+            index: bond-index,
+        }
+            (- current-shares amount-sats)
+        )
+        (map-set total-shares-staked-for-cycle {
+            index: bond-index,
+            is-bond: true,
+        }
+            (- current-total-shares amount-sats)
+        )
+        (ok true)
     )
 )
 
@@ -2048,6 +2099,10 @@
         (>= lock-period u1)
         (<= lock-period MAX_NUM_CYCLES)
     )
+)
+
+(define-read-only (get-protocol-bond (bond-index uint))
+    (map-get? protocol-bonds bond-index)
 )
 
 ;;; Contract caller allowances

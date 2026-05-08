@@ -3,6 +3,7 @@ import {
   err,
   extractErrors,
   isResponse,
+  ok,
   projectFactory,
 } from '@clarigen/core';
 import { accounts, project } from '../clarigen-types';
@@ -125,6 +126,7 @@ test('scenario - setting up and starting a bond', () => {
       stxValueRatio,
       minUstxRatio,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [
         {
           maxSats: 100000000n,
@@ -166,6 +168,7 @@ test('scenario - setting up and starting a bond', () => {
   expect(aliceInfo).toEqual({
     amountUstx: minAmountUstx,
     bondIndex: 0n,
+    isL1Lock: false,
     signer,
   });
   expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
@@ -629,6 +632,7 @@ test('bond rewards split across signers by staked sats', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [
         { maxSats: aliceSbtc, staker: alice },
         { maxSats: bobSbtc, staker: bob },
@@ -697,6 +701,7 @@ test('bond shortfall leaves no rewards for reserve or stx-only stakers', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -764,6 +769,7 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
       stxValueRatio: 20n,
       minUstxRatio,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -788,6 +794,7 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
       stxValueRatio: 10n,
       minUstxRatio,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bobSbtc, staker: bob }],
     }),
     deployer,
@@ -861,6 +868,7 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
       stxValueRatio: 20n,
       minUstxRatio,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -885,6 +893,7 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
       stxValueRatio: 10n,
       minUstxRatio,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bobSbtc, staker: bob }],
     }),
     deployer,
@@ -1073,6 +1082,7 @@ test('bond participants claim rewards after signer claims', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [
         { maxSats: aliceSbtc, staker: alice },
         { maxSats: bobSbtc, staker: bob },
@@ -1137,6 +1147,207 @@ test('bond participants claim rewards after signer claims', () => {
   ).toBe(0n);
 });
 
+test('only early unlock admin can announce l1 early exit', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 100000n;
+  const aliceUstx = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSats, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: aliceUstx,
+      btcLockup: ok({
+        outputs: [
+          { amount: aliceSats, txid: new Uint8Array(32), outputIndex: 0n },
+        ],
+        unlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  const unauthorized = txErr(pox5.announceL1EarlyExit(alice), bob);
+  expect(unauthorized.value).toBe(errorCodes.ERR_UNAUTHORIZED);
+
+  txOk(pox5.announceL1EarlyExit(alice), deployer);
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
+    0n,
+  );
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer, 0n, true))).toBe(0n);
+  expect(rov(pox5.getTotalSharesStakedForCycle(0n, true))).toBe(0n);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer, 1n))).toBe(aliceUstx);
+  expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeTruthy();
+});
+
+test('cannot announce l1 early exit for sbtc bond participant', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  const earlyExit = txErr(pox5.announceL1EarlyExit(alice), deployer);
+  expect(earlyExit.value).toBe(
+    pox5.constants.eRR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK.value,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
+    aliceSbtc,
+  );
+});
+
+test('l1 early exit prevents future bond rewards but leaves stx delegated', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 480000n;
+  const aliceUstx = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSats, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: aliceUstx,
+      btcLockup: ok({
+        outputs: [
+          { amount: aliceSats, txid: new Uint8Array(32), outputIndex: 0n },
+        ],
+        unlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  txOk(pox5.announceL1EarlyExit(alice), deployer);
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
+    0n,
+  );
+  expect(rov(pox5.getSignerCycleMembership(alice, 1n))).toEqual({
+    amountUstx: aliceUstx,
+    signer,
+  });
+  expect(rov(pox5.getAmountDelegatedForSigner(signer, 1n))).toBe(aliceUstx);
+});
+
+test('l1 early exit does not erase already accrued bond rewards', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 480000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSats, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: ok({
+        outputs: [
+          { amount: aliceSats, txid: new Uint8Array(32), outputIndex: 0n },
+        ],
+        unlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
+    1200n,
+  );
+  txOk(pox5.announceL1EarlyExit(alice), deployer);
+
+  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
+    1200n,
+  );
+});
+
 test('bond participant can update signer before bond starts', () => {
   const signer1 = testSigner.identifier;
   const signer2 = deployTestSigner(
@@ -1154,6 +1365,7 @@ test('bond participant can update signer before bond starts', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1204,6 +1416,7 @@ test('bond participant signer update changes signer set starting next cycle', ()
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1289,6 +1502,7 @@ test('bond participant rewards follow updated signer', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1453,6 +1667,7 @@ test('scenario - waterfall distributions', () => {
       stxValueRatio,
       minUstxRatio,
       earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
       allowlist: [
         {
           maxSats: 100000000n,
@@ -1758,6 +1973,7 @@ test('validating that all active bonds are included in a list at a given height'
         stxValueRatio: 10n,
         minUstxRatio: 100n,
         earlyUnlockSigners: new Uint8Array(),
+        earlyUnlockAdmin: deployer,
         allowlist: [{ maxSats: 100000n, staker: alice }],
       }),
       deployer,

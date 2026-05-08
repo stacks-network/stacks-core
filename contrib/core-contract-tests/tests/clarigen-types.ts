@@ -4372,6 +4372,15 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      announceL1EarlyExit: {
+        name: 'announce-l1-early-exit',
+        access: 'public',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [staker: TypedAbiArg<string, 'staker'>],
+        Response<boolean, bigint>
+      >,
       calculateRewards: {
         name: 'calculate-rewards',
         access: 'public',
@@ -4640,6 +4649,7 @@ export const contracts = {
           { name: 'stx-value-ratio', type: 'uint128' },
           { name: 'min-ustx-ratio', type: 'uint128' },
           { name: 'early-unlock-signers', type: { buffer: { length: 683 } } },
+          { name: 'early-unlock-admin', type: 'principal' },
           {
             name: 'allowlist',
             type: {
@@ -4682,6 +4692,7 @@ export const contracts = {
           stxValueRatio: TypedAbiArg<number | bigint, 'stxValueRatio'>,
           minUstxRatio: TypedAbiArg<number | bigint, 'minUstxRatio'>,
           earlyUnlockSigners: TypedAbiArg<Uint8Array, 'earlyUnlockSigners'>,
+          earlyUnlockAdmin: TypedAbiArg<string, 'earlyUnlockAdmin'>,
           allowlist: TypedAbiArg<
             {
               maxSats: number | bigint;
@@ -4985,6 +4996,7 @@ export const contracts = {
               tuple: [
                 { name: 'amount-ustx', type: 'uint128' },
                 { name: 'bond-index', type: 'uint128' },
+                { name: 'is-l1-lock', type: 'bool' },
                 { name: 'signer', type: 'principal' },
               ],
             },
@@ -4995,6 +5007,7 @@ export const contracts = {
         {
           amountUstx: bigint;
           bondIndex: bigint;
+          isL1Lock: boolean;
           signer: string;
         } | null
       >,
@@ -5081,6 +5094,36 @@ export const contracts = {
           },
           null
         >
+      >,
+      getProtocolBond: {
+        name: 'get-protocol-bond',
+        access: 'read_only',
+        args: [{ name: 'bond-index', type: 'uint128' }],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'early-unlock-admin', type: 'principal' },
+                {
+                  name: 'early-unlock-signers',
+                  type: { buffer: { length: 683 } },
+                },
+                { name: 'min-ustx-ratio', type: 'uint128' },
+                { name: 'stx-value-ratio', type: 'uint128' },
+                { name: 'target-rate', type: 'uint128' },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>],
+        {
+          earlyUnlockAdmin: string;
+          earlyUnlockSigners: Uint8Array;
+          minUstxRatio: bigint;
+          stxValueRatio: bigint;
+          targetRate: bigint;
+        } | null
       >,
       getReserveBalance: {
         name: 'get-reserve-balance',
@@ -5504,6 +5547,7 @@ export const contracts = {
           tuple: [
             { name: 'amount-ustx', type: 'uint128' },
             { name: 'bond-index', type: 'uint128' },
+            { name: 'is-l1-lock', type: 'bool' },
             { name: 'signer', type: 'principal' },
           ],
         },
@@ -5512,6 +5556,7 @@ export const contracts = {
         {
           amountUstx: bigint;
           bondIndex: bigint;
+          isL1Lock: boolean;
           signer: string;
         }
       >,
@@ -5520,6 +5565,7 @@ export const contracts = {
         key: 'uint128',
         value: {
           tuple: [
+            { name: 'early-unlock-admin', type: 'principal' },
             { name: 'early-unlock-signers', type: { buffer: { length: 683 } } },
             { name: 'min-ustx-ratio', type: 'uint128' },
             { name: 'stx-value-ratio', type: 'uint128' },
@@ -5529,6 +5575,7 @@ export const contracts = {
       } as TypedAbiMap<
         number | bigint,
         {
+          earlyUnlockAdmin: string;
           earlyUnlockSigners: Uint8Array;
           minUstxRatio: bigint;
           stxValueRatio: bigint;
@@ -5883,6 +5930,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_BOND_NOT_FOUND: {
         name: 'ERR_BOND_NOT_FOUND',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      eRR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK: {
+        name: 'ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK',
         type: {
           response: {
             ok: 'none',
@@ -6347,6 +6404,10 @@ export const contracts = {
       ERR_BOND_NOT_FOUND: {
         isOk: false,
         value: 7n,
+      },
+      eRR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK: {
+        isOk: false,
+        value: 35n,
       },
       ERR_CANNOT_SETUP_BOND_TOO_LATE: {
         isOk: false,
