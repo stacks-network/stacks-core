@@ -67,10 +67,10 @@ impl GlobalStateEvaluator {
         // find the highest version number supported by a threshold number of signers
         let mut protocol_versions: Vec<_> = protocol_versions.into_iter().collect();
         protocol_versions.sort_by_key(|(version, _)| *version);
-        let mut total_weight_support = 0;
+        let mut total_weight_support: u32 = 0;
         for (version, weight_support) in protocol_versions.into_iter().rev() {
             total_weight_support += weight_support;
-            if total_weight_support >= self.total_weight * 7 / 10 {
+            if u64::from(total_weight_support) >= u64::from(self.total_weight) * 7 / 10 {
                 return Some(version);
             }
         }
@@ -168,7 +168,7 @@ impl GlobalStateEvaluator {
     /// Check if the supplied vote weight crosses the global agreement threshold.
     /// Returns true if it has, false otherwise.
     pub fn reached_agreement(&self, vote_weight: u32) -> bool {
-        vote_weight >= self.total_weight * 7 / 10
+        u64::from(vote_weight) >= u64::from(self.total_weight) * 7 / 10
     }
 
     /// Get the global transaction replay set. Returns `None` if there

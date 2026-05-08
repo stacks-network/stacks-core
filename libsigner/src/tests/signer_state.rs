@@ -706,3 +706,34 @@ fn test_replay_set_equal_weight_competing_prefixes() {
         "Should contain transaction A"
     );
 }
+
+#[test]
+/// Regression: u32 multiplication in `reached_agreement` wrapped silently in
+/// release builds for `total_weight > u32::MAX / 7 ≈ 613_566_756`. With
+/// `total_weight = 1_000_000_000` the buggy expression `total_weight * 7 / 10`
+/// wrapped to ~270_503_270, allowing roughly 27% of total weight to satisfy
+/// the 70% supermajority check. The fix widens to u64 first.
+fn reached_agreement_no_u32_overflow() {
+    let evaluator = GlobalStateEvaluator {
+        address_weights: HashMap::new(),
+        address_updates: HashMap::new(),
+        total_weight: 1_000_000_000,
+    };
+
+    // Pre-fix wrap landed at 270_503_270; assert that vote_weight at the wrapped
+    // value is correctly rejected — i.e., 27% does not satisfy 70%.
+    assert!(
+        !evaluator.reached_agreement(270_503_270),
+        "27% of total_weight must not satisfy the 70% threshold"
+    );
+    // Boundary: exactly 70% must pass.
+    assert!(
+        evaluator.reached_agreement(700_000_000),
+        "70% of total_weight must satisfy the 70% threshold"
+    );
+    // Just below 70% must fail.
+    assert!(
+        !evaluator.reached_agreement(699_999_999),
+        "below 70% must not satisfy the threshold"
+    );
+}
