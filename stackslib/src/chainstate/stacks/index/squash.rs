@@ -493,7 +493,7 @@ fn remap_child_ptrs(
 /// the in-memory hashes Vec for child lookups and reading the node
 /// structure from the temp file.
 fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Error> {
-    let empty_hash = TrieHash::from_data(&[]);
+    let empty_hash = TrieHash::EMPTY;
     let node_count = store.len();
     let mut reader = store.open_reader()?;
     let start = Instant::now();
@@ -856,7 +856,7 @@ pub struct SquashStats {
 /// Summary statistics from a validation run.
 ///
 /// The default validation checks:
-/// - Per-height root hashes stored in `marf_squash_archival_marf_roots` match the
+/// - Per-height root hashes stored in `marf_squashed_blocks` match the
 ///   archival source (guarantees correct ancestor hash computation for the
 ///   skip-list at blocks > H).
 /// - Squash metadata (`marf_squash_info`) is present and correct.
@@ -881,7 +881,7 @@ pub struct SquashValidationStats {
     /// tip block's blob offset (should be 0 for a correct squash).
     pub blob_offset_mismatches: u64,
     /// Whether the `squash_root_node_hash` was found in SQL metadata
-    /// (a `TrieHash::from_data(&[])` value counts as absent).
+    /// (a `TrieHash::EMPTY` value counts as absent).
     pub squash_node_hash_present: bool,
     /// Whether the stored `squash_root_node_hash` matches the value
     /// recomputed from the committed squash trie blob (DFS walk + bottom-up hash).
@@ -1039,14 +1039,14 @@ fn persist_squash_metadata<T: MarfTrieId>(
     let start = Instant::now();
     trie_sql::write_squash_info(conn, source_root_hash, height)?;
     let mut stmt = conn.prepare(
-        "INSERT OR REPLACE INTO marf_squash_archival_marf_roots (height, marf_root_hash) VALUES (?1, ?2)",
-    )?;
-    let mut stmt_bh = conn.prepare(
-        "INSERT OR REPLACE INTO marf_squash_block_heights (block_hash, height) VALUES (?1, ?2)",
+        "INSERT OR REPLACE INTO marf_squashed_blocks (height, block_hash, marf_root_hash) VALUES (?1, ?2, ?3)",
     )?;
     for (h, bh, rh) in block_info {
-        stmt.execute(params![*h as i64, rh.as_bytes().to_vec()])?;
-        stmt_bh.execute(params![bh.to_string(), *h as i64])?;
+        stmt.execute(params![
+            i64::from(*h),
+            bh.as_bytes(),
+            rh.as_bytes().to_vec()
+        ])?;
     }
     info!(
         "Squash: wrote {} root hashes and block heights in {}",

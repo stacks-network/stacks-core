@@ -65,6 +65,7 @@ static SQL_MARF_DATA_TABLE_SCHEMA_2: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER DEFAULT 1 NOT NULL
 );
+-- migrated_version tracks the schema-2 external-blob data migration.
 CREATE TABLE IF NOT EXISTS migrated_version (
     version INTEGER DEFAULT 1 NOT NULL
 );
@@ -76,26 +77,32 @@ INSERT OR REPLACE INTO schema_version (version) VALUES (2);
 INSERT OR REPLACE INTO migrated_version (version) VALUES (1);
 ";
 
-pub static SQL_MARF_SCHEMA_VERSION: u64 = 2;
-
-/// SQL table for squash metadata (root hash and height).
-/// Stored outside the trie so it does not affect the MARF root hash.
-static SQL_MARF_SQUASH_TABLES: &str = "
+/// Schema 3 adds SQL tables for squash metadata.
+///
+/// `marf_squash_info` holds the singleton squash metadata row (squash root
+/// node hash, archival root hash, squash height).
+/// `marf_squashed_blocks` stores one row per height in the squashed range
+/// `0..=H`, mapping each `(height, block_hash, marf_root_hash)` triple.
+///
+/// These tables are populated only by the squash pipeline. On a normal
+/// archival MARF they remain empty.
+static SQL_MARF_DATA_TABLE_SCHEMA_3: &str = "
 CREATE TABLE IF NOT EXISTS marf_squash_info (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     archival_marf_root_hash BLOB NOT NULL,
     squash_root_node_hash BLOB,
     squash_height INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS marf_squash_archival_marf_roots (
+CREATE TABLE IF NOT EXISTS marf_squashed_blocks (
     height INTEGER PRIMARY KEY,
+    block_hash BLOB NOT NULL UNIQUE,
     marf_root_hash BLOB NOT NULL
 );
-CREATE TABLE IF NOT EXISTS marf_squash_block_heights (
-    block_hash TEXT PRIMARY KEY,
-    height INTEGER NOT NULL
-);
+UPDATE schema_version SET version = 3;
 ";
+
+pub static SQL_MARF_EXTERNAL_BLOBS_SCHEMA_VERSION: u64 = 2;
+pub static SQL_MARF_SCHEMA_VERSION: u64 = 3;
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     let tx = tx_begin_immediate(conn)?;
@@ -103,7 +110,6 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     tx.execute_batch(SQL_MARF_DATA_TABLE)?;
     tx.execute_batch(SQL_MARF_MINED_TABLE)?;
     tx.execute_batch(SQL_EXTENSION_LOCKS_TABLE)?;
-    tx.execute_batch(SQL_MARF_SQUASH_TABLES)?;
 
     tx.commit().map_err(|e| e.into())
 }
@@ -116,14 +122,19 @@ pub fn write_squash_info(
 ) -> Result<(), Error> {
     conn.execute(
         "INSERT OR REPLACE INTO marf_squash_info (id, archival_marf_root_hash, squash_height) VALUES (1, ?1, ?2)",
-        params![archival_marf_root_hash.as_bytes().to_vec(), height as i64],
+        params![archival_marf_root_hash.as_bytes().to_vec(), i64::from(height)],
     )?;
     Ok(())
 }
 
-/// Read squash metadata from the out-of-trie SQL table.
-/// Returns `None` for archival (non-squashed) MARFs.
-/// Returns `(archival_marf_root_hash, squash_root_node_hash_opt, height)`.
+/// Read the squash metadata row.
+///
+/// Returns:
+/// - `None` for archival MARFs.
+/// - `Some((archival_marf_root_hash, squash_root_node_hash_opt, height))` for squashed MARFs.
+///
+/// `squash_root_node_hash_opt` is `None` only while `squash_to_path` is building the squash;
+/// committed squashed MARFs always have it.
 pub fn read_squash_info(
     conn: &Connection,
 ) -> Result<Option<(TrieHash, Option<TrieHash>, u32)>, Error> {
@@ -198,7 +209,7 @@ pub fn update_squash_root_node_hash(conn: &Connection, hash: &TrieHash) -> Resul
     Ok(())
 }
 
-/// Read the stored root hash for a given height from the SQL table.
+/// Read the stored root hash for a given height from the squashed blocks table.
 /// Returns `None` if the height is not present (archival MARF or height
 /// outside the squashed range).
 pub fn read_squash_archival_marf_root_hash(
@@ -207,8 +218,8 @@ pub fn read_squash_archival_marf_root_hash(
 ) -> Result<Option<TrieHash>, Error> {
     let result: Option<Vec<u8>> = conn
         .query_row(
-            "SELECT marf_root_hash FROM marf_squash_archival_marf_roots WHERE height = ?1",
-            params![height as i64],
+            "SELECT marf_root_hash FROM marf_squashed_blocks WHERE height = ?1",
+            params![i64::from(height)],
             |row| row.get(0),
         )
         .optional()?;
@@ -228,7 +239,7 @@ pub fn read_squash_archival_marf_root_hash(
     }
 }
 
-/// Read the stored height for a block hash from the squash block-heights table.
+/// Read the stored height for a block hash from the squashed blocks table.
 /// Returns `None` if the block hash is not present (archival MARF or block
 /// outside the squashed range).
 pub fn read_squash_block_height<T: MarfTrieId>(
@@ -237,8 +248,8 @@ pub fn read_squash_block_height<T: MarfTrieId>(
 ) -> Result<Option<u32>, Error> {
     let result: Option<i64> = conn
         .query_row(
-            "SELECT height FROM marf_squash_block_heights WHERE block_hash = ?1",
-            params![&block_hash.to_string()],
+            "SELECT height FROM marf_squashed_blocks WHERE block_hash = ?1",
+            params![block_hash.as_bytes()],
             |row| row.get(0),
         )
         .optional()?;
@@ -251,23 +262,33 @@ pub fn read_squash_block_height<T: MarfTrieId>(
         .transpose()
 }
 
-/// Read the block hash for a given height from the squash block-heights table.
-/// This is the reverse lookup: height -> block_hash.
+/// Read the block hash for a given height from the squashed blocks table.
 /// Returns `None` if the height is not in the squashed range.
 #[cfg(test)]
-pub fn read_squash_block_height_reverse<T: MarfTrieId>(
+pub fn read_squash_block_hash<T: MarfTrieId>(
     conn: &Connection,
     height: u32,
 ) -> Result<Option<T>, Error> {
-    let result: Option<T> = conn
+    let result: Option<Vec<u8>> = conn
         .query_row(
-            "SELECT block_hash FROM marf_squash_block_heights WHERE height = ?1",
-            params![height as i64],
+            "SELECT block_hash FROM marf_squashed_blocks WHERE height = ?1",
+            params![i64::from(height)],
             |row| row.get(0),
         )
         .optional()?;
 
-    Ok(result)
+    match result {
+        Some(bytes) => {
+            let arr: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+                Error::CorruptionError(format!(
+                    "Invalid squash block_hash length {} at height {height}",
+                    bytes.len()
+                ))
+            })?;
+            Ok(Some(T::from_bytes(arr)))
+        }
+        None => Ok(None),
+    }
 }
 
 /// Bulk-read all confirmed block entries from `marf_data`.
@@ -341,22 +362,8 @@ fn get_migrated_version(conn: &Connection) -> u64 {
 
 /// Migrate the MARF database to the currently-supported schema.
 /// Returns the version of the DB prior to the migration.
-///
-/// If `readonly` is `true`, this performs compatibility checks only and
-/// returns an error if migration would be required.
-pub fn migrate_tables_if_needed<T: MarfTrieId>(
-    conn: &mut Connection,
-    readonly: bool,
-) -> Result<u64, Error> {
+pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<u64, Error> {
     let first_version = get_schema_version(conn);
-    if readonly {
-        if first_version != SQL_MARF_SCHEMA_VERSION {
-            return Err(Error::CorruptionError(format!(
-                "MARF schema version {first_version} is not compatible with read-only open (expected {SQL_MARF_SCHEMA_VERSION})"
-            )));
-        }
-        return Ok(first_version);
-    }
 
     loop {
         let version = get_schema_version(conn);
@@ -367,6 +374,14 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(
                 // add external_* fields
                 let tx = tx_begin_immediate(conn)?;
                 tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_2)?;
+                tx.commit()?;
+            }
+            2 => {
+                debug!("Migrate MARF data from schema 2 to schema 3");
+
+                // add squash side-tables
+                let tx = tx_begin_immediate(conn)?;
+                tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_3)?;
                 tx.commit()?;
             }
             x if x == SQL_MARF_SCHEMA_VERSION => {
@@ -384,15 +399,31 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(
             }
         }
     }
-    if first_version == SQL_MARF_SCHEMA_VERSION
+
+    if first_version >= SQL_MARF_EXTERNAL_BLOBS_SCHEMA_VERSION
         && get_migrated_version(conn) != SQL_MARF_SCHEMA_VERSION
         && !trie_sql::detect_partial_migration(conn)?
     {
-        // no migration will need to happen, so stop checking
-        debug!("Marking MARF data as fully-migrated");
+        // The schema changed after the external-blob migration. If this DB was
+        // already at least schema 2 and has no partial blob migration, no trie
+        // blob export is required
+        debug!("Marking MARF external blob migration as fully-migrated");
         set_migrated(conn)?;
     }
     Ok(first_version)
+}
+
+/// Verify that the MARF database is already at the currently-supported schema.
+///
+/// Used for read-only opens, where applying migrations would not be possible.
+pub fn ensure_no_migration_necessary<T: MarfTrieId>(conn: &mut Connection) -> Result<(), Error> {
+    let version = get_schema_version(conn);
+    if version != SQL_MARF_SCHEMA_VERSION {
+        return Err(Error::CorruptionError(format!(
+            "MARF schema version {version} is not compatible with read-only open (expected {SQL_MARF_SCHEMA_VERSION})"
+        )));
+    }
+    Ok(())
 }
 
 pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {

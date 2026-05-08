@@ -1654,16 +1654,16 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
 
 /// Snapshot metadata cached at open time for squashed MARFs.
 ///
-/// Contains the archival root hash, squash root node hash, height, and
-/// block hash at which the MARF was squashed.  This is populated once
-/// when the MARF is opened and used by the ancestor-hash computation to
-/// avoid opening pruned historical blocks.
+/// Contains the archival root hash, squash root node hash, and squash
+/// height. This is populated once when the MARF is opened and used by
+/// the ancestor-hash computation to avoid opening pruned historical
+/// blocks.
 #[derive(Clone, Debug)]
 pub struct SquashInfo {
     /// Archival MARF root hash committed to the chain at the squash height.
     pub archival_marf_root_hash: TrieHash,
     /// Root node hash of the squash trie. i.e. `hash(consensus_bytes(root) || children_content_hashes)`
-    /// `TrieHash::from_data(&[])` if not yet computed.
+    /// `TrieHash::EMPTY` if not yet computed.
     pub squash_root_node_hash: TrieHash,
     /// Height at which the MARF was squashed.
     pub height: u32,
@@ -1768,15 +1768,14 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     /// Detect whether this MARF was produced by a squash operation and, if
     /// so, cache the squash metadata [`SquashInfo`].
     ///
-    /// The metadata is read from the `marf_squash_info` SQL table
-    fn init_squash_info(&mut self) -> Result<(), Error> {
+    /// The metadata is read from the `marf_squash_info` SQL table.
+    fn load_squash_info(&mut self) -> Result<(), Error> {
         let squash_info = match trie_sql::read_squash_info(&self.db)? {
             Some((archival_marf_root_hash, squash_root_node_hash_opt, height)) => {
                 Some(SquashInfo {
                     archival_marf_root_hash,
                     // While creating a squash, this may still be empty.
-                    squash_root_node_hash: squash_root_node_hash_opt
-                        .unwrap_or_else(|| TrieHash::from_data(&[])),
+                    squash_root_node_hash: squash_root_node_hash_opt.unwrap_or(TrieHash::EMPTY),
                     height,
                 })
             }
@@ -1947,9 +1946,13 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             None
         };
 
-        let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db, readonly)?;
-        if !readonly {
-            if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION
+        if readonly {
+            trie_sql::ensure_no_migration_necessary::<T>(&mut db)?;
+        } else {
+            let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db)?;
+            // Only the schema-2 migration moved trie blobs to external storage.
+            // Later schema migrations should not rewrite the blob.
+            if prev_schema_version < trie_sql::SQL_MARF_EXTERNAL_BLOBS_SCHEMA_VERSION
                 || marf_opts.force_db_migrate
             {
                 if let Some(blobs) = blobs.as_mut() {
@@ -2009,7 +2012,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             test_genesis_block: None,
         };
 
-        ret.init_squash_info()?;
+        ret.load_squash_info()?;
         Ok(ret)
     }
 
@@ -2102,7 +2105,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             test_genesis_block: self.test_genesis_block.clone(),
         };
 
-        ret.init_squash_info()?;
+        ret.load_squash_info()?;
         Ok(ret)
     }
 
@@ -2175,7 +2178,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             test_genesis_block: self.test_genesis_block.clone(),
         };
 
-        ret.init_squash_info()?;
+        ret.load_squash_info()?;
         Ok(ret)
     }
 
@@ -2664,17 +2667,15 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         // the archival trie hash directly).
         if let Some(info) = self.data.squash_info.clone() {
             for h in 0..=info.height {
-                let bh: T = match trie_sql::read_squash_block_height_reverse(self.sqlite_conn(), h)
-                {
-                    Ok(Some(bh)) => bh,
-                    _ => continue,
+                let Some(bh) = trie_sql::read_squash_block_hash::<T>(self.sqlite_conn(), h)? else {
+                    continue;
                 };
 
-                let archival_trie_hash =
-                    match trie_sql::read_squash_archival_marf_root_hash(self.sqlite_conn(), h) {
-                        Ok(Some(h)) => h,
-                        _ => continue,
-                    };
+                let Some(archival_trie_hash) =
+                    trie_sql::read_squash_archival_marf_root_hash(self.sqlite_conn(), h)?
+                else {
+                    continue;
+                };
 
                 ret.insert(archival_trie_hash, bh);
             }

@@ -792,7 +792,7 @@ impl Trie {
                         if h <= info.height {
                             return Err(Error::CorruptionError(format!(
                                 "Block {cur_block_header} at height {h} is within squashed \
-                                 range (0..={}) but missing from marf_squash_block_heights",
+                                 range (0..={}) but missing from marf_squashed_blocks",
                                 info.height
                             )));
                         }

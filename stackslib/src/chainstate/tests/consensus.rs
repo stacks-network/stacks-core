@@ -24,7 +24,7 @@ use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, ResponseData};
-use clarity::vm::{ClarityVersion, Value as ClarityValue};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 
@@ -39,12 +39,14 @@ use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksTransaction,
-    TransactionContractCall, TransactionPayload, TransactionSmartContract,
-    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionContractCall, TransactionPayload,
+    TransactionPostCondition, TransactionPostConditionMode, TransactionSmartContract,
+    TransactionVersion, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
-    make_contract_call, make_contract_publish_versioned, make_stacks_transfer_tx, to_addr,
+    make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
+    make_stacks_transfer_tx, make_unsigned_tx, to_addr,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::tests::NakamotoBootPlan;
@@ -1800,6 +1802,61 @@ impl ConsensusUtils {
             &[],
         );
         StacksTransaction::consensus_deserialize(&mut call_tx.as_slice()).unwrap()
+    }
+
+    /// Like `new_call_tx` but accepts function arguments.
+    pub fn new_call_tx_with_args(
+        nonce: u64,
+        contract_name: &str,
+        funct_name: &str,
+        args: &[ClarityValue],
+    ) -> StacksTransaction {
+        make_contract_call_tx(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            200,
+            CHAIN_ID_TESTNET,
+            &to_addr(&FAUCET_PRIV_KEY),
+            ContractName::try_from(contract_name.to_string()).unwrap(),
+            ClarityName::try_from(funct_name.to_string()).unwrap(),
+            args,
+        )
+    }
+
+    /// Build a contract-call transaction with custom post-condition mode and
+    /// post-conditions.
+    pub fn new_call_tx_with_postconds(
+        nonce: u64,
+        contract_name: &str,
+        funct_name: &str,
+        args: &[ClarityValue],
+        mode: TransactionPostConditionMode,
+        postconds: Vec<TransactionPostCondition>,
+    ) -> StacksTransaction {
+        let payload = TransactionContractCall {
+            address: FAUCET_ADDRESS.clone(),
+            contract_name: ContractName::try_from(contract_name.to_string()).unwrap(),
+            function_name: ClarityName::try_from(funct_name.to_string()).unwrap(),
+            function_args: args.to_vec(),
+        };
+
+        let mut unsigned_tx = make_unsigned_tx(
+            payload.into(),
+            &FAUCET_PRIV_KEY,
+            None,
+            nonce,
+            None,
+            200,
+            CHAIN_ID_TESTNET,
+            TransactionAnchorMode::OnChainOnly,
+            TransactionVersion::Testnet,
+        );
+        unsigned_tx.post_condition_mode = mode;
+        unsigned_tx.post_conditions = postconds;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(&FAUCET_PRIV_KEY).unwrap();
+        tx_signer.get_tx().unwrap()
     }
 }
 
