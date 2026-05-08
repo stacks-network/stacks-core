@@ -489,6 +489,8 @@
                 ERR_NOT_ALLOWLISTED
             ))
             (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+            ;; the first cycle in which their stx are unlocked
+            (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
             ;; (current-staked (get-total-sats-staked-for-bond bond-index))
             (current-total-staked (get-total-shares-staked-for-cycle bond-index true))
             (current-signer-staked (get-signer-shares-staked-for-cycle signer bond-index true))
@@ -545,7 +547,15 @@
             BOND_LENGTH_CYCLES amount-ustx false
         ))
 
-        (ok true)
+        (ok {
+            signer: signer,
+            staker: tx-sender,
+            amount-ustx: amount-ustx,
+            bond-index: bond-index,
+            first-reward-cycle: first-reward-cycle,
+            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            unlock-cycle: unlock-cycle,
+        })
     )
 )
 

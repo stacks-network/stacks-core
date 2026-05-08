@@ -26,8 +26,8 @@ use stacks_common::debug;
 
 use crate::{LockingError, POX_5_NAME};
 
-/// Parse the returned value from PoX-5 `stake`, `stake-pooled`, `stake-extend`,
-/// and `stake-extend-pooled` functions into (staker, amount-ustx, unlock-burn-height).
+/// Parse the returned value from PoX-5 `stake`, `stake-update`, and
+/// `register-for-bond` functions into (staker, amount-ustx, unlock-burn-height).
 /// These functions return `(ok { staker, amount-ustx, unlock-burn-height, ... })`.
 fn parse_pox_stake_result(result: &Value) -> std::result::Result<(PrincipalData, u128, u64), u128> {
     match result
@@ -277,7 +277,9 @@ pub fn handle_contract_call(
 ) -> Result<(), VmExecutionError> {
     // Execute function specific logic to complete the lock-up
     let lock_event_opt = match function_name {
-        "stake" => handle_stake_lockup_pox_v5(global_context, function_name, value)?,
+        "stake" | "register-for-bond" => {
+            handle_stake_lockup_pox_v5(global_context, function_name, value)?
+        }
         "stake-update" => handle_stake_lockup_update_pox_v5(global_context, function_name, value)?,
         _ => None,
     };
@@ -384,6 +386,49 @@ mod tests {
                     Value::UInt(unlock_burn_height as u128),
                 ),
                 (ClarityName::from_literal("unlock-cycle"), Value::UInt(3)),
+            ])
+            .unwrap(),
+        ))
+        .unwrap()
+    }
+
+    /// Helper: build a pox-5 register-for-bond ok response tuple
+    fn make_register_for_bond_ok_response(
+        staker: &PrincipalData,
+        amount_ustx: u128,
+        unlock_burn_height: u64,
+    ) -> Value {
+        let signer = match staker {
+            PrincipalData::Standard(data) => {
+                Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+                    data.clone(),
+                    ContractName::from_literal("signer"),
+                )))
+            }
+            PrincipalData::Contract(_) => staker.clone().into(),
+        };
+
+        Value::okay(Value::Tuple(
+            TupleData::from_data(vec![
+                (ClarityName::from_literal("signer"), signer),
+                (
+                    ClarityName::from_literal("staker"),
+                    Value::Principal(staker.clone()),
+                ),
+                (
+                    ClarityName::from_literal("amount-ustx"),
+                    Value::UInt(amount_ustx),
+                ),
+                (ClarityName::from_literal("bond-index"), Value::UInt(0)),
+                (
+                    ClarityName::from_literal("first-reward-cycle"),
+                    Value::UInt(2),
+                ),
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(unlock_burn_height as u128),
+                ),
+                (ClarityName::from_literal("unlock-cycle"), Value::UInt(14)),
             ])
             .unwrap(),
         ))
@@ -818,6 +863,142 @@ mod tests {
             .last()
             .expect("event batch should exist");
         assert!(batch.events.is_empty());
+    }
+
+    // ── register-for-bond tests ──
+
+    #[test]
+    fn parse_pox_stake_result_ok_register_for_bond() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let response = make_register_for_bond_ok_response(&staker, 750_000, 12_000);
+        let (parsed_staker, amount, height) = parse_pox_stake_result(&response).unwrap();
+        assert_eq!(parsed_staker, staker);
+        assert_eq!(amount, 750_000);
+        assert_eq!(height, 12_000);
+    }
+
+    #[test]
+    fn handle_register_for_bond_applies_lock() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let lock_amount = 750_000u128;
+        let unlock_height = 12_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        let response = make_register_for_bond_ok_response(&staker, lock_amount, unlock_height);
+        let event = handle_stake_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
+            .expect("handler should succeed");
+
+        let event = event.expect("expected an STXLockEvent");
+        match event {
+            StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
+                assert_eq!(data.locked_amount, lock_amount);
+                assert_eq!(data.unlock_height, unlock_height);
+                assert_eq!(data.locked_address, staker);
+            }
+            other => panic!("Expected STXLockEvent, got: {other:?}"),
+        }
+
+        let balance = global_context
+            .database
+            .get_account_stx_balance(&staker)
+            .expect("Failed to get balance");
+        assert_eq!(balance.amount_locked(), lock_amount);
+        assert_eq!(balance.amount_unlocked(), total_amount - lock_amount);
+    }
+
+    #[test]
+    fn handle_register_for_bond_on_error_response_is_noop() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+
+        let err_response = Value::error(Value::UInt(11)).unwrap();
+        let event =
+            handle_stake_lockup_pox_v5(&mut global_context, "register-for-bond", &err_response)
+                .expect("handler should succeed");
+
+        assert!(event.is_none());
+
+        let balance = global_context
+            .database
+            .get_account_stx_balance(&staker)
+            .expect("Failed to get balance");
+        assert_eq!(balance.amount_locked(), 0);
+    }
+
+    #[test]
+    fn handle_register_for_bond_already_locked_returns_runtime_error() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let lock_amount = 400_000u128;
+        let unlock_height = 12_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        // Pre-existing lock (e.g. user already called `stake`) must surface as a
+        // graceful runtime error, not a FATAL panic, when register-for-bond runs.
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            lock_amount,
+            unlock_height,
+        )
+        .expect("initial lock should succeed");
+
+        let response = make_register_for_bond_ok_response(&staker, lock_amount, unlock_height);
+        let err = handle_stake_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
+            .expect_err("expected PoxAlreadyLocked runtime error");
+        match err {
+            VmExecutionError::Runtime(RuntimeError::PoxAlreadyLocked, None) => {}
+            other => panic!("expected PoxAlreadyLocked runtime error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn handle_contract_call_routes_register_for_bond_and_appends_event() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let lock_amount = 750_000u128;
+        let unlock_height = 12_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+        let contract_id = boot_code_id(POX_5_NAME, global_context.mainnet);
+
+        let response = make_register_for_bond_ok_response(&staker, lock_amount, unlock_height);
+        handle_contract_call(
+            &mut global_context,
+            None,
+            &contract_id,
+            "register-for-bond",
+            &[],
+            &response,
+        )
+        .expect("dispatch should succeed");
+
+        let balance = global_context
+            .database
+            .get_account_stx_balance(&staker)
+            .expect("Failed to get balance");
+        assert_eq!(balance.amount_locked(), lock_amount);
+
+        let (batch, _) = global_context
+            .event_batches
+            .last()
+            .expect("event batch should exist");
+        assert_eq!(batch.events.len(), 1);
+        match &batch.events[0] {
+            StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
+                assert_eq!(data.locked_amount, lock_amount);
+                assert_eq!(data.unlock_height, unlock_height);
+                assert_eq!(data.locked_address, staker);
+            }
+            other => panic!("Expected STXLockEvent, got: {other:?}"),
+        }
     }
 
     // ── Direct error-path tests for pox_lock_update_v5 ──
