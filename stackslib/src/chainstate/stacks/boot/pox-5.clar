@@ -189,7 +189,7 @@
     }
 )
 
-;; Per-cycle staker signer membership
+;; Per-cycle staker signer membership. Only used for stx-only staking.
 (define-map staker-signer-cycle-memberships
     {
         staker: principal,
@@ -253,6 +253,17 @@
     {
         index: uint,
         is-bond: bool,
+    }
+    uint
+)
+
+;; State to track the per-staker shares for a given signer.
+(define-map staker-shares-staked-for-cycle
+    {
+        index: uint,
+        is-bond: bool,
+        staker: principal,
+        signer: principal,
     }
     uint
 )
@@ -323,8 +334,8 @@
 
 (define-trait signer-manager-trait (
     (validate-stake!
-        ;; caller, amount-ustx, num-cycles, signer-calldata
-        (principal uint uint (optional (buff 500)))
+        ;; caller, amount-ustx, amount-sats, num-cycles, is-bond, signer-calldata
+        (principal uint uint uint bool (optional (buff 500)))
         (response bool uint)
     )
 ))
@@ -355,7 +366,7 @@
 ;; consensus, which would require a hard-fork.
 ;; Tests and testnets can trigger a call to this function during epoch 4.0
 ;; activation by setting the `pox_5_bond_admin` config parameter.
-(define-private (set-bond-admin (new-admin principal))
+(define-private (set-bond-admin_ (new-admin principal))
     (ok (var-set bond-admin new-admin))
 )
 
@@ -515,8 +526,8 @@
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
         ;; Validate that the staker can join this signer
-        (try! (contract-call? signer-manager validate-stake! tx-sender amount-ustx u12
-            signer-calldata
+        (try! (contract-call? signer-manager validate-stake! tx-sender amount-ustx
+            sats-total u12 true signer-calldata
         ))
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
@@ -549,6 +560,14 @@
             signer: signer,
         }
             (+ current-signer-staked sats-total)
+        )
+        (map-set staker-shares-staked-for-cycle {
+            index: bond-index,
+            is-bond: true,
+            staker: tx-sender,
+            signer: signer,
+        }
+            sats-total
         )
 
         (try! (add-staker-to-signer-cycles tx-sender signer first-reward-cycle
@@ -607,8 +626,8 @@
             (unlock-cycle (+ first-reward-cycle num-cycles))
         )
         ;; Validate that the staker can join this signer
-        (try! (contract-call? signer-manager validate-stake! tx-sender amount-ustx
-            num-cycles signer-calldata
+        (try! (contract-call? signer-manager validate-stake! tx-sender amount-ustx u0
+            num-cycles false signer-calldata
         ))
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
@@ -682,7 +701,7 @@
         )
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender new-lock-amount
-            num-cycles signer-calldata
+            u0 num-cycles false signer-calldata
         ))
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
@@ -821,9 +840,9 @@
             ;; Get the total uSTX delegated (through protocol bonds and STX-only
             ;; staking) to this signer.
             (cur-delegated-for-signer (get-amount-delegated-for-signer signer cycle))
-            ;; Total uSTX staked (through STX-only staking)
+            ;; uSTX staked for this signer (through STX-only staking)
             (cur-staked-for-signer (get-signer-shares-staked-for-cycle signer cycle false))
-            ;; Total uSTX staked this cycle
+            ;; Total uSTX staked (through stx-only staking) this cycle
             (total-shares-staked (get-total-shares-staked-for-cycle cycle false))
             (amount (get amount-ustx membership))
             (is-stx-staking (get is-stx-staking accumulator))
@@ -885,6 +904,13 @@
         }
             new-delegated
         )
+        ;; Remove amount for staker
+        (map-delete staker-shares-staked-for-cycle {
+            index: cycle,
+            is-bond: false,
+            staker: staker,
+            signer: signer,
+        })
         ;; Update amount staked
         (map-set signer-pending-staked-ustx-per-cycle {
             signer: signer,
@@ -968,6 +994,7 @@
                 amount
                 u0
             ))
+            (staker (get staker accumulator))
             (prev-staked (get-signer-pending-staked-ustx-per-cycle signer cycle))
             (prev-total-shares-staked (get-total-shares-staked-for-cycle cycle false))
             (new-delegated (+ cur-delegated-for-signer amount))
@@ -1007,7 +1034,7 @@
         )
         ;; Add the staker's membership
         (map-set staker-signer-cycle-memberships {
-            staker: (get staker accumulator),
+            staker: staker,
             cycle: cycle,
         } {
             signer: signer,
@@ -1026,6 +1053,15 @@
             cycle: cycle,
         }
             (+ prev-staked stake-amount)
+        )
+        ;; Update the amount staked for this staker
+        (map-set staker-shares-staked-for-cycle {
+            staker: staker,
+            index: cycle,
+            is-bond: false,
+            signer: signer,
+        }
+            stake-amount
         )
         ;; Set the total ustx delegated this cycle
         (map-set ustx-delegated-per-cycle cycle
@@ -1298,8 +1334,17 @@
             (rewards-per-share (get-rewards-per-token-for-cycle index is-bond))
             (rewards-paid (get-signer-rewards-paid-for-cycle signer index is-bond))
             (rewards-pending (- (/ (* shares-staked rewards-per-share) PRECISION) rewards-paid))
+            (rewards-per-share-for-signer (if (> shares-staked u0)
+                (/ (* (+ rewards-pending rewards-paid) PRECISION) shares-staked)
+                u0
+            ))
         )
-        rewards-pending
+        {
+            rewards-paid: rewards-paid,
+            rewards-pending: rewards-pending,
+            shares-staked: shares-staked,
+            rewards-per-share: rewards-per-share-for-signer,
+        }
     )
 )
 
@@ -1310,13 +1355,13 @@
     (let (
             (signer contract-caller)
             (stx-rewards (update-claimable-rewards signer reward-cycle false))
-            (bond-rewards (get total
-                (fold update-claimable-bond-rewards bond-periods {
-                    signer: signer,
-                    total: u0,
-                })
-            ))
-            (total-rewards (+ stx-rewards bond-rewards))
+            (bond-rewards (fold update-claimable-bond-rewards bond-periods {
+                signer: signer,
+                total: u0,
+                bond-rewards: (list),
+            }))
+            (bond-totals (get total bond-rewards))
+            (total-rewards (+ (get rewards-pending stx-rewards) bond-totals))
             (prev-accrued-rewards (var-get last-accounted-rewards-only))
         )
         (asserts! (> total-rewards u0) ERR_NO_CLAIMABLE_REWARDS)
@@ -1336,10 +1381,16 @@
         (print {
             topic: "claim-rewards",
             stx-rewards: stx-rewards,
-            bond-rewards: bond-rewards,
+            bond-rewards: (get bond-rewards bond-rewards),
+            bond-totals: bond-totals,
             total-rewards: total-rewards,
         })
-        (ok total-rewards)
+        (ok {
+            stx-rewards: stx-rewards,
+            bond-rewards: (get bond-rewards bond-rewards),
+            bond-totals: bond-totals,
+            total-rewards: total-rewards,
+        })
     )
 )
 
@@ -1353,12 +1404,14 @@
         (is-bond bool)
     )
     (let (
-            (prev-rewards (get-signer-rewards-paid-for-cycle signer index is-bond))
-            (new-rewards (get-claimable-rewards signer index is-bond))
+            (rewards-info (get-claimable-rewards signer index is-bond))
+            (rewards-paid (get rewards-paid rewards-info))
+            (rewards-pending (get rewards-pending rewards-info))
         )
         (print {
             topic: "update-claimable-rewards",
-            new-rewards: new-rewards,
+            rewards-pending: rewards-pending,
+            rewards-paid: rewards-paid,
             index: index,
             signer: signer,
             is-bond: is-bond,
@@ -1368,9 +1421,9 @@
             signer: signer,
             is-bond: is-bond,
         }
-            (+ new-rewards prev-rewards)
+            (+ rewards-pending rewards-paid)
         )
-        new-rewards
+        rewards-info
     )
 )
 
@@ -1379,12 +1432,25 @@
         (accumulator {
             signer: principal,
             total: uint,
+            bond-rewards: (list 6
+                {
+                    rewards-pending: uint,
+                    rewards-paid: uint,
+                    shares-staked: uint,
+                    rewards-per-share: uint,
+                    bond-index: uint,
+                }
+            ),
         })
     )
-    (let ((new-rewards (update-claimable-rewards (get signer accumulator) bond-index true)))
+    (let ((rewards-info (update-claimable-rewards (get signer accumulator) bond-index true)))
         {
             signer: (get signer accumulator),
-            total: (+ (get total accumulator) new-rewards),
+            total: (+ (get total accumulator) (get rewards-pending rewards-info)),
+            bond-rewards: (concat
+                (unwrap-panic (as-max-len? (get bond-rewards accumulator) u5))
+                (list (merge rewards-info { bond-index: bond-index }))
+            ),
         }
     )
 )
@@ -1832,15 +1898,32 @@
     )
 )
 
+;; Get the amount of shares staked for a given staker in a certain cycle.
+(define-read-only (get-staker-shares-staked-for-cycle
+        (staker principal)
+        (index uint)
+        (is-bond bool)
+        (signer principal)
+    )
+    (default-to u0
+        (map-get? staker-shares-staked-for-cycle {
+            index: index,
+            staker: staker,
+            is-bond: is-bond,
+            signer: signer,
+        })
+    )
+)
+
 (define-read-only (get-signer-rewards-paid-for-cycle
         (signer principal)
-        (cycle uint)
+        (index uint)
         (is-bond bool)
     )
     (default-to u0
         (map-get? signer-rewards-paid-for-cycle {
             signer: signer,
-            index: cycle,
+            index: index,
             is-bond: is-bond,
         })
     )
@@ -2067,7 +2150,7 @@
     )
 )
 
-(define-public (remove-staker-from-set-for-cycle
+(define-private (remove-staker-from-set-for-cycle
         (stacker principal)
         (cycle uint)
     )

@@ -220,7 +220,14 @@ export function deployTestSigner(name: string) {
     authId,
     signerSk,
   });
-  simnet.deployContract(name, signerSource, null, accounts.deployer.address);
+  simnet.deployContract(
+    name,
+    signerSource,
+    {
+      clarityVersion: 4,
+    },
+    accounts.deployer.address,
+  );
   txOk(
     testSigner2.registerSelf({
       signerKey: signerKey,
