@@ -33,8 +33,7 @@
 #           }
 #         }
 #       }
-
-
+#
 # Template variables substituted:
 #   ${node_tag}          - 5-part node version  (e.g. 3.4.0.0.0)
 #   ${signer_tag}        - 6-part signer version (e.g. 3.4.0.0.0.0)
@@ -69,10 +68,12 @@ fi
 
 ## ── Derive node_tag, signer_tag, node_epoch, companion_line ─────────────────
 if [[ "${RELEASE_TYPE}" == "stacks-signer" ]]; then
+    # Used for the github release notes for stacks-signer, to reference the corresponding stacks-core release
     signer_tag="${VERSION}"
     node_tag="$(echo "${signer_tag}" | cut -d. -f1-5)"
     companion_line="The version of stacks-node compatible with this release is ${node_tag}, available here: https://github.com/${REPO}/releases/tag/${node_tag}."
 else
+    # Used for the github release notes for stacks-core, to reference the corresponding stacks-signer release
     node_tag="${VERSION}"
     signer_tag=$(sed 's/\(-[^-]*\)*$/.0\1/' <<<"${node_tag}")
     companion_line="The version of stacks-signer compatible with this release is ${signer_tag}, available at: https://github.com/${REPO}/releases/tag/signer-${signer_tag}."
@@ -103,10 +104,12 @@ format_docker_pulls() {
                 os_name="Debian (glibc)"
                 ;;
             musl)
+                # Alpine images are suffized with `-alpine`, set it here so we point to the correct image
                 dist="-alpine";
                 os_name="Alpine (musl)"
                 ;;
         esac
+        # if package_id is present in the manifest json, use it when crafting the link. else, default to a versioned image tag
         if [[ -n "${package_id}" ]]; then
             printf "* %s: https://github.com/%s/%s/pkgs/container/%s/%s?tag=%s%s\n" \
                 "${os_name}" "${repo_owner}" "${image_name}" "${image_name}" "${package_id}" "${tag}" "${dist}"
@@ -150,7 +153,6 @@ format_docker_pulls() {
             printf "#### **stacks-core**\n"
             print_image "stacks-core" "glibc" "${node_tag}" "${core_glibc}" "${core_glibc_id}"
             print_image "stacks-core" "musl" "${node_tag}" "${core_musl}" "${core_musl_id}"
-
             printf "#### **stacks-signer**\n"
         else
             printf "#### **stacks-signer**\n"

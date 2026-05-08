@@ -6,20 +6,21 @@ on:
   workflow_dispatch:
   workflow_call:
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# env vars are transferred to composite action steps
+# Set default env vars
+#   - transferred to composite action steps
 env:
   RUSTFLAGS: "-Cinstrument-coverage -Awarnings"
   LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
   BTC_VERSION: "25.0"
 
-# configure concurrency
-# - Cache will exist longer than workflow execution so other runners have access. However, this is only relevant if the commit sha does not change between runs.
-# - Multiple test workflows may call create-cache simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
-# - Runs on PR branches cancel old builds when a new commit arrives (github.head_ref is only set in a PR context).
+# Configure concurrency
+#   - cache will exist longer than workflow execution so other runners have access. However, this is only relevant if the commit sha does not change between runs.
+#   - multiple test workflows may call create-cache simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
+#   - runs on PR branches cancel old builds when a new commit arrives (github.head_ref is only set in a PR context).
 concurrency:
   group: create-cache-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.head_ref != '' }}

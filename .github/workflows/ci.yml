@@ -13,17 +13,16 @@ on:
       - reopened
       - synchronize
 
-# set default permissions
-
+# Set default permissions
 permissions:
   contents: read  # default for all jobs
 
-# set default shell
+# Set default shell
 defaults:
   run:
     shell: bash
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: ci-${{ github.head_ref || github.ref || github.run_id }}
   # Always cancel duplicate jobs
@@ -85,7 +84,7 @@ jobs:
         with:
           components: rustfmt
 
-      ## Check if this is a release
+      # Check if this is a release
       - name: Rustfmt
         run: bash ./.github/scripts/rustfmt.sh
 
@@ -252,7 +251,6 @@ jobs:
       github.event_name == 'merge_group')
     uses: ./.github/workflows/constants-check.yml
 
-
   ## --- Jobs to run on release trigger ---------------------------------------
   # Runs when:
   #   - it is a node release run
@@ -281,9 +279,9 @@ jobs:
       packages: write      # required for image push to ghcr
     uses: ./.github/workflows/release-github.yml
     with:
-      node_tag: ${{ needs.check-release.outputs.node_tag }} # 5 place version format like x.x.x.x.x
-      signer_tag: ${{ needs.check-release.outputs.signer_tag }} # 6 place version format like x.x.x.x.x.x
-      is_node_release: ${{ needs.check-release.outputs.is_node_release }} # used in matrix conditional in release-github.yml
+      node_tag: ${{ needs.check-release.outputs.node_tag }} # 5 place version format like 1.2.3.4.5
+      signer_tag: ${{ needs.check-release.outputs.signer_tag }} # 6 place version format like 1.2.3.4.5.6
+      is_node_release: ${{ needs.check-release.outputs.is_node_release }} # boolean used in matrix conditional in .github/workflows/release-github.yml
 
   ## --- Epoch Tests ----------------------------------------------------------
   epoch-tests:
@@ -299,7 +297,6 @@ jobs:
       (needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true')
     uses: ./.github/workflows/epoch-tests.yml
-
 
   ## --- Code Coverage --------------------------------------------------------
   # Merge and upload code coverage report files once all tests are done

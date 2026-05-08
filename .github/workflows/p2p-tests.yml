@@ -11,18 +11,19 @@ on:
         description: Build the test cache before running tests
   workflow_call:
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# env vars are transferred to composite action steps
+# Set default env vars
+#  - transferred to composite action steps
 env:
   BITCOIND_TEST: 0
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: stackslib-tests-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true
@@ -34,7 +35,7 @@ jobs:
     if: ${{ inputs.build-cache }}
     uses: ./.github/workflows/create-cache.yml
 
-  # p2p integration tests with code coverage
+  # P2P integration tests with code coverage
   integration-tests:
     name: Integration Tests
     needs: create-cache
@@ -80,7 +81,7 @@ jobs:
         uses: ./.github/actions/testenv
 
       # Run test matrix using restored cache of archive file
-      #   - Test will timeout after ${TEST_TIMEOUT} minutes
+      #   - test will timeout after ${TEST_TIMEOUT} minutes
       - name: Run Tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests

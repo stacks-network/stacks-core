@@ -1,4 +1,3 @@
-# OpenAPI docs
 name:  Generate and upload openAPI docs
 description: |
     Generate and upload openAPI docs using Redocly CLI

@@ -1,4 +1,3 @@
-# Setup the stacks core test environment
 name: Stacks Core Test Environment
 description: |
     Sets up the testing environment for the Stacks Blockchain.

@@ -1,7 +1,6 @@
-# Github composite action to create and upload a github release
 name: Create Release
 description: |
-    Create GitHub Release
+    Create GitHub Release and upload binary archives
 
 inputs:
     tag:
@@ -42,10 +41,7 @@ runs:
               REPO: ${{ github.repository }}
               DIGEST_MANIFEST: ${{ inputs.digest_manifest }}
           run: |
-              echo
-              echo "inputs.tag: ${{inputs.tag}}"
-              echo
-              ## Strip "signer-" prefix from tag if present so VERSION is always bare
+              # Strip "signer-" prefix from tag if present so VERSION is always bare
               VERSION="${{ inputs.tag }}"
               VERSION="${VERSION#signer-}"
 

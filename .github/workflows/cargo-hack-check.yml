@@ -5,14 +5,15 @@ name: Cargo Hack Check
 on:
   workflow_call:
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
+# Set default env vars
 env:
   RUST_BACKTRACE: full
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: cargo-hack-check-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

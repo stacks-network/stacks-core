@@ -1,10 +1,10 @@
-# Dockerfile used to build an image including all binaries
+# Dockerfile used to build an image with all musl binaries
 FROM alpine AS builder
 
 ARG TARGETPLATFORM
 ENV ARCHIVE_ROOT="/release"
 
-# upload the release artifacts downloaded to /tmp/release to /release in the build stage, then extract the binary needed for the target platform
+# Upload the release artifacts downloaded to ./release to /release in the build stage, then extract the binary needed for the target platform
 COPY ./release/ $ARCHIVE_ROOT
 
 RUN case ${TARGETPLATFORM} in \

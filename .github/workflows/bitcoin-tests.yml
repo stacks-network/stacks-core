@@ -11,11 +11,12 @@ on:
         description: Build the test cache before running tests
   workflow_call:
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# env vars are transferred to composite action steps
+# Set default env vars
+#   - transferred to composite action steps
 env:
   BITCOIND_TEST: 1
   # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
@@ -27,7 +28,7 @@ env:
   # Number of active test partitions. Must not exceed the number of integration-tests-N jobs below.
   MATRIX: 2
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: bitcoin-tests-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true
@@ -39,6 +40,8 @@ jobs:
     if: ${{ inputs.build-cache }}
     uses: ./.github/workflows/create-cache.yml
 
+  # Generate list of tests to run
+  #  - split into 2 matrices with a limit of 256 (default) tests per matrix (via .github/scripts/bitcoin-tests.sh)
   generate-tests:
     name: Generate balanced test matrix
     needs: create-cache
@@ -66,6 +69,7 @@ jobs:
         id: set-matrix
         run: bash ./.github/scripts/bitcoin_tests.sh
 
+  # Run test from matrix 1 (defined in generate-tests step)
   integration-tests-1:
     name: Integration Tests 1
     needs:
@@ -111,6 +115,7 @@ jobs:
         with:
           test-name: ${{ matrix.test-name }}
 
+  # Run test2 from matrix 2 (defined in generate-tests step)
   integration-tests-2:
     name: Integration Tests 2
     needs:

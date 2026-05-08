@@ -21,11 +21,11 @@ on:
       - reopened
       - synchronize
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: clippy-${{ github.head_ref || github.ref || github.run_id }}
   # Only cancel in progress if this is for a PR

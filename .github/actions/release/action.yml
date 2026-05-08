@@ -1,7 +1,6 @@
-# Create Github release and upload files
 name: Create Releases
 description: |
-    Create GitHub Releases
+    Wrapper workflow to create GitHub Releases
 
 inputs:
     node_tag:

@@ -1,5 +1,3 @@
-# Run individual tests
-
 name: Run Tests
 description: |
     Run tests with cargo nextest

@@ -60,7 +60,7 @@ case "${MATRIX_CPU}" in
         # Default generic x86-64 to -v3; honour explicit versioned variants as-is
         case "${MATRIX_CPU}" in
             x86-64) target_cpu="${MATRIX_CPU}-v3" ;;
-            *)       target_cpu="${MATRIX_CPU}"    ;;
+            *)       target_cpu="${MATRIX_CPU}"   ;;
         esac
         case "${MATRIX_ARCH}" in
             linux-glibc)
@@ -106,7 +106,7 @@ case "${MATRIX_CPU}" in
                 ;;
             macos)
                 info "Installing dependencies for $(hl "macOS arm64") build"
-                # macOS arm64 — no extra deps, use native CPU tuning
+                # macOS arm64 — no extra deps, use native CPU
                 target="aarch64-apple-darwin"
                 target_cpu="native"
                 ;;
@@ -155,8 +155,7 @@ rustup target add "${target}" || {
 }
 
 ## ── Build ───────────────────────────────────────────────────────────────────
-# CMD and bins are intentionally unquoted so the shell performs word-splitting
-# on the multi-word command/flag strings.
+# CMD and bins are intentionally unquoted so the shell performs word-splitting on the multi-word command/flag strings.
 # shellcheck disable=SC2086
 case "${target}" in
     # linux-glibc aarch64 — requires an explicit cross-linker
@@ -213,7 +212,7 @@ case "${target}" in
         }
         ;;
 
-    # Catch-all: run the default command if no target triple matched
+    # run a default command if no target triple matched
     *)
         warn "No explicit configuration for target $(hl "${target}"). Using defaults."
         ${CMD} ${bins} || {

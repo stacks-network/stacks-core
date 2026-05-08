@@ -19,16 +19,16 @@ on:
         required: true
         type: string
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# set default shell
+# Set default shell
 defaults:
   run:
     shell: bash
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: release-docker-${{ inputs.release_type }}-${{ github.head_ref || github.ref }}
   # Always cancel duplicate jobs
@@ -36,12 +36,13 @@ concurrency:
 
 run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
+# Set default env vars
 env:
-  # build for both x64 and arm64 arch
+  # Build for both x64 and arm64 arch
   DOCKER_PLATFORMS: "linux/amd64,linux/arm64"
-  # publish images to ghcr
+  # Publish images to ghcr
   DOCKER_REGISTRY: "ghcr.io"
-  # do not generate provenance from the docker build step, instead attest the image specifically
+  # Boolean on whether to generate provenance from the docker build step (default to false, only attest immages)
   PROVENANCE: false
 
 jobs:

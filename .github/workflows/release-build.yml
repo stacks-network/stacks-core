@@ -13,16 +13,16 @@ on:
         required: true
         type: string
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# set default shell
+# Set default shell
 defaults:
   run:
     shell: bash
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: release-build-${{ github.head_ref || github.ref }}
   # Always cancel duplicate jobs
@@ -30,8 +30,9 @@ concurrency:
 
 run-name: Build Release Binaries
 
+# Set default env vars
 env:
-  # set a default command to build. we'll define specific build config options later per arch.
+  # Set a default command to build. we'll define specific build config options later per arch.
   CMD: "cargo build --features monitoring_prom,slog_json --profile release --workspace"
 
 jobs:
@@ -72,7 +73,6 @@ jobs:
           # excludes macos-x64
           - arch: macos
             cpu: x86-64
-
     permissions:
       contents: read
       id-token: write
@@ -106,7 +106,7 @@ jobs:
 
       # Stacks core release artifact steps
       #  - binary archive includes stacks-signer binary
-      #   - all steps are conditional on if a node_tag input is provided (will not run for signer releases)
+      #  - all steps are conditional on if a node_tag input is provided (will not run for signer releases)
       #
       # Compress the binaries in the target directory
       - name: Compress binaries (stacks-core)
@@ -134,7 +134,7 @@ jobs:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
       # Stacks signer release artifact steps
-      #   - All steps are conditional on if a signer_tag input is provided
+      #   - all steps are conditional on if a signer_tag input is provided
       #
       # Compress the stacks-signer binary in the target directory
       - name: Compress binaries (stacks-signer)

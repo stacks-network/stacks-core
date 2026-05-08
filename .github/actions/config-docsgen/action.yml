@@ -1,5 +1,3 @@
-# Save docs as a build artifact
-
 name: Generate Configuration Documentation
 description: |
     Generate and upload Stacks Core configuration documentation

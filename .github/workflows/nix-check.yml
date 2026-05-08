@@ -19,11 +19,11 @@ on:
       - reopened
       - synchronize
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: nix-${{ github.head_ref || github.ref || github.run_id }}
   # Always cancel duplicate jobs

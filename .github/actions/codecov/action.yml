@@ -1,5 +1,3 @@
-# Store code coverage as build artifact
-
 name: Generate and Upload codecov artifact
 description: |
     Generates code coverage data and uploads it to GitHub CI artifact storage

@@ -1,5 +1,3 @@
-# Configure Docker
-
 name: Docker Setup
 description: |
     Defaults for building docker images

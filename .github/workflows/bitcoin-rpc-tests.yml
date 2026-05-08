@@ -24,7 +24,7 @@ env:
   # Minimum Bitcoin Core major version to start discovering Docker tags from.
   START_MAJOR: "25"
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: bitcoin-rpc-tests-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true
@@ -57,7 +57,7 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.DISCOVER_TIMEOUT_MINS) }}
         run: bash ./.github/scripts/docker_bitcoin_majors.sh "${START_MAJOR}"
 
-  # run tests against a matrix of bitcoin versions
+  # Run tests against a matrix of bitcoin versions
   test-rpc:
     name: Test Bitcoin (${{ matrix.bitcoin_version }})
     needs:

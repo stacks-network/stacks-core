@@ -1,5 +1,3 @@
-# Run partitioned tests
-
 name: Run Partitioned Tests
 description: |
     Run partitioned tests with cargo nextest

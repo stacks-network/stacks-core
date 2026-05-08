@@ -18,11 +18,11 @@ on:
         required: true
         type: string
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: release-github-${{ github.head_ref || github.ref }}
   # Always cancel duplicate jobs
@@ -36,6 +36,7 @@ jobs:
   #
   # Runs when the following is true:
   #  - either node or signer tag is provided
+  #  - workflow approval is provided
   andon-cord:
     name: Andon Cord
     if: >-
@@ -47,6 +48,7 @@ jobs:
         run: |
           exit 0
 
+  # Build binaries as artifacts
   build-binaries:
     name: Build Binaries
     needs:
@@ -63,6 +65,7 @@ jobs:
       node_tag: ${{ inputs.node_tag }} # used to conditionally run step in release-build.yml
       signer_tag: ${{ inputs.signer_tag }} # used to conditionally run step in release-build.yml
 
+  # Build docker images using the binary artifacts
   docker-images:
     name: Build Docker Images
     needs:
@@ -86,13 +89,12 @@ jobs:
           - stacks-signer
         exclude:
           - type: ${{ inputs.is_node_release == 'false' && 'stacks-core' }} # exclude stacks-core if node release is false
-    # Creates the node docker image
+    # Build the docker images
     uses: ./.github/workflows/release-docker.yml
     with:
       node_tag: ${{ inputs.node_tag }} # node_tag will contains the 5 char node version, i.e. 3.3.0.0.0
       signer_tag: ${{ inputs.signer_tag }} # signer_tag contains 6 char signer version, i.e. 3.3.0.0.0.1
       release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core
-
 
   # Consolidate all digest artifacts from docker-images matrix into a single manifest
   consolidate-digests:
@@ -158,8 +160,7 @@ jobs:
           path: /tmp/digest-manifest.json
           retention-days: 1
 
-  # Create the github release when the following is true:
-  #  - either node or signer tag is provided
+  # Create the github release
   create-release:
     name: Create Release
     needs:

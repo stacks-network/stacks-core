@@ -1,12 +1,11 @@
-# Dockerfile used to build an image or the stacks-signer binary only
+# Dockerfile used to build an image with the stacks-signer musl binary only
 FROM alpine AS builder
-
 LABEL org.opencontainers.image.description="Stacks Signer CLI"
 
 ARG TARGETPLATFORM
 ENV ARCHIVE_ROOT="/release"
 
-# upload the release artifacts downloaded to /tmp/release to /release in the build stage, then extract the binary needed for the target platform
+# Upload the release artifacts downloaded to ./release to /release in the build stage, then extract the binary needed for the target platform
 COPY ./release/ $ARCHIVE_ROOT
 
 RUN case ${TARGETPLATFORM} in \

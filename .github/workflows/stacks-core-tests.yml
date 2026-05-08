@@ -11,10 +11,12 @@ on:
         description: Build the test cache before running tests
   workflow_call:
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
-# env vars are transferred to composite action steps
+
+# Set default env vars
+#   - transferred to composite action steps
 env:
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
@@ -22,7 +24,7 @@ env:
   TEST_TIMEOUT: 30
   CI: true  # Required by insta snapshot tests to run in CI
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: stacks-core-tests-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true

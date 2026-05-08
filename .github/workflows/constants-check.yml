@@ -5,16 +5,16 @@ name: Constants Check
 on:
   workflow_call:
 
-# set default permissions
+# Set default permissions
 permissions:
   contents: read
 
-# set default shell
+# Set default shell
 defaults:
   run:
     shell: bash
 
-# configure concurrency
+# Configure concurrency
 concurrency:
   group: constants-check-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true

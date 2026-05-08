@@ -1,5 +1,6 @@
-# Generate a sha512 checksum for the build archive
 name: Generate Checksum
+description: |
+    Generate a sha512 checksum for the binary archives
 
 inputs:
   hashfile_name:
