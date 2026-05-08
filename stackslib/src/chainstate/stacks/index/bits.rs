@@ -20,9 +20,9 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use sha2::{Digest, Sha512_256 as TrieHasher};
 
 use crate::chainstate::stacks::index::node::{
-    clear_compressed, clear_ctrl_bits, is_compressed, ptrs_fmt, ConsensusSerializable, TrieNode,
-    TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodePatch, TrieNodeType,
-    TriePtr,
+    clear_compressed, clear_ctrl_bits, is_backptr, is_compressed, ptrs_fmt, ConsensusSerializable,
+    TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodePatch,
+    TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
@@ -787,6 +787,25 @@ pub fn get_node_byte_len_compressed(node: &TrieNodeType) -> usize {
     let hash_len = TRIEHASH_ENCODED_SIZE;
     let node_byte_len = node.byte_len_compressed();
     hash_len + node_byte_len
+}
+
+/// Compute the worst-case on-disk size for a root node that is reserved before
+/// its descendants are written.
+///
+/// The base size is calculated with the root's current child pointer values.
+/// Each inline child pointer may later widen from u32 to u64 once its final
+/// file offset is known.
+pub fn reserved_root_size(base_len: usize, ptrs: &[TriePtr]) -> Result<u64, Error> {
+    let base_len = base_len as u64;
+    let inline_count = ptrs
+        .iter()
+        .filter(|p| !p.is_empty() && !is_backptr(p.id))
+        .count() as u64;
+    let inline_ptr_growth = inline_count.checked_mul(4).ok_or(Error::OverflowError)?;
+
+    base_len
+        .checked_add(inline_ptr_growth)
+        .ok_or(Error::OverflowError)
 }
 
 /// Write all the bytes for a node, including its hash, to the given Writeable object.

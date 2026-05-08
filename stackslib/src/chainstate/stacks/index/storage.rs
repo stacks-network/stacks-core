@@ -27,7 +27,7 @@ use sha2::Digest;
 
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_byte_len_compressed, read_hash_bytes, read_nodetype,
-    read_root_hash, write_nodetype_bytes, write_nodetype_bytes_compressed,
+    read_root_hash, reserved_root_size, write_nodetype_bytes, write_nodetype_bytes_compressed,
 };
 use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
@@ -838,19 +838,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
     }
 
-    /// Compute the reserved on-disk size for a root written after its children.
-    fn reserved_root_size(base_len: usize, ptrs: &[TriePtr]) -> Result<u64, Error> {
-        let base_len = base_len as u64;
-        let inline_count = ptrs
-            .iter()
-            .filter(|p| !p.is_empty() && !is_backptr(p.id))
-            .count() as u64;
-        let inline_ptr_growth = inline_count.checked_mul(4).ok_or(Error::OverflowError)?;
-        base_len
-            .checked_add(inline_ptr_growth)
-            .ok_or(Error::OverflowError)
-    }
-
     /// Rewrite inline child pointers from in-memory indices to file offsets.
     fn update_inline_child_ptrs(ptrs: &mut [TriePtr], file_offsets: &[u64]) -> Result<(), Error> {
         for ptr in ptrs.iter_mut() {
@@ -923,7 +910,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // 4 * n_inline_children bytes) between the root and the first descendant.
         let root_reserved_size = {
             let (root_node, _) = self.get_nodetype(root_mem_ptr)?;
-            Self::reserved_root_size(get_node_byte_len(root_node), root_node.ptrs())?
+            reserved_root_size(get_node_byte_len(root_node), root_node.ptrs())?
         };
 
         // Write the blob header (parent hash + reserved 4-byte block-id field set to 0).
@@ -1169,10 +1156,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // 4 * n_inline_children bytes) between the root and the first descendant.
         let root_reserved_size = {
             if let Some(patch) = root_dp.patch() {
-                Self::reserved_root_size(TRIEHASH_ENCODED_SIZE + patch.size(), &patch.ptr_diff)?
+                reserved_root_size(TRIEHASH_ENCODED_SIZE + patch.size(), &patch.ptr_diff)?
             } else {
                 let (root_node, _) = self.get_nodetype(root_mem_ptr)?;
-                Self::reserved_root_size(get_node_byte_len_compressed(root_node), root_node.ptrs())?
+                reserved_root_size(get_node_byte_len_compressed(root_node), root_node.ptrs())?
             }
         };
 

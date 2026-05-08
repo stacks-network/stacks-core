@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::{
 };
 
 use crate::chainstate::stacks::index::bits::{
-    get_leaf_hash, get_node_byte_len, write_nodetype_bytes,
+    get_leaf_hash, get_node_byte_len, reserved_root_size, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::marf::{
     MARFOpenOpts, MarfConnection, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
@@ -65,7 +65,7 @@ fn resolve_child_ptr(ptr: &TriePtr, origin_block_id: u32) -> Option<(u32, u64)> 
 }
 
 /// Returns `true` when a pointer is an inline child (non-empty, non-backptr)
-/// — i.e. it points to a node in the same blob, not to an ancestor block.
+/// - i.e. it points to a node in the same blob, not to an ancestor block.
 #[inline]
 fn is_inline_child_ptr(ptr: &TriePtr) -> bool {
     ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id())
@@ -558,140 +558,55 @@ pub(crate) fn remap_ptrs_to_blob_offsets(
     for ptr in node.ptrs_mut() {
         if is_inline_child_ptr(ptr) {
             let child_idx = ptr.ptr() as usize;
-            ptr.ptr = *blob_offsets.get(child_idx).ok_or_else(|| {
+            let offset = *blob_offsets.get(child_idx).ok_or_else(|| {
                 Error::CorruptionError(format!(
                     "blob offset remap: child index {child_idx} out of bounds"
                 ))
             })?;
+            if offset == 0 {
+                return Err(Error::CorruptionError(format!(
+                    "blob offset remap: child index {child_idx} has not been written"
+                )));
+            }
+            ptr.ptr = offset;
         }
     }
     Ok(())
 }
 
-/// Compute per-node byte offsets within the serialized blob.
-///
-/// Returns `(blob_offsets, total_size)` where `blob_offsets[i]` is the byte
-/// position where node `i` starts in the blob (after the header).
-pub(crate) fn compute_blob_offsets(store: &mut NodeStore) -> Result<(Vec<u64>, u64), Error> {
-    compute_blob_offsets_inner(store, u32::MAX as u64)
-}
-
-/// Inner implementation with a configurable early-exit threshold.
-/// When `current_offset <= early_exit_threshold` after pass 1, the fixpoint
-/// loop is skipped because no pointer will switch to u64 encoding.
-pub(crate) fn compute_blob_offsets_inner(
-    store: &mut NodeStore,
-    early_exit_threshold: u64,
-) -> Result<(Vec<u64>, u64), Error> {
-    let n = store.len();
-    let mut reader = store.open_reader()?;
-    let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-    let mut blob_offsets: Vec<u64> = Vec::with_capacity(n);
-    let mut current_offset = header_size;
-    let mut forward_ptr_count: usize = 0;
-
-    // Per-node byte lengths cached during Pass 1.  For nodes without
-    // forward pointers the length is constant across fixpoint passes,
-    // so we can skip re-reading them from disk entirely.
-    let mut byte_lens: Vec<u64> = Vec::with_capacity(n);
-    // True when a node has forward pointers (must be re-read in fixpoint).
-    let mut has_forward_ptrs: Vec<bool> = Vec::with_capacity(n);
-
-    // Pass 1: compute offsets using original (array-index) pointer values.
-    for idx in 0..n {
-        blob_offsets.push(current_offset);
-        let node = store.read_node_with(&mut reader, idx)?;
-        let mut has_fwd = false;
-        if !node.is_leaf() {
-            for ptr in node.ptrs() {
-                if is_inline_child_ptr(ptr) {
-                    forward_ptr_count = forward_ptr_count
-                        .checked_add(1)
-                        .ok_or(Error::OverflowError)?;
-                    has_fwd = true;
-                }
-            }
-        }
-        has_forward_ptrs.push(has_fwd);
-        let byte_len = get_node_byte_len(&node) as u64;
-        byte_lens.push(byte_len);
-        current_offset += byte_len;
-    }
-
-    // If the blob fits in 4 GiB, no pointer will switch to u64 encoding.
-    if current_offset <= early_exit_threshold {
-        return Ok((blob_offsets, current_offset));
-    }
-
-    // Pass 2+: recompute with blob-offset pointer values until stable.
-    // Each forward pointer widens from u32 to u64 at most once, so
-    // `forward_ptr_count + 2` bounds convergence (same as dump_consume).
-    let max_passes = forward_ptr_count.saturating_add(2);
-    let mut converged = false;
-    for _ in 0..max_passes {
-        let prev_total = current_offset;
-        current_offset = header_size;
-
-        for idx in 0..n {
-            // Temporary mutable borrow - released at the semicolon so
-            // `remap_ptrs_to_blob_offsets` can borrow `blob_offsets` immutably.
-            *blob_offsets.get_mut(idx).ok_or_else(|| {
-                Error::CorruptionError("blob offset index out of bounds".into())
-            })? = current_offset;
-
-            let has_fwd = *has_forward_ptrs.get(idx).ok_or_else(|| {
-                Error::CorruptionError("has_forward_ptrs index out of bounds".into())
-            })?;
-            if has_fwd {
-                let mut node = store.read_node_with(&mut reader, idx)?;
-                remap_ptrs_to_blob_offsets(&mut node, &blob_offsets)?;
-                *byte_lens.get_mut(idx).ok_or_else(|| {
-                    Error::CorruptionError("byte_lens index out of bounds".into())
-                })? = get_node_byte_len(&node) as u64;
-            }
-
-            current_offset += *byte_lens
-                .get(idx)
-                .ok_or_else(|| Error::CorruptionError("byte_lens index out of bounds".into()))?;
-        }
-
-        if current_offset == prev_total {
-            converged = true;
-            break;
-        }
-    }
-    if !converged {
-        return Err(Error::CorruptionError(format!(
-            "compute_blob_offsets layout did not converge after {max_passes} passes"
-        )));
-    }
-
-    Ok((blob_offsets, current_offset))
-}
-
 /// Stream the squash blob into an arbitrary `Write + Seek` sink.
 ///
-/// Reads nodes one-at-a-time from the NodeStore temp file, converts
-/// array-index child pointers to byte offsets, and serializes directly
-/// into `sink`. No intermediate `Vec<u8>` is allocated for the full blob.
+/// Reads nodes one-at-a-time from the NodeStore temp file and serializes them
+/// directly into `sink`. 
+///
+/// This mirrors `TrieRAM::dump_consume`: reserve worst-case root space at the
+/// front of the blob, write descendants in child-before-parent order so child
+/// offsets are known, then seek back and write the root.
 ///
 /// The blob is written starting at the sink's current position.
 /// All internal offsets (header, node pointers) are relative to the blob
-/// start, not to the absolute file position, so this works correctly when
-/// appending to a `.blobs` file that already contains data.
+/// start, not to the absolute file position.
 ///
 /// Returns the number of bytes written.
 pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
     store: &mut NodeStore,
     parent_hash: &T,
-    blob_offsets: &[u64],
     sink: &mut F,
 ) -> Result<u64, Error> {
     let n = store.len();
+    if n == 0 {
+        return Err(Error::CorruptionError(
+            "Cannot stream empty squash trie".to_string(),
+        ));
+    }
     let mut reader = store.open_reader()?;
 
     // Record the base offset so all writes are relative to blob start.
     let base = sink.stream_position().map_err(Error::IOError)?;
+    let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+
+    let root_node = store.read_node_with(&mut reader, 0)?;
+    let root_reserved_size = reserved_root_size(get_node_byte_len(&root_node), root_node.ptrs())?;
 
     // Write header: parent block hash + zero identifier
     sink.write_all(parent_hash.as_bytes())
@@ -703,18 +618,64 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
     sink.write_all(&0u32.to_le_bytes())
         .map_err(Error::IOError)?;
 
-    for idx in 0..n {
+    sink.seek(SeekFrom::Start(
+        base.checked_add(header_size)
+            .and_then(|x| x.checked_add(root_reserved_size))
+            .ok_or(Error::OverflowError)?,
+    ))
+    .map_err(Error::IOError)?;
+
+    // Map from NodeStore index to offset inside this blob. Offset 0 means
+    // "not written yet"; real node offsets always come after the header.
+    let mut blob_offsets = vec![0u64; n];
+
+    // NodeStore is collected in root-first DFS preorder. Reversing all
+    // descendants writes children before parents, so parent pointer remapping
+    // never needs a fixpoint pass.
+    for idx in (1..n).rev() {
+        let current = sink.stream_position().map_err(Error::IOError)?;
+        *blob_offsets
+            .get_mut(idx)
+            .ok_or_else(|| Error::CorruptionError("blob offset index out of bounds".into()))? =
+            current.checked_sub(base).ok_or(Error::OverflowError)?;
+
         let mut node = store.read_node_with(&mut reader, idx)?;
         let hash = store.hash(idx);
 
         // Convert array-index pointers to byte offsets (relative to blob start)
-        remap_ptrs_to_blob_offsets(&mut node, blob_offsets)?;
+        remap_ptrs_to_blob_offsets(&mut node, &blob_offsets)?;
 
         write_nodetype_bytes(sink, &node, hash)?;
     }
 
     let end = sink.stream_position().map_err(Error::IOError)?;
-    Ok(end - base)
+    let total_size = end.checked_sub(base).ok_or(Error::OverflowError)?;
+
+    // Write the root into its reserved slot.
+    *blob_offsets
+        .get_mut(0)
+        .ok_or_else(|| Error::CorruptionError("empty blob offset table".into()))? = header_size;
+    let mut root_node = store.read_node_with(&mut reader, 0)?;
+    remap_ptrs_to_blob_offsets(&mut root_node, &blob_offsets)?;
+
+    sink.seek(SeekFrom::Start(
+        base.checked_add(header_size).ok_or(Error::OverflowError)?,
+    ))
+    .map_err(Error::IOError)?;
+    let root_written = write_nodetype_bytes(sink, &root_node, store.hash(0))?;
+    debug_assert!(
+        root_written <= root_reserved_size,
+        "root wrote {root_written} bytes but only {root_reserved_size} were reserved"
+    );
+
+    // Leave the caller positioned at the end of the blob, as if the write had
+    // been a single forward stream.
+    sink.seek(SeekFrom::Start(
+        base.checked_add(total_size).ok_or(Error::OverflowError)?,
+    ))
+    .map_err(Error::IOError)?;
+
+    Ok(total_size)
 }
 
 /// Per-height block metadata: `(height, block_hash, root_hash)`.
