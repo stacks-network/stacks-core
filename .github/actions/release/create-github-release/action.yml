@@ -10,6 +10,10 @@ inputs:
     release_type:
         description: "Release type: stacks-core or stacks-signer"
         required: true
+    digest_manifest:
+        description: "Path to docker digest manifest file (optional)"
+        required: false
+        default: ""
 
 runs:
     using: "composite"
@@ -36,6 +40,7 @@ runs:
               RELEASE_TYPE: ${{ inputs.release_type }}
               TEMPLATE: .github/actions/release/create-github-release/release.template
               REPO: ${{ github.repository }}
+              DIGEST_MANIFEST: ${{ inputs.digest_manifest }}
           run: |
               echo
               echo "inputs.tag: ${{inputs.tag}}"
@@ -55,6 +60,7 @@ runs:
               TEMPLATE="${TEMPLATE}" \
               RELEASE_TYPE="${RELEASE_TYPE}" \
               REPO="${REPO}" \
+              DIGEST_MANIFEST="${DIGEST_MANIFEST}" \
               bash ./.github/scripts/draft_release.sh
 
         # Upload the release archives with the checksums file

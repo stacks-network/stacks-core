@@ -10,6 +10,10 @@ inputs:
     signer_tag:
         description: "Signer Release Tag"
         required: true
+    digest_manifest:
+        description: "Path to docker digest manifest directory (optional)"
+        required: false
+        default: ""
 
 runs:
     using: "composite"
@@ -27,6 +31,7 @@ runs:
           with:
               tag: ${{ inputs.node_tag }}
               release_type: stacks-core
+              digest_manifest: ${{ inputs.digest_manifest }}
 
         # Creates the signer release
         - name: Create Signer Release
@@ -35,3 +40,4 @@ runs:
           with:
               tag: ${{ inputs.signer_tag }}
               release_type: stacks-signer
+              digest_manifest: ${{ inputs.digest_manifest }}

@@ -64,6 +64,10 @@ jobs:
       id-token: write      # required for attestation
       attestations: write  # required for attestation
       packages: write      # required for image push
+    outputs:
+      digest: ${{ steps.docker-build.outputs.digest }}
+      release_type: ${{ inputs.release_type }}
+      dist: ${{ matrix.dist }}
     steps:
       # Retrieve repository description for image annotation
       - name: Get repository description
@@ -182,6 +186,7 @@ jobs:
           sbom: false
           provenance: ${{ env.PROVENANCE }}
           context: /tmp
+          no-cache: true
           file: ./.github/dockerfiles/${{ matrix.dist }}/${{ steps.set-vars.outputs.dockerfile_name }}
           platforms: ${{ env.DOCKER_PLATFORMS }}
           tags: ${{ steps.docker-metadata.outputs.tags }}
@@ -201,7 +206,6 @@ jobs:
 
       # Sign the images with GitHub OIDC Token
       #   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
-      #   - annotations show as null per https://github.com/sigstore/cosign/pull/4508 until a future release (or tagging this specific commit)
       - name: Install Cosign
         uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
@@ -221,3 +225,45 @@ jobs:
             -a "dist=${{ matrix.dist }}" \
             --yes \
           ${images}
+
+      - name: Get package ID
+        id: pkg_id
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          var_pkg_id=$(gh api /user/packages/container/${{ inputs.release_type }}/versions \
+            --jq '.[] | select(.metadata.container.tags[] == "${{ steps.set-vars.outputs.docker_tag }}-${{ matrix.dist }}") | .id')
+          echo "package_id=${var_pkg_id}" >> $GITHUB_OUTPUT
+
+      # Save digest metadata for consolidation
+      - name: Export Image Digest
+        id: digest-export
+        env:
+          DIGEST: ${{ steps.docker-build.outputs.digest }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          DIST: ${{ matrix.dist }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_ID: ${{ steps.pkg_id.outputs.package_id }}
+        run: |
+          # Determine libc variant from distribution
+          libc_variant="glibc"
+          [[ "${{ matrix.dist }}" == "alpine" ]] && libc_variant="musl"
+
+          # Save digest to a file for consolidation job
+          # Use a filename that includes the release type and variant to avoid collisions
+          mkdir -p /tmp/digest-exports
+          digest_file="/tmp/digest-exports/${RELEASE_TYPE}-${libc_variant}.json"
+
+          # Create individual digest file
+          echo "{\"release_type\": \"${RELEASE_TYPE}\", \"package_id\": \"${PACKAGE_ID}\", \"libc_variant\": \"${libc_variant}\", \"digest\": \"${DIGEST}\"}" > "${digest_file}"
+
+          echo "Saved digest for ${RELEASE_TYPE} (${DIST}): ${DIGEST} to ${digest_file}"
+
+      # Upload individual digest file as artifact for consolidation
+      - name: Upload Individual Digest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ inputs.release_type }}-${{ matrix.dist }}
+          path: /tmp/digest-exports/
+          retention-days: 1
