@@ -18,7 +18,7 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::{RuntimeError, VmExecutionError};
+use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
@@ -26,43 +26,132 @@ use stacks_common::debug;
 
 use crate::{LockingError, POX_5_NAME};
 
-/// Parse the returned value from PoX-5 `stake`, `stake-update`, and
-/// `register-for-bond` functions into (staker, amount-ustx, unlock-burn-height).
-/// These functions return `(ok { staker, amount-ustx, unlock-burn-height, ... })`.
-fn parse_pox_stake_result(result: &Value) -> std::result::Result<(PrincipalData, u128, u64), u128> {
-    match result
+/// Outcome of parsing a pox-5 stake / register-for-bond / stake-update /
+/// unstake response. `Ok` means the contract returned a well-formed
+/// `(ok { staker, amount-ustx, unlock-burn-height, ... })` tuple;
+/// `ContractErr` means the contract returned `(err <uint>)` —
+/// a normal user-visible failure that the locking handler must skip.
+#[derive(Debug)]
+enum ParsedStakeResult {
+    Ok {
+        staker: PrincipalData,
+        amount_ustx: u128,
+        unlock_burn_height: u64,
+    },
+    ContractErr,
+}
+
+/// Parse the returned value from PoX-5 `stake`, `stake-update`,
+/// `register-for-bond`, and `unstake`. These functions return
+/// `(ok { staker, amount-ustx, unlock-burn-height, ... })` on success and
+/// `(err <code>)` on failure.
+///
+/// Returns `Err(LockingError::PoxMalformedResponse(...))` if the response
+/// shape doesn't match the expected pox-5 contract — that's an invariant
+/// violation, not a user-level failure, so callers should propagate it
+/// rather than silently no-op.
+fn parse_pox_stake_result(result: &Value) -> Result<ParsedStakeResult, LockingError> {
+    let response = result
         .clone()
         .expect_result()
-        .expect("FATAL: unexpected clarity value")
-    {
+        .map_err(|e| LockingError::PoxMalformedResponse(format!("not a response: {e:?}")))?;
+    match response {
         Ok(res) => {
-            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
+            let tuple_data = res.expect_tuple().map_err(|e| {
+                LockingError::PoxMalformedResponse(format!("ok payload not a tuple: {e:?}"))
+            })?;
             let staker = tuple_data
                 .get("staker")
-                .expect("FATAL: no 'staker'")
+                .map_err(|_| LockingError::PoxMalformedResponse("missing 'staker'".into()))?
                 .to_owned()
                 .expect_principal()
-                .expect("FATAL: unexpected clarity value");
+                .map_err(|e| {
+                    LockingError::PoxMalformedResponse(format!(
+                        "'staker' is not a principal: {e:?}"
+                    ))
+                })?;
 
             let amount_ustx = tuple_data
                 .get("amount-ustx")
-                .expect("FATAL: no 'amount-ustx'")
+                .map_err(|_| LockingError::PoxMalformedResponse("missing 'amount-ustx'".into()))?
                 .to_owned()
                 .expect_u128()
-                .expect("FATAL: unexpected clarity value");
+                .map_err(|e| {
+                    LockingError::PoxMalformedResponse(format!(
+                        "'amount-ustx' is not a uint: {e:?}"
+                    ))
+                })?;
 
-            let unlock_burn_height = tuple_data
+            let unlock_burn_height_u128 = tuple_data
                 .get("unlock-burn-height")
-                .expect("FATAL: no 'unlock-burn-height'")
+                .map_err(|_| {
+                    LockingError::PoxMalformedResponse("missing 'unlock-burn-height'".into())
+                })?
                 .to_owned()
                 .expect_u128()
-                .expect("FATAL: unexpected clarity value")
-                .try_into()
-                .expect("FATAL: 'unlock-burn-height' overflow");
+                .map_err(|e| {
+                    LockingError::PoxMalformedResponse(format!(
+                        "'unlock-burn-height' is not a uint: {e:?}"
+                    ))
+                })?;
+            let unlock_burn_height: u64 = unlock_burn_height_u128.try_into().map_err(|_| {
+                LockingError::PoxMalformedResponse(format!(
+                    "'unlock-burn-height' overflows u64: {unlock_burn_height_u128}"
+                ))
+            })?;
 
-            Ok((staker, amount_ustx, unlock_burn_height))
+            Ok(ParsedStakeResult::Ok {
+                staker,
+                amount_ustx,
+                unlock_burn_height,
+            })
         }
-        Err(e) => Err(e.expect_u128().expect("FATAL: unexpected clarity value")),
+        Err(e) => {
+            // Validate the err payload shape — pox-5 is typed
+            // `(response ... uint)`, so a non-uint here means the response
+            // is malformed and should surface as such.
+            e.expect_u128().map_err(|err| {
+                LockingError::PoxMalformedResponse(format!("err payload not a uint: {err:?}"))
+            })?;
+            Ok(ParsedStakeResult::ContractErr)
+        }
+    }
+}
+
+/// Lift a `LockingError` produced by an unexpected pox-locking failure into
+/// a graceful `VmExecutionError`. Used by the handlers to surface
+/// invariant violations as transaction-aborting runtime errors instead of
+/// panicking the node.
+///
+/// `DefunctPoxContract` and `PoxAlreadyLocked` are user-visible and have
+/// dedicated `RuntimeError` variants; the rest are internal invariants
+/// the pox-5 contract is supposed to uphold and surface as
+/// `VmInternalError::Expect`.
+fn locking_error_to_vm_error(e: LockingError, ctx: &str) -> VmExecutionError {
+    match e {
+        LockingError::DefunctPoxContract => {
+            VmExecutionError::Runtime(RuntimeError::DefunctPoxContract, None)
+        }
+        LockingError::PoxAlreadyLocked => {
+            VmExecutionError::Runtime(RuntimeError::PoxAlreadyLocked, None)
+        }
+        LockingError::Clarity(err) => err,
+        // Exhaustively match the remaining variants so adding a new one
+        // forces a decision here instead of silently falling through to
+        // `VmInternalError::Expect`. If a future variant is user-visible,
+        // give it its own arm above; if it really is an invariant
+        // violation, add it to this list.
+        e @ (LockingError::PoxInsufficientBalance
+        | LockingError::PoxExtendNotLocked
+        | LockingError::PoxIncreaseOnV1
+        | LockingError::PoxInvalidIncrease
+        | LockingError::PoxUnstakeNotLocked
+        | LockingError::PoxInvalidLockAmount
+        | LockingError::PoxInvalidUnlockHeight
+        | LockingError::PoxBalanceOverflow
+        | LockingError::PoxMalformedResponse(_)) => VmExecutionError::Internal(
+            VmInternalError::Expect(format!("{ctx}: pox-5 invariant violated: {e:?}")),
+        ),
     }
 }
 
@@ -75,8 +164,12 @@ pub fn pox_lock_v5(
     lock_amount: u128,
     unlock_burn_height: u64,
 ) -> Result<(), LockingError> {
-    assert!(unlock_burn_height > 0);
-    assert!(lock_amount > 0);
+    if unlock_burn_height == 0 {
+        return Err(LockingError::PoxInvalidUnlockHeight);
+    }
+    if lock_amount == 0 {
+        return Err(LockingError::PoxInvalidLockAmount);
+    }
 
     let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
@@ -114,7 +207,9 @@ pub fn pox_unstake_v5(
     principal: &PrincipalData,
     unlock_burn_height: u64,
 ) -> Result<(), LockingError> {
-    assert!(unlock_burn_height > 0);
+    if unlock_burn_height == 0 {
+        return Err(LockingError::PoxInvalidUnlockHeight);
+    }
 
     let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
@@ -149,8 +244,12 @@ pub fn pox_lock_update_v5(
     unlock_burn_height: u64,
     new_total_locked: u128,
 ) -> Result<STXBalance, LockingError> {
-    assert!(unlock_burn_height > 0);
-    assert!(new_total_locked > 0);
+    if unlock_burn_height == 0 {
+        return Err(LockingError::PoxInvalidUnlockHeight);
+    }
+    if new_total_locked == 0 {
+        return Err(LockingError::PoxInvalidLockAmount);
+    }
 
     let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
@@ -164,7 +263,7 @@ pub fn pox_lock_update_v5(
     let total_amount = bal
         .amount_unlocked()
         .checked_add(bal.amount_locked())
-        .expect("STX balance overflowed u128");
+        .ok_or(LockingError::PoxBalanceOverflow)?;
     if total_amount < new_total_locked {
         return Err(LockingError::PoxInsufficientBalance);
     }
@@ -205,11 +304,16 @@ fn handle_stake_lockup_pox_v5(
         1,
     )?;
 
-    let (staker, locked_amount, unlock_height) = match parse_pox_stake_result(value) {
-        Ok(x) => x,
-        Err(_) => {
-            return Ok(None);
-        }
+    let parsed = parse_pox_stake_result(value).map_err(|e| {
+        locking_error_to_vm_error(e, &format!("pox-5 {function_name}: bad response"))
+    })?;
+    let (staker, locked_amount, unlock_height) = match parsed {
+        ParsedStakeResult::Ok {
+            staker,
+            amount_ustx,
+            unlock_burn_height,
+        } => (staker, amount_ustx, unlock_burn_height),
+        ParsedStakeResult::ContractErr => return Ok(None),
     };
 
     match pox_lock_v5(
@@ -231,19 +335,10 @@ fn handle_stake_lockup_pox_v5(
                 }));
             Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => Err(VmExecutionError::Runtime(
-            RuntimeError::DefunctPoxContract,
-            None,
+        Err(e) => Err(locking_error_to_vm_error(
+            e,
+            &format!("pox-5 {function_name}: failed to lock {locked_amount} from {staker} until {unlock_height}"),
         )),
-        Err(LockingError::PoxAlreadyLocked) => Err(VmExecutionError::Runtime(
-            RuntimeError::PoxAlreadyLocked,
-            None,
-        )),
-        Err(e) => {
-            panic!(
-                "FATAL: failed to lock {locked_amount} from {staker} until {unlock_height}: '{e:?}'"
-            );
-        }
     }
 }
 
@@ -265,11 +360,16 @@ fn handle_stake_lockup_update_pox_v5(
         1,
     )?;
 
-    let (staker, amount_ustx, unlock_height) = match parse_pox_stake_result(value) {
-        Ok(x) => x,
-        Err(_) => {
-            return Ok(None);
-        }
+    let parsed = parse_pox_stake_result(value).map_err(|e| {
+        locking_error_to_vm_error(e, &format!("pox-5 {function_name}: bad response"))
+    })?;
+    let (staker, amount_ustx, unlock_height) = match parsed {
+        ParsedStakeResult::Ok {
+            staker,
+            amount_ustx,
+            unlock_burn_height,
+        } => (staker, amount_ustx, unlock_burn_height),
+        ParsedStakeResult::ContractErr => return Ok(None),
     };
 
     match pox_lock_update_v5(
@@ -291,13 +391,12 @@ fn handle_stake_lockup_update_pox_v5(
                 }));
             Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => Err(VmExecutionError::Runtime(
-            RuntimeError::DefunctPoxContract,
-            None,
+        Err(e) => Err(locking_error_to_vm_error(
+            e,
+            &format!(
+                "pox-5 {function_name}: failed to extend lock from {staker} until {unlock_height}"
+            ),
         )),
-        Err(e) => {
-            panic!("FATAL: failed to extend lock from {staker} until {unlock_height}: '{e:?}'");
-        }
     }
 }
 
@@ -319,11 +418,16 @@ fn handle_unstake_pox_v5(
         1,
     )?;
 
-    let (staker, locked_amount, unlock_height) = match parse_pox_stake_result(value) {
-        Ok(x) => x,
-        Err(_) => {
-            return Ok(None);
-        }
+    let parsed = parse_pox_stake_result(value).map_err(|e| {
+        locking_error_to_vm_error(e, &format!("pox-5 {function_name}: bad response"))
+    })?;
+    let (staker, locked_amount, unlock_height) = match parsed {
+        ParsedStakeResult::Ok {
+            staker,
+            amount_ustx,
+            unlock_burn_height,
+        } => (staker, amount_ustx, unlock_burn_height),
+        ParsedStakeResult::ContractErr => return Ok(None),
     };
 
     match pox_unstake_v5(&mut global_context.database, &staker, unlock_height) {
@@ -339,13 +443,10 @@ fn handle_unstake_pox_v5(
                 }));
             Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => Err(VmExecutionError::Runtime(
-            RuntimeError::DefunctPoxContract,
-            None,
+        Err(e) => Err(locking_error_to_vm_error(
+            e,
+            &format!("pox-5 {function_name}: failed to unstake {staker} until {unlock_height}"),
         )),
-        Err(e) => {
-            panic!("FATAL: failed to unstake {staker} until {unlock_height}: '{e:?}'");
-        }
     }
 }
 
@@ -582,17 +683,48 @@ mod tests {
     fn parse_pox_stake_result_ok() {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
         let response = make_stake_ok_response(&staker, 500_000, 10_000);
-        let (parsed_staker, amount, height) = parse_pox_stake_result(&response).unwrap();
-        assert_eq!(parsed_staker, staker);
-        assert_eq!(amount, 500_000);
-        assert_eq!(height, 10_000);
+        match parse_pox_stake_result(&response).expect("parse should succeed") {
+            ParsedStakeResult::Ok {
+                staker: parsed_staker,
+                amount_ustx,
+                unlock_burn_height,
+            } => {
+                assert_eq!(parsed_staker, staker);
+                assert_eq!(amount_ustx, 500_000);
+                assert_eq!(unlock_burn_height, 10_000);
+            }
+            ParsedStakeResult::ContractErr => panic!("expected Ok, got ContractErr"),
+        }
     }
 
     #[test]
     fn parse_pox_stake_result_err() {
         let response = Value::error(Value::UInt(1)).unwrap();
-        let err = parse_pox_stake_result(&response).unwrap_err();
-        assert_eq!(err, 1);
+        match parse_pox_stake_result(&response).expect("parse should succeed") {
+            ParsedStakeResult::ContractErr => {}
+            ParsedStakeResult::Ok { .. } => panic!("expected ContractErr"),
+        }
+    }
+
+    #[test]
+    fn parse_pox_stake_result_malformed_response_returns_error() {
+        // Not a `(response ...)` value at all — just a plain uint.
+        let bogus = Value::UInt(0);
+        let err =
+            parse_pox_stake_result(&bogus).expect_err("non-response value must surface as error");
+        assert!(
+            matches!(err, LockingError::PoxMalformedResponse(_)),
+            "unexpected error: {err:?}"
+        );
+
+        // `(ok 1)` — ok payload isn't a tuple.
+        let ok_not_tuple = Value::okay(Value::UInt(1)).unwrap();
+        let err = parse_pox_stake_result(&ok_not_tuple)
+            .expect_err("non-tuple ok payload must surface as error");
+        assert!(
+            matches!(err, LockingError::PoxMalformedResponse(_)),
+            "unexpected error: {err:?}"
+        );
     }
 
     // ── Handler tests ──
@@ -736,8 +868,7 @@ mod tests {
     // ── Error / edge-case tests ──
 
     #[test]
-    #[should_panic(expected = "FATAL")]
-    fn handle_stake_lockup_insufficient_balance_panics() {
+    fn handle_stake_lockup_insufficient_balance_returns_internal_error() {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
         let total_amount = 100_000;
         let lock_amount = 500_000u128; // more than the account has
@@ -746,8 +877,14 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, total_amount);
 
         let response = make_stake_ok_response(&staker, lock_amount, 10_000);
-        // The contract would prevent this, so hitting this path is a FATAL panic
-        let _ = handle_stake_lockup_pox_v5(&mut global_context, "stake", &response);
+        // The contract is supposed to prevent this; hitting this path used
+        // to panic but now surfaces as a graceful Internal/Expect error.
+        let err = handle_stake_lockup_pox_v5(&mut global_context, "stake", &response)
+            .expect_err("expected an Internal error");
+        match err {
+            VmExecutionError::Internal(VmInternalError::Expect(_)) => {}
+            other => panic!("expected Internal/Expect, got: {other:?}"),
+        }
     }
 
     #[test]
@@ -808,15 +945,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "FATAL")]
-    fn handle_stake_update_on_unlocked_account_panics() {
+    fn handle_stake_update_on_unlocked_account_returns_internal_error() {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
         let mut store = MemoryBackingStore::new();
         let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
 
-        // No tokens locked — update should panic
+        // No tokens locked — pox-5 should never have produced a stake-update
+        // ok for this account.
         let response = make_stake_update_ok_response(&staker, 500_000, 10_000);
-        let _ = handle_stake_lockup_update_pox_v5(&mut global_context, "stake-update", &response);
+        let err = handle_stake_lockup_update_pox_v5(&mut global_context, "stake-update", &response)
+            .expect_err("expected an Internal error");
+        match err {
+            VmExecutionError::Internal(VmInternalError::Expect(_)) => {}
+            other => panic!("expected Internal/Expect, got: {other:?}"),
+        }
     }
 
     #[test]
@@ -986,10 +1128,18 @@ mod tests {
     fn parse_pox_stake_result_ok_register_for_bond() {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
         let response = make_register_for_bond_ok_response(&staker, 750_000, 12_000);
-        let (parsed_staker, amount, height) = parse_pox_stake_result(&response).unwrap();
-        assert_eq!(parsed_staker, staker);
-        assert_eq!(amount, 750_000);
-        assert_eq!(height, 12_000);
+        match parse_pox_stake_result(&response).expect("parse should succeed") {
+            ParsedStakeResult::Ok {
+                staker: parsed_staker,
+                amount_ustx,
+                unlock_burn_height,
+            } => {
+                assert_eq!(parsed_staker, staker);
+                assert_eq!(amount_ustx, 750_000);
+                assert_eq!(unlock_burn_height, 12_000);
+            }
+            ParsedStakeResult::ContractErr => panic!("expected Ok, got ContractErr"),
+        }
     }
 
     #[test]
@@ -1254,16 +1404,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "FATAL")]
-    fn handle_unstake_on_unlocked_account_panics() {
+    fn handle_unstake_on_unlocked_account_returns_internal_error() {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
         let mut store = MemoryBackingStore::new();
         let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
 
         // No tokens locked — pox-5 should never have produced an unstake `ok`
-        // for this account, so the handler must panic.
+        // for this account.
         let response = make_unstake_ok_response(&staker, 500_000, 5_000);
-        let _ = handle_unstake_pox_v5(&mut global_context, "unstake", &response);
+        let err = handle_unstake_pox_v5(&mut global_context, "unstake", &response)
+            .expect_err("expected an Internal error");
+        match err {
+            VmExecutionError::Internal(VmInternalError::Expect(_)) => {}
+            other => panic!("expected Internal/Expect, got: {other:?}"),
+        }
     }
 
     #[test]

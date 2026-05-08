@@ -43,14 +43,36 @@ mod pox_5;
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum LockingError {
+    /// The contract called was a PoX contract, but the function called was not
+    /// read-only, and the current burn height is past the unlock height for
+    /// that PoX version.
     DefunctPoxContract,
+    /// The staker already has a lock.
     PoxAlreadyLocked,
+    /// The staker has an insufficient balance to lock the amount specified.
     PoxInsufficientBalance,
+    /// An extend was attempted on an account that is not currently locked.
     PoxExtendNotLocked,
+    /// An increase was attempted on an account locked in PoX v1.
     PoxIncreaseOnV1,
+    /// The increased amount is less than the currently locked amount.
     PoxInvalidIncrease,
+    /// An error occurred in the Clarity VM.
     Clarity(VmExecutionError),
+    /// An unstake was attempted on an account that is not currently locked.
     PoxUnstakeNotLocked,
+    /// Lock amount was zero. The PoX contract is expected to assert this
+    /// before producing the stake/lockup response.
+    PoxInvalidLockAmount,
+    /// Unlock burn height was zero. The PoX contract is expected to
+    /// assert this before producing the stake/lockup response.
+    PoxInvalidUnlockHeight,
+    /// Adding `amount_locked + amount_unlocked` would overflow `u128`.
+    PoxBalanceOverflow,
+    /// The response value did not match the expected shape.
+    /// The string is a short description of which field was missing or
+    /// had the wrong type.
+    PoxMalformedResponse(String),
 }
 
 impl From<VmExecutionError> for LockingError {
