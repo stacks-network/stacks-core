@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 # Generates a GitHub release body by expanding a template with release variables.
+# Notes:
+#   - stacks-core releases will output all docker images with a sha256 (if available), including stacks-signer images
+#   - stacks-core releases will link to a companion stacks-signer release (e.g. stacks-core release 1.2.3.4.5 will link to stacks-signer 1.2.3.4.5.0)
+#   - stacks-signer releases will *only* output images for the stacks-signer release (for stacks-core, a release link is provided for those images)
+#   - stacks-signer point releases will link to the stacks-core release for that version (e.g. stacks-signer 1.2.3.4.5.1 will link to stacks-core 1.2.3.4.5)
+#   - rc releases will respect the same above rules
+#     - if there is an rc signer release, e.g. 1.2.3.4.5.1-rc1, it will link to stacks-core 1.2.3.4.5-rc1
 #
 # Required env vars:
 #   VERSION      - Bare release version (no 'signer-' prefix)
@@ -33,11 +40,12 @@
 #           }
 #         }
 #       }
-#
+
+
 # Template variables substituted:
-#   ${node_tag}          - 5-part node version  (e.g. 3.4.0.0.0)
-#   ${signer_tag}        - 6-part signer version (e.g. 3.4.0.0.0.0)
-#   ${node_epoch}        - epoch compatibility tag (e.g. 3.4.x.x.x)
+#   ${node_tag}          - 5-part node version  (e.g. 1.2.3.4.5)
+#   ${signer_tag}        - 6-part signer version (e.g. 1.2.3.4.5.0)
+#   ${node_epoch}        - epoch compatibility tag (e.g. 1.2.x.x.x)
 #   ${companion_line}    - line to reference companion release (differs by RELEASE_TYPE, stacks-core mentions stacks-signer and vice-versa)
 #   ${changelog_content} - extracted changelog block (may be empty for signer releases)
 #
@@ -68,12 +76,11 @@ fi
 
 ## ── Derive node_tag, signer_tag, node_epoch, companion_line ─────────────────
 if [[ "${RELEASE_TYPE}" == "stacks-signer" ]]; then
-    # Used for the github release notes for stacks-signer, to reference the corresponding stacks-core release
     signer_tag="${VERSION}"
-    node_tag="$(echo "${signer_tag}" | cut -d. -f1-5)"
+    # Extract first 5 dot-separated parts and preserve any suffix (like -rc1)
+    node_tag=$(echo "${signer_tag}" | sed 's/^\([^.]*\.[^.]*\.[^.]*\.[^.]*\.[^.]*\)\.[0-9]*\(.*\)$/\1\2/')
     companion_line="The version of stacks-node compatible with this release is ${node_tag}, available here: https://github.com/${REPO}/releases/tag/${node_tag}."
 else
-    # Used for the github release notes for stacks-core, to reference the corresponding stacks-signer release
     node_tag="${VERSION}"
     signer_tag=$(sed 's/\(-[^-]*\)*$/.0\1/' <<<"${node_tag}")
     companion_line="The version of stacks-signer compatible with this release is ${signer_tag}, available at: https://github.com/${REPO}/releases/tag/signer-${signer_tag}."
@@ -104,12 +111,10 @@ format_docker_pulls() {
                 os_name="Debian (glibc)"
                 ;;
             musl)
-                # Alpine images are suffized with `-alpine`, set it here so we point to the correct image
                 dist="-alpine";
                 os_name="Alpine (musl)"
                 ;;
         esac
-        # if package_id is present in the manifest json, use it when crafting the link. else, default to a versioned image tag
         if [[ -n "${package_id}" ]]; then
             printf "* %s: https://github.com/%s/%s/pkgs/container/%s/%s?tag=%s%s\n" \
                 "${os_name}" "${repo_owner}" "${image_name}" "${image_name}" "${package_id}" "${tag}" "${dist}"
@@ -153,6 +158,7 @@ format_docker_pulls() {
             printf "#### **stacks-core**\n"
             print_image "stacks-core" "glibc" "${node_tag}" "${core_glibc}" "${core_glibc_id}"
             print_image "stacks-core" "musl" "${node_tag}" "${core_musl}" "${core_musl_id}"
+
             printf "#### **stacks-signer**\n"
         else
             printf "#### **stacks-signer**\n"
