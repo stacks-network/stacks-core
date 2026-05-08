@@ -66,7 +66,7 @@ use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 
 use super::MultipleMinerTest;
-use crate::tests::neon_integrations::{get_chain_info, test_observer};
+use crate::tests::neon_integrations::test_observer;
 use crate::tests::to_addr;
 
 /// Per-miner deterministic burn fee (satoshis). Asymmetric so the burn
@@ -229,13 +229,11 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
     // Per-block commit count + fee-sum invariant on burn events.
     let expected_fee_sum = MINER_1_FEE + MINER_2_FEE;
     let post_boundary = post_boundary_burn_blocks(epoch_40_start);
-    let mut blocks_with_commits = 0usize;
     for ev in post_boundary.iter() {
         let commit_count = ev.pox_transactions.len();
         if commit_count == 0 {
             continue;
         }
-        blocks_with_commits += 1;
 
         assert_eq!(
             commit_count, 2,
@@ -252,6 +250,5 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
         );
     }
 
-    let final_info = get_chain_info(&conf_1);
     miners.shutdown();
 }
