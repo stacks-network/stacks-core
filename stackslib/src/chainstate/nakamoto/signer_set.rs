@@ -37,7 +37,7 @@ use crate::chainstate::stacks::boot::{
     SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
-use crate::chainstate::stacks::sbtc::sbtc_deposit_taproot_output_key;
+use crate::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
@@ -764,7 +764,7 @@ impl NakamotoSigners {
         let pubkey_array: [u8; 33] = pubkey_buff.try_into().expect("length checked above");
 
         let recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
-        let output_key = sbtc_deposit_taproot_output_key(
+        let output_key = sbtc_pox5_deposit_taproot_output_key(
             &pubkey_array,
             &recipient,
             POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,

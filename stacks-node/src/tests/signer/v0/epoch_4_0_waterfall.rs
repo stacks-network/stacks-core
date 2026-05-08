@@ -42,7 +42,7 @@ use stacks::chainstate::nakamoto::signer_set::{
 };
 use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use stacks::chainstate::stacks::boot::POX_5_NAME;
-use stacks::chainstate::stacks::sbtc::sbtc_deposit_taproot_output_key;
+use stacks::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
 use stacks::core::POX_5_SBTC_DEPOSIT_MAX_FEE_SATS;
 use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
@@ -60,7 +60,7 @@ use crate::BitcoinRegtestController;
 fn make_sbtc_recipient_fixture(pubkey: &[u8; 33], is_mainnet: bool) -> PoxAddress {
     let recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
     let output_key =
-        sbtc_deposit_taproot_output_key(pubkey, &recipient, POX_5_SBTC_DEPOSIT_MAX_FEE_SATS)
+        sbtc_pox5_deposit_taproot_output_key(pubkey, &recipient, POX_5_SBTC_DEPOSIT_MAX_FEE_SATS)
             .expect("sBTC P2TR derivation failed for fixture");
     PoxAddress::Addr32(is_mainnet, PoxAddressType32::P2TR, output_key)
 }
