@@ -24,9 +24,7 @@ use rusqlite::{Connection, Transaction};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
-pub use super::squash::{
-    SquashStats, MARF_SQUASHED_BLOCK_ROOT_HASH_KEY, MARF_SQUASH_HEIGHT_KEY, MARF_SQUASH_ROOT_KEY,
-};
+pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::node::{

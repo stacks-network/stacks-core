@@ -776,112 +776,11 @@ fn compute_node_hash(node: &TrieNodeType, child_hashes: &[TrieHash]) -> TrieHash
     TrieHash(hasher.finalize().into())
 }
 
-fn read_proc_status_kib(field: &str) -> Option<u64> {
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
-    let line = status.lines().find(|line| line.starts_with(field))?;
-    let mut parts = line.split_whitespace();
-    let _ = parts.next()?;
-    parts.next()?.parse::<u64>().ok()
-}
-
-fn log_memory_snapshot(stage: &str) {
-    let rss_kib = read_proc_status_kib("VmRSS:");
-    let hwm_kib = read_proc_status_kib("VmHWM:");
-
-    match (rss_kib, hwm_kib) {
-        (Some(rss), Some(hwm)) => info!(
-            "Squash memory ({stage}): VmRSS={} MiB, VmHWM={} MiB",
-            rss / 1024,
-            hwm / 1024
-        ),
-        (Some(rss), None) => info!("Squash memory ({stage}): VmRSS={} MiB", rss / 1024),
-        _ => info!("Squash memory ({stage}): unavailable"),
-    }
-}
-
-/// Key that stores the squashed root hash at the snapshot tip.
-pub const MARF_SQUASH_ROOT_KEY: &str = "__MARF_SQUASH_ROOT";
-/// Key that stores the snapshot height for a squashed MARF.
-pub const MARF_SQUASH_HEIGHT_KEY: &str = "__MARF_SQUASH_HEIGHT";
-/// Prefix for per-height root hashes preserved in squashed MARFs.
-/// Each key has the form `__MARF_SQUASHED_BLOCK_ROOT_HASH::<height>`.
-pub const MARF_SQUASHED_BLOCK_ROOT_HASH_KEY: &str = "__MARF_SQUASHED_BLOCK_ROOT_HASH";
-
 /// Summary statistics from a squashing run.
 #[derive(Debug, Clone)]
 pub struct SquashStats {
     /// Total number of nodes collected into the squashed MARF.
     pub node_count: u64,
-}
-
-/// Summary statistics from a validation run.
-///
-/// The default validation checks:
-/// - Per-height root hashes stored in `marf_squashed_blocks` match the
-///   archival source (guarantees correct ancestor hash computation for the
-///   skip-list at blocks > H).
-/// - Squash metadata (`marf_squash_info`) is present and correct.
-/// - All historical `marf_data` entries share the tip block's blob offset.
-///
-/// When `full_leaf_scan` is enabled, the validator additionally walks every
-/// leaf in both MARFs and cross-checks them, which is O(leaf_count) and much
-/// slower but useful for debugging.
-#[derive(Debug, Clone)]
-pub struct SquashValidationStats {
-    // --- Fast-path (always populated) ---
-    /// Whether the squashed root key was found in the SQL metadata.
-    pub archival_root_present: bool,
-    /// Whether the stored archival root hash at the squash height
-    /// matches the source MARF's root hash at that height.
-    pub archival_root_matches: bool,
-    /// Per-height root hashes missing from the SQL table.
-    pub root_hash_missing: u64,
-    /// Per-height root hashes with mismatched values.
-    pub root_hash_mismatches: u64,
-    /// Number of historical `marf_data` entries that do NOT share the
-    /// tip block's blob offset (should be 0 for a correct squash).
-    pub blob_offset_mismatches: u64,
-    /// Whether the `squash_root_node_hash` was found in SQL metadata
-    /// (a `TrieHash::EMPTY` value counts as absent).
-    pub squash_node_hash_present: bool,
-    /// Whether the stored `squash_root_node_hash` matches the value
-    /// recomputed from the committed squash trie blob (DFS walk + bottom-up hash).
-    pub squash_node_hash_matches: bool,
-
-    // --- Full leaf scan (only populated when full_leaf_scan = true) ---
-    /// Total keys compared from the source MARF (0 when fast-only).
-    pub source_keys_checked: u64,
-    /// Total keys compared from the squashed MARF (0 when fast-only).
-    pub squashed_keys_checked: u64,
-    /// Keys present in source but missing in squashed (0 when fast-only).
-    pub missing_in_squashed: u64,
-    /// Keys present in squashed but missing in source (0 when fast-only).
-    pub missing_in_source: u64,
-    /// Keys present in both but with different values (0 when fast-only).
-    pub value_mismatches: u64,
-}
-
-impl SquashValidationStats {
-    /// Returns `true` if all validation checks passed.
-    pub fn is_valid(&self) -> bool {
-        let fast_valid = self.archival_root_present
-            && self.archival_root_matches
-            && self.squash_node_hash_present
-            && self.squash_node_hash_matches
-            && self.root_hash_missing == 0
-            && self.root_hash_mismatches == 0
-            && self.blob_offset_mismatches == 0;
-
-        // If a full leaf scan was performed (either direction checked any keys),
-        // also validate the leaf-level results.
-        let full_scan_performed = self.source_keys_checked > 0 || self.squashed_keys_checked > 0;
-        let leaf_valid = !full_scan_performed
-            || (self.missing_in_squashed == 0
-                && self.missing_in_source == 0
-                && self.value_mismatches == 0);
-
-        fast_valid && leaf_valid
-    }
 }
 
 /// Step 1: Build an in-memory block_map from all `marf_data` entries.
@@ -1125,7 +1024,6 @@ impl<T: MarfTrieId> MARF<T> {
             .filter(|p| !p.as_os_str().is_empty())
             .and_then(|p| p.to_str())
             .unwrap_or(".");
-        log_memory_snapshot("before trie DFS");
         info!("[{label}] [3/8] Collect trie nodes: starting DFS...");
         let start = Instant::now();
         let (mut node_store, source_to_idx) = src.with_conn(|conn| {
@@ -1136,7 +1034,6 @@ impl<T: MarfTrieId> MARF<T> {
             "[{label}] [3/8] Collect trie nodes: {node_count} nodes in {}",
             fmt_duration(start.elapsed())
         );
-        log_memory_snapshot("after trie DFS");
 
         let mut dst_open_opts = open_opts.clone();
         dst_open_opts.external_blobs = true;
@@ -1192,7 +1089,6 @@ impl<T: MarfTrieId> MARF<T> {
         drop(block_map);
 
         // [5/8] Remap trie pointers (disk-backed)
-        log_memory_snapshot("before pointer remap");
         info!("[{label}] [5/8] Remap trie pointers: {node_count} nodes...");
         let start = Instant::now();
         remap_child_ptrs(
@@ -1208,10 +1104,8 @@ impl<T: MarfTrieId> MARF<T> {
         drop(source_to_idx);
         drop(archival_to_squashed);
         node_store.drop_block_ids(); // free ~200 MB
-        log_memory_snapshot("after pointer remap");
 
         // [6/8] Recompute node hashes (disk-backed)
-        log_memory_snapshot("before hash recompute");
         info!("[{label}] [6/8] Recompute node hashes: {node_count} nodes...");
         let start = Instant::now();
         recompute_content_hashes(&mut node_store)?;
@@ -1219,7 +1113,6 @@ impl<T: MarfTrieId> MARF<T> {
             "[{label}] [6/8] Recompute node hashes: {node_count} nodes in {}",
             fmt_duration(start.elapsed())
         );
-        log_memory_snapshot("after hash recompute");
 
         let squash_root_node_hash = if node_store.len() > 0 {
             node_store.hash(0)
@@ -1230,7 +1123,6 @@ impl<T: MarfTrieId> MARF<T> {
         };
 
         // [7/8] Write trie blob (compute offsets + stream to destination)
-        log_memory_snapshot("before blob write");
         info!("[{label}] [7/8] Write trie blob: {node_count} nodes...");
         let start = Instant::now();
         let parent_hash = T::sentinel();
@@ -1278,7 +1170,6 @@ impl<T: MarfTrieId> MARF<T> {
         );
         drop(blob_offsets);
         drop(node_store); // free temp file + metadata
-        log_memory_snapshot("after blob write");
 
         // [8/8] Persist metadata & commit
         let step8_start = Instant::now();
