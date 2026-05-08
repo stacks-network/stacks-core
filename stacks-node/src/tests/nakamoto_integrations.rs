@@ -19764,6 +19764,7 @@ fn check_pox_5_stake_lifecycle() {
         stake_amount + extra,
         "stake-update should have locked an additional {extra} ustx"
     );
+    let unlock_height_before_unstake = after_update.unlock_height;
 
     // 3) `unstake` — pox-5 forbids unstaking during the prepare phase.
     // Mine forward until we observe a contract-call result that isn't
@@ -19774,6 +19775,7 @@ fn check_pox_5_stake_lifecycle() {
     let pre_unstake_nonce = get_account(&http_origin, &staker_addr).nonce;
     let mut unstake_nonce = pre_unstake_nonce;
     let mut unstake_succeeded = false;
+    let mut unstake_unlock_height: Option<u64> = None;
     for attempt in 0..6 {
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
             .unwrap();
@@ -19813,7 +19815,25 @@ fn check_pox_5_stake_lifecycle() {
                     let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                     let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
                     saw_result = true;
-                    if let Ok(_) = parsed.clone().expect_result() {
+                    let response = parsed
+                        .clone()
+                        .expect_result()
+                        .expect("unstake response should be a clarity response");
+                    if let Ok(ok_value) = response {
+                        // Pull `unlock-burn-height` out of the unstake response
+                        // tuple so we can assert pox-locking actually applied
+                        // the rescheduled unlock to the staker's STX.
+                        let tuple = ok_value
+                            .expect_tuple()
+                            .expect("unstake ok payload should be a tuple");
+                        let unlock_height = tuple
+                            .get("unlock-burn-height")
+                            .expect("unstake response missing unlock-burn-height")
+                            .clone()
+                            .expect_u128()
+                            .expect("unlock-burn-height should be a uint")
+                            as u64;
+                        unstake_unlock_height = Some(unlock_height);
                         unstake_succeeded = true;
                     } else {
                         info!("unstake attempt {attempt} returned: {parsed:?}");
@@ -19831,15 +19851,27 @@ fn check_pox_5_stake_lifecycle() {
         unstake_succeeded,
         "pox-5 unstake never succeeded after 6 burn-block attempts"
     );
+    let unstake_unlock_height =
+        unstake_unlock_height.expect("unstake_succeeded but no unlock-burn-height captured");
 
-    // pox-5 unstake schedules an unlock at `(+ u1 current-cycle)`; the STX
-    // remain locked until that cycle, so the staker's balance should still
-    // show the locked amount immediately after the call.
+    // pox-5 unstake schedules an unlock at `(+ u1 current-cycle)` — the STX
+    // remain locked, but at the new (earlier) unlock burn height. pox-locking
+    // is responsible for translating the contract response into a database
+    // mutation; assert both the locked amount and the rescheduled unlock
+    // height are reflected on the account.
     let after_unstake = get_account(&http_origin, &staker_addr);
     assert_eq!(
         after_unstake.locked,
         stake_amount + extra,
         "unstake schedules unlock for next cycle; STX should still be locked now"
+    );
+    assert!(
+        unstake_unlock_height < unlock_height_before_unstake,
+        "unstake should move the unlock height earlier (was {unlock_height_before_unstake}, now {unstake_unlock_height})"
+    );
+    assert_eq!(
+        after_unstake.unlock_height, unstake_unlock_height,
+        "pox-locking should have applied the rescheduled unlock-burn-height"
     );
 
     coord_channel

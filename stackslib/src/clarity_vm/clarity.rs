@@ -36,7 +36,9 @@ use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 
 use crate::burnchains::PoxConstants;
-use crate::chainstate::nakamoto::signer_set::{pox_5_bond_admin, NakamotoSigners};
+#[cfg(any(test, feature = "testing"))]
+use crate::chainstate::nakamoto::signer_set::pox_5_bond_admin;
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     make_pox_5_body, make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2,
     BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,

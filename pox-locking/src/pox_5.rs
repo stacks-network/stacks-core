@@ -100,6 +100,41 @@ pub fn pox_lock_v5(
     Ok(())
 }
 
+/// Reschedule a pox-5 STX lock to unlock at `unlock_burn_height`. Used by
+/// `unstake`, which moves the unlock to the start of the next reward
+/// cycle. The locked amount is unchanged. Does NOT touch the account
+/// nonce.
+///
+/// # Errors
+/// - Returns Error::PoxUnstakeNotLocked if this function was called on an account
+///   which isn't locked. This *should* have been checked by the PoX v5 contract,
+///   so this should surface in a panic.
+pub fn pox_unstake_v5(
+    db: &mut ClarityDatabase,
+    principal: &PrincipalData,
+    unlock_burn_height: u64,
+) -> Result<(), LockingError> {
+    assert!(unlock_burn_height > 0);
+
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+    if !snapshot.has_locked_tokens()? {
+        return Err(LockingError::PoxUnstakeNotLocked);
+    }
+
+    snapshot.update_unlock_v5(unlock_burn_height)?;
+
+    debug!(
+        "PoX v5 unstake scheduled";
+        "pox_locked_ustx" => snapshot.balance().amount_locked(),
+        "unlock_burn_height" => unlock_burn_height,
+        "account" => %principal,
+    );
+
+    snapshot.save()?;
+    Ok(())
+}
+
 /// Extend a STX lock up for PoX for a time and/or increase the amount locked.
 /// Does NOT touch the account nonce.
 /// Returns Ok(lock_amount) when successful
@@ -123,7 +158,7 @@ pub fn pox_lock_update_v5(
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    snapshot.extend_lock_v5(unlock_burn_height)?;
+    snapshot.update_unlock_v5(unlock_burn_height)?;
 
     let bal = snapshot.canonical_balance_repr()?;
     let total_amount = bal
@@ -266,6 +301,54 @@ fn handle_stake_lockup_update_pox_v5(
     }
 }
 
+/// Handle the response from `unstake` in pox-5 — reschedules the
+/// already-locked STX to unlock at the start of the next reward cycle.
+fn handle_unstake_pox_v5(
+    global_context: &mut GlobalContext,
+    function_name: &str,
+    value: &Value,
+) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
+    debug!(
+        "Handle special-case contract-call to {:?} {function_name} (which returned {value:?})",
+        boot_code_id(POX_5_NAME, global_context.mainnet),
+    );
+
+    runtime_cost(
+        ClarityCostFunction::StxTransfer,
+        &mut global_context.cost_track,
+        1,
+    )?;
+
+    let (staker, locked_amount, unlock_height) = match parse_pox_stake_result(value) {
+        Ok(x) => x,
+        Err(_) => {
+            return Ok(None);
+        }
+    };
+
+    match pox_unstake_v5(&mut global_context.database, &staker, unlock_height) {
+        Ok(()) => {
+            // Emit a lock event reflecting the new (earlier) unlock-height.
+            // The locked amount is unchanged.
+            let event =
+                StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
+                    locked_amount,
+                    unlock_height,
+                    locked_address: staker,
+                    contract_identifier: boot_code_id(POX_5_NAME, global_context.mainnet),
+                }));
+            Ok(Some(event))
+        }
+        Err(LockingError::DefunctPoxContract) => Err(VmExecutionError::Runtime(
+            RuntimeError::DefunctPoxContract,
+            None,
+        )),
+        Err(e) => {
+            panic!("FATAL: failed to unstake {staker} until {unlock_height}: '{e:?}'");
+        }
+    }
+}
+
 /// Handle special cases when calling into the PoX-5 API contract
 pub fn handle_contract_call(
     global_context: &mut GlobalContext,
@@ -281,6 +364,7 @@ pub fn handle_contract_call(
             handle_stake_lockup_pox_v5(global_context, function_name, value)?
         }
         "stake-update" => handle_stake_lockup_update_pox_v5(global_context, function_name, value)?,
+        "unstake" => handle_unstake_pox_v5(global_context, function_name, value)?,
         _ => None,
     };
 
@@ -429,6 +513,37 @@ mod tests {
                     Value::UInt(unlock_burn_height as u128),
                 ),
                 (ClarityName::from_literal("unlock-cycle"), Value::UInt(14)),
+            ])
+            .unwrap(),
+        ))
+        .unwrap()
+    }
+
+    /// Helper: build a pox-5 `unstake` ok response tuple
+    fn make_unstake_ok_response(
+        staker: &PrincipalData,
+        amount_ustx: u128,
+        unlock_burn_height: u64,
+    ) -> Value {
+        Value::okay(Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    ClarityName::from_literal("staker"),
+                    Value::Principal(staker.clone()),
+                ),
+                (
+                    ClarityName::from_literal("amount-ustx"),
+                    Value::UInt(amount_ustx),
+                ),
+                (
+                    ClarityName::from_literal("first-reward-cycle"),
+                    Value::UInt(2),
+                ),
+                (ClarityName::from_literal("unlock-cycle"), Value::UInt(3)),
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(unlock_burn_height as u128),
+                ),
             ])
             .unwrap(),
         ))
@@ -1060,5 +1175,147 @@ mod tests {
         )
         .expect_err("expected PoxInvalidIncrease");
         assert!(matches!(err, LockingError::PoxInvalidIncrease));
+    }
+
+    // ── unstake tests ──
+
+    #[test]
+    fn handle_unstake_reschedules_unlock_height() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let lock_amount = 600_000u128;
+        let initial_unlock = 12_000u64;
+        let early_unlock = 5_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            lock_amount,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let response = make_unstake_ok_response(&staker, lock_amount, early_unlock);
+        let event = handle_unstake_pox_v5(&mut global_context, "unstake", &response)
+            .expect("handler should succeed")
+            .expect("expected an STXLockEvent");
+
+        match event {
+            StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
+                assert_eq!(data.locked_amount, lock_amount);
+                assert_eq!(data.unlock_height, early_unlock);
+                assert_eq!(data.locked_address, staker);
+            }
+            other => panic!("Expected STXLockEvent, got: {other:?}"),
+        }
+
+        // The locked amount is unchanged; only the unlock-height moves.
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        let bal = snapshot.balance();
+        assert_eq!(bal.amount_locked(), lock_amount);
+        assert_eq!(bal.amount_unlocked(), total_amount - lock_amount);
+        assert_eq!(bal.unlock_height(), early_unlock);
+    }
+
+    #[test]
+    fn handle_unstake_on_error_response_is_noop() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let lock_amount = 600_000u128;
+        let initial_unlock = 12_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            lock_amount,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let err_response = Value::error(Value::UInt(13)).unwrap();
+        let event = handle_unstake_pox_v5(&mut global_context, "unstake", &err_response)
+            .expect("handler should succeed");
+        assert!(event.is_none());
+
+        // Lock state unchanged.
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        assert_eq!(snapshot.balance().unlock_height(), initial_unlock);
+    }
+
+    #[test]
+    #[should_panic(expected = "FATAL")]
+    fn handle_unstake_on_unlocked_account_panics() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+
+        // No tokens locked — pox-5 should never have produced an unstake `ok`
+        // for this account, so the handler must panic.
+        let response = make_unstake_ok_response(&staker, 500_000, 5_000);
+        let _ = handle_unstake_pox_v5(&mut global_context, "unstake", &response);
+    }
+
+    #[test]
+    fn handle_contract_call_routes_unstake_and_appends_event() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let lock_amount = 600_000u128;
+        let initial_unlock = 12_000u64;
+        let early_unlock = 5_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+        let contract_id = boot_code_id(POX_5_NAME, global_context.mainnet);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            lock_amount,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let response = make_unstake_ok_response(&staker, lock_amount, early_unlock);
+        handle_contract_call(
+            &mut global_context,
+            None,
+            &contract_id,
+            "unstake",
+            &[],
+            &response,
+        )
+        .expect("dispatch should succeed");
+
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        assert_eq!(snapshot.balance().amount_locked(), lock_amount);
+        assert_eq!(snapshot.balance().unlock_height(), early_unlock);
+
+        let (batch, _) = global_context
+            .event_batches
+            .last()
+            .expect("event batch should exist");
+        assert_eq!(batch.events.len(), 1);
+        match &batch.events[0] {
+            StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
+                assert_eq!(data.locked_amount, lock_amount);
+                assert_eq!(data.unlock_height, early_unlock);
+                assert_eq!(data.locked_address, staker);
+            }
+            other => panic!("Expected STXLockEvent, got: {other:?}"),
+        }
     }
 }

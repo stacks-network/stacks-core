@@ -50,6 +50,7 @@ pub enum LockingError {
     PoxIncreaseOnV1,
     PoxInvalidIncrease,
     Clarity(VmExecutionError),
+    PoxUnstakeNotLocked,
 }
 
 impl From<VmExecutionError> for LockingError {

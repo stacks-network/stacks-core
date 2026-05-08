@@ -1527,6 +1527,7 @@ pub fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128
 pub struct Account {
     pub balance: u128,
     pub locked: u128,
+    pub unlock_height: u64,
     pub nonce: u64,
 }
 
@@ -1541,6 +1542,7 @@ pub fn get_account_result<F: std::fmt::Display>(
     Ok(Account {
         balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
         locked: u128::from_str_radix(&res.locked[2..], 16).unwrap(),
+        unlock_height: res.unlock_height,
         nonce: res.nonce,
     })
 }
