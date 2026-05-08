@@ -351,6 +351,14 @@
     )
 )
 
+;; This is private so that it may be called only by the node as part of
+;; consensus, which would require a hard-fork.
+;; Tests and testnets can trigger a call to this function during epoch 4.0
+;; activation by setting the `pox_5_bond_admin` config parameter.
+(define-private (set-bond-admin (new-admin principal))
+    (ok (var-set bond-admin new-admin))
+)
+
 (define-public (setup-bond
         (bond-index uint)
         (target-rate uint)

@@ -36,7 +36,7 @@ use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 
 use crate::burnchains::PoxConstants;
-use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::nakamoto::signer_set::{pox_5_bond_admin, NakamotoSigners};
 use crate::chainstate::stacks::boot::{
     make_pox_5_body, make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2,
     BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
@@ -1536,7 +1536,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         |_, _| None,
                         None,
                     )
-                    .expect("Failed to set burnchain parameters in PoX-3 contract");
+                    .expect("Failed to set burnchain parameters in PoX-4 contract");
 
                 receipt
             });
@@ -1970,6 +1970,19 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch40;
             });
 
+            let first_block_height = self.burn_state_db.get_burn_start_height();
+            let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
+            let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
+            let pox_5_activation_height = self.burn_state_db.get_pox_5_activation_height();
+
+            let pox_5_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
+                u64::from(pox_5_activation_height),
+                u64::from(first_block_height),
+                u64::from(pox_reward_cycle_length),
+            )
+            .expect("PANIC: PoX-5 first reward cycle begins *before* first burn block height")
+                + 1;
+
             let boot_code_account = self
                 .get_boot_code_account()
                 .expect("FATAL: did not get boot account");
@@ -2008,6 +2021,46 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     None,
                 )
                 .expect("FATAL: Failed to process .pox-5 contract initialization");
+
+                // set burnchain params
+                let consts_setter = PrincipalData::from(pox_5_contract_id.clone());
+                let params = vec![
+                    Value::UInt(u128::from(first_block_height)),
+                    Value::UInt(u128::from(pox_prepare_length)),
+                    Value::UInt(u128::from(pox_reward_cycle_length)),
+                    Value::UInt(u128::from(pox_5_first_cycle)),
+                ];
+
+                let (_, _, _burnchain_params_events) = tx_conn
+                    .run_contract_call(
+                        &consts_setter,
+                        None,
+                        &pox_5_contract_id,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| None,
+                        None,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX-5 contract");
+
+                // Override the `bond-admin` data var if the node config
+                // supplies one (devnet/test only — forbidden on mainnet by
+                // `Config::from_config_file`).
+                #[cfg(any(test, feature = "testing"))]
+                if let Some(bond_admin) = pox_5_bond_admin() {
+                    let (_, _, _bond_admin_events) = tx_conn
+                        .run_private_contract_call(
+                            &consts_setter,
+                            None,
+                            &pox_5_contract_id,
+                            "set-bond-admin",
+                            &[Value::Principal(bond_admin)],
+                            |_, _| None,
+                            None,
+                        )
+                        .expect("Failed to set bond-admin in PoX-5 contract");
+                }
+
                 receipt
             });
 

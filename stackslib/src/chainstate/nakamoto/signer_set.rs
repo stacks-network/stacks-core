@@ -78,6 +78,25 @@ pub fn pox_5_sbtc_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
     }
 }
 
+/// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes the
+/// `bond-admin` data var to. By default the contract source initializes it to
+/// `tx-sender`, which at deploy time is the unsignable boot principal — that
+/// makes `setup-bond` uncallable. Devnets and integration tests can override
+/// the initializer to a key they control via `NodeConfig::pox_5_bond_admin`.
+/// Forbidden on mainnet.
+static POX_5_BOND_ADMIN: RwLock<Option<PrincipalData>> = RwLock::new(None);
+
+/// Set the configured PoX-5 bond admin principal. Call once during node
+/// startup from the run-loop, with the value parsed out of `NodeConfig`.
+pub fn set_pox_5_bond_admin(principal: Option<PrincipalData>) {
+    *POX_5_BOND_ADMIN.write().unwrap() = principal;
+}
+
+/// Read the configured PoX-5 bond admin principal, if one was set.
+pub fn pox_5_bond_admin() -> Option<PrincipalData> {
+    POX_5_BOND_ADMIN.read().unwrap().clone()
+}
+
 pub struct NakamotoSigners();
 
 pub struct SignerCalculation {

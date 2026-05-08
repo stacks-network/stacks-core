@@ -537,7 +537,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         // caller needs to have checked this
-        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+        if amount_to_lock == 0 {
+            return Err(VmInternalError::Expect("BUG: cannot lock 0 tokens".into()).into());
+        }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
@@ -583,7 +585,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Increase the account's current lock to `new_total_locked`.
-    /// Panics if `self` was not locked by V2 PoX.
+    /// Errors if `self` was not locked by V2 PoX.
     pub fn increase_lock_v2(&mut self, new_total_locked: u128) -> Result<(), VmExecutionError> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -729,7 +731,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         // caller needs to have checked this
-        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+        if amount_to_lock == 0 {
+            return Err(VmInternalError::Expect("BUG: cannot lock 0 tokens".into()).into());
+        }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
@@ -802,7 +806,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Increase the account's current lock to `new_total_locked`.
-    /// Panics if `self` was not locked by V3 PoX.
+    /// Errors if `self` was not locked by V3 PoX.
     pub fn increase_lock_v3(&mut self, new_total_locked: u128) -> Result<(), VmExecutionError> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -824,10 +828,12 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             );
         }
 
-        assert!(
-            self.balance.amount_locked() <= new_total_locked,
-            "FATAL: account must lock more after `increase_lock_v3`"
-        );
+        if self.balance.amount_locked() > new_total_locked {
+            return Err(VmInternalError::Expect(
+                "FATAL: account must lock more after `increase_lock_v3`".into(),
+            )
+            .into());
+        }
 
         let total_amount = self
             .balance
@@ -871,16 +877,22 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         // caller needs to have checked this
-        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+        if amount_to_lock == 0 {
+            return Err(VmInternalError::Expect("BUG: cannot lock 0 tokens".into()).into());
+        }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
-            panic!("FATAL: cannot set a lock with expired unlock burn height");
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-3".into()).into(),
+            );
         }
 
         if self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account already has locked tokens");
+            return Err(
+                VmInternalError::Expect("FATAL: account already has locked tokens".into()).into(),
+            );
         }
 
         // from `unlock_available_tokens_if_any` call above, `self.balance` should
@@ -911,12 +923,18 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
         if !self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account does not have locked tokens");
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
         }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
-            panic!("FATAL: cannot set a lock with expired unlock burn height");
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
         }
 
         self.balance = STXBalance::LockedPoxFour {
@@ -928,7 +946,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Increase the account's current lock to `new_total_locked`.
-    /// Panics if `self` was not locked by V4 PoX.
+    /// Errors if `self` was not locked by V4 PoX.
     pub fn increase_lock_v4(&mut self, new_total_locked: u128) -> Result<(), VmExecutionError> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -937,18 +955,25 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
         if !self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account does not have locked tokens");
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
         }
 
         if !self.is_v4_locked()? {
             // caller needs to have checked this
-            panic!("FATAL: account must be locked by pox-4");
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-4".into()).into(),
+            );
         }
 
-        assert!(
-            self.balance.amount_locked() <= new_total_locked,
-            "FATAL: account must lock more after `increase_lock_v4`"
-        );
+        if self.balance.amount_locked() > new_total_locked {
+            return Err(VmInternalError::Expect(
+                "FATAL: account must lock more after `increase_lock_v4`".into(),
+            )
+            .into());
+        }
 
         let total_amount = self
             .balance
@@ -992,16 +1017,23 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         // caller needs to have checked this
-        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+        if amount_to_lock == 0 {
+            return Err(VmInternalError::Expect("BUG: cannot lock 0 tokens".into()).into());
+        }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
-            panic!("FATAL: cannot set a lock with expired unlock burn height");
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
         }
 
         if self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account already has locked tokens");
+            return Err(
+                VmInternalError::Expect("FATAL: account already has locked tokens".into()).into(),
+            );
         }
 
         // from `unlock_available_tokens_if_any` call above, `self.balance` should
@@ -1032,12 +1064,18 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
         if !self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account does not have locked tokens");
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
         }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
-            panic!("FATAL: cannot set a lock with expired unlock burn height");
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
         }
 
         self.balance = STXBalance::LockedPoxFive {
@@ -1049,7 +1087,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Increase the account's current lock to `new_total_locked`.
-    /// Panics if `self` was not locked by V5 PoX.
+    /// Errors if `self` was not locked by V5 PoX.
     pub fn increase_lock_v5(&mut self, new_total_locked: u128) -> Result<(), VmExecutionError> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -1058,18 +1096,25 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
         if !self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account does not have locked tokens");
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
         }
 
         if !self.is_v5_locked()? {
             // caller needs to have checked this
-            panic!("FATAL: account must be locked by pox-5");
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-5".into()).into(),
+            );
         }
 
-        assert!(
-            self.balance.amount_locked() <= new_total_locked,
-            "FATAL: account must lock more after `increase_lock_v5`"
-        );
+        if self.balance.amount_locked() > new_total_locked {
+            return Err(VmInternalError::Expect(
+                "FATAL: account must lock more after `increase_lock_v5`".into(),
+            )
+            .into());
+        }
 
         let total_amount = self
             .balance
