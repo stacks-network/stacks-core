@@ -17,7 +17,7 @@
 use clarity::vm::clarity::ClarityError;
 use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
-use stacks_common::alloc_tracker::thread_allocated;
+use stacks_common::alloc_tracker::{thread_allocated, tracking_allocator_installed};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
@@ -64,6 +64,9 @@ use crate::net::relay::Relayer;
 pub fn make_mem_abort_callback(limit_bytes: u64) -> AbortCallback {
     if limit_bytes == 0 {
         return AbortCallback::None;
+    }
+    if !tracking_allocator_installed() {
+        panic!("Tracking allocator must be installed to set a memory limit");
     }
     AbortCallback::MemAbort {
         baseline: thread_allocated(),

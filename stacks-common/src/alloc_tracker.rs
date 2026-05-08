@@ -14,10 +14,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use core::cell::Cell;
 use std::alloc::{GlobalAlloc, Layout};
+use std::sync::OnceLock;
 
 thread_local! {
     static THREAD_ALLOCATIONS: Cell<AllocationCounter> = const { Cell::new(AllocationCounter::ZERO) };
 }
+
+/// A static bool for checking if the tracking allocator is installed
+///  as the global allocator
+static TRACKING_ALLOCATOR_INSTALLED: OnceLock<bool> = OnceLock::new();
 
 /// Counter for net allocated bytes
 #[derive(Clone, Copy)]
@@ -44,6 +49,28 @@ impl AllocationCounter {
         self.net_allocated = self.net_allocated.saturating_sub(decrement);
         self
     }
+}
+
+/// Check if the tracking allocator is installed
+///
+/// If the check has already been performed in this process,
+///  it returns the prior value. Otherwise, it forces an allocation
+///  and checks if the tracker picked it up.
+pub fn tracking_allocator_installed() -> bool {
+    *TRACKING_ALLOCATOR_INSTALLED.get_or_init(|| {
+        let before = thread_allocated();
+        let probe: Vec<u8> = Vec::with_capacity(1024);
+        // Prevent the optimizer from eliding the allocation.                                                             
+        std::hint::black_box(&probe);
+        let installed = thread_allocated().net_allocated(&before) > 0;
+        if !installed {
+            error!(
+                "TrackingAllocator is not installed as the global allocator; any configured memory limits will never trigger"
+            );
+        }
+        drop(probe);
+        installed
+    })
 }
 
 /// Read the allocation counter for the current thread.

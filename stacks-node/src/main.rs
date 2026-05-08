@@ -41,7 +41,7 @@ use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::config::chain_data::MinerStats;
 pub use stacks::config::{Config, ConfigFile};
-use stacks_common::alloc_tracker::TrackingAllocator;
+use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocator};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -447,6 +447,13 @@ fn main() {
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
+        if conf.miner.max_assembly_mem_bytes > 0
+            || conf.connection_options.block_proposal_max_tx_mem_bytes > 0
+        {
+            if !tracking_allocator_installed() {
+                panic!("Tracking allocator must be installed to set a memory limit");
+            }
+        }
         let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);
     } else {
