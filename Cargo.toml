@@ -21,12 +21,6 @@ exclude = ["contrib/tools/config-docs-generator"]
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]
-# `bitcoin = "0.32"` is used only for taproot derivation in PoX-5 sBTC
-# scaffolding (see `chainstate/stacks/sbtc.rs`). It pulls in `secp256k1
-# ^0.29` which deliberately coexists with the project's existing
-# `secp256k1 = 0.24.3`; the bitcoin-crate's secp256k1 stays scoped to
-# the taproot helper and never crosses into the rest of the codebase.
-bitcoin = "0.32.5"
 ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
 lazy_static = "1.4.0"

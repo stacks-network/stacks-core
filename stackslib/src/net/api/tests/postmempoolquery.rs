@@ -364,7 +364,7 @@ fn test_decode_tx_stream() {
 
     // valid empty tx stream
     let empty_stream = [0x11u8; 32];
-    let (next_txs, next_page) = decode_tx_stream(&mut empty_stream.as_slice()).unwrap();
+    let (next_txs, next_page) = decode_tx_stream(&mut empty_stream.as_ref()).unwrap();
     assert!(next_txs.is_empty());
     assert_eq!(next_page, Some(Txid([0x11; 32])));
 
@@ -389,7 +389,7 @@ fn test_decode_tx_stream() {
 
     // garbage tx stream
     let garbage_stream = [0xff; 256];
-    let err = decode_tx_stream(&mut garbage_stream.as_slice());
+    let err = decode_tx_stream(&mut garbage_stream.as_ref());
     assert!(
         matches!(err, Err(NetError::ExpectedEndOfStream)),
         "did not fail with correct error"
@@ -397,7 +397,7 @@ fn test_decode_tx_stream() {
 
     // tx stream that is too short
     let short_stream = [0x33u8; 33];
-    let err = decode_tx_stream(&mut short_stream.as_slice());
+    let err = decode_tx_stream(&mut short_stream.as_ref());
     assert!(
         matches!(err, Err(NetError::ExpectedEndOfStream)),
         "did not fail with correct error"

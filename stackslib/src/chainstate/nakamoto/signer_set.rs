@@ -763,10 +763,10 @@ impl NakamotoSigners {
         }
         let pubkey_array: [u8; 33] = pubkey_buff.try_into().expect("length checked above");
 
-        let recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
+        let sbtc_recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
         let output_key = sbtc_pox5_deposit_taproot_output_key(
             &pubkey_array,
-            &recipient,
+            &sbtc_recipient,
             POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,
         )?;
 
