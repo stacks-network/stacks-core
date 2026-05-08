@@ -518,4 +518,4 @@ impl VRFSeed {
 }
 
 // The (ConsensusHash, BurnchainHeaderHash) codec impl is provided by the
-// generic (A, B) impl in stacks-codec.
+// generic (A, B) impl in `crate::codec`.

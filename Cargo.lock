@@ -4331,6 +4331,9 @@ dependencies = [
 [[package]]
 name = "stacks-codec"
 version = "0.1.0"
+dependencies = [
+ "stacks-common 0.0.1",
+]
 
 [[package]]
 name = "stacks-common"
@@ -4359,7 +4362,6 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-codec",
  "thiserror 1.0.65",
  "toml",
  "winapi 0.3.9",
