@@ -465,14 +465,14 @@ impl CostValues for Costs5 {
     /// double-SHA-256 over a 64-byte buffer plus loop bookkeeping.
     /// FIXME: Placeholder values pending benchmarking.
     fn cost_verify_merkle_proof(n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(linear(n, 250, 200)))
+        Ok(ExecutionCost::runtime(linear(n, 125, 502)))
     }
 
     /// Cost of parsing a Bitcoin tx and extracting one output, plus computing
     /// the canonical txid (one double-SHA-256 over the non-witness
     /// serialization). Linear in the byte length of `tx-bytes`.
     /// FIXME: Placeholder values pending benchmarking.
-    fn cost_get_bitcoin_tx_output(n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(linear(n, 3, 500)))
+    fn cost_get_bitcoin_tx_output(_: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(291))
     }
 }

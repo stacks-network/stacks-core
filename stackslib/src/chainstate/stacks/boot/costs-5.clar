@@ -677,10 +677,10 @@
 ;; level is one double-SHA-256 over a 64-byte buffer).
 ;; FIXME: Placeholder values pending benchmarking.
 (define-read-only (cost_verify_merkle_proof (n uint))
-    (runtime (linear n u250 u200)))
+    (runtime (linear n u125 u502)))
 
 ;; Cost of parsing a Bitcoin tx and extracting one output. Linear in tx-bytes
 ;; length.
 ;; FIXME: Placeholder values pending benchmarking.
 (define-read-only (cost_get_bitcoin_tx_output (n uint))
-    (runtime (linear n u3 u500)))
+    (runtime u291))
