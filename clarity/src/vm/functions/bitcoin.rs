@@ -647,4 +647,179 @@ mod tests {
             ),
         );
     }
+
+    // ---------------------------------------------------------------------
+    // Real-block merkle proof tests.
+    //
+    // These exercise `verify_merkle` against actual Bitcoin mainnet blocks,
+    // and double as worked examples of how to assemble the arguments
+    // `verify-merkle-proof` expects from a Clarity contract.
+    //
+    // How the inputs below were collected: Blockstream's public API is shown
+    // for concreteness; any Bitcoin Core / block-explorer endpoint will give
+    // the same values. Set `TXID` to the (display-order) txid of the
+    // transaction you want to prove:
+    //
+    //   1. `leaf` (the txid being proven, internal byte order):
+    //         curl -s "https://blockstream.info/api/tx/$TXID/hex"
+    //      Feed those bytes into `parse_tx_output` and use the third return
+    //      value — it's the *non-witness* (canonical) txid in internal byte
+    //      order, which is what the block's merkle tree commits to.
+    //
+    //   2. Locate the containing block and grab its merkle root + tx_count:
+    //         BLOCK=$(curl -s \
+    //           "https://blockstream.info/api/tx/$TXID/merkle-proof" \
+    //           | jq -r .block_height)
+    //         BLOCKHASH=$(curl -s \
+    //           "https://blockstream.info/api/block-height/$BLOCK")
+    //         curl -s "https://blockstream.info/api/block/$BLOCKHASH" \
+    //           | jq '{merkle_root, tx_count}'
+    //      The `merkle_root` is in *display* byte order — reverse it to get
+    //      internal order. `txid_from_display_hex` below does this for us.
+    //
+    //   3. `tx_index` and `siblings` come from the same merkle-proof call:
+    //         curl -s \
+    //           "https://blockstream.info/api/tx/$TXID/merkle-proof" \
+    //           | jq '{pos, merkle}'
+    //      `pos` is `tx_index`; `merkle` is the sibling array, ordered
+    //      leaf-to-root, each entry in display byte order (reverse each).
+    //      With Bitcoin Core directly:
+    //         bitcoin-cli gettxoutproof '["'"$TXID"'"]'
+    //      gives the same data as a serialized merkleblock for offline
+    //      decoding.
+    //
+    // Sanity check before running: the returned path length must equal
+    // `ceil(log2(tx_count))` — `verify_merkle` rejects mismatched depths to
+    // close CVE-2012-2459. If the API gives you a different length, you've
+    // probably mixed up `tx_count` or grabbed an old (pre-soft-fork)
+    // explorer endpoint.
+    // ---------------------------------------------------------------------
+
+    /// End-to-end merkle proof check for the genesis coinbase. Block 0 has a
+    /// single transaction, so the merkle root equals the txid and the proof
+    /// path is empty (depth 0).
+    #[test]
+    fn merkle_proof_genesis_coinbase() {
+        let raw = hex(GENESIS_COINBASE_TX_HEX);
+        let (_, _, leaf) = parse_tx_output(&raw, 0).expect("genesis coinbase parses");
+
+        // For block 0, merkle_root == coinbase txid.
+        let root = txid_from_display_hex(
+            "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
+        );
+
+        assert!(verify_merkle(leaf, root, 0, 1, &[]));
+
+        // tx_index >= tx_count must reject even when leaf == root.
+        assert!(!verify_merkle(leaf, root, 1, 1, &[]));
+        // A spurious sibling on a 1-tx block breaks the depth check.
+        assert!(!verify_merkle(leaf, root, 0, 1, &[[0u8; 32]]));
+    }
+
+    /// End-to-end merkle proof check for the "Bitcoin pizza" tx in mainnet
+    /// block 57043. The block has exactly two transactions (coinbase + pizza),
+    /// so the proof is a single sibling — the coinbase txid — and the pizza
+    /// is the right child at index 1.
+    #[test]
+    fn merkle_proof_pizza_tx_block_57043() {
+        let raw = hex(PIZZA_TX_HEX);
+        let (_, _, leaf) = parse_tx_output(&raw, 0).expect("pizza tx parses");
+
+        // Block 57043 merkle root:
+        //   curl -s https://blockstream.info/api/block/\
+        //     00000000152340ca42227603908689183edc47355204e7aca59383b0aaac1fd8 \
+        //     | jq -r .merkle_root
+        let root = txid_from_display_hex(
+            "5c1d2211f598cd6498f42b269fe3ce4a6fdb40eaa638f86a0579c4e63a721b5a",
+        );
+        // Sole sibling (the coinbase txid at index 0):
+        //   curl -s https://blockstream.info/api/tx/\
+        //     a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d/\
+        //     merkle-proof | jq -r '.merkle[0]'
+        let coinbase = txid_from_display_hex(
+            "bd9075d78e65a98fb054cb33cf0ecf14e3e7f8b3150231df8680919a79ac8fe5",
+        );
+
+        assert!(verify_merkle(leaf, root, 1, 2, &[coinbase]));
+
+        // Wrong tx_index — pizza is at 1, not 0.
+        assert!(!verify_merkle(leaf, root, 0, 2, &[coinbase]));
+        // Tampered root.
+        let mut bad_root = root;
+        bad_root[0] ^= 0x01;
+        assert!(!verify_merkle(leaf, bad_root, 1, 2, &[coinbase]));
+        // Wrong tx_count — depth check rejects (depth(3) = 2, but we pass 1 sibling).
+        assert!(!verify_merkle(leaf, root, 1, 3, &[coinbase]));
+    }
+
+    /// End-to-end merkle proof check for the BIP141 SegWit announcement tx
+    /// in mainnet block 481824. That block contained 1866 transactions, so
+    /// the path is 11 deep — exercising verification of a real, deep proof
+    /// against a witness-stripped txid.
+    #[test]
+    fn merkle_proof_segwit_announcement_block_481824() {
+        let raw = hex(REAL_SEGWIT_TX_HEX);
+        let (_, _, leaf) = parse_tx_output(&raw, 0).expect("segwit announcement parses");
+
+        // Block 481824 merkle root and tx_count:
+        //   curl -s https://blockstream.info/api/block/\
+        //     0000000000000000001c8018d9cb3b742ef25114f27563e3fc4a1902167f9893 \
+        //     | jq '{merkle_root, tx_count}'
+        let root = txid_from_display_hex(
+            "6438250cad442b982801ae6994edb8a9ec63c0a0ba117779fbe7ef7f07cad140",
+        );
+
+        // Merkle path:
+        //   curl -s https://blockstream.info/api/tx/\
+        //     8f907925d2ebe48765103e6845c06f1f2bb77c6adc1cc002865865eb5cfd5c1c/\
+        //     merkle-proof | jq '{pos, merkle}'
+        // → {"pos": 12, "merkle": [...]}. Depth = ceil(log2(1866)) = 11, so
+        // we expect 11 siblings; entries are ordered leaf-to-root.
+        let siblings: [[u8; 32]; 11] = [
+            txid_from_display_hex(
+                "e07a53ab1fa190f726fb1417f3c20e675cf29f9dd8acecc9360eeed776a928db",
+            ),
+            txid_from_display_hex(
+                "21223cecc3a07af99236b87eda3b6415b0b7c5d7a95633f22feb48157b896705",
+            ),
+            txid_from_display_hex(
+                "d62fd49076d83a2342c9dcb96ed5a8dd156b5b7d785e294a368ce7c9e263c25d",
+            ),
+            txid_from_display_hex(
+                "ce51fbe82e60649a62540ef016cb36e35db5f0257046318b73d8ee83281fe429",
+            ),
+            txid_from_display_hex(
+                "af310a3344d96e14141142e334552ad1fa75a4a365cd895c1cfbd0961de6cd41",
+            ),
+            txid_from_display_hex(
+                "2812b22e24414bae49286160a78ef765848b375bde5b67f2fd7209f07a24902d",
+            ),
+            txid_from_display_hex(
+                "d0da4f69356c1c7739a1971f76384829ebe1517635778d4ce0b0a91b56d282cc",
+            ),
+            txid_from_display_hex(
+                "0cfa885934de2d374d14ecdcf1f2a03dba36fbe6ca034202ca17a0a58aefa9bf",
+            ),
+            txid_from_display_hex(
+                "6632f3c95dcf284f86569018d081853473c1f8416009856103384e218e412df5",
+            ),
+            txid_from_display_hex(
+                "b3c8b80f3aca397fba2062b35cc042ff806655d0e593c5ef50d6df48d7360836",
+            ),
+            txid_from_display_hex(
+                "66532296fd04814bf47c9b0bbe2760262d5e452a77671c5cac90624d6d8c8554",
+            ),
+        ];
+
+        assert!(verify_merkle(leaf, root, 12, 1866, &siblings));
+
+        // Wrong index — adjacent slot must fail.
+        assert!(!verify_merkle(leaf, root, 13, 1866, &siblings));
+        // Truncated proof — depth check rejects.
+        assert!(!verify_merkle(leaf, root, 12, 1866, &siblings[..10]));
+        // Tamper any sibling — proof must fail.
+        let mut tampered = siblings;
+        tampered[5][0] ^= 0x01;
+        assert!(!verify_merkle(leaf, root, 12, 1866, &tampered));
+    }
 }
