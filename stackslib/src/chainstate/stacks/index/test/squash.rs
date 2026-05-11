@@ -20,7 +20,9 @@ use stacks_common::types::chainstate::{StacksBlockId, TrieHash, BLOCK_HEADER_HAS
 use tempfile::tempdir;
 
 use super::marf::setup_marf;
-use crate::chainstate::stacks::index::bits::get_node_byte_len;
+use crate::chainstate::stacks::index::bits::{
+    get_node_byte_len, read_nodetype, update_inline_child_ptrs,
+};
 use crate::chainstate::stacks::index::marf::{
     MARFOpenOpts, MarfConnection, SquashStats, MARF, OWN_BLOCK_HEIGHT_KEY,
 };
@@ -1194,20 +1196,22 @@ fn test_stream_squash_blob_at_nonzero_offset() {
     let mut output = Cursor::new(&mut buf);
     output.seek(std::io::SeekFrom::End(0)).unwrap();
 
-    let bytes_written =
-        stream_squash_blob(&mut store, &parent_hash, &blob_offsets, &mut output).unwrap();
-    assert_eq!(bytes_written, total_size);
+    let bytes_written = stream_squash_blob(&mut store, &parent_hash, &mut output).unwrap();
 
     let total_buf = output.into_inner();
-    assert_eq!(total_buf.len() as u64, prefix_len + total_size);
+    assert_eq!(total_buf.len() as u64, prefix_len + bytes_written);
     assert!(total_buf[..prefix_len as usize].iter().all(|&b| b == 0xFF));
+    assert_eq!(
+        &total_buf[prefix_len as usize..prefix_len as usize + 32],
+        parent_hash.as_bytes()
+    );
 }
 
-/// Test `remap_ptrs_to_blob_offsets` directly: verify it replaces forward
+/// Test `update_inline_child_ptrs` directly: verify it replaces forward
 /// child pointers with their blob offsets, leaves back/empty pointers
 /// untouched, and returns CorruptionError for out-of-bounds indices.
 #[test]
-fn test_remap_ptrs_to_blob_offsets() {
+fn test_update_inline_child_ptrs() {
     // Build a Node4 with a mix of pointer types:
     //   slot 0: forward ptr to child index 1
     //   slot 1: back ptr (should be left untouched)
@@ -1230,7 +1234,7 @@ fn test_remap_ptrs_to_blob_offsets() {
     );
 
     let offsets: Vec<u64> = vec![100, 200, 300];
-    remap_ptrs_to_blob_offsets(&mut node, &offsets).unwrap();
+    update_inline_child_ptrs(node.ptrs_mut(), &offsets).unwrap();
 
     let ptrs = node.ptrs();
     // Forward ptrs remapped to blob offsets.
@@ -1242,9 +1246,9 @@ fn test_remap_ptrs_to_blob_offsets() {
     // Empty ptr untouched.
     assert_eq!(ptrs[2].ptr(), 0);
 
-    // Leaves are a no-op.
-    let mut leaf = make_test_leaf(&[1], 0xAA);
-    remap_ptrs_to_blob_offsets(&mut leaf, &offsets).unwrap();
+    // Empty pointer slices are a no-op.
+    let mut empty: [TriePtr; 0] = [];
+    update_inline_child_ptrs(&mut empty, &offsets).unwrap();
 
     // Out-of-bounds child index returns CorruptionError.
     let mut bad_node = make_test_node4(
@@ -1256,14 +1260,13 @@ fn test_remap_ptrs_to_blob_offsets() {
             TriePtr::default(),
         ],
     );
-    assert!(remap_ptrs_to_blob_offsets(&mut bad_node, &offsets).is_err());
+    assert!(update_inline_child_ptrs(bad_node.ptrs_mut(), &offsets).is_err());
 }
 
-/// Verify that `remap_ptrs_to_blob_offsets` with offsets > u32::MAX causes
-/// the node's serialized size to grow (u32 -> u64 pointer encoding), which
-/// is the mechanism that drives the fixpoint in `compute_blob_offsets`.
+/// Verify that `update_inline_child_ptrs` with offsets > u32::MAX causes
+/// the node's serialized size to grow (u32 -> u64 pointer encoding).
 #[test]
-fn test_remap_ptrs_u64_encoding_widens_node() {
+fn test_update_inline_child_ptrs_u64_encoding_widens_node() {
     let mut node = make_test_node4(
         &[0],
         [
@@ -1278,7 +1281,7 @@ fn test_remap_ptrs_u64_encoding_widens_node() {
 
     // One offset below u32::MAX, one above -> mixed encoding.
     let offsets: Vec<u64> = vec![1000, u64::from(u32::MAX) + 1];
-    remap_ptrs_to_blob_offsets(&mut node, &offsets).unwrap();
+    update_inline_child_ptrs(node.ptrs_mut(), &offsets).unwrap();
 
     let size_after = get_node_byte_len(&node);
 

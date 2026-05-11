@@ -812,6 +812,37 @@ pub fn reserved_root_size(base_len: usize, ptrs: &[TriePtr]) -> Result<u64, Erro
         .ok_or(Error::OverflowError)
 }
 
+/// Rewrite inline child pointers from in-memory node indices to blob-local
+/// byte offsets. Backpointers and empty pointers are left untouched.
+pub fn update_inline_child_ptrs(
+    ptrs: &mut [TriePtr],
+    file_offsets: &[u64],
+) -> Result<(), Error> {
+    for ptr in ptrs.iter_mut() {
+        if !is_inline_child_ptr(ptr) {
+            continue;
+        }
+
+        let child_idx = ptr.try_ptr_into_usize()?;
+        let Some(&offset) = file_offsets.get(child_idx) else {
+            return Err(Error::CorruptionError(format!(
+                "inline child index {child_idx} out of bounds"
+            )));
+        };
+        // 0 is the sentinel for "not yet placed": valid offsets are always
+        // past the blob header.
+        if offset == 0 {
+            return Err(Error::CorruptionError(format!(
+                "inline child index {child_idx} has not been written"
+            )));
+        }
+
+        ptr.ptr = offset;
+    }
+
+    Ok(())
+}
+
 /// Write all the bytes for a node, including its hash, to the given Writeable object.
 /// The list of child pointers will NOT be compressed.
 /// Returns Ok(nw) on success, where `nw` is the number of bytes written.

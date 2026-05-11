@@ -539,35 +539,6 @@ fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Error> {
     Ok(())
 }
 
-/// Replace array-index child pointers in `node` with the corresponding
-/// blob byte offsets from `blob_offsets`.  Only forward (non-back, non-empty)
-/// pointers are remapped.
-pub(crate) fn remap_ptrs_to_blob_offsets(
-    node: &mut TrieNodeType,
-    blob_offsets: &[u64],
-) -> Result<(), Error> {
-    if node.is_leaf() {
-        return Ok(());
-    }
-    for ptr in node.ptrs_mut() {
-        if is_inline_child_ptr(ptr) {
-            let child_idx = ptr.ptr() as usize;
-            let offset = *blob_offsets.get(child_idx).ok_or_else(|| {
-                Error::CorruptionError(format!(
-                    "blob offset remap: child index {child_idx} out of bounds"
-                ))
-            })?;
-            if offset == 0 {
-                return Err(Error::CorruptionError(format!(
-                    "blob offset remap: child index {child_idx} has not been written"
-                )));
-            }
-            ptr.ptr = offset;
-        }
-    }
-    Ok(())
-}
-
 /// Stream the squash blob into an arbitrary `Write + Seek` sink.
 ///
 /// Reads nodes one-at-a-time from the NodeStore temp file and serializes them
@@ -637,7 +608,9 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
         let hash = store.hash(idx);
 
         // Convert array-index pointers to byte offsets (relative to blob start)
-        remap_ptrs_to_blob_offsets(&mut node, &blob_offsets)?;
+        if !node.is_leaf() {
+            update_inline_child_ptrs(node.ptrs_mut(), &blob_offsets)?;
+        }
 
         write_nodetype_bytes(sink, &node, hash)?;
     }
@@ -650,7 +623,9 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
         .get_mut(0)
         .ok_or_else(|| Error::CorruptionError("empty blob offset table".into()))? = header_size;
     let mut root_node = store.read_node_with(&mut reader, 0)?;
-    remap_ptrs_to_blob_offsets(&mut root_node, &blob_offsets)?;
+    if !root_node.is_leaf() {
+        update_inline_child_ptrs(root_node.ptrs_mut(), &blob_offsets)?;
+    }
 
     sink.seek(SeekFrom::Start(
         base.checked_add(header_size).ok_or(Error::OverflowError)?,
