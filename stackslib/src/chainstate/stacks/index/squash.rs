@@ -273,10 +273,8 @@ impl NodeStore {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_nanos();
-            let path = std::path::PathBuf::from(format!(
-                "{}/.squash_nodes_{pid}_{nanos}_{attempt}.tmp",
-                dir
-            ));
+            let mut path = std::path::PathBuf::from(dir);
+            path.push(format!(".squash_nodes_{pid}_{nanos}_{attempt}.tmp"));
             match File::options().write(true).create_new(true).open(&path) {
                 Ok(file) => {
                     return Ok(NodeStore {
