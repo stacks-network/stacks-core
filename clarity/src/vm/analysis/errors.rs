@@ -561,6 +561,11 @@ pub enum RuntimeCheckErrorKind {
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     Unreachable(String),
 
+    /// Execution was deliberately aborted by the per-`eval` abort callback.
+    /// (e.g., by the memory limit enforcement in block proposal validation or
+    ///  miner block assembly)
+    AbortedByExecutionHook(String),
+
     // List typing errors
     /// List elements have mismatched types, violating type consistency.
     ListTypesMustMatch,
@@ -662,10 +667,12 @@ pub struct StaticCheckError {
 
 impl RuntimeCheckErrorKind {
     /// This check indicates that the transaction should be rejected.
-    /// Currently identical to `is_unreachable()` since `Unreachable` is the only
-    /// rejectable variant, but they answer different questions and may diverge.
     pub fn rejectable(&self) -> bool {
-        matches!(self, RuntimeCheckErrorKind::Unreachable(_))
+        matches!(
+            self,
+            RuntimeCheckErrorKind::Unreachable(_)
+                | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
+        )
     }
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.

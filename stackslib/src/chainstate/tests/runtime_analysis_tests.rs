@@ -93,6 +93,12 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             trait_method_unknown_transitive_use_trait_ccall,
         ]),
         Unreachable(_) => Unreachable_ExpectLike, // This error is used in places where we expect the code to be unreachable, so if we hit it, it indicates a bug.
+        AbortedByExecutionHook(_) => Unreachable_Functionally(
+            "All consensus-critical code paths (block validation and transaction processing)
+             leave GlobalContext::abort_callback as None. The callback is only installed
+             by the miner during block assembly and by proposal validation, never during
+             normal block append or block replay, so this variant is unreachable in
+             consensus-critical execution."),
         ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => Tested(vec![
             runtime_check_error_kind_type_error_cdeploy,
