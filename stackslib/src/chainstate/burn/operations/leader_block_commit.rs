@@ -3391,6 +3391,10 @@ mod tests {
                 DescendencyStubbedSortitionHandle::NotDescended => Ok(false),
             }
         }
+
+        fn get_first_pox_waterfall_block(&self) -> Result<u64, db_error> {
+            Ok(u64::MAX)
+        }
     }
 
     #[test]

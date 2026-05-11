@@ -676,12 +676,11 @@ impl NakamotoSigners {
 
         test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
 
+        let empty_signers = vec![];
         let events = Self::update_signers(
             clarity,
             reward_cycle,
-            reward_set
-                .signers()
-                .ok_or(ChainstateError::PoxNoRewardCycle)?,
+            reward_set.signers().unwrap_or(&empty_signers),
             signers_contract,
             participation > 0,
             coinbase_height,
