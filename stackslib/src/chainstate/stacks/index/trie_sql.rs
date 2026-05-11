@@ -318,8 +318,7 @@ pub fn bulk_read_block_entries<T: MarfTrieId>(
 }
 
 /// Bulk-update all `marf_data` entries to share the same blob offset/length,
-/// except for the tip block.  Used post-commit in the squash pipeline to
-/// point all historical placeholder entries at the shared squash trie storage.
+/// except for the tip block.  Called during squash finalization.
 pub fn bulk_update_blob_offsets<T: MarfTrieId>(
     conn: &Connection,
     offset: u64,

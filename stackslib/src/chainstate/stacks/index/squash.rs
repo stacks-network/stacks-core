@@ -886,33 +886,19 @@ fn persist_squash_metadata<T: MarfTrieId>(
     Ok(())
 }
 
-/// Post-commit: persist `squash_root_node_hash` and share blob offsets.
+/// Persist `squash_root_node_hash` and broadcast the tip blob offset to all
+/// placeholder rows.
 fn finalize_shared_blob_offsets<T: MarfTrieId>(
-    dst: &mut MARF<T>,
+    conn: &rusqlite::Connection,
     block_at_height: &T,
     squash_root_node_hash: &TrieHash,
 ) -> Result<usize, Error> {
-    // Persist squash_root_node_hash to SQL.
-    {
-        let conn = dst.sqlite_conn();
-        conn.execute_batch("BEGIN IMMEDIATE")
-            .map_err(|e| Error::CorruptionError(format!("BEGIN squash_root_node_hash: {e}")))?;
-        trie_sql::update_squash_root_node_hash(conn, squash_root_node_hash)?;
-        conn.execute_batch("COMMIT")
-            .map_err(|e| Error::CorruptionError(format!("COMMIT squash_root_node_hash: {e}")))?;
-    }
+    trie_sql::update_squash_root_node_hash(conn, squash_root_node_hash)?;
 
-    // Bulk-update placeholders to share the tip block's blob offset.
     let start = Instant::now();
-    let conn = dst.sqlite_conn();
     let bh_id = trie_sql::get_block_identifier(conn, block_at_height)?;
     let (offset, length) = trie_sql::get_external_trie_offset_length(conn, bh_id)?;
-
-    conn.execute_batch("BEGIN IMMEDIATE")
-        .map_err(|e| Error::CorruptionError(format!("BEGIN: {e}")))?;
     let updated = trie_sql::bulk_update_blob_offsets(conn, offset, length, block_at_height)?;
-    conn.execute_batch("COMMIT")
-        .map_err(|e| Error::CorruptionError(format!("COMMIT: {e}")))?;
     info!(
         "Squash: updated {} placeholder blob offsets in {}",
         updated,
@@ -1146,10 +1132,10 @@ impl<T: MarfTrieId> MARF<T> {
             "[{label}] [7/8] Write trie blob: block_id={block_id}, {total_blob_size} bytes in {}",
             fmt_duration(start.elapsed())
         );
-        drop(blob_offsets);
+
         drop(node_store); // free temp file + metadata
 
-        // [8/8] Persist metadata & commit
+        // [8/8] Persist metadata, share blob offsets, and commit.
         let step8_start = Instant::now();
         let source_root_hash = block_info
             .iter()
@@ -1159,6 +1145,8 @@ impl<T: MarfTrieId> MARF<T> {
         persist_squash_metadata(tx.sqlite_tx(), &block_info, &source_root_hash, height)?;
         info!("[{label}] Squash root hash: {squash_root_node_hash}");
 
+        finalize_shared_blob_offsets(tx.sqlite_tx(), &block_at_height, &squash_root_node_hash)?;
+
         tx.set_squash_info(Some(SquashInfo {
             archival_marf_root_hash: source_root_hash,
             squash_root_node_hash,
@@ -1167,9 +1155,6 @@ impl<T: MarfTrieId> MARF<T> {
 
         // Commit the SQL transaction without flushing TrieRAM (we already wrote the blob directly)
         tx.commit_squash()?;
-
-        // Post-commit: share blob offsets across placeholder blocks
-        finalize_shared_blob_offsets(&mut dst, &block_at_height, &squash_root_node_hash)?;
 
         info!(
             "[{label}] [8/8] Persist metadata & commit: finished in {}",
