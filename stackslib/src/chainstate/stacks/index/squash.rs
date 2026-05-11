@@ -31,7 +31,8 @@ use stacks_common::types::chainstate::{
 };
 
 use crate::chainstate::stacks::index::bits::{
-    get_leaf_hash, get_node_byte_len, reserved_root_size, write_nodetype_bytes,
+    get_leaf_hash, get_node_byte_len, is_inline_child_ptr, reserved_root_size,
+    update_inline_child_ptrs, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::marf::{
     MARFOpenOpts, MarfConnection, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
@@ -62,13 +63,6 @@ fn resolve_child_ptr(ptr: &TriePtr, origin_block_id: u32) -> Option<(u32, u64)> 
     } else {
         Some((origin_block_id, ptr.ptr()))
     }
-}
-
-/// Returns `true` when a pointer is an inline child (non-empty, non-backptr)
-/// - i.e. it points to a node in the same blob, not to an ancestor block.
-#[inline]
-fn is_inline_child_ptr(ptr: &TriePtr) -> bool {
-    ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id())
 }
 
 /// Format a `Duration` as `X.YZ secs` or `X min Y.ZW secs`.

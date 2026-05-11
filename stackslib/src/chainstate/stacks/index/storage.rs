@@ -26,8 +26,9 @@ use rusqlite::{Connection, OpenFlags, Transaction};
 use sha2::Digest;
 
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_byte_len_compressed, read_hash_bytes, read_nodetype,
-    read_root_hash, reserved_root_size, write_nodetype_bytes, write_nodetype_bytes_compressed,
+    get_node_byte_len, get_node_byte_len_compressed, is_inline_child_ptr, read_hash_bytes,
+    read_nodetype, read_root_hash, reserved_root_size, update_inline_child_ptrs,
+    write_nodetype_bytes, write_nodetype_bytes_compressed,
 };
 use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
@@ -746,7 +747,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // count get_nodetype load time for write_children_hashes_same_block benchmark, but
             // only if that code path will be exercised.
             for ptr in node.ptrs().iter() {
-                if !is_backptr(ptr.id()) && !ptr.is_empty() {
+                if is_inline_child_ptr(ptr) {
                     if let Some(start_node_time) = start_node_time.take() {
                         // count the time taken to load the root node in this case,
                         // but only do so once.
@@ -884,7 +885,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 let (node, _) = self.get_nodetype(ptr)?;
                 if !node.is_leaf() {
                     for child in node.ptrs().iter() {
-                        if !child.is_empty() && !is_backptr(child.id) {
+                        if is_inline_child_ptr(child) {
                             stack.push(child.try_ptr_into_u32()?);
                         }
                     }
@@ -1108,12 +1109,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         let node_inline = node
                             .ptrs()
                             .iter()
-                            .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                            .filter(|p| is_inline_child_ptr(p))
                             .map(|p| p.chr());
                         let diff_inline = patch_node
                             .ptr_diff
                             .iter()
-                            .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                            .filter(|p| is_inline_child_ptr(p))
                             .map(|p| p.chr());
                         node_inline.eq(diff_inline)
                     } else {
@@ -1124,7 +1125,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 // Push children onto the DFS stack.
                 if !node.is_leaf() {
                     for child in node.ptrs().iter() {
-                        if !child.is_empty() && !is_backptr(child.id) {
+                        if is_inline_child_ptr(child) {
                             let idx = child.try_ptr_into_u32()?;
                             stack.push(idx);
                         }
@@ -1264,7 +1265,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         if let TrieNodeType::Node256(ref mut data) = root_node {
             // queue children in the same order we stored them
             for ptr in data.ptrs.iter_mut() {
-                if ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id()) {
+                if is_inline_child_ptr(ptr) {
                     frontier.push_back(*ptr);
 
                     // fix up ptrs
@@ -1300,7 +1301,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 };
 
                 for ptr in ptrs {
-                    if ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id()) {
+                    if is_inline_child_ptr(ptr) {
                         frontier.push_back(*ptr);
 
                         // fix up ptrs

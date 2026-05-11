@@ -107,6 +107,13 @@ pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     node_id_len + ptrs.iter().map(TriePtr::encoded_size).sum::<usize>()
 }
 
+/// Returns `true` when a pointer is an inline child: non-empty and not a
+/// backpointer to an ancestor block.
+#[inline]
+pub fn is_inline_child_ptr(ptr: &TriePtr) -> bool {
+    !ptr.is_empty() && !is_backptr(ptr.id())
+}
+
 /// Helper to determine a sparse TriePtr list's bitmap size, given the node ID's numeric value.
 /// Returns Some(size) if the node identified node type has ptrs
 /// Returns None if `id` is a `Leaf`, `Patch`, or `Empty` node, or is unrecognized.
@@ -797,10 +804,7 @@ pub fn get_node_byte_len_compressed(node: &TrieNodeType) -> usize {
 /// file offset is known.
 pub fn reserved_root_size(base_len: usize, ptrs: &[TriePtr]) -> Result<u64, Error> {
     let base_len = base_len as u64;
-    let inline_count = ptrs
-        .iter()
-        .filter(|p| !p.is_empty() && !is_backptr(p.id))
-        .count() as u64;
+    let inline_count = ptrs.iter().filter(|p| is_inline_child_ptr(p)).count() as u64;
     let inline_ptr_growth = inline_count.checked_mul(4).ok_or(Error::OverflowError)?;
 
     base_len
