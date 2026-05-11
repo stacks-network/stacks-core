@@ -28,9 +28,13 @@ use clarity::vm::ClarityVersion;
 use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+#[cfg(test)]
+#[allow(unused_imports)]
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::Error as codec_error;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+#[cfg(test)]
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore, TrieHash,
 };
@@ -413,61 +417,6 @@ impl Txid {
     }
 }
 
-/// How a transaction may be appended to the Stacks blockchain
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionAnchorMode {
-    OnChainOnly = 1,  // must be included in a StacksBlock
-    OffChainOnly = 2, // must be included in a StacksMicroBlock
-    Any = 3,          // either
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionAuthFlags {
-    // types of auth
-    AuthStandard = 0x04,
-    AuthSponsored = 0x05,
-}
-
-/// Transaction signatures are validated by calculating the public key from the signature, and
-/// verifying that all public keys hash to the signing account's hash.  To do so, we must preserve
-/// enough information in the auth structure to recover each public key's bytes.
-///
-/// An auth field can be a public key or a signature.  In both cases, the public key (either given
-/// in-the-raw or embedded in a signature) may be encoded as compressed or uncompressed.
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionAuthFieldID {
-    // types of auth fields
-    PublicKeyCompressed = 0x00,
-    PublicKeyUncompressed = 0x01,
-    SignatureCompressed = 0x02,
-    SignatureUncompressed = 0x03,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionPublicKeyEncoding {
-    // ways we can encode a public key
-    Compressed = 0x00,
-    Uncompressed = 0x01,
-}
-
-impl TransactionPublicKeyEncoding {
-    pub fn from_u8(n: u8) -> Option<TransactionPublicKeyEncoding> {
-        match n {
-            x if x == TransactionPublicKeyEncoding::Compressed as u8 => {
-                Some(TransactionPublicKeyEncoding::Compressed)
-            }
-            x if x == TransactionPublicKeyEncoding::Uncompressed as u8 => {
-                Some(TransactionPublicKeyEncoding::Uncompressed)
-            }
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionAuthField {
     PublicKey(StacksPublicKey),
@@ -507,108 +456,6 @@ impl TransactionAuthField {
                 pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
                 Ok(pubk)
             }
-        }
-    }
-}
-
-// tag address hash modes as "singlesig" or "multisig" so we can't accidentally construct an
-// invalid spending condition
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum SinglesigHashMode {
-    P2PKH = 0x00,
-    P2WPKH = 0x02,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum MultisigHashMode {
-    P2SH = 0x01,
-    P2WSH = 0x03,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum OrderIndependentMultisigHashMode {
-    P2SH = 0x05,
-    P2WSH = 0x07,
-}
-
-impl SinglesigHashMode {
-    pub fn to_address_hash_mode(&self) -> AddressHashMode {
-        match *self {
-            SinglesigHashMode::P2PKH => AddressHashMode::SerializeP2PKH,
-            SinglesigHashMode::P2WPKH => AddressHashMode::SerializeP2WPKH,
-        }
-    }
-
-    pub fn from_address_hash_mode(hm: AddressHashMode) -> Option<SinglesigHashMode> {
-        match hm {
-            AddressHashMode::SerializeP2PKH => Some(SinglesigHashMode::P2PKH),
-            AddressHashMode::SerializeP2WPKH => Some(SinglesigHashMode::P2WPKH),
-            _ => None,
-        }
-    }
-
-    pub fn from_u8(n: u8) -> Option<SinglesigHashMode> {
-        match n {
-            x if x == SinglesigHashMode::P2PKH as u8 => Some(SinglesigHashMode::P2PKH),
-            x if x == SinglesigHashMode::P2WPKH as u8 => Some(SinglesigHashMode::P2WPKH),
-            _ => None,
-        }
-    }
-}
-
-impl MultisigHashMode {
-    pub fn to_address_hash_mode(&self) -> AddressHashMode {
-        match *self {
-            MultisigHashMode::P2SH => AddressHashMode::SerializeP2SH,
-            MultisigHashMode::P2WSH => AddressHashMode::SerializeP2WSH,
-        }
-    }
-
-    pub fn from_address_hash_mode(hm: AddressHashMode) -> Option<MultisigHashMode> {
-        match hm {
-            AddressHashMode::SerializeP2SH => Some(MultisigHashMode::P2SH),
-            AddressHashMode::SerializeP2WSH => Some(MultisigHashMode::P2WSH),
-            _ => None,
-        }
-    }
-
-    pub fn from_u8(n: u8) -> Option<MultisigHashMode> {
-        match n {
-            x if x == MultisigHashMode::P2SH as u8 => Some(MultisigHashMode::P2SH),
-            x if x == MultisigHashMode::P2WSH as u8 => Some(MultisigHashMode::P2WSH),
-            _ => None,
-        }
-    }
-}
-
-impl OrderIndependentMultisigHashMode {
-    pub fn to_address_hash_mode(&self) -> AddressHashMode {
-        match *self {
-            OrderIndependentMultisigHashMode::P2SH => AddressHashMode::SerializeP2SH,
-            OrderIndependentMultisigHashMode::P2WSH => AddressHashMode::SerializeP2WSH,
-        }
-    }
-
-    pub fn from_address_hash_mode(hm: AddressHashMode) -> Option<OrderIndependentMultisigHashMode> {
-        match hm {
-            AddressHashMode::SerializeP2SH => Some(OrderIndependentMultisigHashMode::P2SH),
-            AddressHashMode::SerializeP2WSH => Some(OrderIndependentMultisigHashMode::P2WSH),
-            _ => None,
-        }
-    }
-
-    pub fn from_u8(n: u8) -> Option<OrderIndependentMultisigHashMode> {
-        match n {
-            x if x == OrderIndependentMultisigHashMode::P2SH as u8 => {
-                Some(OrderIndependentMultisigHashMode::P2SH)
-            }
-            x if x == OrderIndependentMultisigHashMode::P2WSH as u8 => {
-                Some(OrderIndependentMultisigHashMode::P2WSH)
-            }
-            _ => None,
         }
     }
 }
@@ -685,7 +532,11 @@ pub struct TransactionSmartContract {
 }
 
 pub use stacks_codec::transaction::{
-    CoinbasePayload, TenureChangeCause, TenureChangeError, TenureChangePayload, TokenTransferMemo,
+    AssetInfoID, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
+    OrderIndependentMultisigHashMode, PostConditionPrincipalID, SinglesigHashMode,
+    TenureChangeCause, TenureChangeError, TenureChangePayload, TokenTransferMemo,
+    TransactionAnchorMode, TransactionAuthFieldID, TransactionAuthFlags, TransactionPayloadID,
+    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionVersion,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -732,79 +583,12 @@ impl TransactionPayload {
     }
 }
 
-define_u8_enum!(TransactionPayloadID {
-    TokenTransfer = 0,
-    SmartContract = 1,
-    ContractCall = 2,
-    PoisonMicroblock = 3,
-    Coinbase = 4,
-    // has an alt principal, but no VRF proof
-    CoinbaseToAltRecipient = 5,
-    VersionedSmartContract = 6,
-    TenureChange = 7,
-    // has a VRF proof, and may have an alt principal
-    NakamotoCoinbase = 8
-});
-
 /// Encoding of an asset type identifier
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetInfo {
     pub contract_address: StacksAddress,
     pub contract_name: ContractName,
     pub asset_name: ClarityName,
-}
-
-/// numeric wire-format ID of an asset info type variant
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum AssetInfoID {
-    STX = 0,
-    FungibleAsset = 1,
-    NonfungibleAsset = 2,
-}
-
-impl AssetInfoID {
-    pub fn from_u8(b: u8) -> Option<AssetInfoID> {
-        match b {
-            0 => Some(AssetInfoID::STX),
-            1 => Some(AssetInfoID::FungibleAsset),
-            2 => Some(AssetInfoID::NonfungibleAsset),
-            _ => None,
-        }
-    }
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum FungibleConditionCode {
-    SentEq = 0x01,
-    SentGt = 0x02,
-    SentGe = 0x03,
-    SentLt = 0x04,
-    SentLe = 0x05,
-}
-
-impl FungibleConditionCode {
-    pub fn from_u8(b: u8) -> Option<FungibleConditionCode> {
-        match b {
-            0x01 => Some(FungibleConditionCode::SentEq),
-            0x02 => Some(FungibleConditionCode::SentGt),
-            0x03 => Some(FungibleConditionCode::SentGe),
-            0x04 => Some(FungibleConditionCode::SentLt),
-            0x05 => Some(FungibleConditionCode::SentLe),
-            _ => None,
-        }
-    }
-
-    pub fn check(&self, amount_sent_condition: u128, amount_sent: u128) -> bool {
-        match *self {
-            FungibleConditionCode::SentEq => amount_sent == amount_sent_condition,
-            FungibleConditionCode::SentGt => amount_sent > amount_sent_condition,
-            FungibleConditionCode::SentGe => amount_sent >= amount_sent_condition,
-            FungibleConditionCode::SentLt => amount_sent < amount_sent_condition,
-            FungibleConditionCode::SentLe => amount_sent <= amount_sent_condition,
-        }
-    }
 }
 
 #[repr(u8)]
@@ -876,14 +660,6 @@ impl PostConditionPrincipal {
     }
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum PostConditionPrincipalID {
-    Origin = 0x01,
-    Standard = 0x02,
-    Contract = 0x03,
-}
-
 /// Post-condition on a transaction
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPostCondition {
@@ -900,26 +676,6 @@ pub enum TransactionPostCondition {
         Value,
         NonfungibleConditionCode,
     ),
-}
-
-/// Post-condition modes for unspecified assets
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionPostConditionMode {
-    /// allow any other changes not specified
-    Allow = 0x01,
-    /// deny any other changes not specified
-    Deny = 0x02,
-    /// deny mode for originator's assets, allow for others
-    Originator = 0x03,
-}
-
-/// Stacks transaction versions
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionVersion {
-    Mainnet = 0x00,
-    Testnet = 0x80,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
