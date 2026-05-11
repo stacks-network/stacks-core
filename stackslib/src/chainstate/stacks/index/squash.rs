@@ -1091,9 +1091,8 @@ impl<T: MarfTrieId> MARF<T> {
         let start = Instant::now();
         let parent_hash = T::sentinel();
 
-        let (blob_offsets, total_blob_size) = compute_blob_offsets(&mut node_store)?;
         // Destination squash MARFs always use external blobs.
-        let block_id = tx.storage.with_trie_blobs(|db, blobs| {
+        let (block_id, total_blob_size) = tx.storage.with_trie_blobs(|db, blobs| {
             let Some(trie_file) = blobs else {
                 return Err(Error::CorruptionError(
                     "squash destination requires external .blobs file but handle is unavailable"
@@ -1106,12 +1105,8 @@ impl<T: MarfTrieId> MARF<T> {
                 .map_err(Error::IOError)?;
             // buffer size is 1 MiB, completely arbitrary.
             let mut buf_writer = BufWriter::with_capacity(1 << 20, trie_file);
-            stream_squash_blob(
-                &mut node_store,
-                &parent_hash,
-                &blob_offsets,
-                &mut buf_writer,
-            )?;
+            let total_blob_size =
+                stream_squash_blob(&mut node_store, &parent_hash, &mut buf_writer)?;
             buf_writer.flush().map_err(Error::IOError)?;
             let trie_file = buf_writer.into_inner().map_err(|e| {
                 Error::IOError(std::io::Error::other(format!(
@@ -1127,6 +1122,7 @@ impl<T: MarfTrieId> MARF<T> {
                 total_blob_size,
                 squashed_tip_placeholder_id,
             )
+            .map(|block_id| (block_id, total_blob_size))
         })?;
         info!(
             "[{label}] [7/8] Write trie blob: block_id={block_id}, {total_blob_size} bytes in {}",

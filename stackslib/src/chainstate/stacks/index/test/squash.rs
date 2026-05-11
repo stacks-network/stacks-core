@@ -1095,7 +1095,7 @@ fn test_serialize_deserialize_node_roundtrip() {
 }
 
 /// Build a branching trie with mixed node types and verify that
-/// `compute_blob_offsets` + `stream_squash_blob` agree on sizes.
+/// `stream_squash_blob` writes a readable child-before-parent blob.
 ///
 /// Trie layout (indices 0–6):
 ///   0: Node16 (root) -> children 1, 2
@@ -1106,7 +1106,7 @@ fn test_serialize_deserialize_node_roundtrip() {
 ///   5: Node4           -> child 6
 ///   6: Leaf
 #[test]
-fn test_blob_offsets_with_mixed_node_types() {
+fn test_stream_squash_blob_mixed_node_types() {
     let dir = tempdir().unwrap();
     let dir_str = dir.path().to_str().unwrap();
     let mut store = NodeStore::new(dir_str).unwrap();
@@ -1185,28 +1185,33 @@ fn test_blob_offsets_with_mixed_node_types() {
 
     store.finish_writing().unwrap();
 
-    let (blob_offsets, total_size) = compute_blob_offsets(&mut store).unwrap();
-    assert_eq!(blob_offsets.len(), 7);
-
-    // Offsets must be strictly increasing (each node has non-zero size).
-    for w in blob_offsets.windows(2) {
-        assert!(w[1] > w[0], "offsets must be strictly increasing");
-    }
-
-    // stream_squash_blob must write exactly total_size bytes.
     let parent_hash = StacksBlockId::sentinel();
     let mut output = Cursor::new(Vec::new());
-    let bytes_written =
-        stream_squash_blob(&mut store, &parent_hash, &blob_offsets, &mut output).unwrap();
-    assert_eq!(bytes_written, total_size);
+    let bytes_written = stream_squash_blob(&mut store, &parent_hash, &mut output).unwrap();
 
     // Verify blob header.
     let blob = output.into_inner();
+    assert_eq!(blob.len() as u64, bytes_written);
     assert_eq!(&blob[..32], parent_hash.as_bytes());
     assert_eq!(
         &blob[BLOCK_HEADER_HASH_ENCODED_SIZE..BLOCK_HEADER_HASH_ENCODED_SIZE + 4],
         &0u32.to_le_bytes()
     );
+
+    // Verify the root was written at the canonical root position and its child
+    // pointers target readable descendants.
+    let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+    let mut cursor = Cursor::new(blob.as_slice());
+    let root_ptr = TriePtr::new(TrieNodeID::Node16 as u8, 0, header_size);
+    let (root_node, _) = read_nodetype(&mut cursor, &root_ptr).unwrap();
+    assert_eq!(root_node.ptrs()[0].id(), TrieNodeID::Node4 as u8);
+    assert_eq!(root_node.ptrs()[1].id(), TrieNodeID::Node4 as u8);
+    assert!(root_node.ptrs()[0].ptr() > header_size);
+    assert!(root_node.ptrs()[1].ptr() > header_size);
+
+    let first_child_ptr = root_node.ptrs()[0];
+    let (first_child, _) = read_nodetype(&mut cursor, &first_child_ptr).unwrap();
+    assert_eq!(first_child.ptrs()[0].id(), TrieNodeID::Leaf as u8);
 }
 
 /// Verify that writing the blob at a non-zero sink offset doesn't corrupt
@@ -1232,7 +1237,6 @@ fn test_stream_squash_blob_at_nonzero_offset() {
     store.finish_writing().unwrap();
 
     let parent_hash = StacksBlockId::sentinel();
-    let (blob_offsets, total_size) = compute_blob_offsets(&mut store).unwrap();
 
     // Write to a sink that already has 1000 bytes of garbage prefix.
     let prefix_len: u64 = 1000;
@@ -1616,72 +1620,65 @@ fn test_squash_rejects_compress_true() {
     );
 }
 
-/// Exercise the fixpoint loop inside `compute_blob_offsets_inner` by
-/// passing `early_exit_threshold = 0`, which forces the loop to run
-/// even though the blob is small.  The results must be identical to the
-/// normal (early-exit) path because no pointers actually widen.
+/// `stream_squash_blob` relies on NodeStore's root-first DFS preorder. If a
+/// parent appears after its child in the temp store, reverse iteration would
+/// try to write the parent before the child's offset is known. Make sure this
+/// invariant fails loudly instead of writing a bogus offset 0 pointer.
 #[test]
-fn test_compute_blob_offsets_fixpoint_loop() {
+fn test_stream_squash_blob_rejects_non_preorder_nodes() {
     let dir = tempdir().unwrap();
     let dir_str = dir.path().to_str().unwrap();
     let mut store = NodeStore::new(dir_str).unwrap();
     let h = TrieHash([0; 32]);
 
-    // Build a small trie: root (Node4) -> inner (Node4) -> leaf.
-    // Both interior nodes have forward pointers.
+    // Invalid order for the child-before-parent writer:
+    //   0: root -> parent at index 2
+    //   1: leaf
+    //   2: parent -> leaf at index 1
+    // A valid root-first DFS preorder would have placed index 2 before index 1.
     let root = make_test_node4(
         &[0],
         [
-            TriePtr::new(TrieNodeID::Node4 as u8, b'a', 1),
+            TriePtr::new(TrieNodeID::Node4 as u8, b'a', 2),
             TriePtr::default(),
             TriePtr::default(),
             TriePtr::default(),
         ],
     );
     store.push(&root, h, 0).unwrap();
+    store.push(&make_test_leaf(&[2, 3], 0xAA), h, 0).unwrap();
 
     let inner = make_test_node4(
         &[1],
         [
-            TriePtr::new(TrieNodeID::Leaf as u8, b'b', 2),
+            TriePtr::new(TrieNodeID::Leaf as u8, b'b', 1),
             TriePtr::default(),
             TriePtr::default(),
             TriePtr::default(),
         ],
     );
     store.push(&inner, h, 0).unwrap();
-
-    store.push(&make_test_leaf(&[2, 3], 0xAA), h, 0).unwrap();
     store.finish_writing().unwrap();
 
-    // Normal call. early exit, no fixpoint loop.
-    let (offsets_normal, total_normal) = compute_blob_offsets(&mut store).unwrap();
-
-    // Forced fixpoint. threshold = 0 means the loop always runs.
-    let (offsets_forced, total_forced) = compute_blob_offsets_inner(&mut store, 0).unwrap();
-
-    // Results must be identical (no actual pointer widening for small blobs).
-    assert_eq!(offsets_normal, offsets_forced);
-    assert_eq!(total_normal, total_forced);
-
-    // Verify stream_squash_blob agrees on total size.
     let parent_hash = StacksBlockId::sentinel();
     let mut output = Cursor::new(Vec::new());
-    let bytes_written =
-        stream_squash_blob(&mut store, &parent_hash, &offsets_forced, &mut output).unwrap();
-    assert_eq!(bytes_written, total_forced);
+    let err = stream_squash_blob(&mut store, &parent_hash, &mut output).unwrap_err();
+    assert!(
+        format!("{err}").contains("has not been written"),
+        "expected unwritten child offset error, got {err}"
+    );
 }
 
-/// Build a synthetic >4 GiB squash blob so at least one real remapped child
-/// pointer crosses `u32::MAX` and is emitted with the u64-width encoding bit.
+/// Build a synthetic >4 GiB squash blob so the root's first child pointer
+/// crosses `u32::MAX` and is emitted with the u64-width encoding bit.
 #[test]
 #[ignore = "synthetic large-offset regression"]
-fn compute_blob_offsets_large_offset_sets_u64_ptr_bit() {
+fn stream_squash_blob_large_offset_sets_u64_ptr_bit() {
     let dir = tempdir().expect("create temp dir");
     let dir_str = dir.path().to_str().unwrap();
     let path = dir
         .path()
-        .join("compute_blob_offsets_large_offset_sets_u64_ptr_bit.bin");
+        .join("stream_squash_blob_large_offset_sets_u64_ptr_bit.bin");
 
     let mut store = NodeStore::new(dir_str).expect("create node store");
     let template = TrieNodeType::Node256(Box::new(TrieNode256::new(&[])));
@@ -1699,9 +1696,6 @@ fn compute_blob_offsets_large_offset_sets_u64_ptr_bit() {
     }
     store.finish_writing().expect("finish node store");
 
-    let (blob_offsets, total_size) = compute_blob_offsets(&mut store).expect("compute offsets");
-    assert!(total_size > u64::from(u32::MAX));
-
     let parent_hash = StacksBlockId([0x55; 32]);
     let mut file = std::fs::OpenOptions::new()
         .read(true)
@@ -1710,22 +1704,16 @@ fn compute_blob_offsets_large_offset_sets_u64_ptr_bit() {
         .truncate(true)
         .open(&path)
         .expect("create temp squash blob");
-    let bytes_written = stream_squash_blob(&mut store, &parent_hash, &blob_offsets, &mut file)
-        .expect("stream squash blob");
-    assert_eq!(bytes_written, total_size);
-    let second_last_node_start = total_size
-        .checked_sub(per_node_size + (per_node_size + 4))
-        .expect("second-last node should exist");
-    file.seek(std::io::SeekFrom::Start(
-        second_last_node_start
-            + u64::try_from(stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE + 1)
-                .expect("infallible"),
-    ))
-    .expect("seek to second-last child ptr id");
-    let mut encoded_id = [0u8; 1];
-    std::io::Read::read_exact(&mut file, &mut encoded_id)
-        .expect("read encoded second-last child ptr id");
-    assert!(is_u64_ptr(encoded_id[0]));
+    let bytes_written =
+        stream_squash_blob(&mut store, &parent_hash, &mut file).expect("stream squash blob");
+    assert!(bytes_written > u64::from(u32::MAX));
+
+    let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+    let root_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, header_size);
+    let (root_node, _) = read_nodetype(&mut file, &root_ptr).expect("read root node");
+    let child_ptr = root_node.ptrs()[0];
+    assert!(child_ptr.ptr() > u64::from(u32::MAX));
+    assert!(is_u64_ptr(child_ptr.encoded_id()));
 }
 
 /// Extending a squashed MARF must correctly serialize patch nodes even when
