@@ -1821,6 +1821,18 @@ impl<T: MarfTrieId> MARF<T> {
     where
         F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
     {
+        if let Some(squash_height) = storage.squash_info().map(|info| info.height) {
+            if let Some(h) = trie_sql::read_squash_block_height(storage.sqlite_conn(), block_hash)?
+            {
+                if h < squash_height {
+                    return Err(Error::HistoricalReadInSquashedRange {
+                        block_height: h,
+                        squash_height,
+                    });
+                }
+            }
+        }
+
         let (original_block_hash, original_block_id) = storage.get_cur_block_and_id();
         let result = Self::for_each_leaf_inner(storage, block_hash, &mut handle_leaf);
 
