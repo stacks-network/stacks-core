@@ -951,6 +951,14 @@ impl<T: MarfTrieId> MARF<T> {
             ));
         }
 
+        if std::path::Path::new(dst_path).exists() {
+            return Err(Error::DestinationExists(dst_path.to_string()));
+        }
+        let dst_blobs_path = format!("{dst_path}.blobs");
+        if std::path::Path::new(&dst_blobs_path).exists() {
+            return Err(Error::DestinationExists(dst_blobs_path));
+        }
+
         let overall_start = Instant::now();
 
         // Step 1: bulk SQL block map

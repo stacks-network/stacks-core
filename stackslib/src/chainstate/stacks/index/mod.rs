@@ -275,6 +275,9 @@ pub enum Error {
     },
     /// Operation is not supported on a squashed MARF (e.g. proof generation).
     UnsupportedOnSquashedMarf(&'static str),
+    /// A destination path required to be empty already exists. Carries the
+    /// offending path.
+    DestinationExists(String),
 }
 
 impl From<io::Error> for Error {
@@ -355,6 +358,9 @@ impl fmt::Display for Error {
             ),
             Error::UnsupportedOnSquashedMarf(op) => {
                 write!(f, "Operation `{op}` is not supported on a squashed MARF")
+            }
+            Error::DestinationExists(ref p) => {
+                write!(f, "Destination path already exists: {p}")
             }
         }
     }
