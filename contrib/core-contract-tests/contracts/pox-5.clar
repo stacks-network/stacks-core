@@ -282,7 +282,19 @@
     uint
 )
 
-(define-map signer-rewards-paid-for-cycle
+;; Represents a snapshot of `rewards-per-token` at the last
+;; time of rewards calculation for this specific signer
+(define-map signer-rewards-per-token-paid-for-cycle
+    {
+        is-bond: bool,
+        index: uint,
+        signer: principal,
+    }
+    uint
+)
+
+;; Represents pending, but unclaimed rewards for a signer
+(define-map signer-pending-rewards-for-cycle
     {
         is-bond: bool,
         index: uint,
@@ -559,6 +571,7 @@
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
         )
+        (crystallize-rewards signer bond-index true)
         (map-set total-shares-staked-for-cycle {
             index: bond-index,
             is-bond: true,
@@ -632,6 +645,9 @@
 
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
+
+        (crystallize-rewards current-signer bond-index true)
+        (crystallize-rewards signer bond-index true)
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender first-reward-cycle num-cycles false))
@@ -856,6 +872,8 @@
         )
         (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
 
+        (crystallize-rewards signer bond-index true)
+
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
             staker: staker,
@@ -990,6 +1008,8 @@
             (new-delegated (- cur-delegated-for-signer amount))
             (is-in-signer-set (is-some (get-staker-set-item-for-cycle signer cycle)))
         )
+        ;; Crystallize STX-only rewards before mutating anything
+        (crystallize-rewards signer cycle false)
         (if is-in-signer-set
             (if (< new-delegated SIGNER_SET_MIN_USTX)
                 ;; They've crossed back below the threshold - remove from the signer set
@@ -1136,6 +1156,8 @@
             (prev-total-shares-staked (get-total-shares-staked-for-cycle cycle false))
             (new-delegated (+ cur-delegated-for-signer amount))
         )
+        ;; Crystallize STX-only rewards before mutating anything
+        (crystallize-rewards signer cycle false)
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
                 (map-set signer-shares-staked-for-cycle {
@@ -1460,27 +1482,23 @@
     )
 )
 
-(define-read-only (get-claimable-rewards
+;; Get the total amount of rewards earned since the last
+;; rewards snapshot.
+;;
+;; `earned = (shares * (rpt - rptPaid)) / PRECISION + pending`
+(define-read-only (get-earned
         (signer principal)
         (index uint)
         (is-bond bool)
     )
     (let (
-            (shares-staked (get-signer-shares-staked-for-cycle signer index is-bond))
-            (rewards-per-share (get-rewards-per-token-for-cycle index is-bond))
-            (rewards-paid (get-signer-rewards-paid-for-cycle signer index is-bond))
-            (rewards-pending (- (/ (* shares-staked rewards-per-share) PRECISION) rewards-paid))
-            (rewards-per-share-for-signer (if (> shares-staked u0)
-                (/ (* (+ rewards-pending rewards-paid) PRECISION) shares-staked)
-                u0
-            ))
+            (shares (get-signer-shares-staked-for-cycle signer index is-bond))
+            (rpt-current (get-rewards-per-token-for-cycle index is-bond))
+            (rpt-paid (get-signer-rewards-per-token-paid-for-cycle signer index is-bond))
+            (pending (get-signer-pending-rewards-for-cycle signer index is-bond))
+            (newly-earned (/ (* shares (- rpt-current rpt-paid)) PRECISION))
         )
-        {
-            rewards-paid: rewards-paid,
-            rewards-pending: rewards-pending,
-            shares-staked: shares-staked,
-            rewards-per-share: rewards-per-share-for-signer,
-        }
+        (+ pending newly-earned)
     )
 )
 
@@ -1497,7 +1515,7 @@
                 bond-rewards: (list),
             }))
             (bond-totals (get total bond-rewards))
-            (total-rewards (+ (get rewards-pending stx-rewards) bond-totals))
+            (total-rewards (+ (get earned stx-rewards) bond-totals))
             (prev-accrued-rewards (var-get last-accounted-rewards-only))
         )
         (asserts! (> total-rewards u0) ERR_NO_CLAIMABLE_REWARDS)
@@ -1539,27 +1557,17 @@
         (index uint)
         (is-bond bool)
     )
-    (let (
-            (rewards-info (get-claimable-rewards signer index is-bond))
-            (rewards-paid (get rewards-paid rewards-info))
-            (rewards-pending (get rewards-pending rewards-info))
-        )
-        (print {
-            topic: "update-claimable-rewards",
-            rewards-pending: rewards-pending,
-            rewards-paid: rewards-paid,
+    (let ((earned (crystallize-rewards signer index is-bond)))
+        ;; After crystallization, all earnings live in pending.
+        ;; Zero out pending since we're about to pay it.
+        (map-set signer-pending-rewards-for-cycle {
+            is-bond: is-bond,
             index: index,
             signer: signer,
-            is-bond: is-bond,
-        })
-        (map-set signer-rewards-paid-for-cycle {
-            index: index,
-            signer: signer,
-            is-bond: is-bond,
         }
-            (+ rewards-pending rewards-paid)
+            u0
         )
-        rewards-info
+        earned
     )
 )
 
@@ -1570,11 +1578,9 @@
             total: uint,
             bond-rewards: (list 6
                 {
-                    rewards-pending: uint,
-                    rewards-paid: uint,
-                    shares-staked: uint,
-                    rewards-per-share: uint,
+                    earned: uint,
                     bond-index: uint,
+                    rewards-per-token: uint,
                 }
             ),
         })
@@ -1582,11 +1588,46 @@
     (let ((rewards-info (update-claimable-rewards (get signer accumulator) bond-index true)))
         {
             signer: (get signer accumulator),
-            total: (+ (get total accumulator) (get rewards-pending rewards-info)),
+            total: (+ (get total accumulator) (get earned rewards-info)),
             bond-rewards: (concat
                 (unwrap-panic (as-max-len? (get bond-rewards accumulator) u5))
                 (list (merge rewards-info { bond-index: bond-index }))
             ),
+        }
+    )
+)
+
+;; Update all earned-but-unclaimed rewards for a signer, and update the snapshot
+;; (signer-rewards-per-token-paid) for the signer.
+;;
+;; This MUST be called before any update to `signer-shares-staked-for-cycle`,
+;; because changes to that state will effect rewards calculations.
+(define-private (crystallize-rewards
+        (signer principal)
+        (index uint)
+        (is-bond bool)
+    )
+    (let (
+            (earned (get-earned signer index is-bond))
+            (rewards-per-token (get-rewards-per-token-for-cycle index is-bond))
+        )
+        (map-set signer-pending-rewards-for-cycle {
+            is-bond: is-bond,
+            index: index,
+            signer: signer,
+        }
+            earned
+        )
+        (map-set signer-rewards-per-token-paid-for-cycle {
+            is-bond: is-bond,
+            index: index,
+            signer: signer,
+        }
+            rewards-per-token
+        )
+        {
+            earned: earned,
+            rewards-per-token: rewards-per-token,
         }
     )
 )
@@ -2048,13 +2089,27 @@
     )
 )
 
-(define-read-only (get-signer-rewards-paid-for-cycle
+(define-read-only (get-signer-rewards-per-token-paid-for-cycle
         (signer principal)
         (index uint)
         (is-bond bool)
     )
     (default-to u0
-        (map-get? signer-rewards-paid-for-cycle {
+        (map-get? signer-rewards-per-token-paid-for-cycle {
+            signer: signer,
+            index: index,
+            is-bond: is-bond,
+        })
+    )
+)
+
+(define-read-only (get-signer-pending-rewards-for-cycle
+        (signer principal)
+        (index uint)
+        (is-bond bool)
+    )
+    (default-to u0
+        (map-get? signer-pending-rewards-for-cycle {
             signer: signer,
             index: index,
             is-bond: is-bond,

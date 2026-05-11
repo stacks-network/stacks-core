@@ -18,7 +18,17 @@
     uint
 )
 
-(define-map staker-rewards-paid-for-cycle
+(define-map staker-rewards-paid-per-token-for-cycle
+    {
+        is-bond: bool,
+        index: uint,
+        staker: principal,
+    }
+    uint
+)
+
+;; Represents pending, but unclaimed rewards for a staker
+(define-map staker-pending-rewards-for-cycle
     {
         is-bond: bool,
         index: uint,
@@ -71,7 +81,7 @@
             (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))
         ))))
         (update-rewards-info
-            (get rewards-per-share (get stx-rewards new-rewards-info)) false
+            (get rewards-per-token (get stx-rewards new-rewards-info)) false
             reward-cycle
         )
         (fold update-bond-rewards-info (get bond-rewards new-rewards-info) true)
@@ -79,25 +89,40 @@
     )
 )
 
-(define-read-only (get-claimable-rewards
+;; Get the total amount of rewards earned since the last
+;; rewards snapshot for this staker.
+;;
+;; `earned = (shares * (rpt - rptPaid)) / PRECISION + pending`
+(define-read-only (get-earned-staker-rewards
         (staker principal)
         (index uint)
         (is-bond bool)
     )
+    ;; (let (
+    ;;         (rewards-paid (get-staker-rewards-paid-per-token-for-cycle staker index is-bond))
+    ;;         (rewards-per-share (get-rewards-per-token-for-cycle index is-bond))
+    ;;         (shares-staked (contract-call? .pox-5 get-staker-shares-staked-for-cycle staker
+    ;;             index is-bond current-contract
+    ;;         ))
+    ;;         (rewards-pending (- (/ (* shares-staked rewards-per-share) PRECISION) rewards-paid))
+    ;;     )
+    ;;     {
+    ;;         rewards-paid: rewards-paid,
+    ;;         rewards-pending: rewards-pending,
+    ;;         shares-staked: shares-staked,
+    ;;         rewards-per-share: rewards-per-share,
+    ;;     }
+    ;; )
     (let (
-            (rewards-paid (get-staker-rewards-paid-for-cycle staker index is-bond))
-            (rewards-per-share (get-rewards-per-token-for-cycle index is-bond))
-            (shares-staked (contract-call? .pox-5 get-staker-shares-staked-for-cycle staker
+            (shares (contract-call? .pox-5 get-staker-shares-staked-for-cycle staker
                 index is-bond current-contract
             ))
-            (rewards-pending (- (/ (* shares-staked rewards-per-share) PRECISION) rewards-paid))
+            (rpt-current (get-rewards-per-token-for-cycle index is-bond))
+            (rpt-paid (get-staker-rewards-per-token-paid-for-cycle staker index is-bond))
+            (pending (get-staker-pending-rewards-for-cycle staker index is-bond))
+            (newly-earned (/ (* shares (- rpt-current rpt-paid)) PRECISION))
         )
-        {
-            rewards-paid: rewards-paid,
-            rewards-pending: rewards-pending,
-            shares-staked: shares-staked,
-            rewards-per-share: rewards-per-share,
-        }
+        (+ pending newly-earned)
     )
 )
 
@@ -107,27 +132,29 @@
     )
     (let (
             (staker tx-sender)
-            (rewards (get-claimable-rewards staker index is-bond))
-            (rewards-pending (get rewards-pending rewards))
-            (rewards-paid (get rewards-paid rewards))
+            (earned (get-earned-staker-rewards staker index is-bond))
+            (rewards-per-token (get-rewards-per-token-for-cycle index is-bond))
         )
-        (asserts! (> rewards-pending u0) ERR_NO_CLAIMABLE_REWARDS)
-        (map-set staker-rewards-paid-for-cycle {
+        (asserts! (> earned u0) ERR_NO_CLAIMABLE_REWARDS)
+        (map-set staker-rewards-paid-per-token-for-cycle {
             index: index,
             is-bond: is-bond,
             staker: staker,
-        }
-            (+ rewards-pending rewards-paid)
-        )
+        } rewards-per-token)
+        (map-set staker-pending-rewards-for-cycle {
+            staker: staker,
+            is-bond: is-bond,
+            index: index,
+        } u0)
         (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                "sbtc-token" rewards-pending
+                "sbtc-token" earned
             ))
             (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                transfer rewards-pending tx-sender staker none
+                transfer earned tx-sender staker none
             ))
         ))
-        (ok rewards)
+        (ok earned)
     )
 )
 
@@ -149,10 +176,8 @@
 (define-private (update-bond-rewards-info
         (bond-info {
             bond-index: uint,
-            rewards-paid: uint,
-            rewards-pending: uint,
-            shares-staked: uint,
-            rewards-per-share: uint,
+            earned: uint,
+            rewards-per-token: uint,
         })
         ;; #[allow(unused_binding)]
         (acc bool)
@@ -161,7 +186,7 @@
         is-bond: true,
         index: (get bond-index bond-info),
     }
-        (get rewards-per-share bond-info)
+        (get rewards-per-token bond-info)
     )
 )
 
@@ -177,13 +202,27 @@
     )
 )
 
-(define-read-only (get-staker-rewards-paid-for-cycle
+(define-read-only (get-staker-rewards-per-token-paid-for-cycle
         (staker principal)
         (index uint)
         (is-bond bool)
     )
     (default-to u0
-        (map-get? staker-rewards-paid-for-cycle {
+        (map-get? staker-rewards-paid-per-token-for-cycle {
+            staker: staker,
+            index: index,
+            is-bond: is-bond,
+        })
+    )
+)
+
+(define-read-only (get-staker-pending-rewards-for-cycle
+        (staker principal)
+        (index uint)
+        (is-bond bool)
+    )
+    (default-to u0
+        (map-get? staker-pending-rewards-for-cycle {
             staker: staker,
             index: index,
             is-bond: is-bond,

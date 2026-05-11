@@ -597,14 +597,14 @@ test('stx-only rewards split across signers by staked ustx', () => {
   txOk(pox5.calculateRewards([]), deployer);
 
   expect(rov(pox5.getReserveBalance())).toBe(reserveRewards(1000n));
-  expect(rov(pox5.getClaimableRewards(signer1, 1n, false)).rewardsPending).toBe(
+  expect(rov(pox5.getEarned(signer1, 1n, false))).toBe(
     claimableRewards({
       rewards: stxRewards(1000n),
       shares: stakeAmount,
       totalShares: stakeAmount * 2n,
     }),
   );
-  expect(rov(pox5.getClaimableRewards(signer2, 1n, false)).rewardsPending).toBe(
+  expect(rov(pox5.getEarned(signer2, 1n, false))).toBe(
     claimableRewards({
       rewards: stxRewards(1000n),
       shares: stakeAmount,
@@ -675,12 +675,8 @@ test('bond rewards split across signers by staked sats', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getClaimableRewards(signer1, 0n, true)).rewardsPending).toBe(
-    250n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer2, 0n, true)).rewardsPending).toBe(
-    750n,
-  );
+  expect(rov(pox5.getEarned(signer1, 0n, true))).toBe(250n);
+  expect(rov(pox5.getEarned(signer2, 0n, true))).toBe(750n);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
 });
 
@@ -740,12 +736,8 @@ test('bond shortfall leaves no rewards for reserve or stx-only stakers', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
-    400n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer, 1n, false)).rewardsPending).toBe(
-    0n,
-  );
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(400n);
+  expect(rov(pox5.getEarned(signer, 1n, false))).toBe(0n);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
 });
 
@@ -833,15 +825,9 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n, 1n]), deployer);
 
-  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
-    1000n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer, 1n, true)).rewardsPending).toBe(
-    500n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer, 3n, false)).rewardsPending).toBe(
-    0n,
-  );
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1000n);
+  expect(rov(pox5.getEarned(signer, 1n, true))).toBe(500n);
+  expect(rov(pox5.getEarned(signer, 3n, false))).toBe(0n);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
 });
 
@@ -950,18 +936,10 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
   });
 
   expect(rov(pox5.getReserveBalance())).toBe(reserveRewards(1000n));
-  expect(rov(pox5.getClaimableRewards(signer1, 0n, true)).rewardsPending).toBe(
-    250n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer2, 1n, true)).rewardsPending).toBe(
-    750n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer1, 3n, false)).rewardsPending).toBe(
-    signerStxRewards,
-  );
-  expect(rov(pox5.getClaimableRewards(signer2, 3n, false)).rewardsPending).toBe(
-    signerStxRewards,
-  );
+  expect(rov(pox5.getEarned(signer1, 0n, true))).toBe(250n);
+  expect(rov(pox5.getEarned(signer2, 1n, true))).toBe(750n);
+  expect(rov(pox5.getEarned(signer1, 3n, false))).toBe(signerStxRewards);
+  expect(rov(pox5.getEarned(signer2, 3n, false))).toBe(signerStxRewards);
 
   expect(
     txOk(testSigner.claimRewards([0n], 3n), deployer).value.totalRewards,
@@ -969,18 +947,10 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
   expect(
     txOk(signer2Contract.claimRewards([1n], 3n), deployer).value.totalRewards,
   ).toBe(750n + signerStxRewards);
-  expect(rov(pox5.getClaimableRewards(signer1, 0n, true)).rewardsPending).toBe(
-    0n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer1, 3n, false)).rewardsPending).toBe(
-    0n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer2, 1n, true)).rewardsPending).toBe(
-    0n,
-  );
-  expect(rov(pox5.getClaimableRewards(signer2, 3n, false)).rewardsPending).toBe(
-    0n,
-  );
+  expect(rov(pox5.getEarned(signer1, 0n, true))).toBe(0n);
+  expect(rov(pox5.getEarned(signer1, 3n, false))).toBe(0n);
+  expect(rov(pox5.getEarned(signer2, 1n, true))).toBe(0n);
+  expect(rov(pox5.getEarned(signer2, 3n, false))).toBe(0n);
 });
 
 test('stx-only stakers claim rewards after signer claims', () => {
@@ -1035,18 +1005,16 @@ test('stx-only stakers claim rewards after signer claims', () => {
     totalShares: aliceStake + bobStake,
   });
 
-  expect(
-    rov(testSigner.getClaimableRewards(alice, 1n, false)).rewardsPending,
-  ).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 1n, false))).toBe(0n);
 
   txOk(testSigner.claimRewards([], 1n), deployer);
 
-  expect(
-    rov(testSigner.getClaimableRewards(alice, 1n, false)).rewardsPending,
-  ).toBe(aliceRewards);
-  expect(
-    rov(testSigner.getClaimableRewards(bob, 1n, false)).rewardsPending,
-  ).toBe(bobRewards);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 1n, false))).toBe(
+    aliceRewards,
+  );
+  expect(rov(testSigner.getEarnedStakerRewards(bob, 1n, false))).toBe(
+    bobRewards,
+  );
 
   const aliceBalance = sbtcBalance(alice);
   const bobBalance = sbtcBalance(bob);
@@ -1059,9 +1027,7 @@ test('stx-only stakers claim rewards after signer claims', () => {
   expect(aliceTransfer.data.sender).toBe(signer);
   expect(aliceTransfer.data.recipient).toBe(alice);
   expect(aliceTransfer.data.amount).toBe(aliceRewards.toString());
-  expect(
-    rov(testSigner.getClaimableRewards(alice, 1n, false)).rewardsPending,
-  ).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 1n, false))).toBe(0n);
 
   txOk(testSigner.claimStakerRewards(1n, false), bob);
   expect(sbtcBalance(alice)).toBe(aliceBalance + aliceRewards);
@@ -1124,12 +1090,8 @@ test('bond participants claim rewards after signer claims', () => {
   txOk(pox5.calculateRewards([0n]), deployer);
   txOk(testSigner.claimRewards([0n], 1n), deployer);
 
-  expect(
-    rov(testSigner.getClaimableRewards(alice, 0n, true)).rewardsPending,
-  ).toBe(250n);
-  expect(
-    rov(testSigner.getClaimableRewards(bob, 0n, true)).rewardsPending,
-  ).toBe(750n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 0n, true))).toBe(250n);
+  expect(rov(testSigner.getEarnedStakerRewards(bob, 0n, true))).toBe(750n);
 
   const aliceBalance = sbtcBalance(alice);
   const bobBalance = sbtcBalance(bob);
@@ -1139,12 +1101,64 @@ test('bond participants claim rewards after signer claims', () => {
 
   expect(sbtcBalance(alice)).toBe(aliceBalance + 250n);
   expect(sbtcBalance(bob)).toBe(bobBalance + 750n);
-  expect(
-    rov(testSigner.getClaimableRewards(alice, 0n, true)).rewardsPending,
-  ).toBe(0n);
-  expect(
-    rov(testSigner.getClaimableRewards(bob, 0n, true)).rewardsPending,
-  ).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 0n, true))).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(bob, 0n, true))).toBe(0n);
+});
+
+test('bond participant keeps already claimed-to-signer rewards after changing signer', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('bond-staker-pending-signer-2').identifier;
+  const aliceSbtc = 400000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+  txOk(testSigner.claimRewards([0n], 1n), deployer);
+
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 0n, true))).toBe(1000n);
+
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 0n, true))).toBe(1000n);
 });
 
 test('only early unlock admin can announce l1 early exit', () => {
@@ -1282,9 +1296,7 @@ test('l1 early exit prevents future bond rewards but leaves stx delegated', () =
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
-    0n,
-  );
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(0n);
   expect(rov(pox5.getSignerCycleMembership(alice, 1n))).toEqual({
     amountUstx: aliceUstx,
     signer,
@@ -1338,14 +1350,10 @@ test('l1 early exit does not erase already accrued bond rewards', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
-    1200n,
-  );
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1200n);
   txOk(pox5.announceL1EarlyExit(alice), deployer);
 
-  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
-    1200n,
-  );
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1200n);
 });
 
 test('bond participant can update signer before bond starts', () => {
@@ -1537,12 +1545,77 @@ test('bond participant rewards follow updated signer', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getClaimableRewards(signer1, 0n, true)).rewardsPending).toBe(
-    0n,
+  expect(rov(pox5.getEarned(signer1, 0n, true))).toBe(0n);
+  expect(rov(pox5.getEarned(signer2, 0n, true))).toBe(1000n);
+});
+
+test('bond signer update preserves old signer rewards and sends future rewards to new signer', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('bond-update-accrued-signer-2').identifier;
+  const aliceSbtc = 480000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
   );
-  expect(rov(pox5.getClaimableRewards(signer2, 0n, true)).rewardsPending).toBe(
-    1000n,
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
   );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+  expect(rov(pox5.getEarned(signer1, 0n, true))).toBe(1200n);
+
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(rov(pox5.getEarned(signer1, 0n, true))).toBe(1200n);
+  expect(rov(pox5.getEarned(signer2, 0n, true))).toBe(0n);
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getEarned(signer1, 0n, true))).toBe(1200n);
+  expect(rov(pox5.getEarned(signer2, 0n, true))).toBe(1200n);
 });
 
 test('stakers cannot claim before signer receives rewards', () => {
@@ -1576,9 +1649,7 @@ test('stakers cannot claim before signer receives rewards', () => {
 
   const claim = txErr(testSigner.claimStakerRewards(1n, false), alice);
   expect(claim.value).toBe(testSignerErrors.ERR_NO_CLAIMABLE_REWARDS);
-  expect(
-    rov(testSigner.getClaimableRewards(alice, 1n, false)).rewardsPending,
-  ).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 1n, false))).toBe(0n);
 });
 
 /**
@@ -1615,19 +1686,18 @@ test('zero reward claim should not reset paid rewards', () => {
   txOk(pox5.calculateRewards([]), deployer);
 
   const expectedRewards = stxRewards(1000n);
-  expect(rov(pox5.getClaimableRewards(signer, 1n, false)).rewardsPending).toBe(
-    expectedRewards,
+  expect(rov(pox5.getEarned(signer, 1n, false))).toBe(expectedRewards);
+  const claim = txOk(testSigner.claimRewards([], 1n), deployer);
+  const [ftTransfer] = filterEvents(
+    claim.events,
+    CoreNodeEventType.FtTransferEvent,
   );
-  txOk(testSigner.claimRewards([], 1n), deployer);
-  expect(rov(pox5.getSignerRewardsPaidForCycle(signer, 1n, false))).toBe(
-    expectedRewards,
-  );
+  expect(ftTransfer.data.sender).toBe(pox5.identifier);
+  expect(ftTransfer.data.recipient).toBe(signer);
+  expect(ftTransfer.data.amount).toBe(expectedRewards.toString());
 
   const zeroClaim = txErr(testSigner.claimRewards([], 1n), deployer);
   expect(zeroClaim.value).toBe(errorCodes.ERR_NO_CLAIMABLE_REWARDS);
-  expect(rov(pox5.getSignerRewardsPaidForCycle(signer, 1n, false))).toBe(
-    expectedRewards,
-  );
 });
 
 /** Scenario: waterfall distributions
@@ -1836,12 +1906,10 @@ test('scenario - waterfall distributions', () => {
   );
 
   // we only have one signer, so they get all rewards
-  expect(rov(pox5.getClaimableRewards(signer, 1n, false)).rewardsPending).toBe(
+  expect(rov(pox5.getEarned(signer, 1n, false))).toBe(
     claimableRewardsForStxStakers,
   );
-  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
-    perRewardCalcYieldPeriod1,
-  );
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(perRewardCalcYieldPeriod1);
 
   // cant call again until next distribution cycle
   txErr(pox5.calculateRewards([0n]), deployer);
@@ -1890,23 +1958,19 @@ test('scenario - waterfall distributions', () => {
   txOk(pox5.calculateRewards([0n]), deployer);
 
   // now, signer 1 still is the only one who can claim rewards
-  expect(rov(pox5.getClaimableRewards(signer, 1n, false)).rewardsPending).toBe(
+  expect(rov(pox5.getEarned(signer, 1n, false))).toBe(
     claimableRewards({
       rewards: rewardsForStxStakers * 2n,
       shares: totalStakedUstx,
       totalShares: totalStakedUstx,
     }),
   );
-  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(
     perRewardCalcYieldPeriod1 * 2n,
   );
-  expect(rov(pox5.getClaimableRewards(signer2, 1n, false)).rewardsPending).toBe(
-    0n,
-  );
+  expect(rov(pox5.getEarned(signer2, 1n, false))).toBe(0n);
   // no one has rewards for the next cycle yet
-  expect(rov(pox5.getClaimableRewards(signer, 2n, false)).rewardsPending).toBe(
-    0n,
-  );
+  expect(rov(pox5.getEarned(signer, 2n, false))).toBe(0n);
 
   const previousTotalRewards = rov(pox5.getLastAccountedRewardsOnly());
   const previousReserveBalance = rov(pox5.getReserveBalance());
@@ -1935,20 +1999,16 @@ test('scenario - waterfall distributions', () => {
 
   // now, signer 2 should be able to claim the same
   // amount of rewards as signer 1
-  expect(rov(pox5.getClaimableRewards(signer2, 2n, false)).rewardsPending).toBe(
-    rov(pox5.getClaimableRewards(signer, 2n, false)).rewardsPending,
+  expect(rov(pox5.getEarned(signer2, 2n, false))).toBe(
+    rov(pox5.getEarned(signer, 2n, false)),
   );
-  expect(rov(pox5.getClaimableRewards(signer, 0n, true)).rewardsPending).toBe(
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(
     perRewardCalcYieldPeriod1 * 3n,
   );
   // new signer still can't claim for the next cycle, of course.
-  expect(rov(pox5.getClaimableRewards(signer2, 1n, false)).rewardsPending).toBe(
-    0n,
-  );
+  expect(rov(pox5.getEarned(signer2, 1n, false))).toBe(0n);
 
-  const signer2Claimable = rov(
-    pox5.getClaimableRewards(signer2, 2n, false),
-  ).rewardsPending;
+  const signer2Claimable = rov(pox5.getEarned(signer2, 2n, false));
   const signer2Claim = txOk(signer2Contract.claimRewards([], 2n), deployer);
   const transferEvents = filterEvents(
     signer2Claim.events,
