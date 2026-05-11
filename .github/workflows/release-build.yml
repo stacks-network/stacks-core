@@ -54,6 +54,9 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest-large
+        # Only run for macos-arm64 and windows-x64 if this run from stacks-network
+        is_fork:
+          - ${{ github.repository_owner != 'stacks-network' }}
         exclude:
           # exclude linux-musl on macos
           - arch: linux-musl
@@ -70,9 +73,17 @@ jobs:
           # excludes windows-arm64
           - arch: windows
             cpu: arm64
-          # excludes macos-x64
+          # excludes macos-x64 
           - arch: macos
             cpu: x86-64
+          # excludes macos-arm64 (fork only)
+          - arch: macos
+            cpu: arm64
+            is_fork: true
+          # excludes windows-x64 (fork only)
+          - arch: windows
+            cpu: x86-64
+            is_fork: true
     permissions:
       contents: read
       id-token: write
@@ -163,3 +174,4 @@ jobs:
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
+
