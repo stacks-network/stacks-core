@@ -16,4 +16,5 @@ edition = "2021"
 
 [dependencies]
 stacks-common = { path = "../stacks-common", default-features = false }
+serde = { workspace = true, features = ["derive"] }
 

@@ -21,6 +21,8 @@
 //! codec surface, and will host the higher-level codec types (e.g.
 //! `StacksTransaction`) as they are lowered out of `stackslib`.
 
+pub mod transaction;
+
 pub use stacks_common::codec::*;
 pub use stacks_common::{
     impl_byte_array_message_codec, impl_stacks_message_codec_for_int, BITVEC_LEN,

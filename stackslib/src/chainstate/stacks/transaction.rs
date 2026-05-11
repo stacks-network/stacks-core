@@ -136,57 +136,6 @@ fn ClarityVersion_consensus_deserialize<R: Read>(
     }
 }
 
-impl StacksMessageCodec for TenureChangeCause {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        let byte = (*self) as u8;
-        write_next(fd, &byte)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TenureChangeCause, codec_error> {
-        let byte: u8 = read_next(fd)?;
-        TenureChangeCause::try_from(byte).map_err(|_| {
-            codec_error::DeserializeError(format!("Unrecognized TenureChangeCause byte {byte}"))
-        })
-    }
-}
-
-impl StacksMessageCodec for TenureChangePayload {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.tenure_consensus_hash)?;
-        write_next(fd, &self.prev_tenure_consensus_hash)?;
-        write_next(fd, &self.burn_view_consensus_hash)?;
-        write_next(fd, &self.previous_tenure_end)?;
-        write_next(fd, &self.previous_tenure_blocks)?;
-        write_next(fd, &self.cause.as_u8())?;
-        write_next(fd, &self.pubkey_hash)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
-        let tenure_consensus_hash = read_next(fd)?;
-        let prev_tenure_consensus_hash = read_next(fd)?;
-        let burn_view_consensus_hash = read_next(fd)?;
-        let previous_tenure_end = read_next(fd)?;
-        let previous_tenure_blocks = read_next(fd)?;
-        let cause_field: u8 = read_next(fd)?;
-        let cause = TenureChangeCause::try_from(cause_field).map_err(|_| {
-            codec_error::DeserializeError(format!(
-                "Unknown cause byte in TenureChange payload: {cause_field}"
-            ))
-        })?;
-        let pubkey_hash = read_next(fd)?;
-
-        Ok(Self {
-            tenure_consensus_hash,
-            prev_tenure_consensus_hash,
-            burn_view_consensus_hash,
-            previous_tenure_end,
-            previous_tenure_blocks,
-            cause,
-            pubkey_hash,
-        })
-    }
-}
-
 impl StacksMessageCodec for TransactionPayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match self {
