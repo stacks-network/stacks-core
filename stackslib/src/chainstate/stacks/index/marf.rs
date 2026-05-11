@@ -211,6 +211,10 @@ pub trait MarfConnection<T: MarfTrieId> {
         key: &str,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         self.with_conn(|conn| {
+            // Squash-aware proofs are not currently supported.
+            if conn.is_squashed() {
+                return Err(Error::UnsupportedOnSquashedMarf("get_with_proof"));
+            }
             let marf_value = match MARF::get_by_key(conn, block_hash, key)? {
                 None => return Ok(None),
                 Some(x) => x,
@@ -226,6 +230,10 @@ pub trait MarfConnection<T: MarfTrieId> {
         hash: &TrieHash,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         self.with_conn(|conn| {
+            // Squash-aware proofs are not currently supported.
+            if conn.is_squashed() {
+                return Err(Error::UnsupportedOnSquashedMarf("get_with_proof_from_hash"));
+            }
             let marf_value = match MARF::get_by_path(conn, block_hash, hash)? {
                 None => return Ok(None),
                 Some(x) => x,
@@ -1499,6 +1507,10 @@ impl<T: MarfTrieId> MARF<T> {
         key: &str,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let mut conn = self.storage.connection();
+        // Squash-aware proofs are not currently supported.
+        if conn.is_squashed() {
+            return Err(Error::UnsupportedOnSquashedMarf("get_with_proof"));
+        }
         let marf_value = match MARF::get_by_key(&mut conn, block_hash, key)? {
             None => return Ok(None),
             Some(x) => x,
@@ -1513,6 +1525,10 @@ impl<T: MarfTrieId> MARF<T> {
         path: &TrieHash,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let mut conn = self.storage.connection();
+        // Squash-aware proofs are not currently supported.
+        if conn.is_squashed() {
+            return Err(Error::UnsupportedOnSquashedMarf("get_with_proof_from_hash"));
+        }
         let marf_value = match MARF::get_by_path(&mut conn, block_hash, path)? {
             None => return Ok(None),
             Some(x) => x,

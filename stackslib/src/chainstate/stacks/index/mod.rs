@@ -266,6 +266,8 @@ pub enum Error {
     OverflowError,
     Patch(Option<TrieHash>, TrieNodePatch),
     NodeTooDeep,
+    /// Operation is not supported on a squashed MARF (e.g. proof generation).
+    UnsupportedOnSquashedMarf(&'static str),
 }
 
 impl From<io::Error> for Error {
@@ -336,6 +338,9 @@ impl fmt::Display for Error {
                 write!(f, "Read patch node instead of expected node: {p:?}")
             }
             Error::NodeTooDeep => write!(f, "Node is too deeply buried under patches"),
+            Error::UnsupportedOnSquashedMarf(op) => {
+                write!(f, "Operation `{op}` is not supported on a squashed MARF")
+            }
         }
     }
 }

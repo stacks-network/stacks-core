@@ -2609,14 +2609,12 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     /// Generate a mapping between Trie root hashes and the blocks that contain them.
     ///
     /// For squashed MARFs, blocks within the squashed range (0..=H) share a
-    /// single shared trie storage whose stored trie hash was computed at height H. The
-    /// standard blob-scanning approach would produce collisions (all blocks
-    /// get the same trie hash). Instead, for each squashed block at height
-    /// K we re-derive the trie hash by combining the squash trie's content
-    /// hash with the archival ancestor hashes at height K from the SQL
-    /// metadata. This mirrors what the proof verifier computes when it
-    /// processes a segment proof inside the squash trie and the subsequent
-    /// initial shunt.
+    /// single shared trie storage whose stored trie hash was computed at height H.
+    /// The standard blob-scanning approach would produce collisions (all blocks
+    /// get the same trie hash). For each squashed block at height K we
+    /// substitute the per-height archival root hash recorded in
+    /// `marf_squashed_blocks` so that the table maps each historical block to
+    /// its own archival root.
     #[cfg(test)]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
         let mut ret = self.inner_read_persisted_root_to_blocks()?;
@@ -2625,9 +2623,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         // All blocks at heights 0..=H share a single squash trie, so
         // `inner_read_persisted_root_to_blocks` maps them all to the same
         // trie hash. Replace those entries with the per-height archival
-        // trie hashes stored during squashing. These are the hashes that
-        // the proof verifier expects (the squash shunt at idx = -1 injects
-        // the archival trie hash directly).
+        // trie hashes stored during squashing.
         if let Some(info) = self.data.squash_info.clone() {
             for h in 0..=info.height {
                 let Some(bh) = trie_sql::read_squash_block_hash::<T>(self.sqlite_conn(), h)? else {
