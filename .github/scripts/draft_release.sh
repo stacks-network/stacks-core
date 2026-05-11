@@ -64,6 +64,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 : "${RELEASE_TYPE:?RELEASE_TYPE is required}"
 : "${REPO:?REPO is required}"
 
+DIGEST_MANIFEST="${DIGEST_MANIFEST:-}"
+
 if [[ ! -f "${TEMPLATE}" ]]; then
     error "template not found: $(hl "${TEMPLATE}")"
     exit 1
@@ -243,7 +245,7 @@ info "node_tag:          $(hl "${node_tag}")"
 info "signer_tag:        $(hl "${signer_tag}")"
 info "node_epoch:        $(hl "${node_epoch}")"
 info "changelog_link:    $(hl "${changelog_link}")"
-info "DIGEST_MANIFEST:   $(hl "${DIGEST_MANIFEST}")"
+info "DIGEST_MANIFEST:   $(hl "${DIGEST_MANIFEST:-}")"
 
 changelog_lines=0
 [[ -n "${changelog_content}" ]] && changelog_lines=$(printf '%s\n' "${changelog_content}" | wc -l | tr -d '[:space:]')
