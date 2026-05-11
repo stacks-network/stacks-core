@@ -699,31 +699,29 @@ impl BlobReader {
     }
 }
 
-/// A `BlockMap` adapter for trie nodes that have no backpointer children.
+/// A `BlockMap` for nodes whose backpointers were already made inline.
 ///
-/// After the remap pass all pointers in the squash blob are inline.
-/// `write_consensus_bytes` writes zeroed block hashes for non-backptr
-/// children and never queries the `BlockMap`, so every method here is
-/// unreachable.
-struct InlineOnlyBlockMap;
+/// `write_consensus_bytes` should never ask this map for a block hash; the
+/// debug assertion in `compute_node_hash` checks that precondition.
+struct BackptrFreeBlockMap;
 
-impl BlockMap for InlineOnlyBlockMap {
+impl BlockMap for BackptrFreeBlockMap {
     type TrieId = StacksBlockId;
 
     fn get_block_hash(&self, _id: u32) -> Result<Self::TrieId, Error> {
-        unreachable!("InlineOnlyBlockMap: no backpointers in squash trie")
+        unreachable!("BackptrFreeBlockMap: no backpointers in squash trie")
     }
     fn get_block_hash_caching(&mut self, _id: u32) -> Result<&Self::TrieId, Error> {
-        unreachable!("InlineOnlyBlockMap: no backpointers in squash trie")
+        unreachable!("BackptrFreeBlockMap: no backpointers in squash trie")
     }
     fn is_block_hash_cached(&self, _id: u32) -> bool {
         false
     }
     fn get_block_id(&self, _bhh: &Self::TrieId) -> Result<u32, Error> {
-        unreachable!("InlineOnlyBlockMap: no backpointers in squash trie")
+        unreachable!("BackptrFreeBlockMap: no backpointers in squash trie")
     }
     fn get_block_id_caching(&mut self, _bhh: &Self::TrieId) -> Result<u32, Error> {
-        unreachable!("InlineOnlyBlockMap: no backpointers in squash trie")
+        unreachable!("BackptrFreeBlockMap: no backpointers in squash trie")
     }
 }
 
@@ -731,9 +729,16 @@ impl BlockMap for InlineOnlyBlockMap {
 ///
 /// Equivalent to `bits::get_node_hash` but works on the `TrieNodeType` enum
 /// directly (which does not implement `ConsensusSerializable<M>`).
+///
+/// Precondition: every child pointer of `node` has its backptr bit cleared.
+/// `BackptrFreeBlockMap` panics on any backptr lookup;
 fn compute_node_hash(node: &TrieNodeType, child_hashes: &[TrieHash]) -> TrieHash {
+    debug_assert!(
+        node.is_leaf() || node.ptrs().iter().all(|p| !is_backptr(p.id)),
+        "compute_node_hash precondition violated: node still has backpointer children"
+    );
     let mut hasher = TrieHasher::new();
-    node.write_consensus_bytes(&mut InlineOnlyBlockMap, &mut hasher)
+    node.write_consensus_bytes(&mut BackptrFreeBlockMap, &mut hasher)
         .expect("IO failure pushing to hasher");
     for h in child_hashes {
         hasher.update(h.as_ref());
