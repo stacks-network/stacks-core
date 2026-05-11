@@ -21,92 +21,23 @@ use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::{MessageSignature, MESSAGE_SIGNATURE_ENCODED_SIZE};
 
 use crate::burnchains::{PrivateKey, Txid};
+#[cfg(test)]
+use crate::chainstate::stacks::TransactionAuthFieldID;
 use crate::chainstate::stacks::{
     Error, MultisigHashMode, MultisigSpendingCondition, OrderIndependentMultisigHashMode,
     OrderIndependentMultisigSpendingCondition, SinglesigHashMode, SinglesigSpendingCondition,
-    StacksPrivateKey, StacksPublicKey, TransactionAuth, TransactionAuthField,
-    TransactionAuthFieldID, TransactionAuthFlags, TransactionPublicKeyEncoding,
-    TransactionSpendingCondition, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    StacksPrivateKey, StacksPublicKey, TransactionAuth, TransactionAuthField, TransactionAuthFlags,
+    TransactionPublicKeyEncoding, TransactionSpendingCondition,
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::net::Error as net_error;
-
-impl StacksMessageCodec for TransactionAuthField {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        match *self {
-            TransactionAuthField::PublicKey(ref pubk) => {
-                let field_id = if pubk.compressed() {
-                    TransactionAuthFieldID::PublicKeyCompressed
-                } else {
-                    TransactionAuthFieldID::PublicKeyUncompressed
-                };
-
-                let pubkey_buf = StacksPublicKeyBuffer::from_public_key(pubk);
-
-                write_next(fd, &(field_id as u8))?;
-                write_next(fd, &pubkey_buf)?;
-            }
-            TransactionAuthField::Signature(ref key_encoding, ref sig) => {
-                let field_id = if *key_encoding == TransactionPublicKeyEncoding::Compressed {
-                    TransactionAuthFieldID::SignatureCompressed
-                } else {
-                    TransactionAuthFieldID::SignatureUncompressed
-                };
-
-                write_next(fd, &(field_id as u8))?;
-                write_next(fd, sig)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionAuthField, codec_error> {
-        let field_id: u8 = read_next(fd)?;
-        let field = match field_id {
-            x if x == TransactionAuthFieldID::PublicKeyCompressed as u8 => {
-                let pubkey_buf: StacksPublicKeyBuffer = read_next(fd)?;
-                let mut pubkey = pubkey_buf
-                    .to_public_key()
-                    .map_err(|e| codec_error::DeserializeError(e.into()))?;
-                pubkey.set_compressed(true);
-
-                TransactionAuthField::PublicKey(pubkey)
-            }
-            x if x == TransactionAuthFieldID::PublicKeyUncompressed as u8 => {
-                let pubkey_buf: StacksPublicKeyBuffer = read_next(fd)?;
-                let mut pubkey = pubkey_buf
-                    .to_public_key()
-                    .map_err(|e| codec_error::DeserializeError(e.into()))?;
-                pubkey.set_compressed(false);
-
-                TransactionAuthField::PublicKey(pubkey)
-            }
-            x if x == TransactionAuthFieldID::SignatureCompressed as u8 => {
-                let sig: MessageSignature = read_next(fd)?;
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, sig)
-            }
-            x if x == TransactionAuthFieldID::SignatureUncompressed as u8 => {
-                let sig: MessageSignature = read_next(fd)?;
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, sig)
-            }
-            _ => {
-                test_debug!("Failed to deserialize auth field ID {}", field_id);
-                return Err(codec_error::DeserializeError(format!(
-                    "Failed to parse auth field: unkonwn auth field ID {}",
-                    field_id
-                )));
-            }
-        };
-        Ok(field)
-    }
-}
 
 impl StacksMessageCodec for MultisigSpendingCondition {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

@@ -384,49 +384,6 @@ impl Error {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionAuthField {
-    PublicKey(StacksPublicKey),
-    Signature(TransactionPublicKeyEncoding, MessageSignature),
-}
-
-impl TransactionAuthField {
-    pub fn is_public_key(&self) -> bool {
-        matches!(self, TransactionAuthField::PublicKey(_))
-    }
-
-    pub fn is_signature(&self) -> bool {
-        matches!(self, TransactionAuthField::Signature(..))
-    }
-
-    pub fn as_public_key(&self) -> Option<StacksPublicKey> {
-        match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Some(pubk.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn as_signature(&self) -> Option<(TransactionPublicKeyEncoding, MessageSignature)> {
-        match *self {
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => Some((*key_fmt, sig.clone())),
-            _ => None,
-        }
-    }
-
-    // TODO: enforce u8; 32
-    pub fn get_public_key(&self, sighash_bytes: &[u8]) -> Result<StacksPublicKey, net_error> {
-        match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Ok(pubk.clone()),
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
-                    .map_err(|e| net_error::VerifyingError(e.to_string()))?;
-                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
-                Ok(pubk)
-            }
-        }
-    }
-}
-
 /// A structure that encodes enough state to authenticate
 /// a transaction's execution against a Stacks address.
 /// public_keys + signatures_required determines the Principal.
@@ -499,11 +456,12 @@ pub struct TransactionSmartContract {
 }
 
 pub use stacks_codec::transaction::{
-    AssetInfoID, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
+    AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
     OrderIndependentMultisigHashMode, PostConditionPrincipalID, SinglesigHashMode,
     TenureChangeCause, TenureChangeError, TenureChangePayload, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuthFieldID, TransactionAuthFlags, TransactionPayloadID,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionVersion,
+    TransactionAnchorMode, TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
+    TransactionPayloadID, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+    TransactionVersion,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

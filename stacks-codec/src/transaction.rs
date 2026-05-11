@@ -20,14 +20,17 @@
 //! transaction. It is being grown incrementally; for now it contains the
 //! "leaf" types whose codec impls only need primitives from `stacks-common`.
 
+use std::error;
 use std::fmt::{self, Display};
 use std::io::{Read, Write};
 
 use serde::{Deserialize, Serialize};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey};
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{
     define_u8_enum, impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
     impl_byte_array_newtype, impl_byte_array_serde, impl_index_newtype,
@@ -554,4 +557,142 @@ pub enum PostConditionPrincipalID {
     Origin = 0x01,
     Standard = 0x02,
     Contract = 0x03,
+}
+
+/// Errors raised by the auth path (signing/verification).
+///
+/// Returned by the codec-side auth methods so that `stacks-codec` doesn't have
+/// to know about `stackslib`'s `net::Error` or `chainstate::stacks::Error`;
+/// `stackslib` provides `From<AuthError>` impls for those types.
+#[derive(Debug)]
+pub enum AuthError {
+    SigningError(String),
+    VerifyingError(String),
+    IncompatibleSpendingConditionError,
+}
+
+impl fmt::Display for AuthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AuthError::SigningError(s) => write!(f, "Signing error: {s}"),
+            AuthError::VerifyingError(s) => write!(f, "Verifying error: {s}"),
+            AuthError::IncompatibleSpendingConditionError => {
+                write!(f, "Spending condition is incompatible with this operation")
+            }
+        }
+    }
+}
+
+impl error::Error for AuthError {}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TransactionAuthField {
+    PublicKey(StacksPublicKey),
+    Signature(TransactionPublicKeyEncoding, MessageSignature),
+}
+
+impl TransactionAuthField {
+    pub fn is_public_key(&self) -> bool {
+        matches!(self, TransactionAuthField::PublicKey(_))
+    }
+
+    pub fn is_signature(&self) -> bool {
+        matches!(self, TransactionAuthField::Signature(..))
+    }
+
+    pub fn as_public_key(&self) -> Option<StacksPublicKey> {
+        match *self {
+            TransactionAuthField::PublicKey(ref pubk) => Some(pubk.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn as_signature(&self) -> Option<(TransactionPublicKeyEncoding, MessageSignature)> {
+        match *self {
+            TransactionAuthField::Signature(ref key_fmt, ref sig) => Some((*key_fmt, sig.clone())),
+            _ => None,
+        }
+    }
+
+    // TODO: enforce u8; 32
+    pub fn get_public_key(&self, sighash_bytes: &[u8]) -> Result<StacksPublicKey, AuthError> {
+        match *self {
+            TransactionAuthField::PublicKey(ref pubk) => Ok(pubk.clone()),
+            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
+                let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
+                    .map_err(|e| AuthError::VerifyingError(e.to_string()))?;
+                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
+                Ok(pubk)
+            }
+        }
+    }
+}
+
+impl StacksMessageCodec for TransactionAuthField {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        match *self {
+            TransactionAuthField::PublicKey(ref pubk) => {
+                let field_id = if pubk.compressed() {
+                    TransactionAuthFieldID::PublicKeyCompressed
+                } else {
+                    TransactionAuthFieldID::PublicKeyUncompressed
+                };
+
+                let pubkey_buf = StacksPublicKeyBuffer::from_public_key(pubk);
+
+                write_next(fd, &(field_id as u8))?;
+                write_next(fd, &pubkey_buf)?;
+            }
+            TransactionAuthField::Signature(ref key_encoding, ref sig) => {
+                let field_id = if *key_encoding == TransactionPublicKeyEncoding::Compressed {
+                    TransactionAuthFieldID::SignatureCompressed
+                } else {
+                    TransactionAuthFieldID::SignatureUncompressed
+                };
+
+                write_next(fd, &(field_id as u8))?;
+                write_next(fd, sig)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionAuthField, codec_error> {
+        let field_id: u8 = read_next(fd)?;
+        let field = match field_id {
+            x if x == TransactionAuthFieldID::PublicKeyCompressed as u8 => {
+                let pubkey_buf: StacksPublicKeyBuffer = read_next(fd)?;
+                let mut pubkey = pubkey_buf
+                    .to_public_key()
+                    .map_err(|e| codec_error::DeserializeError(e.into()))?;
+                pubkey.set_compressed(true);
+
+                TransactionAuthField::PublicKey(pubkey)
+            }
+            x if x == TransactionAuthFieldID::PublicKeyUncompressed as u8 => {
+                let pubkey_buf: StacksPublicKeyBuffer = read_next(fd)?;
+                let mut pubkey = pubkey_buf
+                    .to_public_key()
+                    .map_err(|e| codec_error::DeserializeError(e.into()))?;
+                pubkey.set_compressed(false);
+
+                TransactionAuthField::PublicKey(pubkey)
+            }
+            x if x == TransactionAuthFieldID::SignatureCompressed as u8 => {
+                let sig: MessageSignature = read_next(fd)?;
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, sig)
+            }
+            x if x == TransactionAuthFieldID::SignatureUncompressed as u8 => {
+                let sig: MessageSignature = read_next(fd)?;
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, sig)
+            }
+            _ => {
+                return Err(codec_error::DeserializeError(format!(
+                    "Failed to parse auth field: unkonwn auth field ID {}",
+                    field_id
+                )));
+            }
+        };
+        Ok(field)
+    }
 }
