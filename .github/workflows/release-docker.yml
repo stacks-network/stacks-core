@@ -232,8 +232,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          var_pkg_id=$(gh api /user/packages/container/${{ inputs.release_type }}/versions \
-            --jq '.[] | select(.metadata.container.tags[] == "${{ steps.set-vars.outputs.docker_tag }}-${{ matrix.dist }}") | .id')
+          # Determine if owner is a user or organization (useful for running this workflow from a fork)
+          owner_type=$(gh api repos/${{ github.repository }} --jq .owner.type)
+
+          if [[ "$owner_type" == "Organization" ]]; then
+            owner=$(gh api repos/${{ github.repository }} --jq .owner.login)
+            endpoint="/orgs/${owner}/packages"
+          else
+            endpoint="/user/packages"
+          fi
+
+          var_pkg_id=$(gh api ${endpoint}/container/${{ inputs.release_type }}/versions \
+            --jq '.[] | select(.metadata.container.tags[] == "${{ steps.set-vars.outputs.docker_tag }}-${{ matrix.dist }}") | .id' 2>/dev/null) || var_pkg_id=""
           echo "package_id=${var_pkg_id}" >> $GITHUB_OUTPUT
 
       # Save digest metadata for consolidation
