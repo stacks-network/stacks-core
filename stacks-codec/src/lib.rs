@@ -21,6 +21,7 @@
 //! codec surface, and will host the higher-level codec types (e.g.
 //! `StacksTransaction`) as they are lowered out of `stackslib`.
 
+pub mod strings;
 pub mod transaction;
 
 pub use stacks_common::codec::*;
