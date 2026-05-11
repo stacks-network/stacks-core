@@ -42,11 +42,13 @@
         ;; #[allow(unused_binding)]
         (staker principal)
         ;; #[allow(unused_binding)]
+        (first-index uint)
+        ;; #[allow(unused_binding)]
+        (num-indexes uint)
+        ;; #[allow(unused_binding)]
         (amount-ustx uint)
         ;; #[allow(unused_binding)]
         (amount-sats uint)
-        ;; #[allow(unused_binding)]
-        (num-cycles uint)
         ;; #[allow(unused_binding)]
         (is-bond bool)
         ;; #[allow(unused_binding)]
@@ -70,6 +72,87 @@
             auth-id signer-sig
         ))
         (try! (contract-call? .pox-5 register-signer signer-manager signer-key))
+    )
+)
+
+;; Handling rewards checkpointing for a staker
+(define-public (checkpoint-staker
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (is-bond bool)
+    )
+    (begin
+        (try! (fold checkpoint-staker-for-index
+            (unwrap-panic (slice?
+                (list
+                    u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15
+                    u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29
+                    u30 u31 u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43
+                    u44 u45 u46 u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57
+                    u58 u59 u60 u61 u62 u63 u64 u65 u66 u67 u68 u69 u70 u71
+                    u72 u73 u74 u75 u76 u77 u78 u79 u80 u81 u82 u83 u84 u85
+                    u86 u87 u88 u89 u90 u91 u92 u93 u94 u95
+                )
+                u0 num-indexes
+            ))
+            (ok {
+                staker: staker,
+                first-index: first-index,
+                is-bond: is-bond,
+            })
+        ))
+        (ok true)
+    )
+)
+
+(define-private (checkpoint-staker-for-index
+        (index-offset uint)
+        (acc-res (response {
+            staker: principal,
+            first-index: uint,
+            is-bond: bool,
+        }
+            uint
+        ))
+    )
+    (let (
+            (acc (try! acc-res))
+            (staker (get staker acc))
+            (index (+ (get first-index acc) index-offset))
+        )
+        (crystallize-staker-rewards staker index (get is-bond acc))
+        (ok acc)
+    )
+)
+
+(define-private (crystallize-staker-rewards
+        (staker principal)
+        (index uint)
+        (is-bond bool)
+    )
+    (let (
+            (earned (get-earned-staker-rewards staker index is-bond))
+            (rewards-per-token (get-rewards-per-token-for-cycle index is-bond))
+        )
+        (map-set staker-pending-rewards-for-cycle {
+            staker: staker,
+            index: index,
+            is-bond: is-bond,
+        }
+            earned
+        )
+        (map-set staker-rewards-paid-per-token-for-cycle {
+            staker: staker,
+            index: index,
+            is-bond: is-bond,
+        }
+            rewards-per-token
+        )
+        {
+            earned: earned,
+            rewards-per-token: rewards-per-token,
+        }
     )
 )
 
@@ -98,21 +181,6 @@
         (index uint)
         (is-bond bool)
     )
-    ;; (let (
-    ;;         (rewards-paid (get-staker-rewards-paid-per-token-for-cycle staker index is-bond))
-    ;;         (rewards-per-share (get-rewards-per-token-for-cycle index is-bond))
-    ;;         (shares-staked (contract-call? .pox-5 get-staker-shares-staked-for-cycle staker
-    ;;             index is-bond current-contract
-    ;;         ))
-    ;;         (rewards-pending (- (/ (* shares-staked rewards-per-share) PRECISION) rewards-paid))
-    ;;     )
-    ;;     {
-    ;;         rewards-paid: rewards-paid,
-    ;;         rewards-pending: rewards-pending,
-    ;;         shares-staked: shares-staked,
-    ;;         rewards-per-share: rewards-per-share,
-    ;;     }
-    ;; )
     (let (
             (shares (contract-call? .pox-5 get-staker-shares-staked-for-cycle staker
                 index is-bond current-contract
@@ -132,20 +200,17 @@
     )
     (let (
             (staker tx-sender)
-            (earned (get-earned-staker-rewards staker index is-bond))
-            (rewards-per-token (get-rewards-per-token-for-cycle index is-bond))
+            (rewards-info (crystallize-staker-rewards staker index is-bond))
+            (earned (get earned rewards-info))
         )
         (asserts! (> earned u0) ERR_NO_CLAIMABLE_REWARDS)
-        (map-set staker-rewards-paid-per-token-for-cycle {
-            index: index,
-            is-bond: is-bond,
-            staker: staker,
-        } rewards-per-token)
         (map-set staker-pending-rewards-for-cycle {
             staker: staker,
             is-bond: is-bond,
             index: index,
-        } u0)
+        }
+            u0
+        )
         (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 "sbtc-token" earned

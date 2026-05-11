@@ -38,6 +38,8 @@
 ;; A call to announce an early unlock was made
 ;; for a bond membership that has an L2 lockup
 (define-constant ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK (err u35))
+;; The argument provided does not match the staker's signer
+(define-constant ERR_INVALID_OLD_SIGNER_MANAGER (err u36))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -188,6 +190,7 @@
         amount-ustx: uint,
         first-reward-cycle: uint,
         num-cycles: uint,
+        signer: principal,
     }
 )
 
@@ -348,8 +351,13 @@
 
 (define-trait signer-manager-trait (
     (validate-stake!
-        ;; caller, amount-ustx, amount-sats, num-cycles, is-bond, signer-calldata
-        (principal uint uint uint bool (optional (buff 500)))
+        ;; staker, first-index, num-indexes, amount-ustx, amount-sats, is-bond, signer-calldata
+        (principal uint uint uint uint bool (optional (buff 500)))
+        (response bool uint)
+    )
+    (checkpoint-staker
+        ;; staker, first-index, num-indexes, is-bond
+        (principal uint uint bool)
         (response bool uint)
     )
 ))
@@ -549,8 +557,8 @@
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
         ;; Validate that the staker can join this signer
-        (try! (contract-call? signer-manager validate-stake! tx-sender amount-ustx
-            sats-total u12 true signer-calldata
+        (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
+            amount-ustx sats-total true signer-calldata
         ))
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
@@ -610,10 +618,12 @@
 ;; from the start of the bond period.
 (define-public (update-bond-registration
         (signer-manager <signer-manager-trait>)
+        (old-signer-manager <signer-manager-trait>)
         (signer-calldata (optional (buff 500)))
     )
     (let (
             (signer (contract-of signer-manager))
+            (old-signer (contract-of old-signer-manager))
             (current-membership (unwrap! (get-bond-membership tx-sender) ERR_NOT_BOND_PARTICIPANT))
             (current-signer (get signer current-membership))
             (bond-index (get bond-index current-membership))
@@ -634,11 +644,23 @@
             ))
             (num-cycles (- bond-end-cycle first-reward-cycle))
         )
+        (asserts! (is-eq old-signer current-signer)
+            ERR_INVALID_OLD_SIGNER_MANAGER
+        )
         ;; Validate that the staker can join this signer
-        (try! (contract-call? signer-manager validate-stake! tx-sender
-            (get amount-ustx current-membership) amount-sats num-cycles true
+        (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
+            (get amount-ustx current-membership) amount-sats true
             signer-calldata
         ))
+
+        ;; Call `old-signer-manager`, and allow them to snapshot current
+        ;; data before updating. Do not throw any errors.
+        (match (contract-call? old-signer-manager checkpoint-staker tx-sender bond-index
+            u1 true
+        )
+            ok-val ok-val
+            err-val true
+        )
 
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
@@ -738,8 +760,9 @@
             (unlock-cycle (+ first-reward-cycle num-cycles))
         )
         ;; Validate that the staker can join this signer
-        (try! (contract-call? signer-manager validate-stake! tx-sender amount-ustx u0
-            num-cycles false signer-calldata
+        (try! (contract-call? signer-manager validate-stake! tx-sender
+            first-reward-cycle num-cycles amount-ustx u0 false
+            signer-calldata
         ))
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
@@ -775,6 +798,7 @@
             amount-ustx: amount-ustx,
             first-reward-cycle: first-reward-cycle,
             num-cycles: num-cycles,
+            signer: signer,
         })
 
         (ok {
@@ -795,12 +819,14 @@
 ;; - Increase STX locked
 (define-public (stake-update
         (signer-manager <signer-manager-trait>)
+        (old-signer-manager <signer-manager-trait>)
         (cycles-to-extend uint)
         (amount-increase uint)
         (signer-calldata (optional (buff 500)))
     )
     (let (
             (signer (contract-of signer-manager))
+            (old-signer (contract-of old-signer-manager))
             (current-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKING))
             ;; This is the first cycle where their STX would be unlocked
             (prev-unlock-cycle (+ (get first-reward-cycle current-info)
@@ -809,12 +835,18 @@
             (unlock-cycle (+ prev-unlock-cycle cycles-to-extend))
             (new-lock-amount (+ (get amount-ustx current-info) amount-increase))
             (current-cycle (current-pox-reward-cycle))
+            (first-reward-cycle (+ current-cycle u1))
             (num-cycles (- unlock-cycle current-cycle u1))
         )
         ;; Validate that the staker can join this signer
-        (try! (contract-call? signer-manager validate-stake! tx-sender new-lock-amount
-            u0 num-cycles false signer-calldata
+        (try! (contract-call? signer-manager validate-stake! tx-sender
+            first-reward-cycle num-cycles new-lock-amount u0 false
+            signer-calldata
         ))
+        ;; Validate that `old-signer-manager` matches their current signer
+        (asserts! (is-eq old-signer (get signer current-info))
+            ERR_INVALID_OLD_SIGNER_MANAGER
+        )
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
@@ -827,6 +859,18 @@
         ;; Must have enough unlocked STX
         (asserts! (>= (get unlocked (stx-account tx-sender)) amount-increase)
             ERR_INSUFFICIENT_STX
+        )
+
+        ;; Call `old-signer-manager`, and allow them to snapshot current
+        ;; data before updating. Do not throw any errors.
+        (match (contract-call? old-signer-manager checkpoint-staker tx-sender
+            first-reward-cycle (- prev-unlock-cycle current-cycle u1) false
+        )
+            ;; Allow any errors
+            ok-val
+            ok-val
+            err-val
+            true
         )
 
         ;; Remove the staker from all existing cycles
@@ -842,6 +886,7 @@
             amount-ustx: new-lock-amount,
             first-reward-cycle: (get first-reward-cycle current-info),
             num-cycles: (+ (get num-cycles current-info) cycles-to-extend),
+            signer: signer,
         })
 
         (ok {
@@ -856,8 +901,12 @@
     )
 )
 
-(define-public (announce-l1-early-exit (staker principal))
+(define-public (announce-l1-early-exit
+        (staker principal)
+        (old-signer-manager <signer-manager-trait>)
+    )
     (let (
+            (old-signer (contract-of old-signer-manager))
             (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
             (bond-index (get bond-index membership))
             (signer (get signer membership))
@@ -871,6 +920,16 @@
             ERR_UNAUTHORIZED
         )
         (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
+        (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
+
+        ;; Call `old-signer-manager`, and allow them to snapshot current
+        ;; data before updating. Do not throw any errors.
+        (match (contract-call? old-signer-manager checkpoint-staker staker bond-index u1
+            true
+        )
+            ok-val ok-val
+            err-val true
+        )
 
         (crystallize-rewards signer bond-index true)
 
@@ -900,8 +959,9 @@
 )
 
 ;; Unstake - set your STX to unlock at the end of the current cycle
-(define-public (unstake)
+(define-public (unstake (old-signer-manager <signer-manager-trait>))
     (let (
+            (old-signer (contract-of old-signer-manager))
             (current-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKING))
             (first-reward-cycle (get first-reward-cycle current-info))
             ;; This is the first cycle where their STX would be unlocked
@@ -909,12 +969,25 @@
             (current-cycle (current-pox-reward-cycle))
             (unlock-cycle (+ current-cycle u1))
         )
+        (asserts! (is-eq old-signer (get signer current-info))
+            ERR_INVALID_OLD_SIGNER_MANAGER
+        )
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         ;; do not allow during a prepare phase
         (asserts! (not (is-in-prepare-phase current-cycle))
             ERR_UNSTAKE_IN_PREPARE_PHASE
+        )
+
+        ;; Call `old-signer-manager`, and allow them to snapshot current
+        ;; data before updating. Do not throw any errors.
+        (match (contract-call? old-signer-manager checkpoint-staker tx-sender
+            (+ current-cycle u1) (- prev-unlock-cycle current-cycle u1)
+            false
+        )
+            ok-val ok-val
+            err-val true
         )
 
         ;; Remove the staker from all existing cycles
@@ -926,6 +999,7 @@
             amount-ustx: (get amount-ustx current-info),
             first-reward-cycle: first-reward-cycle,
             num-cycles: (- unlock-cycle first-reward-cycle),
+            signer: old-signer,
         })
 
         (ok {

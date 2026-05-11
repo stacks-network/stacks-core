@@ -342,6 +342,7 @@ test('scenario - staking to a signer', () => {
     amountUstx: aliceAmount,
     firstRewardCycle: 1n,
     numCycles: 2n,
+    signer,
   });
 
   expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeFalsy();
@@ -375,6 +376,7 @@ test('scenario - staking to a signer', () => {
     amountUstx: bobAmount,
     firstRewardCycle: 1n,
     numCycles: 3n,
+    signer,
   });
 
   expectAllSignersHaveKeys();
@@ -408,6 +410,7 @@ test('scenario - staking to a signer', () => {
     amountUstx: charlieAmount,
     firstRewardCycle: 1n,
     numCycles: 2n,
+    signer,
   });
 
   expectAllSignersHaveKeys();
@@ -453,6 +456,7 @@ test('scenario - updating a stake', () => {
       amountIncrease: 10_000n,
       cyclesToExtend: 1n,
       signerCalldata: null,
+      oldSignerManager: signer1,
     }),
     alice,
   );
@@ -532,11 +536,12 @@ test('scenario - unstaking', () => {
 
   mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
 
-  txOk(pox5.unstake(), alice);
+  txOk(pox5.unstake({ oldSignerManager: signer }), alice);
   expect(rov(pox5.getStakerInfo(alice))).toEqual({
     amountUstx: aliceAmount,
     firstRewardCycle: 1n,
     numCycles: 1n,
+    signer,
   });
 
   expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeTruthy();
@@ -1154,6 +1159,7 @@ test('bond participant keeps already claimed-to-signer rewards after changing si
     pox5.updateBondRegistration({
       signerManager: signer2,
       signerCalldata: null,
+      oldSignerManager: signer1,
     }),
     alice,
   );
@@ -1196,10 +1202,10 @@ test('only early unlock admin can announce l1 early exit', () => {
     alice,
   );
 
-  const unauthorized = txErr(pox5.announceL1EarlyExit(alice), bob);
+  const unauthorized = txErr(pox5.announceL1EarlyExit(alice, signer), bob);
   expect(unauthorized.value).toBe(errorCodes.ERR_UNAUTHORIZED);
 
-  txOk(pox5.announceL1EarlyExit(alice), deployer);
+  txOk(pox5.announceL1EarlyExit(alice, signer), deployer);
   expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
     0n,
   );
@@ -1238,7 +1244,7 @@ test('cannot announce l1 early exit for sbtc bond participant', () => {
     alice,
   );
 
-  const earlyExit = txErr(pox5.announceL1EarlyExit(alice), deployer);
+  const earlyExit = txErr(pox5.announceL1EarlyExit(alice, signer), deployer);
   expect(earlyExit.value).toBe(
     pox5.constants.eRR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK.value,
   );
@@ -1282,7 +1288,7 @@ test('l1 early exit prevents future bond rewards but leaves stx delegated', () =
     alice,
   );
 
-  txOk(pox5.announceL1EarlyExit(alice), deployer);
+  txOk(pox5.announceL1EarlyExit(alice, signer), deployer);
   txOk(
     sbtc.transfer({
       recipient: pox5.identifier,
@@ -1351,7 +1357,7 @@ test('l1 early exit does not erase already accrued bond rewards', () => {
   txOk(pox5.calculateRewards([0n]), deployer);
 
   expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1200n);
-  txOk(pox5.announceL1EarlyExit(alice), deployer);
+  txOk(pox5.announceL1EarlyExit(alice, signer), deployer);
 
   expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1200n);
 });
@@ -1393,6 +1399,7 @@ test('bond participant can update signer before bond starts', () => {
     pox5.updateBondRegistration({
       signerManager: signer2,
       signerCalldata: null,
+      oldSignerManager: signer1,
     }),
     alice,
   );
@@ -1455,6 +1462,7 @@ test('bond participant signer update changes signer set starting next cycle', ()
     pox5.updateBondRegistration({
       signerManager: signer2,
       signerCalldata: null,
+      oldSignerManager: signer1,
     }),
     alice,
   );
@@ -1529,6 +1537,7 @@ test('bond participant rewards follow updated signer', () => {
     pox5.updateBondRegistration({
       signerManager: signer2,
       signerCalldata: null,
+      oldSignerManager: signer1,
     }),
     alice,
   );
@@ -1596,6 +1605,7 @@ test('bond signer update preserves old signer rewards and sends future rewards t
     pox5.updateBondRegistration({
       signerManager: signer2,
       signerCalldata: null,
+      oldSignerManager: signer1,
     }),
     alice,
   );
