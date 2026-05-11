@@ -1869,3 +1869,33 @@ fn test_execution_time_expiration() {
         ClarityEvalError::Vm(CostErrors::ExecutionTimeExpired.into())
     );
 }
+
+#[test]
+fn test_abort_callback_stops_execution() {
+    use crate::vm::contexts::AbortCallback;
+    use crate::vm::execute_with_parameters_and_call_in_global_context;
+    let abort_msg = "abort callback fired";
+
+    // An abort callback that always fires
+    let result = execute_with_parameters_and_call_in_global_context(
+        "(+ 1 1)",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch20,
+        false,
+        clarity_types::types::StandardPrincipalData::transient(),
+        |g| {
+            g.abort_callback = AbortCallback::AlwaysAbort(abort_msg.into());
+            Ok(())
+        },
+        |_| Ok(()),
+    );
+    match result {
+        Err(ClarityEvalError::Vm(e)) => {
+            let expected = VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::AbortedByExecutionHook(abort_msg.into()),
+            );
+            assert_eq!(e, expected);
+        }
+        other => panic!("Expected aborted-by-execution-hook error, got: {other:?}"),
+    }
+}
