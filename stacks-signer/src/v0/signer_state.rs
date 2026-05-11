@@ -20,6 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use blockstack_lib::core::NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::db::Error as DBError;
@@ -1026,7 +1027,11 @@ impl LocalStateMachine {
 
             let entry = miners.entry(miner_state).or_insert(0);
             *entry += weight;
-            if u64::from(*entry) <= u64::from(eval.total_weight).strict_mul(3) / 10 {
+            if u64::from(*entry)
+                <= u64::from(eval.total_weight)
+                    .strict_mul(10 - NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD)
+                    / 10
+            {
                 // We don't even see a blocking minority threshold. Ignore.
                 continue;
             }

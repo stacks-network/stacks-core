@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::core::NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
 use clarity::types::chainstate::StacksAddress;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
@@ -70,7 +71,10 @@ impl GlobalStateEvaluator {
         let mut total_weight_support: u32 = 0;
         for (version, weight_support) in protocol_versions.into_iter().rev() {
             total_weight_support += weight_support;
-            if u64::from(total_weight_support) >= u64::from(self.total_weight).strict_mul(7) / 10 {
+            if u64::from(total_weight_support)
+                >= u64::from(self.total_weight).strict_mul(NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD)
+                    / 10
+            {
                 return Some(version);
             }
         }
@@ -168,7 +172,9 @@ impl GlobalStateEvaluator {
     /// Check if the supplied vote weight crosses the global agreement threshold.
     /// Returns true if it has, false otherwise.
     pub fn reached_agreement(&self, vote_weight: u32) -> bool {
-        u64::from(vote_weight) >= u64::from(self.total_weight).strict_mul(7) / 10
+        u64::from(vote_weight)
+            >= u64::from(self.total_weight).strict_mul(NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD)
+                / 10
     }
 
     /// Get the global transaction replay set. Returns `None` if there
