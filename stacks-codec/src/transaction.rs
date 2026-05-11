@@ -24,6 +24,10 @@ use std::error;
 use std::fmt::{self, Display};
 use std::io::{Read, Write};
 
+use clarity_types::representations::{ClarityName, ContractName};
+use clarity_types::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+};
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -33,12 +37,19 @@ use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey, Txid,
+    BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey, Txid,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId, StacksPublicKeyBuffer};
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::{MessageSignature, MESSAGE_SIGNATURE_ENCODED_SIZE};
+
+use crate::strings::StacksString;
+
+/// Max size of a serialized Stacks transaction (consensus-encoded).
+pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
+pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
 use stacks_common::{
     define_u8_enum, impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
     impl_byte_array_newtype, impl_byte_array_serde, impl_index_newtype,
@@ -2008,5 +2019,501 @@ impl TransactionAuth {
                 origin.is_supported_in_epoch(epoch_id) && sponsor.is_supported_in_epoch(epoch_id)
             }
         }
+    }
+}
+
+/// A transaction that calls into a smart contract
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransactionContractCall {
+    pub address: StacksAddress,
+    pub contract_name: ContractName,
+    pub function_name: ClarityName,
+    pub function_args: Vec<Value>,
+}
+
+impl TransactionContractCall {
+    pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
+        let standard_principal = StandardPrincipalData::from(self.address.clone());
+        QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
+    }
+
+    pub fn to_clarity_contract_id(&self) -> QualifiedContractIdentifier {
+        QualifiedContractIdentifier::new(
+            StandardPrincipalData::from(self.address.clone()),
+            self.contract_name.clone(),
+        )
+    }
+}
+
+impl fmt::Display for TransactionContractCall {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let formatted_args = self
+            .function_args
+            .iter()
+            .map(|v| format!("{}", v))
+            .collect::<Vec<String>>()
+            .join(", ");
+        write!(
+            f,
+            "{}.{}::{}({})",
+            self.address, self.contract_name, self.function_name, formatted_args
+        )
+    }
+}
+
+impl StacksMessageCodec for TransactionContractCall {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.address)?;
+        write_next(fd, &self.contract_name)?;
+        write_next(fd, &self.function_name)?;
+        write_next(fd, &self.function_args)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionContractCall, codec_error> {
+        let address: StacksAddress = read_next(fd)?;
+        let contract_name: ContractName = read_next(fd)?;
+        let function_name: ClarityName = read_next(fd)?;
+        let function_args: Vec<Value> = {
+            let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_TRANSACTION_LEN));
+            read_next(&mut bound_read)
+        }?;
+
+        // function name must be valid Clarity variable
+        if !StacksString::from(function_name.clone()).is_clarity_variable() {
+            return Err(codec_error::DeserializeError(
+                "Failed to parse transaction: invalid function name -- not a Clarity variable"
+                    .to_string(),
+            ));
+        }
+
+        Ok(TransactionContractCall {
+            address,
+            contract_name,
+            function_name,
+            function_args,
+        })
+    }
+}
+
+/// A transaction that instantiates a smart contract
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransactionSmartContract {
+    pub name: ContractName,
+    pub code_body: StacksString,
+}
+
+impl StacksMessageCodec for TransactionSmartContract {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.name)?;
+        write_next(fd, &self.code_body)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionSmartContract, codec_error> {
+        let name: ContractName = read_next(fd)?;
+        let code_body: StacksString = read_next(fd)?;
+        Ok(TransactionSmartContract { name, code_body })
+    }
+}
+
+/// Encoding of an asset type identifier
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AssetInfo {
+    pub contract_address: StacksAddress,
+    pub contract_name: ContractName,
+    pub asset_name: ClarityName,
+}
+
+impl StacksMessageCodec for AssetInfo {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.contract_address)?;
+        write_next(fd, &self.contract_name)?;
+        write_next(fd, &self.asset_name)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<AssetInfo, codec_error> {
+        let contract_address: StacksAddress = read_next(fd)?;
+        let contract_name: ContractName = read_next(fd)?;
+        let asset_name: ClarityName = read_next(fd)?;
+        Ok(AssetInfo {
+            contract_address,
+            contract_name,
+            asset_name,
+        })
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+pub enum NonfungibleConditionCode {
+    Sent = 0x10,
+    NotSent = 0x11,
+    MaybeSent = 0x12,
+}
+
+impl NonfungibleConditionCode {
+    pub fn from_u8(b: u8) -> Option<NonfungibleConditionCode> {
+        match b {
+            0x10 => Some(NonfungibleConditionCode::Sent),
+            0x11 => Some(NonfungibleConditionCode::NotSent),
+            0x12 => Some(NonfungibleConditionCode::MaybeSent),
+            _ => None,
+        }
+    }
+
+    pub fn was_sent(nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
+        for asset_sent in nfts_sent.iter() {
+            if *asset_sent == *nft_sent_condition {
+                // asset was sent, and is no longer owned by this principal
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn check(&self, nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
+        match *self {
+            NonfungibleConditionCode::Sent => {
+                NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
+            }
+            NonfungibleConditionCode::NotSent => {
+                !NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
+            }
+            NonfungibleConditionCode::MaybeSent => {
+                // always true
+                true
+            }
+        }
+    }
+}
+
+/// Post-condition principal.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PostConditionPrincipal {
+    Origin,
+    Standard(StacksAddress),
+    Contract(StacksAddress, ContractName),
+}
+
+impl PostConditionPrincipal {
+    pub fn to_principal_data(&self, origin_principal: &PrincipalData) -> PrincipalData {
+        match *self {
+            PostConditionPrincipal::Origin => origin_principal.clone(),
+            PostConditionPrincipal::Standard(ref addr) => {
+                PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))
+            }
+            PostConditionPrincipal::Contract(ref addr, ref contract_name) => {
+                PrincipalData::Contract(QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr.clone()),
+                    contract_name.clone(),
+                ))
+            }
+        }
+    }
+}
+
+impl StacksMessageCodec for PostConditionPrincipal {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        match *self {
+            PostConditionPrincipal::Origin => {
+                write_next(fd, &(PostConditionPrincipalID::Origin as u8))?;
+            }
+            PostConditionPrincipal::Standard(ref address) => {
+                write_next(fd, &(PostConditionPrincipalID::Standard as u8))?;
+                write_next(fd, address)?;
+            }
+            PostConditionPrincipal::Contract(ref address, ref contract_name) => {
+                write_next(fd, &(PostConditionPrincipalID::Contract as u8))?;
+                write_next(fd, address)?;
+                write_next(fd, contract_name)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PostConditionPrincipal, codec_error> {
+        let principal_id: u8 = read_next(fd)?;
+        let principal = match principal_id {
+            x if x == PostConditionPrincipalID::Origin as u8 => PostConditionPrincipal::Origin,
+            x if x == PostConditionPrincipalID::Standard as u8 => {
+                let addr: StacksAddress = read_next(fd)?;
+                PostConditionPrincipal::Standard(addr)
+            }
+            x if x == PostConditionPrincipalID::Contract as u8 => {
+                let addr: StacksAddress = read_next(fd)?;
+                let contract_name: ContractName = read_next(fd)?;
+                PostConditionPrincipal::Contract(addr, contract_name)
+            }
+            _ => {
+                return Err(codec_error::DeserializeError(format!(
+                    "Failed to parse transaction: unknown post condition principal ID {}",
+                    principal_id
+                )));
+            }
+        };
+        Ok(principal)
+    }
+}
+
+/// Post-condition on a transaction
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TransactionPostCondition {
+    STX(PostConditionPrincipal, FungibleConditionCode, u64),
+    Fungible(
+        PostConditionPrincipal,
+        AssetInfo,
+        FungibleConditionCode,
+        u64,
+    ),
+    Nonfungible(
+        PostConditionPrincipal,
+        AssetInfo,
+        Value,
+        NonfungibleConditionCode,
+    ),
+}
+
+impl StacksMessageCodec for TransactionPostCondition {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        match *self {
+            TransactionPostCondition::STX(ref principal, ref fungible_condition, ref amount) => {
+                write_next(fd, &(AssetInfoID::STX as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, &(*fungible_condition as u8))?;
+                write_next(fd, amount)?;
+            }
+            TransactionPostCondition::Fungible(
+                ref principal,
+                ref asset_info,
+                ref fungible_condition,
+                ref amount,
+            ) => {
+                write_next(fd, &(AssetInfoID::FungibleAsset as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, asset_info)?;
+                write_next(fd, &(*fungible_condition as u8))?;
+                write_next(fd, amount)?;
+            }
+            TransactionPostCondition::Nonfungible(
+                ref principal,
+                ref asset_info,
+                ref asset_value,
+                ref nonfungible_condition,
+            ) => {
+                write_next(fd, &(AssetInfoID::NonfungibleAsset as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, asset_info)?;
+                write_next(fd, asset_value)?;
+                write_next(fd, &(*nonfungible_condition as u8))?;
+            }
+        };
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPostCondition, codec_error> {
+        let asset_info_id: u8 = read_next(fd)?;
+        let postcond = match asset_info_id {
+            x if x == AssetInfoID::STX as u8 => {
+                let principal: PostConditionPrincipal = read_next(fd)?;
+                let condition_u8: u8 = read_next(fd)?;
+                let amount: u64 = read_next(fd)?;
+
+                let condition_code = FungibleConditionCode::from_u8(condition_u8).ok_or(
+                    codec_error::DeserializeError(format!(
+                    "Failed to parse transaction: Failed to parse STX fungible condition code {}",
+                    condition_u8
+                )),
+                )?;
+
+                TransactionPostCondition::STX(principal, condition_code, amount)
+            }
+            x if x == AssetInfoID::FungibleAsset as u8 => {
+                let principal: PostConditionPrincipal = read_next(fd)?;
+                let asset: AssetInfo = read_next(fd)?;
+                let condition_u8: u8 = read_next(fd)?;
+                let amount: u64 = read_next(fd)?;
+
+                let condition_code = FungibleConditionCode::from_u8(condition_u8).ok_or(
+                    codec_error::DeserializeError(format!(
+                    "Failed to parse transaction: Failed to parse FungibleAsset condition code {}",
+                    condition_u8
+                )),
+                )?;
+
+                TransactionPostCondition::Fungible(principal, asset, condition_code, amount)
+            }
+            x if x == AssetInfoID::NonfungibleAsset as u8 => {
+                let principal: PostConditionPrincipal = read_next(fd)?;
+                let asset: AssetInfo = read_next(fd)?;
+                let asset_value: Value = read_next(fd)?;
+                let condition_u8: u8 = read_next(fd)?;
+
+                let condition_code = NonfungibleConditionCode::from_u8(condition_u8)
+                    .ok_or(codec_error::DeserializeError(format!("Failed to parse transaction: Failed to parse NonfungibleAsset condition code {}", condition_u8)))?;
+
+                TransactionPostCondition::Nonfungible(principal, asset, asset_value, condition_code)
+            }
+            _ => {
+                return Err(codec_error::DeserializeError(format!(
+                    "Failed to aprse transaction: unknown asset info ID {}",
+                    asset_info_id
+                )));
+            }
+        };
+
+        Ok(postcond)
+    }
+}
+
+/// Header structure for a microblock
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StacksMicroblockHeader {
+    pub version: u8,
+    pub sequence: u16,
+    pub prev_block: BlockHeaderHash,
+    pub tx_merkle_root: Sha512Trunc256Sum,
+    pub signature: MessageSignature,
+}
+
+impl StacksMessageCodec for StacksMicroblockHeader {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        self.serialize(fd, false)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblockHeader, codec_error> {
+        let version: u8 = read_next(fd)?;
+        let sequence: u16 = read_next(fd)?;
+        let prev_block: BlockHeaderHash = read_next(fd)?;
+        let tx_merkle_root: Sha512Trunc256Sum = read_next(fd)?;
+        let signature: MessageSignature = read_next(fd)?;
+
+        // signature must be well-formed
+        // in tests, we sometimes use invalid signatures
+        #[cfg(not(any(test, feature = "testing")))]
+        let _ = signature
+            .to_secp256k1_recoverable()
+            .ok_or(codec_error::DeserializeError(
+                "Failed to parse signature".to_string(),
+            ))?;
+
+        Ok(StacksMicroblockHeader {
+            version,
+            sequence,
+            prev_block,
+            tx_merkle_root,
+            signature,
+        })
+    }
+}
+
+impl StacksMicroblockHeader {
+    pub fn sign(&mut self, privk: &StacksPrivateKey) -> Result<(), AuthError> {
+        self.signature = MessageSignature::empty();
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes)
+            .expect("BUG: failed to serialize to a vec");
+
+        let digest = Sha512Trunc256Sum::from_data(&bytes[..]);
+        let sig = privk
+            .sign(digest.as_bytes())
+            .map_err(|se| AuthError::SigningError(se.to_string()))?;
+
+        self.signature = sig;
+        Ok(())
+    }
+
+    fn serialize<W: Write>(&self, fd: &mut W, empty_sig: bool) -> Result<(), codec_error> {
+        write_next(fd, &self.version)?;
+        write_next(fd, &self.sequence)?;
+        write_next(fd, &self.prev_block)?;
+        write_next(fd, &self.tx_merkle_root)?;
+        if empty_sig {
+            write_next(fd, &MessageSignature::empty())?;
+        } else {
+            write_next(fd, &self.signature)?;
+        }
+        Ok(())
+    }
+
+    pub fn check_recover_pubkey(&self) -> Result<Hash160, AuthError> {
+        let mut bytes = vec![];
+        self.serialize(&mut bytes, true)
+            .expect("BUG: failed to serialize to a vec");
+        let digest = Sha512Trunc256Sum::from_data(&bytes[..]);
+
+        let mut pubk = StacksPublicKey::recover_to_pubkey(digest.as_bytes(), &self.signature)
+            .map_err(|_ve| {
+                AuthError::VerifyingError(
+                    "Failed to verify signature: failed to recover public key".to_string(),
+                )
+            })?;
+
+        pubk.set_compressed(true);
+        Ok(Hash160::from_node_public_key(&pubk))
+    }
+
+    pub fn verify(&self, pubk_hash: &Hash160) -> Result<(), AuthError> {
+        let pubkh = self.check_recover_pubkey()?;
+
+        if pubkh != *pubk_hash {
+            return Err(AuthError::VerifyingError(format!(
+                "Failed to verify signature: public key did not recover to expected hash {}",
+                pubkh.to_hex()
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub fn block_hash(&self) -> BlockHeaderHash {
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes)
+            .expect("BUG: failed to serialize to a vec");
+        BlockHeaderHash::from_serialized_header(&bytes[..])
+    }
+
+    /// Create the first microblock header in a microblock stream.
+    /// The header will not be signed
+    pub fn first_unsigned(
+        parent_block_hash: &BlockHeaderHash,
+        tx_merkle_root: &Sha512Trunc256Sum,
+    ) -> StacksMicroblockHeader {
+        StacksMicroblockHeader {
+            version: 0,
+            sequence: 0,
+            prev_block: parent_block_hash.clone(),
+            tx_merkle_root: tx_merkle_root.clone(),
+            signature: MessageSignature::empty(),
+        }
+    }
+
+    /// Create the first microblock header in a microblock stream for an empty microblock stream.
+    /// The header will not be signed
+    pub fn first_empty_unsigned(parent_block_hash: &BlockHeaderHash) -> StacksMicroblockHeader {
+        StacksMicroblockHeader::first_unsigned(parent_block_hash, &Sha512Trunc256Sum([0u8; 32]))
+    }
+
+    /// Create an unsigned microblock header from its parent
+    /// Return an error on overflow
+    pub fn from_parent_unsigned(
+        parent_header: &StacksMicroblockHeader,
+        tx_merkle_root: &Sha512Trunc256Sum,
+    ) -> Option<StacksMicroblockHeader> {
+        let next_sequence = match parent_header.sequence.checked_add(1) {
+            Some(next) => next,
+            None => {
+                return None;
+            }
+        };
+
+        Some(StacksMicroblockHeader {
+            version: 0,
+            sequence: next_sequence,
+            prev_block: parent_header.block_hash(),
+            tx_merkle_root: tx_merkle_root.clone(),
+            signature: MessageSignature::empty(),
+        })
     }
 }

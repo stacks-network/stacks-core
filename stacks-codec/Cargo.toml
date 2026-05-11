@@ -19,3 +19,7 @@ stacks-common = { path = "../stacks-common", default-features = false }
 clarity-types = { path = "../clarity-types", default-features = false }
 serde = { workspace = true, features = ["derive"] }
 
+[features]
+default = []
+testing = ["stacks-common/testing", "clarity-types/testing"]
+

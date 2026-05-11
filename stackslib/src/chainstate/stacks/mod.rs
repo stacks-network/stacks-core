@@ -20,7 +20,9 @@ use std::{error, fmt, io};
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::VmExecutionError;
-use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::representations::ClarityName;
+#[cfg(test)]
+use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
@@ -33,9 +35,11 @@ use serde_json::json;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::Error as codec_error;
 #[cfg(test)]
+use stacks_common::types::chainstate::StacksAddress;
+#[cfg(test)]
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore, TrieHash,
 };
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
@@ -73,8 +77,7 @@ pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 pub const STACKS_BLOCK_VERSION: u8 = 7;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
-pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
-pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
+pub use stacks_codec::transaction::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 
 #[derive(Debug)]
 pub enum Error {
@@ -395,38 +398,16 @@ impl Error {
     }
 }
 
-/// A transaction that calls into a smart contract
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TransactionContractCall {
-    pub address: StacksAddress,
-    pub contract_name: ContractName,
-    pub function_name: ClarityName,
-    pub function_args: Vec<Value>,
-}
-
-impl TransactionContractCall {
-    pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
-        let standard_principal = StandardPrincipalData::from(self.address.clone());
-        QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
-    }
-}
-
-/// A transaction that instantiates a smart contract
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TransactionSmartContract {
-    pub name: ContractName,
-    pub code_body: StacksString,
-}
-
 pub use stacks_codec::transaction::{
-    AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
-    MultisigSpendingCondition, OrderIndependentMultisigHashMode,
-    OrderIndependentMultisigSpendingCondition, PostConditionPrincipalID, SinglesigHashMode,
-    SinglesigSpendingCondition, TenureChangeCause, TenureChangeError, TenureChangePayload,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionAuthField,
-    TransactionAuthFieldID, TransactionAuthFlags, TransactionPayloadID,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
-    TransactionVersion,
+    AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
+    MultisigSpendingCondition, NonfungibleConditionCode, OrderIndependentMultisigHashMode,
+    OrderIndependentMultisigSpendingCondition, PostConditionPrincipal, PostConditionPrincipalID,
+    SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader, TenureChangeCause,
+    TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
+    TransactionContractCall, TransactionPayloadID, TransactionPostCondition,
+    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
+    TransactionSpendingCondition, TransactionVersion,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -471,101 +452,6 @@ impl TransactionPayload {
             },
         }
     }
-}
-
-/// Encoding of an asset type identifier
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AssetInfo {
-    pub contract_address: StacksAddress,
-    pub contract_name: ContractName,
-    pub asset_name: ClarityName,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum NonfungibleConditionCode {
-    Sent = 0x10,
-    NotSent = 0x11,
-    MaybeSent = 0x12,
-}
-
-impl NonfungibleConditionCode {
-    pub fn from_u8(b: u8) -> Option<NonfungibleConditionCode> {
-        match b {
-            0x10 => Some(NonfungibleConditionCode::Sent),
-            0x11 => Some(NonfungibleConditionCode::NotSent),
-            0x12 => Some(NonfungibleConditionCode::MaybeSent),
-            _ => None,
-        }
-    }
-
-    pub fn was_sent(nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
-        for asset_sent in nfts_sent.iter() {
-            if *asset_sent == *nft_sent_condition {
-                // asset was sent, and is no longer owned by this principal
-                return true;
-            }
-        }
-        return false;
-    }
-
-    pub fn check(&self, nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
-        match *self {
-            NonfungibleConditionCode::Sent => {
-                NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
-            }
-            NonfungibleConditionCode::NotSent => {
-                !NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
-            }
-            NonfungibleConditionCode::MaybeSent => {
-                // always true
-                true
-            }
-        }
-    }
-}
-
-/// Post-condition principal.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum PostConditionPrincipal {
-    Origin,
-    Standard(StacksAddress),
-    Contract(StacksAddress, ContractName),
-}
-
-impl PostConditionPrincipal {
-    pub fn to_principal_data(&self, origin_principal: &PrincipalData) -> PrincipalData {
-        match *self {
-            PostConditionPrincipal::Origin => origin_principal.clone(),
-            PostConditionPrincipal::Standard(ref addr) => {
-                PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))
-            }
-            PostConditionPrincipal::Contract(ref addr, ref contract_name) => {
-                PrincipalData::Contract(QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(addr.clone()),
-                    contract_name.clone(),
-                ))
-            }
-        }
-    }
-}
-
-/// Post-condition on a transaction
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionPostCondition {
-    STX(PostConditionPrincipal, FungibleConditionCode, u64),
-    Fungible(
-        PostConditionPrincipal,
-        AssetInfo,
-        FungibleConditionCode,
-        u64,
-    ),
-    Nonfungible(
-        PostConditionPrincipal,
-        AssetInfo,
-        Value,
-        NonfungibleConditionCode,
-    ),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -616,16 +502,6 @@ pub struct StacksBlockHeader {
     pub tx_merkle_root: Sha512Trunc256Sum,
     pub state_index_root: TrieHash,
     pub microblock_pubkey_hash: Hash160, // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
-}
-
-/// Header structure for a microblock
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StacksMicroblockHeader {
-    pub version: u8,
-    pub sequence: u16,
-    pub prev_block: BlockHeaderHash,
-    pub tx_merkle_root: Sha512Trunc256Sum,
-    pub signature: MessageSignature,
 }
 
 // values a miner uses to produce the next block
