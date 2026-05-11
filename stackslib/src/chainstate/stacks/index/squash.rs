@@ -35,7 +35,7 @@ use crate::chainstate::stacks::index::bits::{
     update_inline_child_ptrs, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::marf::{
-    MARFOpenOpts, MarfConnection, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
+    MARFOpenOpts, MarfConnection as _, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
 };
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID,
@@ -247,13 +247,62 @@ pub(crate) fn deserialize_node<R: std::io::Read>(r: &mut R) -> Result<TrieNodeTy
     }
 }
 
+/// `Write`/`Seek` adapter that keeps the current stream position in memory.
+struct CountingWriter<W> {
+    inner: W,
+    offset: u64,
+}
+
+impl<W> CountingWriter<W> {
+    /// Create a writer whose inner stream is known to be positioned at 0.
+    fn new(inner: W) -> Self {
+        Self { inner, offset: 0 }
+    }
+
+    /// Create a writer whose current position is already known.
+    fn with_position(inner: W, offset: u64) -> Self {
+        Self { inner, offset }
+    }
+
+    fn position(&self) -> u64 {
+        self.offset
+    }
+}
+
+impl<W: Write> Write for CountingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(buf)?;
+        self.offset = self
+            .offset
+            .checked_add(written as u64)
+            .ok_or_else(|| std::io::Error::other("CountingWriter offset overflow"))?;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<W: Seek> Seek for CountingWriter<W> {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let offset = self.inner.seek(pos)?;
+        self.offset = offset;
+        Ok(offset)
+    }
+
+    fn stream_position(&mut self) -> std::io::Result<u64> {
+        Ok(self.offset)
+    }
+}
+
 /// Disk-backed store for collected trie nodes.
 ///
 /// Full node data is serialized to a temporary file. Only lightweight
 /// per-node metadata (hash, block_id, file offset) is kept in memory.
 pub(crate) struct NodeStore {
     /// Temp file holding serialized nodes (write handle).
-    writer: BufWriter<File>,
+    writer: CountingWriter<BufWriter<File>>,
     /// Path to the temp file (for re-opening as reader).
     pub(crate) path: std::path::PathBuf,
     /// Byte offset in the temp file for each node.
@@ -278,7 +327,7 @@ impl NodeStore {
             match File::options().write(true).create_new(true).open(&path) {
                 Ok(file) => {
                     return Ok(NodeStore {
-                        writer: BufWriter::with_capacity(1 << 20, file),
+                        writer: CountingWriter::new(BufWriter::with_capacity(1 << 20, file)),
                         path,
                         file_offsets: Vec::new(),
                         hashes: Vec::new(),
@@ -307,8 +356,8 @@ impl NodeStore {
         block_id: u32,
     ) -> Result<usize, Error> {
         let idx = self.file_offsets.len();
-        let offset = self.writer.stream_position().map_err(Error::IOError)?;
-        self.file_offsets.push(offset);
+
+        self.file_offsets.push(self.writer.position());
         self.hashes.push(hash);
         self.block_ids.push(block_id);
         serialize_node(&mut self.writer, node)?;
@@ -562,6 +611,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
 
     // Record the base offset so all writes are relative to blob start.
     let base = sink.stream_position().map_err(Error::IOError)?;
+    let mut sink = CountingWriter::with_position(sink, base);
     let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
 
     let root_node = store.read_node_with(&mut reader, 0)?;
@@ -592,7 +642,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
     // descendants writes children before parents, so parent pointer remapping
     // never needs a fixpoint pass.
     for idx in (1..n).rev() {
-        let current = sink.stream_position().map_err(Error::IOError)?;
+        let current = sink.position();
         *blob_offsets
             .get_mut(idx)
             .ok_or_else(|| Error::CorruptionError("blob offset index out of bounds".into()))? =
@@ -606,10 +656,10 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
             update_inline_child_ptrs(node.ptrs_mut(), &blob_offsets)?;
         }
 
-        write_nodetype_bytes(sink, &node, hash)?;
+        write_nodetype_bytes(&mut sink, &node, hash)?;
     }
 
-    let end = sink.stream_position().map_err(Error::IOError)?;
+    let end = sink.position();
     let total_size = end.checked_sub(base).ok_or(Error::OverflowError)?;
 
     // Write the root into its reserved slot.
@@ -625,7 +675,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
         base.checked_add(header_size).ok_or(Error::OverflowError)?,
     ))
     .map_err(Error::IOError)?;
-    let root_written = write_nodetype_bytes(sink, &root_node, store.hash(0))?;
+    let root_written = write_nodetype_bytes(&mut sink, &root_node, store.hash(0))?;
     debug_assert!(
         root_written <= root_reserved_size,
         "root wrote {root_written} bytes but only {root_reserved_size} were reserved"
