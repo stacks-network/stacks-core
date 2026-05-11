@@ -731,7 +731,7 @@ impl StacksTransaction {
 
     /// set sponsor nonce
     pub fn set_sponsor_nonce(&mut self, n: u64) -> Result<(), Error> {
-        self.auth.set_sponsor_nonce(n)
+        self.auth.set_sponsor_nonce(n).map_err(Into::into)
     }
 
     /// Set anchor mode
@@ -938,13 +938,15 @@ impl StacksTransaction {
 
     /// Verify this transaction's signatures
     pub fn verify(&self) -> Result<(), net_error> {
-        self.auth.verify(&self.verify_begin())
+        self.auth.verify(&self.verify_begin()).map_err(Into::into)
     }
 
     /// Verify the transaction's origin signatures only.
     /// Used by sponsors to get the next sig-hash to sign.
     pub fn verify_origin(&self) -> Result<Txid, net_error> {
-        self.auth.verify_origin(&self.verify_begin())
+        self.auth
+            .verify_origin(&self.verify_begin())
+            .map_err(Into::into)
     }
 
     /// Get the origin account's address

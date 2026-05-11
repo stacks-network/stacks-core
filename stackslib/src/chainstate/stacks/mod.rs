@@ -154,6 +154,17 @@ impl From<codec_error> for Error {
     }
 }
 
+impl From<AuthError> for Error {
+    fn from(e: AuthError) -> Error {
+        match e {
+            AuthError::IncompatibleSpendingConditionError => {
+                Error::IncompatibleSpendingConditionError
+            }
+            other => Error::NetError(other.into()),
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -384,13 +395,6 @@ impl Error {
     }
 }
 
-/// Types of transaction authorizations
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionAuth {
-    Standard(TransactionSpendingCondition),
-    Sponsored(TransactionSpendingCondition, TransactionSpendingCondition), // the second account pays on behalf of the first account
-}
-
 /// A transaction that calls into a smart contract
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionContractCall {
@@ -419,9 +423,10 @@ pub use stacks_codec::transaction::{
     MultisigSpendingCondition, OrderIndependentMultisigHashMode,
     OrderIndependentMultisigSpendingCondition, PostConditionPrincipalID, SinglesigHashMode,
     SinglesigSpendingCondition, TenureChangeCause, TenureChangeError, TenureChangePayload,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuthField, TransactionAuthFieldID,
-    TransactionAuthFlags, TransactionPayloadID, TransactionPostConditionMode,
-    TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionVersion,
+    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionAuthField,
+    TransactionAuthFieldID, TransactionAuthFlags, TransactionPayloadID,
+    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
+    TransactionVersion,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
