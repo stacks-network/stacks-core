@@ -405,54 +405,10 @@ pub use stacks_codec::transaction::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader, TenureChangeCause,
     TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
     TransactionAuth, TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
-    TransactionContractCall, TransactionPayloadID, TransactionPostCondition,
+    TransactionContractCall, TransactionPayload, TransactionPayloadID, TransactionPostCondition,
     TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
     TransactionSpendingCondition, TransactionVersion,
 };
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionPayload {
-    TokenTransfer(PrincipalData, u64, TokenTransferMemo),
-    ContractCall(TransactionContractCall),
-    SmartContract(TransactionSmartContract, Option<ClarityVersion>),
-    // the previous epoch leader sent two microblocks with the same sequence, and this is proof
-    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
-    Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
-    TenureChange(TenureChangePayload),
-}
-
-impl TransactionPayload {
-    pub fn name(&self) -> &'static str {
-        match self {
-            TransactionPayload::TokenTransfer(..) => "TokenTransfer",
-            TransactionPayload::ContractCall(..) => "ContractCall",
-            TransactionPayload::SmartContract(_, version_opt) => {
-                if version_opt.is_some() {
-                    "SmartContract(Versioned)"
-                } else {
-                    "SmartContract"
-                }
-            }
-            TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
-            TransactionPayload::Coinbase(_, _, vrf_opt) => {
-                if vrf_opt.is_some() {
-                    "Coinbase(Nakamoto)"
-                } else {
-                    "Coinbase"
-                }
-            }
-            TransactionPayload::TenureChange(payload) => match payload.cause {
-                TenureChangeCause::BlockFound => "TenureChange(BlockFound)",
-                TenureChangeCause::Extended => "TenureChange(ExtendAll)",
-                TenureChangeCause::ExtendedRuntime => "TenureChange(ExtendRuntime)",
-                TenureChangeCause::ExtendedReadCount => "TenureChange(ExtendReadCount)",
-                TenureChangeCause::ExtendedReadLength => "TenureChange(ExtendReadLength)",
-                TenureChangeCause::ExtendedWriteCount => "TenureChange(ExtendWriteCount)",
-                TenureChangeCause::ExtendedWriteLength => "TenureChange(ExtendWriteLength)",
-            },
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StacksTransaction {
