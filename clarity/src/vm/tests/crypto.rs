@@ -13,10 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use pinny::tag;
+use proptest::collection::vec;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::ed25519::{Ed25519PrivateKey, Ed25519PublicKey, MessageSignature};
+use stacks_common::util::ed25519::{self, Ed25519PrivateKey, Ed25519PublicKey, MessageSignature};
 use stacks_common::util::hash::{Sha256Sum, to_hex};
 use stacks_common::util::secp256k1::MessageSignature as Secp256k1Signature;
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
@@ -1119,5 +1120,36 @@ proptest! {
         .expect("should return a value");
 
         prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_ed25519_verify_accepts_valid_signatures(
+        seed in any::<[u8; 32]>(),
+        message_bytes in vec(any::<u8>(), 0..1024)
+    ) {
+        let privk = Ed25519PrivateKey::from_seed(&seed);
+        let pubk = Ed25519PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes();
+
+        let signature: ed25519::MessageSignature = privk.sign(&message_bytes).expect("ed25519 signing should succeed");
+        let signature_bytes = signature.to_bytes();
+        let program = format!(
+            "(ed25519-verify {} {} {})",
+            buff_literal(&message_bytes),
+            buff_literal(&signature_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(true), result);
     }
 }
