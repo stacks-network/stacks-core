@@ -396,15 +396,14 @@ impl Drop for NodeStore {
 /// pointers from source (block_id, offset) to sequential indices, and
 /// writes the modified node back.
 ///
-/// When `block_id_map` is `Some`, each child's `back_block` is set to the
-/// squashed equivalent of its origin block (needed for the real squash blob
-/// so that COW and hash computation preserve block identity). When `None`,
-/// `back_block` is zeroed (used by `recompute_squash_root_node_hash` where
-/// block identity is irrelevant).
+/// Each child's `back_block` is set to the squashed equivalent of its origin
+/// block via `block_id_map`. The annotation is needed for the squash blob so
+/// that COW and hash computation preserve block identity when the squashed
+/// MARF is later extended.
 fn remap_child_ptrs(
     store: &mut NodeStore,
     source_to_idx: &HashMap<(u32, u64), usize>,
-    block_id_map: Option<&HashMap<u32, u32>>,
+    block_id_map: &HashMap<u32, u32>,
     label: &str,
 ) -> Result<(), Error> {
     let remap_start = Instant::now();
@@ -450,14 +449,11 @@ fn remap_child_ptrs(
             ptr.ptr = child_idx as u64;
             ptr.id = clear_backptr(ptr.id);
 
-            ptr.back_block = match block_id_map {
-                Some(map) => *map.get(&child_block_id).ok_or_else(|| {
-                    Error::CorruptionError(format!(
-                        "remap_child_ptrs: block_id {child_block_id} not in block_id_map"
-                    ))
-                })?,
-                None => 0,
-            };
+            ptr.back_block = *block_id_map.get(&child_block_id).ok_or_else(|| {
+                Error::CorruptionError(format!(
+                    "remap_child_ptrs: block_id {child_block_id} not in block_id_map"
+                ))
+            })?;
             modified = true;
         }
 
@@ -542,7 +538,7 @@ fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Error> {
 /// Stream the squash blob into an arbitrary `Write + Seek` sink.
 ///
 /// Reads nodes one-at-a-time from the NodeStore temp file and serializes them
-/// directly into `sink`. 
+/// directly into `sink`.
 ///
 /// This mirrors `TrieRAM::dump_consume`: reserve worst-case root space at the
 /// front of the blob, write descendants in child-before-parent order so child
@@ -765,7 +761,7 @@ fn collect_block_map<T: MarfTrieId>(src: &MARF<T>) -> Result<HashMap<T, (u32, u6
 /// walk + direct blob seek.
 fn collect_per_height_metadata<T: MarfTrieId>(
     src: &mut MARF<T>,
-    source_tip: &T,
+    tip: &T,
     block_map: &HashMap<T, (u32, u64)>,
     blob_reader: &mut BlobReader,
     height: u32,
@@ -778,7 +774,7 @@ fn collect_per_height_metadata<T: MarfTrieId>(
     for h in 0..=height {
         let h_key = format!("{BLOCK_HEIGHT_TO_HASH_MAPPING_KEY}::{h}");
         let val = src
-            .with_conn(|conn| MARF::<T>::get_by_key(conn, source_tip, &h_key))?
+            .with_conn(|conn| MARF::<T>::get_by_key(conn, tip, &h_key))?
             .ok_or_else(|| {
                 Error::CorruptionError(format!("Missing height mapping for height {h}"))
             })?;
@@ -940,6 +936,7 @@ impl<T: MarfTrieId> MARF<T> {
         src_path: &str,
         dst_path: &str,
         open_opts: MARFOpenOpts,
+        tip: &T,
         height: u32,
         label: &str,
     ) -> Result<SquashStats, Error> {
@@ -965,9 +962,8 @@ impl<T: MarfTrieId> MARF<T> {
         let src_storage = TrieFileStorage::open_readonly(src_path, open_opts.clone())?;
         let mut src = MARF::from_storage(src_storage);
 
-        let tip = trie_sql::get_latest_confirmed_block_hash::<T>(src.sqlite_conn())?;
         let block_at_height = src
-            .get_block_at_height(height, &tip)?
+            .get_block_at_height(height, tip)?
             .ok_or(Error::NotFoundError)?;
 
         let start = Instant::now();
@@ -986,7 +982,7 @@ impl<T: MarfTrieId> MARF<T> {
         let mut blob_reader = BlobReader::new(src_path, open_opts.external_blobs)?;
         let block_info = collect_per_height_metadata(
             &mut src,
-            &tip,
+            tip,
             &block_map,
             &mut blob_reader,
             height,
@@ -1012,11 +1008,11 @@ impl<T: MarfTrieId> MARF<T> {
             fmt_duration(start.elapsed())
         );
 
-        let mut dst_open_opts = open_opts.clone();
+        let mut dst_open_opts = open_opts;
         dst_open_opts.external_blobs = true;
 
         // Open destination MARF and begin transaction
-        let mut dst = MARF::from_path(dst_path, dst_open_opts.clone())?;
+        let mut dst = MARF::from_path(dst_path, dst_open_opts)?;
         let mut tx = dst.begin_tx()?;
         tx.begin(&T::sentinel(), &block_at_height)?;
 
@@ -1071,7 +1067,7 @@ impl<T: MarfTrieId> MARF<T> {
         remap_child_ptrs(
             &mut node_store,
             &source_to_idx,
-            Some(&archival_to_squashed),
+            &archival_to_squashed,
             label,
         )?;
         info!(
