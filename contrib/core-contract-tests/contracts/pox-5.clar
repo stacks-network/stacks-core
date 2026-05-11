@@ -40,6 +40,10 @@
 (define-constant ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK (err u35))
 ;; The argument provided does not match the staker's signer
 (define-constant ERR_INVALID_OLD_SIGNER_MANAGER (err u36))
+;; The amount of sats provided to unstake is invalid
+(define-constant ERR_INVALID_UNSTAKE_SBTC_AMOUNT (err u37))
+;; The bond participant did not stake sBTC
+(define-constant ERR_CANNOT_UNSTAKE_SBTC (err u38))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -347,7 +351,7 @@
 (define-data-var reserve-balance uint u0)
 
 ;; The total amount of sBTC staked
-(define-data-var total-sats-staked uint u0)
+(define-data-var total-sbtc-staked uint u0)
 
 (define-trait signer-manager-trait (
     (validate-stake!
@@ -541,7 +545,6 @@
                 ERR_NOT_ALLOWLISTED
             ))
             (first-reward-cycle (bond-period-to-reward-cycle bond-index))
-            ;; (current-staked (get-total-sats-staked-for-bond bond-index))
             (current-total-staked (get-total-shares-staked-for-cycle bond-index true))
             (current-signer-staked (get-signer-shares-staked-for-cycle signer bond-index true))
         )
@@ -915,6 +918,8 @@
             (current-total-shares (get-total-shares-staked-for-cycle bond-index true))
             (current-shares (get-signer-shares-staked-for-cycle signer bond-index true))
         )
+        ;; Only the early unlock admin for this bond period can call this function.
+        ;; Calling via other contracts is not allowed.
         (asserts!
             (and (is-eq contract-caller tx-sender) (is-eq contract-caller (get early-unlock-admin bond)))
             ERR_UNAUTHORIZED
@@ -955,6 +960,93 @@
             (- current-total-shares amount-sats)
         )
         (ok true)
+    )
+)
+
+;; As a bond participant with locked sBTC, remove a portion (or all)
+;; of your locked sBTC.
+(define-public (unstake-sbtc
+        (signer-manager <signer-manager-trait>)
+        (amount-to-withdrawal-sats uint)
+    )
+    (let (
+            (staker tx-sender)
+            (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
+            (bond-index (get bond-index membership))
+            (signer (get signer membership))
+            (current-amount-sats (get-staker-shares-staked-for-cycle staker bond-index true signer))
+            (current-total-shares (get-total-shares-staked-for-cycle bond-index true))
+            (current-shares (get-signer-shares-staked-for-cycle signer bond-index true))
+            (current-total-sbtc-staked (get-total-sbtc-staked))
+            ;; Cannot withdrawal more than they've staked
+            (new-amount-sats (try! (if (<= amount-to-withdrawal-sats current-amount-sats)
+
+                (ok (- current-amount-sats amount-to-withdrawal-sats))
+                ERR_INVALID_UNSTAKE_SBTC_AMOUNT
+            )))
+        )
+        ;; `signer-manager` must match the current signer
+        (asserts! (is-eq (contract-of signer-manager) signer)
+            ERR_INVALID_OLD_SIGNER_MANAGER
+        )
+
+        ;; Must be an sBTC lock
+        (asserts! (not (get is-l1-lock membership)) ERR_CANNOT_UNSTAKE_SBTC)
+
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (check-caller-allowed))
+
+        ;; Call `signer-manager`, and allow them to snapshot current
+        ;; data before updating. Do not throw any errors.
+        (match (contract-call? signer-manager checkpoint-staker staker bond-index u1
+            true
+        )
+            ok-val ok-val
+            err-val true
+        )
+
+        ;; Take a snapshot of the signer's current rewards
+        (crystallize-rewards signer bond-index true)
+
+        (map-set staker-shares-staked-for-cycle {
+            is-bond: true,
+            staker: staker,
+            signer: signer,
+            index: bond-index,
+        }
+            new-amount-sats
+        )
+        (map-set signer-shares-staked-for-cycle {
+            is-bond: true,
+            signer: signer,
+            index: bond-index,
+        }
+            (- current-shares amount-to-withdrawal-sats)
+        )
+        (map-set total-shares-staked-for-cycle {
+            is-bond: true,
+            index: bond-index,
+        }
+            (- current-total-shares amount-to-withdrawal-sats)
+        )
+        (var-set total-sbtc-staked
+            (- current-total-sbtc-staked amount-to-withdrawal-sats)
+        )
+
+        (try! (as-contract?
+            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                "sbtc-token" amount-to-withdrawal-sats
+            ))
+            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                transfer amount-to-withdrawal-sats tx-sender staker none
+            ))
+        ))
+
+        (ok {
+            staker: staker,
+            signer: signer,
+            new-amount-sats: new-amount-sats,
+        })
     )
 )
 
@@ -1309,7 +1401,7 @@
         (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
             transfer amount tx-sender current-contract none
         ))
-        (var-set total-sats-staked (+ (var-get total-sats-staked) amount))
+        (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) amount))
         (ok amount)
     )
 )
@@ -1381,7 +1473,7 @@
 (define-read-only (get-rewards)
     (let (
             (cur-reserve (var-get reserve-balance))
-            (total-staked-sbtc (get-total-sats-staked))
+            (total-staked-sbtc (get-total-sbtc-staked))
             (current-balance (unwrap-panic (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 get-balance current-contract
             )))
@@ -2104,7 +2196,7 @@
     (map-get? signers staker)
 )
 
-(define-read-only (get-total-sats-staked-for-bond (bond-index uint))
+(define-read-only (get-total-sbtc-staked-for-bond (bond-index uint))
     (default-to u0 (map-get? protocol-bonds-total-staked bond-index))
 )
 
@@ -2211,8 +2303,8 @@
     (var-get reserve-balance)
 )
 
-(define-read-only (get-total-sats-staked)
-    (var-get total-sats-staked)
+(define-read-only (get-total-sbtc-staked)
+    (var-get total-sbtc-staked)
 )
 
 (define-read-only (get-last-accounted-rewards-only)

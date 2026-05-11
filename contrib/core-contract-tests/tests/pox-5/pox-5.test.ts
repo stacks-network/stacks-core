@@ -1362,6 +1362,325 @@ test('l1 early exit does not erase already accrued bond rewards', () => {
   expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1200n);
 });
 
+test('sbtc bond participant can partially unstake and only earns on remaining sats', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 480000n;
+  const unstakedSbtc = 120000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: unstakedSbtc,
+    }),
+    alice,
+  );
+
+  const remainingSbtc = aliceSbtc - unstakedSbtc;
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
+    remainingSbtc,
+  );
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer, 0n, true))).toBe(
+    remainingSbtc,
+  );
+  expect(rov(pox5.getTotalSharesStakedForCycle(0n, true))).toBe(remainingSbtc);
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(remainingSbtc);
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(900n);
+});
+
+test('sbtc unstake preserves already accrued rewards', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 480000n;
+  const unstakedSbtc = 240000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1200n);
+
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: unstakedSbtc,
+    }),
+    alice,
+  );
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1200n);
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(1800n);
+});
+
+test('sbtc bond participant can fully unstake and stops earning bond rewards', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 480000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: aliceSbtc,
+    }),
+    alice,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
+    0n,
+  );
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(0n);
+  expect(rov(pox5.getAmountDelegatedForSigner(signer, 1n))).toBe(
+    stxToUStx(50_000),
+  );
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getEarned(signer, 0n, true))).toBe(0n);
+});
+
+test('sbtc unstake rejects invalid signer, l1 bonds, and excess withdrawal', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('unstake-sbtc-invalid-signer-2').identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [
+        { maxSats: aliceSbtc, staker: alice },
+        { maxSats: aliceSbtc, staker: bob },
+      ],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: ok({
+        outputs: [
+          { amount: aliceSbtc, txid: new Uint8Array(32), outputIndex: 0n },
+        ],
+        unlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  expect(
+    txErr(
+      pox5.unstakeSbtc({
+        signerManager: signer2,
+        amountToWithdrawalSats: 1n,
+      }),
+      alice,
+    ).value,
+  ).toBe(errorCodes.ERR_INVALID_OLD_SIGNER_MANAGER);
+  expect(
+    txErr(
+      pox5.unstakeSbtc({
+        signerManager: signer1,
+        amountToWithdrawalSats: aliceSbtc + 1n,
+      }),
+      alice,
+    ).value,
+  ).toBe(errorCodes.ERR_INVALID_UNSTAKE_SBTC_AMOUNT);
+  expect(
+    txErr(
+      pox5.unstakeSbtc({
+        signerManager: signer1,
+        amountToWithdrawalSats: 1n,
+      }),
+      bob,
+    ).value,
+  ).toBe(errorCodes.ERR_CANNOT_UNSTAKE_SBTC);
+});
+
+test('sbtc unstake returns withdrawn sats to the staker', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+  const unstakedSbtc = 25000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  const aliceBalance = sbtcBalance(alice);
+  const signerBalance = sbtcBalance(signer);
+  const unstake = txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: unstakedSbtc,
+    }),
+    alice,
+  );
+  const [transferEvent] = filterEvents(
+    unstake.events,
+    CoreNodeEventType.FtTransferEvent,
+  );
+
+  expect(transferEvent.data.sender).toBe(pox5.identifier);
+  expect(transferEvent.data.recipient).toBe(alice);
+  expect(transferEvent.data.amount).toBe(unstakedSbtc.toString());
+  expect(sbtcBalance(alice)).toBe(aliceBalance + unstakedSbtc);
+  expect(sbtcBalance(signer)).toBe(signerBalance);
+});
+
 test('bond participant can update signer before bond starts', () => {
   const signer1 = testSigner.identifier;
   const signer2 = deployTestSigner(
@@ -1794,7 +2113,7 @@ test('scenario - waterfall distributions', () => {
     bob,
   );
 
-  expect(rov(pox5.getTotalSatsStaked(0n))).toBe(aliceSbtc + bobSbtc);
+  expect(rov(pox5.getTotalSbtcStaked(0n))).toBe(aliceSbtc + bobSbtc);
 
   const charlieStake = stxToUStx(25_000);
   const daveStake = stxToUStx(50_000);

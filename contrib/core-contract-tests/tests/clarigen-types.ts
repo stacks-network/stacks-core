@@ -4863,6 +4863,44 @@ export const contracts = {
           bigint
         >
       >,
+      unstakeSbtc: {
+        name: 'unstake-sbtc',
+        access: 'public',
+        args: [
+          { name: 'signer-manager', type: 'trait_reference' },
+          { name: 'amount-to-withdrawal-sats', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'new-amount-sats', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          signerManager: TypedAbiArg<string, 'signerManager'>,
+          amountToWithdrawalSats: TypedAbiArg<
+            number | bigint,
+            'amountToWithdrawalSats'
+          >,
+        ],
+        Response<
+          {
+            newAmountSats: bigint;
+            signer: string;
+            staker: string;
+          },
+          bigint
+        >
+      >,
       updateBondRegistration: {
         name: 'update-bond-registration',
         access: 'public',
@@ -5400,14 +5438,14 @@ export const contracts = {
         ],
         bigint
       >,
-      getTotalSatsStaked: {
-        name: 'get-total-sats-staked',
+      getTotalSbtcStaked: {
+        name: 'get-total-sbtc-staked',
         access: 'read_only',
         args: [],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<[], bigint>,
-      getTotalSatsStakedForBond: {
-        name: 'get-total-sats-staked-for-bond',
+      getTotalSbtcStakedForBond: {
+        name: 'get-total-sbtc-staked-for-bond',
         access: 'read_only',
         args: [{ name: 'bond-index', type: 'uint128' }],
         outputs: { type: 'uint128' },
@@ -6010,6 +6048,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_CANNOT_UNSTAKE_SBTC: {
+        name: 'ERR_CANNOT_UNSTAKE_SBTC',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_DISTRIBUTION_ALREADY_COMPUTED: {
         name: 'ERR_DISTRIBUTION_ALREADY_COMPUTED',
         type: {
@@ -6092,6 +6140,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_START_BURN_HEIGHT: {
         name: 'ERR_INVALID_START_BURN_HEIGHT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
+        name: 'ERR_INVALID_UNSTAKE_SBTC_AMOUNT',
         type: {
           response: {
             ok: 'none',
@@ -6424,8 +6482,8 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
-      totalSatsStaked: {
-        name: 'total-sats-staked',
+      totalSbtcStaked: {
+        name: 'total-sbtc-staked',
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
@@ -6469,6 +6527,10 @@ export const contracts = {
         isOk: false,
         value: 2n,
       },
+      ERR_CANNOT_UNSTAKE_SBTC: {
+        isOk: false,
+        value: 38n,
+      },
       ERR_DISTRIBUTION_ALREADY_COMPUTED: {
         isOk: false,
         value: 30n,
@@ -6504,6 +6566,10 @@ export const contracts = {
       ERR_INVALID_START_BURN_HEIGHT: {
         isOk: false,
         value: 24n,
+      },
+      ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
+        isOk: false,
+        value: 37n,
       },
       eRR_L1_LOCKUP_NOT_FOUND: {
         isOk: false,
@@ -6602,7 +6668,7 @@ export const contracts = {
       poxPrepareCycleLength: 50n,
       poxRewardCycleLength: 1_050n,
       reserveBalance: 0n,
-      totalSatsStaked: 0n,
+      totalSbtcStaked: 0n,
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
