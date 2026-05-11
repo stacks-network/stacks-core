@@ -19,7 +19,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use super::chainstate::{StacksAddress, VRFSeed};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId, TrieHash, Txid,
 };
 use crate::util::hash::{Hash160, Sha512Trunc256Sum};
 use crate::util::secp256k1::MessageSignature;
@@ -62,3 +62,4 @@ impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
 impl_byte_array_rusqlite_only!(MessageSignature);
 impl_byte_array_rusqlite_only!(SortitionId);
 impl_byte_array_rusqlite_only!(StacksBlockId);
+impl_byte_array_rusqlite_only!(Txid);
