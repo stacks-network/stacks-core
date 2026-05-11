@@ -1144,6 +1144,20 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<Option<TrieLeaf>, Error> {
         trace!("MARF::get_path({block_hash:?}) {path:?}");
 
+        // In a squashed MARF, blocks below the squash height share the same blob, so reject
+        // historical reads from them.
+        if let Some(squash_height) = storage.squash_info().map(|info| info.height) {
+            if let Some(h) = trie_sql::read_squash_block_height(storage.sqlite_conn(), block_hash)?
+            {
+                if h < squash_height {
+                    return Err(Error::HistoricalReadInSquashedRange {
+                        block_height: h,
+                        squash_height,
+                    });
+                }
+            }
+        }
+
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash).inspect_err(|_e| {
             test_debug!("Failed to open block {block_hash:?}: {_e:?}");
@@ -1409,6 +1423,19 @@ impl<T: MarfTrieId> MARF<T> {
 
         if height == current_block_height {
             return Ok(Some(current_block_hash.clone()));
+        }
+
+        // Squashed MARFs keep historical height -> block mappings in
+        // `marf_squashed_blocks`, not in per-height trie state. When the
+        // caller is inside the squashed range, answer from the side table
+        // and preserve the usual "no future blocks" behavior.
+        if let Some(squash_height) = storage.squash_info().map(|info| info.height) {
+            if current_block_height <= squash_height {
+                if height > current_block_height {
+                    return Ok(None);
+                }
+                return trie_sql::read_squash_block_hash::<T>(storage.sqlite_conn(), height);
+            }
         }
 
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);

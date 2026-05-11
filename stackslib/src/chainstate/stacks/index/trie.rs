@@ -747,6 +747,26 @@ impl Trie {
         }
     }
 
+    /// Resolve the height of `block_header` from the MARF's own height-mapping
+    /// keys (the trie path).
+    fn block_height_from_trie<T: MarfTrieId>(
+        storage: &mut TrieStorageConnection<T>,
+        block_header: &T,
+    ) -> Result<u32, Error> {
+        MARF::get_block_height_miner_tip(storage, block_header, block_header)
+            .map_err(|e| match e {
+                Error::NotFoundError => Error::CorruptionError(format!(
+                    "Could not obtain block height for block {block_header}: not found"
+                )),
+                x => x,
+            })?
+            .ok_or_else(|| {
+                Error::CorruptionError(format!(
+                    "Could not obtain block height for block {block_header}: got None"
+                ))
+            })
+    }
+
     /// Perform the reads, lookups, etc. for computing the ancestor byte vector.
     /// This method _does not_ restore the previously open block on failure, the caller will do that.
     fn inner_get_trie_ancestor_hashes_bytes<T: MarfTrieId>(
@@ -767,54 +787,27 @@ impl Trie {
         // Using that value would produce the wrong number of ancestors.
         // Instead, look up the actual height from the SQL side-table that
         // was populated during squashing.
-        let cur_block_height = if storage.squash_info().is_some() {
-            // Try the squash side-table first.  Blocks within the squashed
-            // range (0..=H) MUST be resolved here because the trie would
-            // return H for all of them.  Blocks extended after squashing
-            // are not in the side-table and fall through to the trie path.
+        let squash_height = storage.squash_info().map(|info| info.height);
+
+        // Squashed MARF: in-range blocks resolve via the side-table.
+        // Out-of-range (post-squash) blocks, and every block on an archival
+        // MARF, fall through to the trie path.
+        let cur_block_height = if let Some(squash_h) = squash_height {
             match trie_sql::read_squash_block_height(storage.sqlite_conn(), &cur_block_header)? {
                 Some(h) => h,
                 None => {
-                    // Not in the side-table — must be a post-squash block.
-                    let h = MARF::get_block_height_miner_tip(
-                        storage,
-                        &cur_block_header,
-                        &cur_block_header,
-                    )?
-                    .ok_or_else(|| {
-                        Error::CorruptionError(format!(
-                            "Could not obtain block height for block {}: got None",
-                            &cur_block_header
-                        ))
-                    })?;
-                    // Sanity: a post-squash block must be above the squash height.
-                    if let Some(info) = storage.squash_info() {
-                        if h <= info.height {
-                            return Err(Error::CorruptionError(format!(
-                                "Block {cur_block_header} at height {h} is within squashed \
-                                 range (0..={}) but missing from marf_squashed_blocks",
-                                info.height
-                            )));
-                        }
+                    let h = Self::block_height_from_trie(storage, &cur_block_header)?;
+                    if h <= squash_h {
+                        return Err(Error::CorruptionError(format!(
+                            "Block {cur_block_header} at height {h} is within squashed \
+                             range (0..={squash_h}) but missing from marf_squashed_blocks"
+                        )));
                     }
                     h
                 }
             }
         } else {
-            MARF::get_block_height_miner_tip(storage, &cur_block_header, &cur_block_header)
-                .map_err(|e| match e {
-                    Error::NotFoundError => Error::CorruptionError(format!(
-                        "Could not obtain block height for block {}: not found",
-                        &cur_block_header
-                    )),
-                    x => x,
-                })?
-                .ok_or_else(|| {
-                    Error::CorruptionError(format!(
-                        "Could not obtain block height for block {}: got None",
-                        &cur_block_header
-                    ))
-                })?
+            Self::block_height_from_trie(storage, &cur_block_header)?
         };
 
         let mut log_depth = 0;
@@ -828,16 +821,10 @@ impl Trie {
                         ))
                     })?;
 
-            // Use the stored root-hash key for squashed MARFs when the ancestor
-            // height falls within the squashed range, otherwise fall back to
-            // the archival path (open_block).  This eliminates the duplicated
-            // fallback arm that previously existed for the > info.height and
-            // non-squashed cases.
-            let use_stored_root = storage
-                .squash_info()
-                .is_some_and(|info| ancestor_height <= info.height);
-
-            let ancestor_hash = if use_stored_root {
+            // Use the per-height archival root from the side-table when the
+            // ancestor falls inside the squashed range; otherwise fall back to
+            // opening the ancestor's own trie blob.
+            let ancestor_hash = if squash_height.is_some_and(|h| ancestor_height <= h) {
                 trie_sql::read_squash_archival_marf_root_hash(
                     storage.sqlite_conn(),
                     ancestor_height,

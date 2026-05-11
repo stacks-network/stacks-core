@@ -485,7 +485,7 @@ fn test_dense_writes_after_squash_hash_equality() {
             squashed.insert(&key, MARFValue::from_value(&val)).unwrap();
         }
 
-        // Simulate at-block: read a key from a historical block mid-transaction.
+        // Simulate at-block: read a key from a post-squash block mid-transaction.
         // This exercises the open_block/restore cycle on the squashed blob.
         if blk > 0 {
             let historical_block = &new_blocks[blk - 1];
@@ -493,14 +493,16 @@ fn test_dense_writes_after_squash_hash_equality() {
             let _sq_val = squashed.get(historical_block, "dense_blk0_k0").unwrap();
             assert_eq!(_arch_val, _sq_val, "at-block read mismatch at blk {blk}");
 
-            // Also read from a pre-squash block
+            // Reading at a pre-squash block must be rejected on the squashed
+            // MARF. The archival side keeps working.
             let old_block = &blocks[STRESS_SQUASH_HEIGHT as usize / 2];
             let _arch_val2 = archival.get(old_block, "k0").unwrap();
-            let _sq_val2 = squashed.get(old_block, "k0").unwrap();
-            assert_eq!(
-                _arch_val2, _sq_val2,
-                "at-block pre-squash read mismatch at blk {blk}"
-            );
+            match squashed.get(old_block, "k0") {
+                Err(Error::HistoricalReadInSquashedRange { .. }) => {}
+                other => {
+                    panic!("expected HistoricalReadInSquashedRange at blk {blk}, got {other:?}")
+                }
+            }
         }
 
         archival.commit().unwrap();
@@ -521,12 +523,13 @@ fn test_dense_writes_after_squash_hash_equality() {
     }
 }
 
-/// Verify that reading a key at a pre-squash block on a squashed MARF
-/// returns the squash-tip's value, not the value that existed at that block.
-/// This documents the known limitation of the single-blob design: historical
-/// reads within the squash range return tip-era values for keys that changed.
+/// Reading a key at a pre-squash block on a squashed MARF must be rejected
+/// explicitly. The squashed MARF only retains the canonical state at the
+/// squash height; per-block historical reads cannot be served and the API
+/// returns `HistoricalReadInSquashedRange` instead of plausible bad data.
+/// Reads at the squash tip and at post-squash blocks remain valid.
 #[test]
-fn test_squash_historical_read_returns_tip_value() {
+fn test_squash_historical_read_rejected() {
     let dir = tempdir().unwrap();
     let src_path = dir.path().join("index.sqlite");
     // 64 blocks, 4 keys per block, squash at height 48
@@ -536,6 +539,7 @@ fn test_squash_historical_read_returns_tip_value() {
     let (squashed_path, _) = squash_helper(
         src_path.to_str().unwrap(),
         &dir.path().join("squashed"),
+        blocks.last().unwrap(),
         squash_height,
     );
 
@@ -544,41 +548,40 @@ fn test_squash_historical_read_returns_tip_value() {
         MARF::<StacksBlockId>::from_path(squashed_path.to_str().unwrap(), open_opts).unwrap();
 
     let tip_block = &blocks[squash_height as usize];
-
-    // `k1` is written at EVERY block with value `v1_at_{height}`.
-    // At block 10, the archival should return "v1_at_10".
-    // The squash should return "v1_at_{squash_height}" because
-    // all blocks share the squash-tip's blob.
     let early_block = &blocks[10];
 
+    // Archival still serves historical reads correctly.
     let arch_val = archival.get(early_block, "k1").unwrap();
-    let sq_val = squashed.get(early_block, "k1").unwrap();
-    let tip_val = squashed.get(tip_block, "k1").unwrap();
-
-    // Archival correctly returns the value at block 10
     assert_eq!(
         arch_val,
         Some(MARFValue::from_value("v1_at_10")),
         "archival should return the historical value"
     );
 
-    // Squash returns the TIP value, not the block-10 value.
-    // This is the documented limitation of the single-blob squash.
-    assert_eq!(
-        sq_val, tip_val,
-        "squashed historical read should return tip value, not historical value"
-    );
-    assert_ne!(
-        sq_val, arch_val,
-        "squashed historical read should differ from archival for keys that changed"
-    );
+    // Squashed MARF must reject the historical read.
+    match squashed.get(early_block, "k1") {
+        Err(Error::HistoricalReadInSquashedRange {
+            block_height,
+            squash_height: sh,
+        }) => {
+            assert_eq!(block_height, 10);
+            assert_eq!(sh, squash_height);
+        }
+        other => panic!("expected HistoricalReadInSquashedRange, got {other:?}"),
+    }
+
+    // Reading at the squash tip is still valid.
+    let tip_val = squashed.get(tip_block, "k1").unwrap();
+    assert_eq!(tip_val, Some(MARFValue::from_value("v1_at_48")));
 }
 
-/// Same as above but for `common_some_*` keys that only change on some blocks.
-/// At blocks where the key was NOT updated, the archival returns the last-written
-/// value before that block. The squash returns the tip value regardless.
+/// Reads at any block strictly below the squash height are rejected, even
+/// for keys that aren't written at every block. This complements
+/// `test_squash_historical_read_rejected` to make sure the guard doesn't
+/// depend on which key is being read - only on the block's height relative
+/// to the squash height.
 #[test]
-fn test_squash_historical_read_intermittent_key() {
+fn test_squash_historical_read_intermittent_key_rejected() {
     let dir = tempdir().unwrap();
     let src_path = dir.path().join("index.sqlite");
     let (mut archival, blocks, _) = setup_marf(src_path.to_str().unwrap(), 64, 4);
@@ -587,6 +590,7 @@ fn test_squash_historical_read_intermittent_key() {
     let (squashed_path, _) = squash_helper(
         src_path.to_str().unwrap(),
         &dir.path().join("squashed"),
+        blocks.last().unwrap(),
         squash_height,
     );
 
@@ -594,33 +598,27 @@ fn test_squash_historical_read_intermittent_key() {
     let mut squashed =
         MARF::<StacksBlockId>::from_path(squashed_path.to_str().unwrap(), open_opts).unwrap();
 
-    let tip_block = &blocks[squash_height as usize];
-
-    // common_some_0 is written at heights where (height + 0) % 3 == 0,
-    // i.e. heights 0, 3, 6, 9, 12, ... with value "common_some_0_at_{h}".
-    // Read at block 10 - last write was at height 9.
     let early_block = &blocks[10];
 
+    // Archival still resolves intermittent keys to the last-written value at/before block 10.
     let arch_val = archival.get(early_block, "common_some_0").unwrap();
-    let sq_val = squashed.get(early_block, "common_some_0").unwrap();
-    let tip_val = squashed.get(tip_block, "common_some_0").unwrap();
-
-    // Archival returns the value from the last write at/before height 10
     assert_eq!(
         arch_val,
         Some(MARFValue::from_value("common_some_0_at_9")),
         "archival should return value from height 9"
     );
 
-    // Squash returns the tip value
-    assert_eq!(
-        sq_val, tip_val,
-        "squashed should return tip value for intermittent key"
-    );
-    assert_ne!(
-        sq_val, arch_val,
-        "squashed historical read should differ from archival"
-    );
+    // Squashed MARF rejects the read regardless of the key.
+    match squashed.get(early_block, "common_some_0") {
+        Err(Error::HistoricalReadInSquashedRange {
+            block_height,
+            squash_height: sh,
+        }) => {
+            assert_eq!(block_height, 10);
+            assert_eq!(sh, squash_height);
+        }
+        other => panic!("expected HistoricalReadInSquashedRange, got {other:?}"),
+    }
 }
 
 /// Extend a squashed MARF through enough blocks to exercise deep backpointer

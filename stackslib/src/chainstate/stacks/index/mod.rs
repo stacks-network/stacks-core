@@ -266,6 +266,13 @@ pub enum Error {
     OverflowError,
     Patch(Option<TrieHash>, TrieNodePatch),
     NodeTooDeep,
+    /// Read at a block strictly below the squash height of a squashed MARF.
+    /// The squashed MARF only retains the canonical state at H, so per-block
+    /// historical reads in `0..H` cannot be served.
+    HistoricalReadInSquashedRange {
+        block_height: u32,
+        squash_height: u32,
+    },
     /// Operation is not supported on a squashed MARF (e.g. proof generation).
     UnsupportedOnSquashedMarf(&'static str),
 }
@@ -338,6 +345,14 @@ impl fmt::Display for Error {
                 write!(f, "Read patch node instead of expected node: {p:?}")
             }
             Error::NodeTooDeep => write!(f, "Node is too deeply buried under patches"),
+            Error::HistoricalReadInSquashedRange {
+                block_height,
+                squash_height,
+            } => write!(
+                f,
+                "Historical read at height {block_height} below squash height {squash_height} \
+                 is not supported on a squashed MARF"
+            ),
             Error::UnsupportedOnSquashedMarf(op) => {
                 write!(f, "Operation `{op}` is not supported on a squashed MARF")
             }

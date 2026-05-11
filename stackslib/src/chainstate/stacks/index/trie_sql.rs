@@ -264,7 +264,6 @@ pub fn read_squash_block_height<T: MarfTrieId>(
 
 /// Read the block hash for a given height from the squashed blocks table.
 /// Returns `None` if the height is not in the squashed range.
-#[cfg(test)]
 pub fn read_squash_block_hash<T: MarfTrieId>(
     conn: &Connection,
     height: u32,
