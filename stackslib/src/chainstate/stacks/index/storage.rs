@@ -2534,7 +2534,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         // In a squashed MARF, blocks within 0..=H share a single blob
         // whose root hash is the squash root, not the per-height archival
         // root.  Use the side-table when available.
-        if self.data.squash_info.is_some() {
+        if self.is_squashed() {
             if let Some(h) = trie_sql::read_squash_block_height(self.sqlite_conn(), tip)? {
                 return trie_sql::read_squash_archival_marf_root_hash(self.sqlite_conn(), h)?
                     .ok_or_else(|| {
