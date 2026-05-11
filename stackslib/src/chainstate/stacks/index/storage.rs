@@ -3213,6 +3213,24 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         self.write_nodetype(ptr, &node_type, hash)
     }
 
+    /// Store only a node hash to the uncommitted state.
+    /// If the uncommitted state is not instantiated, then this panics.
+    pub fn write_node_hash(&mut self, disk_ptr: u32, hash: TrieHash) -> Result<(), Error> {
+        if self.data.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
+        // Only allow writes when the cur_block is the current in-RAM extending block.
+        if let Some((ref uncommitted_bhh, ref mut uncommitted_trie)) = self.data.uncommitted_writes
+        {
+            if &self.data.cur_block == uncommitted_bhh {
+                return uncommitted_trie.write_node_hash(disk_ptr, hash);
+            }
+        }
+
+        panic!("Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!");
+    }
+
     /// Get the last slot into which a node will be inserted in the uncommitted state.
     /// Panics if there is no uncommmitted state instantiated.
     pub fn last_ptr(&mut self) -> Result<u32, Error> {

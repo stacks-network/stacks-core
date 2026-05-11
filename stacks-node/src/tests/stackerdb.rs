@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
 use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ContractName;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
@@ -157,7 +158,7 @@ fn test_stackerdb_load_store() {
 
     conf.node.stacker_dbs.push(QualifiedContractIdentifier::new(
         to_addr(&privks[0]).into(),
-        "hello-world".into(),
+        ContractName::from_literal("hello-world"),
     ));
     let contract_id = conf.node.stacker_dbs[0].clone();
 
@@ -294,7 +295,7 @@ fn test_stackerdb_event_observer() {
 
     conf.node.stacker_dbs.push(QualifiedContractIdentifier::new(
         to_addr(&privks[0]).into(),
-        "hello-world".into(),
+        ContractName::from_literal("hello-world"),
     ));
     let contract_id = conf.node.stacker_dbs[0].clone();
 

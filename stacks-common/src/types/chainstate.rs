@@ -517,18 +517,5 @@ impl VRFSeed {
     }
 }
 
-impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.0)?;
-        write_next(fd, &self.1)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(
-        fd: &mut R,
-    ) -> Result<(ConsensusHash, BurnchainHeaderHash), CodecError> {
-        let consensus_hash: ConsensusHash = read_next(fd)?;
-        let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
-        Ok((consensus_hash, burn_header_hash))
-    }
-}
+// The (ConsensusHash, BurnchainHeaderHash) codec impl is provided by the
+// generic (A, B) impl in stacks-codec.

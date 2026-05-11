@@ -12,13 +12,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use clarity_types::errors::analysis::StaticCheckErrorKind;
 use clarity_types::types::{MAX_TO_ASCII_BUFFER_LEN, StringSubtype};
 use stacks_common::types::StacksEpochId;
 
 use super::TypeChecker;
 use crate::vm::SymbolicExpression;
 use crate::vm::analysis::StaticCheckError;
+use crate::vm::analysis::errors::StaticCheckErrorKind;
 use crate::vm::analysis::read_only_checker::check_argument_count;
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::types::{BufferLength, SequenceSubtype, TypeSignature, TypeSignatureExt as _};

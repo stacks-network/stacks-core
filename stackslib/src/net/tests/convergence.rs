@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,8 +17,10 @@
 /// You are going to need `ulimit -n` to be 4096 for these tests.
 /// In Linux, the default is 1024.
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::ContractName;
 use rand::prelude::*;
 use rand::thread_rng;
 
@@ -46,7 +48,7 @@ fn setup_rlimit_nofiles() {
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(
         StandardPrincipalData::new(0x01, [i as u8; 20]).unwrap(),
-        format!("db-{}", i).as_str().into(),
+        ContractName::try_from(format!("db-{}", i)).unwrap(),
     )
 }
 
@@ -818,7 +820,7 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
 #[ignore]
 fn test_walk_inbound_line_15() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(900, || {
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 15; // make this test go faster
@@ -981,6 +983,10 @@ fn run_topology_test_ex<F>(
     // go until each neighbor knows about each other neighbor
     let mut finished = false;
     let mut count = 0;
+    let mut best_progress = 0;
+    let mut last_progress_time = Instant::now();
+    const STALL_TIMEOUT: Duration = Duration::from_secs(120);
+
     while !finished {
         finished = true;
         let mut peer_counts = 0;
@@ -1024,13 +1030,14 @@ fn run_topology_test_ex<F>(
                 ports.insert(k.port);
             }
 
+            let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
+            peer_counts += all_neighbors.len();
+
             // done?
             let now_finished = if use_finished_check {
                 finished_check(peers)
             } else {
                 let mut done = true;
-                let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-                peer_counts += all_neighbors.len();
                 test_debug!("Peer {} ({}) has {} neighbors", i, &nk, all_neighbors.len());
 
                 if (all_neighbors.len() as u64) < ((peer_count - 1) as u64) {
@@ -1063,6 +1070,8 @@ fn run_topology_test_ex<F>(
         );
 
         // wait for stacker DBs to converge
+        let mut stacker_db_count = 0;
+        let mut stacker_db_done = true;
         for (i, peer) in peers.iter().enumerate() {
             if i % 2 != 0 {
                 continue;
@@ -1095,10 +1104,33 @@ fn run_topology_test_ex<F>(
                         &peer.config.to_neighbor(),
                         &other_peer.config.to_neighbor()
                     );
-                    finished = false;
-                    break;
+                    stacker_db_done = false;
+                } else {
+                    stacker_db_count += dbs.len();
                 }
             }
+        }
+        if !stacker_db_done {
+            finished = false;
+        }
+
+        // If it stops increasing for STALL_TIMEOUT, the network is stuck and there's no point
+        // waiting further.
+        let current_progress = peer_counts + stacker_db_count;
+        if current_progress > best_progress {
+            best_progress = current_progress;
+            last_progress_time = Instant::now();
+        }
+
+        let stall_elapsed = last_progress_time.elapsed();
+        if stall_elapsed >= STALL_TIMEOUT {
+            panic!(
+                "Network convergence stalled after {count} iterations \
+                 (no progress for {}s). \
+                 Neighbors: {peer_counts}/{}, StackerDBs known: {stacker_db_count}",
+                stall_elapsed.as_secs(),
+                peer_count * (peer_count - 1)
+            );
         }
 
         if finished {

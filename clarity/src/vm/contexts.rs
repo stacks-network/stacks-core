@@ -19,7 +19,6 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-use clarity_types::errors::{ParseError, ParseErrorKind};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
@@ -28,10 +27,12 @@ use stacks_common::types::chainstate::StacksBlockId;
 
 use super::EvalHook;
 use crate::vm::ast::ContractAST;
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostErrors, CostTracker, ExecutionCost, LimitedCostTracker, runtime_cost};
+use crate::vm::costs::execution_cost::ExecutionCost;
+use crate::vm::costs::{CostErrors, CostTracker, LimitedCostTracker, runtime_cost};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
@@ -2196,6 +2197,7 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ContractName;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::Hash160;
@@ -2219,11 +2221,11 @@ mod test {
 
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let _t2 = AssetIdentifier {
             contract_identifier: b_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
 
         let mut am1 = AssetMap::new();
@@ -2262,23 +2264,23 @@ mod test {
 
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t2 = AssetIdentifier {
             contract_identifier: b_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t3 = AssetIdentifier {
             contract_identifier: c_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t4 = AssetIdentifier {
             contract_identifier: d_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t5 = AssetIdentifier {
             contract_identifier: e_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t6 = AssetIdentifier::STX();
         let t7 = AssetIdentifier::STX_burned();
@@ -2388,30 +2390,30 @@ mod test {
     fn test_canonicalize_contract_context() {
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".into(),
-            "my-trait".into(),
+            ContractName::from_literal("my-contract"),
+            ClarityName::from_literal("my-trait"),
         );
         let mut contract_context = ContractContext::new(
             QualifiedContractIdentifier::local("foo").unwrap(),
             ClarityVersion::Clarity1,
         );
         contract_context.functions.insert(
-            "foo".into(),
+            ClarityName::from_literal("foo"),
             DefinedFunction::new(
                 vec![(
-                    "a".into(),
+                    ClarityName::from_literal("a"),
                     TypeSignature::TraitReferenceType(trait_id.clone()),
                 )],
                 SymbolicExpression::atom_value(Value::Int(3)),
                 DefineType::Public,
-                &"foo".into(),
+                &ClarityName::from_literal("foo"),
                 "testing",
             ),
         );
 
         let mut trait_functions = BTreeMap::new();
         trait_functions.insert(
-            "alpha".into(),
+            ClarityName::from_literal("alpha"),
             FunctionSignature {
                 args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
                 returns: TypeSignature::ResponseType(Box::new((
@@ -2422,7 +2424,7 @@ mod test {
         );
         contract_context
             .defined_traits
-            .insert("bar".into(), trait_functions);
+            .insert(ClarityName::from_literal("bar"), trait_functions);
 
         contract_context
             .canonicalize_types(&StacksEpochId::Epoch21)
@@ -2452,7 +2454,7 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
 
         let mut am1 = AssetMap::new();

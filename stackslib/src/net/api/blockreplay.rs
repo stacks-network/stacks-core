@@ -377,8 +377,6 @@ pub struct RPCReplayedBlockTransaction {
     pub data: Option<StacksTransaction>,
     /// hex representation of the transaction body
     pub hex: String,
-    /// result of transaction execution (clarity value)
-    pub result: Value,
     /// result of the transaction execution (hex string)
     #[serde(with = "prefix_hex_codec")]
     pub result_hex: Value,
@@ -424,18 +422,12 @@ impl RPCReplayedBlockTransaction {
         };
 
         let txid = receipt.transaction.txid();
-        let mut serialized_result = vec![];
-        receipt
-            .result
-            .serialize_write(&mut serialized_result)
-            .expect("failed to serialize transaction result");
 
         Self {
             txid,
             tx_index: receipt.tx_index,
             data: transaction_data,
             hex: receipt.transaction.serialize_to_dbstring(),
-            result: receipt.result.clone(),
             result_hex: receipt.result.clone(),
             stx_burned: receipt.stx_burned,
             execution_cost: receipt.execution_cost.clone(),

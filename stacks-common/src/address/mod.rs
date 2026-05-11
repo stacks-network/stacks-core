@@ -193,7 +193,7 @@ fn to_bits_p2sh_p2wsh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash16
     let mut d = [0u8; 32];
 
     digest.update(bldr.into_script().as_bytes());
-    d.copy_from_slice(digest.finalize().as_slice());
+    d.copy_from_slice(&digest.finalize());
 
     let ws = Builder::new().push_int(0).push_slice(&d).into_script();
     Hash160::from_data(ws.as_bytes())

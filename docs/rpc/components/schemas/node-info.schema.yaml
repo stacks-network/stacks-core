@@ -15,6 +15,9 @@ required:
   - genesis_chainstate_hash
   - tenure_height
   - is_fully_synced
+  - unanchored_tip
+  - unanchored_seq
+  - exit_at_block_height
 properties:
   peer_version:
     type: integer

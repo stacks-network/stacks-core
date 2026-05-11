@@ -21,7 +21,7 @@ use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
-use clarity::vm::{ClarityVersion, Value as ClarityValue};
+use clarity::vm::{ClarityVersion, ContractName, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
@@ -133,6 +133,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             invalid_characters_detected_invalid_ascii,
             invalid_characters_detected_invalid_utf8
         ]),
+        RestrictAssetsMemoryExceeded(_, _) => todo!(),
         InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         },
@@ -1132,7 +1133,7 @@ fn bad_trait_implementation_mismatched_args() {
         function_args: &[ClarityValue::Principal(PrincipalData::Contract(
             QualifiedContractIdentifier::new(
                 FAUCET_ADDRESS.clone().into(),
-                "target-contract".into(),
+                ContractName::from_literal("target-contract"),
             )
         ))],
         setup_contracts: &[trait_definer, target_contract],
