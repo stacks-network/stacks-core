@@ -139,6 +139,11 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+/// Default maximum memory allocation during miner block assembly
+const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
+/// Default maximum memory allocation during block proposal evaluation. Defaults higher than miner default
+///  to avoid miner/signer environment skews.
+pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -1159,6 +1164,7 @@ impl Config {
                 .map(Duration::from_secs),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
+            max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
         }
     }
 
@@ -1209,6 +1215,7 @@ impl Config {
                 .map(Duration::from_secs),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
+            max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
         }
     }
 
@@ -3143,6 +3150,14 @@ pub struct MinerConfig {
     /// @notes:
     ///   - Primarily intended for testing purposes.
     pub log_skipped_transactions: bool,
+    /// Maximum number of bytes the miner thread may allocate during block
+    /// assembly before aborting. Tracked via `TrackingAllocator`
+    ///
+    /// A value of `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES`]
+    /// @units: bytes
+    pub max_assembly_mem_bytes: u64,
 }
 
 impl Default for MinerConfig {
@@ -3201,6 +3216,7 @@ impl Default for MinerConfig {
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             log_skipped_transactions: false,
+            max_assembly_mem_bytes: DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES,
         }
     }
 }
@@ -3707,6 +3723,13 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS`]
     /// @units: seconds
     pub block_proposal_validation_timeout_secs: Option<u64>,
+    /// Maximum bytes a single transaction may allocate on the heap during
+    /// block-proposal validation before it is rejected.
+    /// `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_PROPOSAL_MEMORY_BYTES`]
+    /// @units: bytes
+    pub block_proposal_max_tx_mem_bytes: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3864,6 +3887,9 @@ impl ConnectionOptionsFile {
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
+            block_proposal_max_tx_mem_bytes: self
+                .block_proposal_max_tx_mem_bytes
+                .unwrap_or(default.block_proposal_max_tx_mem_bytes),
             ..default
         })
     }
@@ -4161,6 +4187,7 @@ pub struct MinerConfigFile {
     pub stackerdb_timeout_secs: Option<u64>,
     pub max_tenure_bytes: Option<u64>,
     pub log_skipped_transactions: Option<bool>,
+    pub max_assembly_mem_bytes: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -4356,6 +4383,7 @@ impl MinerConfigFile {
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
             log_skipped_transactions: self.log_skipped_transactions.unwrap_or(miner_default_config.log_skipped_transactions),
             read_count_extend_cost_threshold: miner_default_config.read_count_extend_cost_threshold,
+            max_assembly_mem_bytes: self.max_assembly_mem_bytes.unwrap_or(miner_default_config.max_assembly_mem_bytes),
         })
     }
 }
