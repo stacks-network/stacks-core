@@ -781,34 +781,7 @@ impl Trie {
         // here is where some mind-bending things begin to happen.
         //   we want to find the block at a given _height_. but how to do so?
         //   use the data stored already in the MARF.
-        //
-        // In a squashed MARF, all blocks at heights 0..=H share a single
-        // blob whose OWN_BLOCK_HEIGHT_KEY value is H (the squash height).
-        // Using that value would produce the wrong number of ancestors.
-        // Instead, look up the actual height from the SQL side-table that
-        // was populated during squashing.
-        let squash_height = storage.squash_info().map(|info| info.height);
-
-        // Squashed MARF: in-range blocks resolve via the side-table.
-        // Out-of-range (post-squash) blocks, and every block on an archival
-        // MARF, fall through to the trie path.
-        let cur_block_height = if let Some(squash_h) = squash_height {
-            match trie_sql::read_squash_block_height(storage.sqlite_conn(), &cur_block_header)? {
-                Some(h) => h,
-                None => {
-                    let h = Self::block_height_from_trie(storage, &cur_block_header)?;
-                    if h <= squash_h {
-                        return Err(Error::CorruptionError(format!(
-                            "Block {cur_block_header} at height {h} is within squashed \
-                             range (0..={squash_h}) but missing from marf_squashed_blocks"
-                        )));
-                    }
-                    h
-                }
-            }
-        } else {
-            Self::block_height_from_trie(storage, &cur_block_header)?
-        };
+        let cur_block_height = Self::block_height_from_trie(storage, &cur_block_header)?;
 
         let mut log_depth = 0;
         while log_depth < 32 && (1u32 << log_depth) <= cur_block_height {
