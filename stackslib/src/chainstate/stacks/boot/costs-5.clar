@@ -681,6 +681,5 @@
 
 ;; Cost of parsing a Bitcoin tx and extracting one output. Linear in tx-bytes
 ;; length.
-;; FIXME: Placeholder values pending benchmarking.
 (define-read-only (cost_get_bitcoin_tx_output (n uint))
-    (runtime u291))
+    (runtime (linear (bit-shift-right n 10) u125 u291))
