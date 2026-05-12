@@ -1422,7 +1422,10 @@ impl<T: MarfTrieId> MARF<T> {
                 if height > current_block_height {
                     return Ok(None);
                 }
-                return trie_sql::read_squash_block_hash::<T>(storage.sqlite_conn(), height);
+                return trie_sql::read_squashed_block_hash_by_height::<T>(
+                    storage.sqlite_conn(),
+                    height,
+                );
             }
         }
 

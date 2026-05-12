@@ -2668,12 +2668,13 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         // trie hashes stored during squashing.
         if let Some(info) = self.data.squash_info.clone() {
             for h in 0..=info.height {
-                let Some(bh) = trie_sql::read_squash_block_hash::<T>(self.sqlite_conn(), h)? else {
+                let Some(bh) = trie_sql::read_squashed_block_hash_by_height::<T>(self.sqlite_conn(), h)?
+                else {
                     continue;
                 };
 
                 let Some(archival_trie_hash) =
-                    trie_sql::read_squash_archival_marf_root_hash(self.sqlite_conn(), h)?
+                    trie_sql::read_squashed_block_root_hash_by_height(self.sqlite_conn(), h)?
                 else {
                     continue;
                 };

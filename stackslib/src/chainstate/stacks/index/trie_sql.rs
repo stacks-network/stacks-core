@@ -212,7 +212,7 @@ pub fn update_squash_root_node_hash(conn: &Connection, hash: &TrieHash) -> Resul
 /// Read the stored root hash for a given height from the squashed blocks table.
 /// Returns `None` if the height is not present (archival MARF or height
 /// outside the squashed range).
-pub fn read_squash_archival_marf_root_hash(
+pub fn read_squashed_block_root_hash_by_height(
     conn: &Connection,
     height: u32,
 ) -> Result<Option<TrieHash>, Error> {
@@ -239,10 +239,39 @@ pub fn read_squash_archival_marf_root_hash(
     }
 }
 
+/// Read the stored archival root hash for a squashed block hash.
+/// Returns `None` if the block is not in the squashed range.
+pub fn read_squashed_block_root_hash_by_hash<T: MarfTrieId>(
+    conn: &Connection,
+    block_hash: &T,
+) -> Result<Option<TrieHash>, Error> {
+    let result: Option<Vec<u8>> = conn
+        .query_row(
+            "SELECT marf_root_hash FROM marf_squashed_blocks WHERE block_hash = ?1",
+            params![block_hash.as_bytes()],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    match result {
+        Some(bytes) => {
+            if bytes.len() != TRIEHASH_ENCODED_SIZE {
+                return Err(Error::CorruptionError(
+                    "Invalid squash root hash length".to_string(),
+                ));
+            }
+            Ok(Some(TrieHash::from_bytes(&bytes).ok_or_else(|| {
+                Error::CorruptionError("Invalid squash root hash bytes".to_string())
+            })?))
+        }
+        None => Ok(None),
+    }
+}
+
 /// Read the stored height for a block hash from the squashed blocks table.
 /// Returns `None` if the block hash is not present (archival MARF or block
 /// outside the squashed range).
-pub fn read_squash_block_height<T: MarfTrieId>(
+pub fn read_squashed_block_height_by_hash<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
 ) -> Result<Option<u32>, Error> {
@@ -264,7 +293,7 @@ pub fn read_squash_block_height<T: MarfTrieId>(
 
 /// Read the block hash for a given height from the squashed blocks table.
 /// Returns `None` if the height is not in the squashed range.
-pub fn read_squash_block_hash<T: MarfTrieId>(
+pub fn read_squashed_block_hash_by_height<T: MarfTrieId>(
     conn: &Connection,
     height: u32,
 ) -> Result<Option<T>, Error> {

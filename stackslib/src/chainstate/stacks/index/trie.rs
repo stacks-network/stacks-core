@@ -824,8 +824,11 @@ impl Trie {
             // Use the per-height archival root from the side-table when the
             // ancestor falls inside the squashed range; otherwise fall back to
             // opening the ancestor's own trie blob.
-            let ancestor_hash = if squash_height.is_some_and(|h| ancestor_height <= h) {
-                trie_sql::read_squash_archival_marf_root_hash(
+            let ancestor_hash = if storage
+                .squash_height()
+                .is_some_and(|h| ancestor_height <= h)
+            {
+                trie_sql::read_squashed_block_root_hash_by_height(
                     storage.sqlite_conn(),
                     ancestor_height,
                 )?
