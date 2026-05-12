@@ -66,6 +66,7 @@ use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 
 use super::MultipleMinerTest;
+use crate::tests::nakamoto_integrations::enable_epoch_4_0;
 use crate::tests::neon_integrations::test_observer;
 use crate::tests::to_addr;
 
@@ -152,10 +153,12 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
             node_config.burnchain.burn_fee_cap = MINER_1_FEE;
             node_config.node.pox_5_sbtc_contract = Some(contract_id_modifier.clone());
             node_config.add_initial_balance(publisher_addr_str.clone(), 1_000_000);
+            enable_epoch_4_0(node_config);
         },
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.burnchain.burn_fee_cap = MINER_2_FEE;
+            enable_epoch_4_0(node_config);
         },
     );
 

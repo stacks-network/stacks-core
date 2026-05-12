@@ -51,7 +51,7 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as 
 use stacks_signer::v0::SpawnedSigner;
 
 use super::SignerTest;
-use crate::tests::nakamoto_integrations::wait_for;
+use crate::tests::nakamoto_integrations::{enable_epoch_4_0, wait_for};
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
@@ -167,6 +167,7 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.node.pox_5_sbtc_contract = Some(contract_id.clone());
+            enable_epoch_4_0(node_config);
         },
         None,
         Some(signer_keys),

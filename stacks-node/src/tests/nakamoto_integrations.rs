@@ -255,7 +255,7 @@ lazy_static! {
             start_height: 1_000,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_4_0
+            network_epoch: PEER_VERSION_EPOCH_3_4
         },
     ];
 }
@@ -759,6 +759,24 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.connection_options.inv_sync_interval = 1;
 
     (conf, miner_account)
+}
+
+/// Activate Epoch 4.0 (inactive by default in `NAKAMOTO_INTEGRATION_EPOCHS`).
+/// Must be applied to every node's config so peers agree on the boundary.
+pub fn enable_epoch_4_0(conf: &mut Config) {
+    let epochs = conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("Missing burnchain epochs in config");
+    epochs
+        .get_mut(StacksEpochId::Epoch34)
+        .expect("Missing epoch 3.4 in config")
+        .end_height = 254;
+    epochs
+        .get_mut(StacksEpochId::Epoch40)
+        .expect("Missing epoch 4.0 in config")
+        .start_height = 254;
 }
 
 pub fn next_block_and<F>(
