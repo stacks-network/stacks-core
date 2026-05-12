@@ -236,8 +236,7 @@ jobs:
           owner_type=$(gh api repos/${{ github.repository }} --jq .owner.type)
 
           if [[ "$owner_type" == "Organization" ]]; then
-            owner=$(gh api repos/${{ github.repository }} --jq .owner.login)
-            endpoint="/orgs/${owner}/packages"
+            endpoint="/orgs/${{ github.repository_owner }}/packages"
           else
             endpoint="/user/packages"
           fi
