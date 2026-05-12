@@ -76,7 +76,7 @@ pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Erro
                         "Invalid child index {child_idx} at node {idx}"
                     )));
                 }
-                child_hashes.push(store.hash(child_idx).clone());
+                child_hashes.push(*store.hash(child_idx));
             }
         }
 

@@ -572,7 +572,7 @@ impl<T: MarfTrieId> MARF<T> {
         );
 
         let squash_root_node_hash = if node_store.len() > 0 {
-            node_store.hash(0).clone()
+            *node_store.hash(0)
         } else {
             return Err(Error::CorruptionError(
                 "No nodes in squash trie".to_string(),
