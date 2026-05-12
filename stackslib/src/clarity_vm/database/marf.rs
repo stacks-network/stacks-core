@@ -28,8 +28,7 @@ use clarity::vm::errors::{
     IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use clarity::vm::types::QualifiedContractIdentifier;
-use rusqlite;
-use rusqlite::Connection;
+use rusqlite::{self, Connection};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 
