@@ -2055,7 +2055,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                             &consts_setter,
                             None,
                             &pox_5_contract_id,
-                            "set-bond-admin",
+                            "set-bond-admin_",
                             &[Value::Principal(bond_admin)],
                             |_, _| None,
                             None,

@@ -238,13 +238,21 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: 253,
-            end_height: 254,
+            end_height: 1_000,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_4
         },
+        // Epoch 4.0 is pushed out by default so the typical signer integration
+        // test (which boots through Epoch 3.0 and mines a handful of reward
+        // cycles) doesn't accidentally cross into it. pox-5 is deployed at the
+        // Epoch 4.0 boundary and statically references an sBTC token contract,
+        // so any test that crosses it must first deploy the stub (see
+        // `check_pox_5_stake_lifecycle` for the pattern). Tests that
+        // *intentionally* exercise Epoch 4.0 override these heights — e.g.
+        // `epochs[Epoch34].end_height = 254; epochs[Epoch40].start_height = 254;`.
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch40,
-            start_height: 254,
+            start_height: 1_000,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_4_0
@@ -19470,6 +19478,12 @@ fn check_pox_5_stake_lifecycle() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
+    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
+    // it out so unrelated tests don't accidentally cross it.
+    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+    epochs[StacksEpochId::Epoch34].end_height = 254;
+    epochs[StacksEpochId::Epoch40].start_height = 254;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -19882,6 +19896,12 @@ fn check_pox_5_register_for_bond_lifecycle() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
+    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
+    // it out so unrelated tests don't accidentally cross it.
+    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+    epochs[StacksEpochId::Epoch34].end_height = 254;
+    epochs[StacksEpochId::Epoch40].start_height = 254;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -20354,6 +20374,12 @@ fn check_with_stacking_allowances_stake() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
+    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
+    // it out so unrelated tests don't accidentally cross it.
+    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+    epochs[StacksEpochId::Epoch34].end_height = 254;
+    epochs[StacksEpochId::Epoch40].start_height = 254;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -20963,6 +20989,12 @@ fn check_with_stacking_allowances_register_for_bond() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
+    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
+    // it out so unrelated tests don't accidentally cross it.
+    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+    epochs[StacksEpochId::Epoch34].end_height = 254;
+    epochs[StacksEpochId::Epoch40].start_height = 254;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
