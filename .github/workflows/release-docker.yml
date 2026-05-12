@@ -65,10 +65,6 @@ jobs:
       id-token: write      # required for attestation
       attestations: write  # required for attestation
       packages: write      # required for image push
-    outputs:
-      digest: ${{ steps.docker-build.outputs.digest }}
-      release_type: ${{ inputs.release_type }}
-      dist: ${{ matrix.dist }}
     steps:
       # Retrieve repository description for image annotation
       - name: Get repository description

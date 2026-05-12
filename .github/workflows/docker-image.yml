@@ -27,8 +27,6 @@ env:
   CMD: "cargo build --features monitoring_prom,slog_json --profile release --workspace"
   # Do not generate provenance from the docker build step, instead attest the image specifically
   PROVENANCE: false
-  # Set the build target statically, since we only need to build for linux-glibc
-  ARCH: linux-glibc
 # Configure concurrency
 concurrency:
   group: docker-image-${{ github.head_ref || github.ref || github.run_id }}
@@ -89,7 +87,8 @@ jobs:
         id: build-binaries
         env:
           MATRIX_CPU: ${{ matrix.cpu }}
-          MATRIX_ARCH: ${{ env.ARCH }}
+          # Set the build target statically, since we only need to build for linux-glibc
+          MATRIX_ARCH: linux-glibc
           CMD: ${{ env.CMD }}
           SIGNER_ONLY: "false"
         run: bash ./.github/scripts/build_binaries.sh

@@ -88,7 +88,8 @@ jobs:
           - stacks-core
           - stacks-signer
         exclude:
-          - type: ${{ inputs.is_node_release == 'false' && 'stacks-core' }} # exclude stacks-core if node release is false
+          # When is_node_release is false, only build stacks-signer.
+          - type: ${{ inputs.is_node_release == 'false' && 'stacks-core' }}
     # Build the docker images
     uses: ./.github/workflows/release-docker.yml
     with:

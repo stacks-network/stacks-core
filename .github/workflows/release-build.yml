@@ -73,7 +73,7 @@ jobs:
           # excludes windows-arm64
           - arch: windows
             cpu: arm64
-          # excludes macos-x64 
+          # excludes macos-x64 (always)
           - arch: macos
             cpu: x86-64
           # excludes macos-arm64 (fork only)
@@ -102,6 +102,7 @@ jobs:
           MATRIX_CPU: ${{ matrix.cpu }}
           MATRIX_ARCH: ${{ matrix.arch }}
           CMD: ${{ env.CMD }}
+          # SIGNER_ONLY: true when only building signer (no node release)
           SIGNER_ONLY: ${{ inputs.node_tag == '' }}
         run: bash ./.github/scripts/build_binaries.sh
 
@@ -174,4 +175,3 @@ jobs:
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
-
