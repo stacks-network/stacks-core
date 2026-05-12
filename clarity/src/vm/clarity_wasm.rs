@@ -1,7 +1,7 @@
 use std::io::{Cursor, Write as _};
 
-use clarity_types::types::MAX_VALUE_SIZE;
 use clarity_types::errors::InterpreterError;
+use clarity_types::types::MAX_VALUE_SIZE;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
