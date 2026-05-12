@@ -847,7 +847,7 @@ pub fn update_inline_child_ptrs(ptrs: &mut [TriePtr], file_offsets: &[u64]) -> R
 pub fn write_nodetype_bytes<F: Write + Seek>(
     f: &mut F,
     node: &TrieNodeType,
-    hash: TrieHash,
+    hash: &TrieHash,
 ) -> Result<u64, Error> {
     let start = f.stream_position().map_err(Error::IOError)?;
     f.write_all(hash.as_bytes())?;

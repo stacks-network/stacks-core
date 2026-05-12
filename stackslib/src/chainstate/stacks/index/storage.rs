@@ -919,7 +919,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
             }
 
-            write_nodetype_bytes(f, &entry.0, entry.1)?;
+            write_nodetype_bytes(f, &entry.0, &entry.1)?;
         }
 
         let end_offset = f.stream_position()?;
@@ -934,7 +934,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
         }
         f.seek(SeekFrom::Start(header_size))?;
-        let root_written = write_nodetype_bytes(f, &entry.0, entry.1)?;
+        let root_written = write_nodetype_bytes(f, &entry.0, &entry.1)?;
         debug_assert!(
             root_written <= root_reserved_size,
             "root wrote {root_written} bytes but only {root_reserved_size} were reserved"

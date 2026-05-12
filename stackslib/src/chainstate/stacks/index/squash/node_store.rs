@@ -357,8 +357,8 @@ impl NodeStore {
         deserialize_node(reader)
     }
 
-    pub(crate) fn hash(&self, idx: usize) -> TrieHash {
-        self.hashes.get(idx).copied().unwrap_or_else(|| {
+    pub(crate) fn hash(&self, idx: usize) -> &TrieHash {
+        self.hashes.get(idx).unwrap_or_else(|| {
             panic!(
                 "NodeStore::hash: index {idx} out of bounds (len={})",
                 self.hashes.len()
