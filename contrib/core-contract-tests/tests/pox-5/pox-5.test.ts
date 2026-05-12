@@ -1193,7 +1193,17 @@ test('only early unlock admin can announce l1 early exit', () => {
       amountUstx: aliceUstx,
       btcLockup: ok({
         outputs: [
-          { amount: aliceSats, txid: new Uint8Array(32), outputIndex: 0n },
+          {
+            amount: aliceSats,
+            txid: new Uint8Array(32),
+            outputIndex: 0n,
+            header: new Uint8Array(80),
+            leafHashes: [],
+            txCount: 0n,
+            txIndex: 0n,
+            height: 0n,
+            tx: new Uint8Array(1000),
+          },
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1279,7 +1289,17 @@ test('l1 early exit prevents future bond rewards but leaves stx delegated', () =
       amountUstx: aliceUstx,
       btcLockup: ok({
         outputs: [
-          { amount: aliceSats, txid: new Uint8Array(32), outputIndex: 0n },
+          {
+            amount: aliceSats,
+            txid: new Uint8Array(32),
+            outputIndex: 0n,
+            header: new Uint8Array(80),
+            leafHashes: [],
+            txCount: 0n,
+            txIndex: 0n,
+            height: 0n,
+            tx: new Uint8Array(1000),
+          },
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1335,7 +1355,17 @@ test('l1 early exit does not erase already accrued bond rewards', () => {
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          { amount: aliceSats, txid: new Uint8Array(32), outputIndex: 0n },
+          {
+            amount: aliceSats,
+            txid: new Uint8Array(32),
+            outputIndex: 0n,
+            header: new Uint8Array(80),
+            leafHashes: [],
+            txCount: 0n,
+            txIndex: 0n,
+            height: 0n,
+            tx: new Uint8Array(1000),
+          },
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1585,6 +1615,12 @@ test('sbtc unstake rejects invalid signer, l1 bonds, and excess withdrawal', () 
     }),
     alice,
   );
+  const headerHash = simnet.runSnippet(
+    `(get-burn-block-info? header-hash u${simnet.burnBlockHeight})`,
+  );
+  const isInRegtest = simnet.runSnippet(`is-in-regtest`);
+  console.log('headerHash', headerHash);
+  console.log('isInRegtest', isInRegtest);
   txOk(
     pox5.registerForBond({
       bondIndex: 0n,
@@ -1592,7 +1628,17 @@ test('sbtc unstake rejects invalid signer, l1 bonds, and excess withdrawal', () 
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          { amount: aliceSbtc, txid: new Uint8Array(32), outputIndex: 0n },
+          {
+            amount: aliceSbtc,
+            txid: new Uint8Array(32),
+            outputIndex: 0n,
+            header: new Uint8Array(80),
+            leafHashes: [],
+            txCount: 0n,
+            txIndex: 0n,
+            height: 0n,
+            tx: new Uint8Array(1000),
+          },
         ],
         unlockBytes: new Uint8Array(),
       }),

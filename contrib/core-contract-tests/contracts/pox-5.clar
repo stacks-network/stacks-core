@@ -44,6 +44,12 @@
 (define-constant ERR_INVALID_UNSTAKE_SBTC_AMOUNT (err u37))
 ;; The bond participant did not stake sBTC
 (define-constant ERR_CANNOT_UNSTAKE_SBTC (err u38))
+;; A parse error occurred when reading a Bitcoin header
+(define-constant ERR_READ_TX_OUT_OF_BOUNDS (err u39))
+;; An incorrect Bitcoin header was provided as part of a lockup proof
+(define-constant ERR_INVALID_BTC_HEADER (err u40))
+;; An incorrect merkle proof was provided as part of a lockup proof
+(define-constant ERR_INVALID_MERKLE_PROOF (err u41))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -519,9 +525,14 @@
         (btc-lockup (response {
             outputs: (list 10
                 {
-                    amount: uint,
-                    txid: (buff 32),
+                    height: uint,
+                    tx: (buff 100000),
                     output-index: uint,
+                    header: (buff 80),
+                    leaf-hashes: (list 14 (buff 32)),
+                    tx-count: uint,
+                    tx-index: uint,
+                    amount: uint,
                 }
             ),
             unlock-bytes: (buff 683),
@@ -1417,9 +1428,14 @@
         (lockups {
             outputs: (list 10
                 {
-                    amount: uint,
-                    txid: (buff 32),
+                    height: uint,
+                    tx: (buff 100000),
                     output-index: uint,
+                    header: (buff 80),
+                    leaf-hashes: (list 14 (buff 32)),
+                    tx-count: uint,
+                    tx-index: uint,
+                    amount: uint,
                 }
             ),
             unlock-bytes: (buff 683),
@@ -1439,9 +1455,14 @@
 ;; Fold function for validating l1 lockup info
 (define-private (validate-l1-lockup
         (lockup {
-            amount: uint,
-            txid: (buff 32),
+            height: uint,
+            tx: (buff 100000),
             output-index: uint,
+            header: (buff 80),
+            leaf-hashes: (list 14 (buff 32)),
+            tx-count: uint,
+            tx-index: uint,
+            amount: uint,
         })
         (accumulator-res (response {
             expected-script-hash: (buff 32),
@@ -1451,18 +1472,32 @@
         ))
     )
     (let (
-            (accumulator (try! accumulator-res))
-            (actual-amount (try! (validate-p2wsh-exists? (get expected-script-hash accumulator)
-                (get amount lockup) (get txid lockup)
-                (get output-index lockup)
+            (block (try! (parse-block-header (get header lockup))))
+            (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup)
+                (get amount lockup)
             )))
+            (reversed-txid (get txid output))
+            (txid (reverse-buff32 reversed-txid))
+            (accumulator (try! accumulator-res))
         )
-        (asserts! (is-eq actual-amount (get amount lockup))
-            ERR_L1_LOCKUP_NOT_FOUND
+        (asserts! (verify-block-header (get header lockup) (get height lockup))
+            ERR_INVALID_BTC_HEADER
+        )
+        ;; verify merkle proof
+        (asserts!
+            (or
+                (is-eq (get merkle-root block) txid) ;; true, if the transaction is the only transaction
+                (verify-merkle-proof reversed-txid
+                    (reverse-buff32 (get merkle-root block))
+                    (get tx-index lockup) (get tx-count lockup)
+                    (get leaf-hashes lockup)
+                )
+            )
+            ERR_INVALID_MERKLE_PROOF
         )
         (ok {
             expected-script-hash: (get expected-script-hash accumulator),
-            sum: (+ (get sum accumulator) (get amount lockup)),
+            sum: (+ (get sum accumulator) (get amount output)),
         })
     )
 )
@@ -1992,22 +2027,6 @@
 )
 
 ;;; Helper functions
-
-;; This is a stand-in for a future built-in clarity function.
-(define-private (validate-p2wsh-exists?
-        ;; #[allow(unused_binding)]
-        (script-hash (buff 32))
-        (amount uint)
-        ;; #[allow(unused_binding)]
-        (txid (buff 32))
-        ;; #[allow(unused_binding)]
-        (output-index uint)
-    )
-    (if (is-eq amount u0)
-        ERR_L1_LOCKUP_NOT_FOUND
-        (ok amount)
-    )
-)
 
 ;; What's the burn height at the start of a given bond index?
 (define-read-only (bond-period-to-burn-height (bond-index uint))
@@ -2574,5 +2593,167 @@
             staker: stacker,
         })
         (ok true)
+    )
+)
+
+;;;; Clarity-Bitcoin helpers
+
+;; Parse a Bitcoin block header.
+;; Returns a tuple structured as folowed on success:
+;; (ok {
+;;      version: uint,                  ;; block version,
+;;      parent: (buff 32),              ;; parent block hash,
+;;      merkle-root: (buff 32),         ;; merkle root for all this block's transactions
+;;      timestamp: uint,                ;; UNIX epoch timestamp of this block, in seconds
+;;      nbits: uint,                    ;; compact block difficulty representation
+;;      nonce: uint                     ;; PoW solution
+;; })
+(define-read-only (parse-block-header (headerbuff (buff 80)))
+    (let (
+            (ctx {
+                txbuff: headerbuff,
+                index: u0,
+            })
+            (parsed-version (try! (read-uint32 ctx)))
+            (parsed-parent-hash (try! (read-hashslice (get ctx parsed-version))))
+            (parsed-merkle-root (try! (read-hashslice (get ctx parsed-parent-hash))))
+            (parsed-timestamp (try! (read-uint32 (get ctx parsed-merkle-root))))
+            (parsed-nbits (try! (read-uint32 (get ctx parsed-timestamp))))
+            (parsed-nonce (try! (read-uint32 (get ctx parsed-nbits))))
+        )
+        (ok {
+            version: (get uint32 parsed-version),
+            parent: (get hashslice parsed-parent-hash),
+            merkle-root: (get hashslice parsed-merkle-root),
+            timestamp: (get uint32 parsed-timestamp),
+            nbits: (get uint32 parsed-nbits),
+            nonce: (get uint32 parsed-nonce),
+        })
+    )
+)
+
+;; Reads the next four bytes from txbuff as a little-endian 32-bit integer, and updates the index.
+;; Returns (ok { uint32: uint, ctx: { txbuff: (buff 4096), index: uint } }) on success.
+;; Returns ERR_READ_TX_OUT_OF_BOUNDS if we read past the end of txbuff
+(define-read-only (read-uint32 (ctx {
+    txbuff: (buff 4096),
+    index: uint,
+}))
+    (let (
+            (data (get txbuff ctx))
+            (base (get index ctx))
+        )
+        (ok {
+            uint32: (buff-to-uint-le (unwrap-panic (as-max-len?
+                (unwrap! (slice? data base (+ base u4)) ERR_READ_TX_OUT_OF_BOUNDS)
+                u4
+            ))),
+            ctx: {
+                txbuff: data,
+                index: (+ u4 base),
+            },
+        })
+    )
+)
+
+;; Reads a little-endian hash -- consume the next 32 bytes, and reverse them.
+;; Returns (ok { hashslice: (buff 32), ctx: { txbuff: (buff 4096), index: uint } }) on success, and updates the index.
+;; Returns ERR_READ_TX_OUT_OF_BOUNDS if we read past the end of txbuff.
+(define-read-only (read-hashslice (old-ctx {
+    txbuff: (buff 4096),
+    index: uint,
+}))
+    (let (
+            (slice-start (get index old-ctx))
+            (target-index (+ u32 slice-start))
+            (txbuff (get txbuff old-ctx))
+            (hash-le (unwrap-panic (as-max-len?
+                (unwrap! (slice? txbuff slice-start target-index)
+                    ERR_READ_TX_OUT_OF_BOUNDS
+                )
+                u32
+            )))
+        )
+        (ok {
+            hashslice: (reverse-buff32 hash-le),
+            ctx: {
+                txbuff: txbuff,
+                index: target-index,
+            },
+        })
+    )
+)
+
+(define-read-only (reverse-buff32 (input (buff 32)))
+    (unwrap-panic (as-max-len?
+        (concat
+            (reverse-buff16 (unwrap-panic (as-max-len? (unwrap-panic (slice? input u16 u32)) u16)))
+            (reverse-buff16 (unwrap-panic (as-max-len? (unwrap-panic (slice? input u0 u16)) u16)))
+        )
+        u32
+    ))
+)
+
+(define-private (reverse-buff16 (input (buff 16)))
+    (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? (buff-to-uint-le input))) u1 u17))
+)
+(define-read-only (get-bc-h-hash (bh uint))
+    (get-burn-block-info? header-hash bh)
+)
+
+;; Verify that a block header hashes to a burnchain header hash at a given height.
+;; Returns true if so; false if not.
+;;
+;; TODO: remove the `is-in-mainnet` check, instead use proper mocks
+(define-read-only (verify-block-header
+        (headerbuff (buff 80))
+        (expected-block-height uint)
+    )
+    (match (get-burn-block-info? header-hash expected-block-height)
+        bhh (if is-in-mainnet
+            (is-eq bhh (reverse-buff32 (sha256 (sha256 headerbuff))))
+            true
+        )
+        false
+    )
+)
+
+;; Get the txid of a transaction, but little-endian.
+;; This is the reverse of what you see on block explorers.
+(define-read-only (get-reversed-txid (tx (buff 100000)))
+    (sha256 (sha256 tx))
+)
+
+;; TODO: replace with clarity built-ins
+(define-private (verify-merkle-proof
+        ;; #[allow(unused_binding)]
+        (leaf-hash (buff 32))
+        ;; #[allow(unused_binding)]
+        (root-hash (buff 32))
+        ;; #[allow(unused_binding)]
+        (tx-index uint)
+        ;; #[allow(unused_binding)]
+        (tx-count uint)
+        ;; #[allow(unused_binding)]
+        (leaf-hashes (list 14 (buff 32)))
+    )
+    true
+)
+
+;; TODO: replace with clarity built-ins
+(define-private (get-bitcoin-tx-output?
+        (tx-bytes (buff 100000))
+        ;; #[allow(unused_binding)]
+        (output-index uint)
+        ;; TODO: remove when built-in exists
+        ;; #[allow(unused_binding)]
+        (amount uint)
+    )
+    (if true
+        (ok {
+            amount: amount,
+            txid: (get-reversed-txid tx-bytes),
+        })
+        (err u1) ;; indeterminate type otherwise
     )
 )

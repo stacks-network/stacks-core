@@ -3960,6 +3960,41 @@ export const contracts = {
           rewardsPerToken: bigint;
         }
       >,
+      getBitcoinTxOutput_q: {
+        name: 'get-bitcoin-tx-output?',
+        access: 'private',
+        args: [
+          { name: 'tx-bytes', type: { buffer: { length: 100000 } } },
+          { name: 'output-index', type: 'uint128' },
+          { name: 'amount', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount', type: 'uint128' },
+                  { name: 'txid', type: { buffer: { length: 32 } } },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          txBytes: TypedAbiArg<Uint8Array, 'txBytes'>,
+          outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+        ],
+        Response<
+          {
+            amount: bigint;
+            txid: Uint8Array;
+          },
+          bigint
+        >
+      >,
       lockSbtc: {
         name: 'lock-sbtc',
         access: 'private',
@@ -4121,6 +4156,15 @@ export const contracts = {
           bigint
         >
       >,
+      reverseBuff16: {
+        name: 'reverse-buff16',
+        access: 'private',
+        args: [{ name: 'input', type: { buffer: { length: 16 } } }],
+        outputs: { type: { buffer: { length: 17 } } },
+      } as TypedAbiFunction<
+        [input: TypedAbiArg<Uint8Array, 'input'>],
+        Uint8Array
+      >,
       updateClaimableBondRewards: {
         name: 'update-claimable-bond-rewards',
         access: 'private',
@@ -4236,8 +4280,18 @@ export const contracts = {
             type: {
               tuple: [
                 { name: 'amount', type: 'uint128' },
+                { name: 'header', type: { buffer: { length: 80 } } },
+                { name: 'height', type: 'uint128' },
+                {
+                  name: 'leaf-hashes',
+                  type: {
+                    list: { type: { buffer: { length: 32 } }, length: 14 },
+                  },
+                },
                 { name: 'output-index', type: 'uint128' },
-                { name: 'txid', type: { buffer: { length: 32 } } },
+                { name: 'tx', type: { buffer: { length: 100000 } } },
+                { name: 'tx-count', type: 'uint128' },
+                { name: 'tx-index', type: 'uint128' },
               ],
             },
           },
@@ -4280,8 +4334,13 @@ export const contracts = {
           lockup: TypedAbiArg<
             {
               amount: number | bigint;
+              header: Uint8Array;
+              height: number | bigint;
+              leafHashes: Uint8Array[];
               outputIndex: number | bigint;
-              txid: Uint8Array;
+              tx: Uint8Array;
+              txCount: number | bigint;
+              txIndex: number | bigint;
             },
             'lockup'
           >,
@@ -4304,25 +4363,6 @@ export const contracts = {
           bigint
         >
       >,
-      validateP2wshExists_q: {
-        name: 'validate-p2wsh-exists?',
-        access: 'private',
-        args: [
-          { name: 'script-hash', type: { buffer: { length: 32 } } },
-          { name: 'amount', type: 'uint128' },
-          { name: 'txid', type: { buffer: { length: 32 } } },
-          { name: 'output-index', type: 'uint128' },
-        ],
-        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [
-          scriptHash: TypedAbiArg<Uint8Array, 'scriptHash'>,
-          amount: TypedAbiArg<number | bigint, 'amount'>,
-          txid: TypedAbiArg<Uint8Array, 'txid'>,
-          outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
-        ],
-        Response<bigint, bigint>
-      >,
       verifyL1Lockups: {
         name: 'verify-l1-lockups',
         access: 'private',
@@ -4340,8 +4380,21 @@ export const contracts = {
                       type: {
                         tuple: [
                           { name: 'amount', type: 'uint128' },
+                          { name: 'header', type: { buffer: { length: 80 } } },
+                          { name: 'height', type: 'uint128' },
+                          {
+                            name: 'leaf-hashes',
+                            type: {
+                              list: {
+                                type: { buffer: { length: 32 } },
+                                length: 14,
+                              },
+                            },
+                          },
                           { name: 'output-index', type: 'uint128' },
-                          { name: 'txid', type: { buffer: { length: 32 } } },
+                          { name: 'tx', type: { buffer: { length: 100000 } } },
+                          { name: 'tx-count', type: 'uint128' },
+                          { name: 'tx-index', type: 'uint128' },
                         ],
                       },
                       length: 10,
@@ -4362,8 +4415,13 @@ export const contracts = {
             {
               outputs: {
                 amount: number | bigint;
+                header: Uint8Array;
+                height: number | bigint;
+                leafHashes: Uint8Array[];
                 outputIndex: number | bigint;
-                txid: Uint8Array;
+                tx: Uint8Array;
+                txCount: number | bigint;
+                txIndex: number | bigint;
               }[];
               unlockBytes: Uint8Array;
             },
@@ -4371,6 +4429,30 @@ export const contracts = {
           >,
         ],
         Response<bigint, bigint>
+      >,
+      verifyMerkleProof: {
+        name: 'verify-merkle-proof',
+        access: 'private',
+        args: [
+          { name: 'leaf-hash', type: { buffer: { length: 32 } } },
+          { name: 'root-hash', type: { buffer: { length: 32 } } },
+          { name: 'tx-index', type: 'uint128' },
+          { name: 'tx-count', type: 'uint128' },
+          {
+            name: 'leaf-hashes',
+            type: { list: { type: { buffer: { length: 32 } }, length: 14 } },
+          },
+        ],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<
+        [
+          leafHash: TypedAbiArg<Uint8Array, 'leafHash'>,
+          rootHash: TypedAbiArg<Uint8Array, 'rootHash'>,
+          txIndex: TypedAbiArg<number | bigint, 'txIndex'>,
+          txCount: TypedAbiArg<number | bigint, 'txCount'>,
+          leafHashes: TypedAbiArg<Uint8Array[], 'leafHashes'>,
+        ],
+        boolean
       >,
       allowContractCaller: {
         name: 'allow-contract-caller',
@@ -4533,11 +4615,27 @@ export const contracts = {
                           type: {
                             tuple: [
                               { name: 'amount', type: 'uint128' },
+                              {
+                                name: 'header',
+                                type: { buffer: { length: 80 } },
+                              },
+                              { name: 'height', type: 'uint128' },
+                              {
+                                name: 'leaf-hashes',
+                                type: {
+                                  list: {
+                                    type: { buffer: { length: 32 } },
+                                    length: 14,
+                                  },
+                                },
+                              },
                               { name: 'output-index', type: 'uint128' },
                               {
-                                name: 'txid',
-                                type: { buffer: { length: 32 } },
+                                name: 'tx',
+                                type: { buffer: { length: 100000 } },
                               },
+                              { name: 'tx-count', type: 'uint128' },
+                              { name: 'tx-index', type: 'uint128' },
                             ],
                           },
                           length: 10,
@@ -4567,8 +4665,13 @@ export const contracts = {
               {
                 outputs: {
                   amount: number | bigint;
+                  header: Uint8Array;
+                  height: number | bigint;
+                  leafHashes: Uint8Array[];
                   outputIndex: number | bigint;
-                  txid: Uint8Array;
+                  tx: Uint8Array;
+                  txCount: number | bigint;
+                  txIndex: number | bigint;
                 }[];
                 unlockBytes: Uint8Array;
               },
@@ -5026,6 +5129,15 @@ export const contracts = {
         ],
         bigint
       >,
+      getBcHHash: {
+        name: 'get-bc-h-hash',
+        access: 'read_only',
+        args: [{ name: 'bh', type: 'uint128' }],
+        outputs: { type: { optional: { buffer: { length: 32 } } } },
+      } as TypedAbiFunction<
+        [bh: TypedAbiArg<number | bigint, 'bh'>],
+        Uint8Array | null
+      >,
       getBondAllowance: {
         name: 'get-bond-allowance',
         access: 'read_only',
@@ -5172,6 +5284,12 @@ export const contracts = {
         args: [],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<[], bigint>,
+      getReversedTxid: {
+        name: 'get-reversed-txid',
+        access: 'read_only',
+        args: [{ name: 'tx', type: { buffer: { length: 100000 } } }],
+        outputs: { type: { buffer: { length: 32 } } },
+      } as TypedAbiFunction<[tx: TypedAbiArg<Uint8Array, 'tx'>], Uint8Array>,
       getRewards: {
         name: 'get-rewards',
         access: 'read_only',
@@ -5518,6 +5636,162 @@ export const contracts = {
         ],
         bigint
       >,
+      parseBlockHeader: {
+        name: 'parse-block-header',
+        access: 'read_only',
+        args: [{ name: 'headerbuff', type: { buffer: { length: 80 } } }],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'merkle-root', type: { buffer: { length: 32 } } },
+                  { name: 'nbits', type: 'uint128' },
+                  { name: 'nonce', type: 'uint128' },
+                  { name: 'parent', type: { buffer: { length: 32 } } },
+                  { name: 'timestamp', type: 'uint128' },
+                  { name: 'version', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [headerbuff: TypedAbiArg<Uint8Array, 'headerbuff'>],
+        Response<
+          {
+            merkleRoot: Uint8Array;
+            nbits: bigint;
+            nonce: bigint;
+            parent: Uint8Array;
+            timestamp: bigint;
+            version: bigint;
+          },
+          bigint
+        >
+      >,
+      readHashslice: {
+        name: 'read-hashslice',
+        access: 'read_only',
+        args: [
+          {
+            name: 'old-ctx',
+            type: {
+              tuple: [
+                { name: 'index', type: 'uint128' },
+                { name: 'txbuff', type: { buffer: { length: 4096 } } },
+              ],
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  {
+                    name: 'ctx',
+                    type: {
+                      tuple: [
+                        { name: 'index', type: 'uint128' },
+                        { name: 'txbuff', type: { buffer: { length: 4096 } } },
+                      ],
+                    },
+                  },
+                  { name: 'hashslice', type: { buffer: { length: 32 } } },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          oldCtx: TypedAbiArg<
+            {
+              index: number | bigint;
+              txbuff: Uint8Array;
+            },
+            'oldCtx'
+          >,
+        ],
+        Response<
+          {
+            ctx: {
+              index: bigint;
+              txbuff: Uint8Array;
+            };
+            hashslice: Uint8Array;
+          },
+          bigint
+        >
+      >,
+      readUint32: {
+        name: 'read-uint32',
+        access: 'read_only',
+        args: [
+          {
+            name: 'ctx',
+            type: {
+              tuple: [
+                { name: 'index', type: 'uint128' },
+                { name: 'txbuff', type: { buffer: { length: 4096 } } },
+              ],
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  {
+                    name: 'ctx',
+                    type: {
+                      tuple: [
+                        { name: 'index', type: 'uint128' },
+                        { name: 'txbuff', type: { buffer: { length: 4096 } } },
+                      ],
+                    },
+                  },
+                  { name: 'uint32', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          ctx: TypedAbiArg<
+            {
+              index: number | bigint;
+              txbuff: Uint8Array;
+            },
+            'ctx'
+          >,
+        ],
+        Response<
+          {
+            ctx: {
+              index: bigint;
+              txbuff: Uint8Array;
+            };
+            uint32: bigint;
+          },
+          bigint
+        >
+      >,
+      reverseBuff32: {
+        name: 'reverse-buff32',
+        access: 'read_only',
+        args: [{ name: 'input', type: { buffer: { length: 32 } } }],
+        outputs: { type: { buffer: { length: 32 } } },
+      } as TypedAbiFunction<
+        [input: TypedAbiArg<Uint8Array, 'input'>],
+        Uint8Array
+      >,
       rewardCycleToBurnHeight: {
         name: 'reward-cycle-to-burn-height',
         access: 'read_only',
@@ -5548,6 +5822,24 @@ export const contracts = {
         [
           staker: TypedAbiArg<string, 'staker'>,
           cycle: TypedAbiArg<number | bigint, 'cycle'>,
+        ],
+        boolean
+      >,
+      verifyBlockHeader: {
+        name: 'verify-block-header',
+        access: 'read_only',
+        args: [
+          { name: 'headerbuff', type: { buffer: { length: 80 } } },
+          { name: 'expected-block-height', type: 'uint128' },
+        ],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<
+        [
+          headerbuff: TypedAbiArg<Uint8Array, 'headerbuff'>,
+          expectedBlockHeight: TypedAbiArg<
+            number | bigint,
+            'expectedBlockHeight'
+          >,
         ],
         boolean
       >,
@@ -6088,6 +6380,26 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_BTC_HEADER: {
+        name: 'ERR_INVALID_BTC_HEADER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_MERKLE_PROOF: {
+        name: 'ERR_INVALID_MERKLE_PROOF',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_NUM_CYCLES: {
         name: 'ERR_INVALID_NUM_CYCLES',
         type: {
@@ -6210,6 +6522,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NO_SBTC_BALANCE: {
         name: 'ERR_NO_SBTC_BALANCE',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_READ_TX_OUT_OF_BOUNDS: {
+        name: 'ERR_READ_TX_OUT_OF_BOUNDS',
         type: {
           response: {
             ok: 'none',
@@ -6543,6 +6865,14 @@ export const contracts = {
         isOk: false,
         value: 29n,
       },
+      ERR_INVALID_BTC_HEADER: {
+        isOk: false,
+        value: 40n,
+      },
+      ERR_INVALID_MERKLE_PROOF: {
+        isOk: false,
+        value: 41n,
+      },
       ERR_INVALID_NUM_CYCLES: {
         isOk: false,
         value: 20n,
@@ -6594,6 +6924,10 @@ export const contracts = {
       ERR_NO_SBTC_BALANCE: {
         isOk: false,
         value: 25n,
+      },
+      ERR_READ_TX_OUT_OF_BOUNDS: {
+        isOk: false,
+        value: 39n,
       },
       ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH: {
         isOk: false,
