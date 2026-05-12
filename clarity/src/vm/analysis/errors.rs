@@ -672,7 +672,7 @@ impl RuntimeCheckErrorKind {
         matches!(
             self,
             RuntimeCheckErrorKind::Unreachable(_)
-                | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
+                | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
         )
     }
 
