@@ -2157,6 +2157,9 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_enter_as_contract_post_v4_fn(linker)?;
     link_exit_as_contract_post_v4_fn(linker)?;
     link_cleanup_as_contract_post_v4_fn(linker)?;
+    link_enter_restrict_assets_fn(linker)?;
+    link_exit_restrict_assets_fn(linker)?;
+    link_cleanup_restrict_assets_fn(linker)?;
     link_with_all_assets_unsafe_fn(linker)?;
     link_with_ft_fn(linker)?;
     link_with_nft_fn(linker)?;
@@ -3445,6 +3448,96 @@ fn link_cleanup_as_contract_post_v4_fn(
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "cleanup_as_contract".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_enter_restrict_assets_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "enter_restrict_assets",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.begin();
+
+                Some(ExternRef::new(AllowanceContext::new()))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "enter_restrict_assets".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_exit_restrict_assets_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "exit_restrict_assets",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             asset_owner_offset: i32,
+             asset_owner_length: i32,
+             allowance_ref: Option<ExternRef>| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                let epoch = caller.data().global_context.epoch_id;
+                let owner = read_from_wasm(
+                    memory,
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    asset_owner_offset,
+                    asset_owner_length,
+                    epoch,
+                )?
+                .expect_principal()?;
+                let allowances = AllowanceContext::extract(&allowance_ref)?;
+
+                let asset_map = caller.data_mut().global_context.get_readonly_asset_map()?;
+
+                match check_allowances(&owner, allowances, asset_map)? {
+                    None => {
+                        caller.data_mut().global_context.commit()?;
+                        Ok((0i64, 0i64, 1i32)) // no violation
+                    }
+                    Some(violation_index) => {
+                        caller.data_mut().global_context.roll_back()?;
+                        let lo = violation_index as i64;
+                        let hi = (violation_index >> 64) as i64;
+                        Ok((lo, hi, 0i32)) // violation — Wasm returns (err index)
+                    }
+                }
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "exit_restrict_assets".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_cleanup_restrict_assets_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "cleanup_restrict_assets",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.roll_back()?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "cleanup_restrict_assets".to_string(),
                 e,
             ))
         })
