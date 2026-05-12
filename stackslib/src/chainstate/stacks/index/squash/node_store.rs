@@ -307,6 +307,35 @@ impl NodeStore {
         Ok(())
     }
 
+    /// Overwrite the node at `idx` in place using the existing writer handle.
+    ///
+    /// Call only after `finish_writing` and only when the new serialization
+    /// length matches the original.
+    pub(crate) fn overwrite_node(&mut self, idx: usize, node: &TrieNodeType) -> Result<(), Error> {
+        let offset = *self.file_offsets.get(idx).ok_or_else(|| {
+            Error::CorruptionError(format!("overwrite_node: index {idx} out of bounds"))
+        })?;
+        let next_offset = self.file_offsets.get(idx + 1);
+        self.writer
+            .seek(SeekFrom::Start(offset))
+            .map_err(Error::IOError)?;
+        serialize_node(&mut self.writer, node)?;
+        if let Some(expected_end) = next_offset {
+            debug_assert_eq!(
+                self.writer.position(),
+                *expected_end,
+                "overwrite_node: re-serialized node {idx} changed length"
+            );
+        }
+        Ok(())
+    }
+
+    /// Flush any buffered writes to the underlying file.
+    pub(crate) fn flush(&mut self) -> Result<(), Error> {
+        self.writer.flush().map_err(Error::IOError)?;
+        Ok(())
+    }
+
     /// Open a reader for random-access reads.
     pub(crate) fn open_reader(&self) -> Result<BufReader<File>, Error> {
         let file = File::open(&self.path).map_err(Error::IOError)?;

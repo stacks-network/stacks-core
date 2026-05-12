@@ -94,12 +94,6 @@ fn remap_child_ptrs(
     let node_count = store.len();
     let mut reader = store.open_reader()?;
 
-    let write_file = std::fs::OpenOptions::new()
-        .write(true)
-        .open(&store.path)
-        .map_err(Error::IOError)?;
-    let mut writer = BufWriter::with_capacity(1 << 20, write_file);
-
     for idx in 0..node_count {
         if idx > 0 && idx % 1_000_000 == 0 {
             info!(
@@ -142,16 +136,10 @@ fn remap_child_ptrs(
         }
 
         if modified {
-            let offset = *store.file_offsets.get(idx).ok_or_else(|| {
-                Error::CorruptionError(format!("remap: file_offsets index {idx} out of bounds"))
-            })?;
-            writer
-                .seek(SeekFrom::Start(offset))
-                .map_err(Error::IOError)?;
-            serialize_node(&mut writer, &node)?;
+            store.overwrite_node(idx, &node)?;
         }
     }
-    writer.flush().map_err(Error::IOError)?;
+    store.flush()?;
 
     info!(
         "[{label}] Remap trie pointers complete: {node_count} nodes in {}",
