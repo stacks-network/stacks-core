@@ -3967,6 +3967,7 @@ export const contracts = {
           { name: 'tx-bytes', type: { buffer: { length: 100000 } } },
           { name: 'output-index', type: 'uint128' },
           { name: 'amount', type: 'uint128' },
+          { name: 'script', type: { buffer: { length: 34 } } },
         ],
         outputs: {
           type: {
@@ -3974,6 +3975,7 @@ export const contracts = {
               ok: {
                 tuple: [
                   { name: 'amount', type: 'uint128' },
+                  { name: 'script', type: { buffer: { length: 34 } } },
                   { name: 'txid', type: { buffer: { length: 32 } } },
                 ],
               },
@@ -3986,10 +3988,12 @@ export const contracts = {
           txBytes: TypedAbiArg<Uint8Array, 'txBytes'>,
           outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
           amount: TypedAbiArg<number | bigint, 'amount'>,
+          script: TypedAbiArg<Uint8Array, 'script'>,
         ],
         Response<
           {
             amount: bigint;
+            script: Uint8Array;
             txid: Uint8Array;
           },
           bigint
@@ -4303,7 +4307,7 @@ export const contracts = {
                   tuple: [
                     {
                       name: 'expected-script-hash',
-                      type: { buffer: { length: 32 } },
+                      type: { buffer: { length: 34 } },
                     },
                     { name: 'sum', type: 'uint128' },
                   ],
@@ -4320,7 +4324,7 @@ export const contracts = {
                 tuple: [
                   {
                     name: 'expected-script-hash',
-                    type: { buffer: { length: 32 } },
+                    type: { buffer: { length: 34 } },
                   },
                   { name: 'sum', type: 'uint128' },
                 ],
@@ -5093,38 +5097,38 @@ export const contracts = {
         [lockPeriod: TypedAbiArg<number | bigint, 'lockPeriod'>],
         boolean
       >,
-      constructOutputScript: {
-        name: 'construct-output-script',
+      constructLockupOutputScript: {
+        name: 'construct-lockup-output-script',
         access: 'read_only',
         args: [
-          { name: 'stacker', type: 'principal' },
+          { name: 'staker', type: 'principal' },
           { name: 'unlock-burn-height', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
-          { name: 'early-unlock-bytes', type: { buffer: { length: 255 } } },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+          { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
         outputs: { type: { buffer: { length: 34 } } },
       } as TypedAbiFunction<
         [
-          stacker: TypedAbiArg<string, 'stacker'>,
+          staker: TypedAbiArg<string, 'staker'>,
           unlockBurnHeight: TypedAbiArg<number | bigint, 'unlockBurnHeight'>,
           unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
         ],
         Uint8Array
       >,
-      constructUnlockScript: {
-        name: 'construct-unlock-script',
+      constructLockupScript: {
+        name: 'construct-lockup-script',
         access: 'read_only',
         args: [
-          { name: 'stacker', type: 'principal' },
+          { name: 'staker', type: 'principal' },
           { name: 'unlock-burn-height', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
-          { name: 'early-unlock-bytes', type: { buffer: { length: 255 } } },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+          { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
         outputs: { type: { buffer: { length: 5141 } } },
       } as TypedAbiFunction<
         [
-          stacker: TypedAbiArg<string, 'stacker'>,
+          staker: TypedAbiArg<string, 'staker'>,
           unlockBurnHeight: TypedAbiArg<number | bigint, 'unlockBurnHeight'>,
           unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
@@ -5190,6 +5194,15 @@ export const contracts = {
           staker: TypedAbiArg<string, 'staker'>,
         ],
         bigint | null
+      >,
+      getBondL1UnlockHeight: {
+        name: 'get-bond-l1-unlock-height',
+        access: 'read_only',
+        args: [{ name: 'bond-index', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>],
+        bigint
       >,
       getBondMembership: {
         name: 'get-bond-membership',
@@ -6455,6 +6468,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_LOCKUP_SCRIPT: {
+        name: 'ERR_INVALID_LOCKUP_SCRIPT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_MERKLE_PROOF: {
         name: 'ERR_INVALID_MERKLE_PROOF',
         type: {
@@ -6933,6 +6956,10 @@ export const contracts = {
       ERR_INVALID_BTC_HEADER: {
         isOk: false,
         value: 40n,
+      },
+      ERR_INVALID_LOCKUP_SCRIPT: {
+        isOk: false,
+        value: 42n,
       },
       ERR_INVALID_MERKLE_PROOF: {
         isOk: false,

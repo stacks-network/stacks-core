@@ -37,7 +37,7 @@ it('should construct the unlock script', () => {
           earlyUnlockBytes,
         });
         const actual = rov(
-          pox5.constructUnlockScript(
+          pox5.constructLockupScript(
             stacker,
             unlockBurnHeight,
             unlockBytes,

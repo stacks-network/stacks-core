@@ -50,6 +50,8 @@
 (define-constant ERR_INVALID_BTC_HEADER (err u40))
 ;; An incorrect merkle proof was provided as part of a lockup proof
 (define-constant ERR_INVALID_MERKLE_PROOF (err u41))
+;; The output script provided is incorrect
+(define-constant ERR_INVALID_LOCKUP_SCRIPT (err u42))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -1421,9 +1423,7 @@
 ;; corresponds to the right timelock script for this staker, and that the lockup
 ;; occurred on-chain. If everything is valid, this returns the sum of all lockups in sats.
 (define-private (verify-l1-lockups
-        ;; #[allow(unused_binding)]
         (staker principal)
-        ;; #[allow(unused_binding)]
         (bond-index uint)
         (lockups {
             outputs: (list 10
@@ -1441,13 +1441,19 @@
             unlock-bytes: (buff 683),
         })
     )
-    (let ((accumulation (try! (fold validate-l1-lockup (get outputs lockups)
-            (ok {
-                sum: u0,
-                ;; TODO: construct the correct lockup script
-                expected-script-hash: 0xdeadbeef,
-            })
-        ))))
+    (let (
+            (bond (unwrap! (get-protocol-bond bond-index) ERR_BOND_NOT_FOUND))
+            (expected-timelock-output (construct-lockup-output-script staker
+                (get-bond-l1-unlock-height bond-index)
+                (get unlock-bytes lockups) (get early-unlock-signers bond)
+            ))
+            (accumulation (try! (fold validate-l1-lockup (get outputs lockups)
+                (ok {
+                    sum: u0,
+                    expected-script-hash: expected-timelock-output,
+                })
+            )))
+        )
         (ok (get sum accumulation))
     )
 )
@@ -1465,23 +1471,27 @@
             amount: uint,
         })
         (accumulator-res (response {
-            expected-script-hash: (buff 32),
+            expected-script-hash: (buff 34),
             sum: uint,
         }
             uint
         ))
     )
     (let (
+            (accumulator (try! accumulator-res))
             (block (try! (parse-block-header (get header lockup))))
+            (expected-script-hash (get expected-script-hash accumulator))
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup)
-                (get amount lockup)
+                (get amount lockup) expected-script-hash
             )))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
-            (accumulator (try! accumulator-res))
         )
         (asserts! (verify-block-header (get header lockup) (get height lockup))
             ERR_INVALID_BTC_HEADER
+        )
+        (asserts! (is-eq (get script output) expected-script-hash)
+            ERR_INVALID_LOCKUP_SCRIPT
         )
         ;; verify merkle proof
         (asserts!
@@ -2345,6 +2355,14 @@
     (map-get? protocol-bonds bond-index)
 )
 
+;; Returns the expected L1 unlock height for a given bond index.
+;; This is equal to 1/2 of a reward cycle before the end of the bond period.
+(define-read-only (get-bond-l1-unlock-height (bond-index uint))
+    (- (bond-period-to-burn-height (+ bond-index u6))
+        (/ (var-get pox-reward-cycle-length) u2)
+    )
+)
+
 ;;; Contract caller allowances
 
 (define-read-only (check-caller-allowed)
@@ -2748,10 +2766,14 @@
         ;; TODO: remove when built-in exists
         ;; #[allow(unused_binding)]
         (amount uint)
+        ;; TODO: remove when built-in exists
+        ;; #[allow(unused_binding)]
+        (script (buff 34))
     )
     (if true
         (ok {
             amount: amount,
+            script: script,
             txid: (get-reversed-txid tx-bytes),
         })
         (err u1) ;; indeterminate type otherwise
@@ -2761,13 +2783,13 @@
 ;;; Lock script helpers
 
 ;; Contruct an L1 lockup script
-(define-read-only (construct-unlock-script
-        (stacker principal)
+(define-read-only (construct-lockup-script
+        (staker principal)
         (unlock-burn-height uint)
-        (unlock-bytes (buff 255))
-        (early-unlock-bytes (buff 255))
+        (unlock-bytes (buff 683))
+        (early-unlock-bytes (buff 683))
     )
-    (concat (push-script-bytes (unwrap-panic (to-consensus-buff? stacker)))
+    (concat (push-script-bytes (unwrap-panic (to-consensus-buff? staker)))
         (concat 0x7563 ;; OP_DROP, OP_IF
             (concat (push-c-script-num unlock-burn-height)
                 (concat 0xb175 ;; OP_CHECKLOCKTIMEVERIFY, OP_DROP
@@ -2783,14 +2805,14 @@
 )
 
 ;; Construct the p2wsh output script for a L1 lockup address
-(define-read-only (construct-output-script
-        (stacker principal)
+(define-read-only (construct-lockup-output-script
+        (staker principal)
         (unlock-burn-height uint)
-        (unlock-bytes (buff 255))
-        (early-unlock-bytes (buff 255))
+        (unlock-bytes (buff 683))
+        (early-unlock-bytes (buff 683))
     )
     (concat 0x0020
-        (sha256 (construct-unlock-script stacker unlock-burn-height unlock-bytes
+        (sha256 (construct-lockup-script staker unlock-burn-height unlock-bytes
             early-unlock-bytes
         ))
     )

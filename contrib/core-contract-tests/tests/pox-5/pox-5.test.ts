@@ -4,9 +4,8 @@ import {
   extractErrors,
   isResponse,
   ok,
-  projectFactory,
 } from '@clarigen/core';
-import { accounts, project } from '../clarigen-types';
+import { accounts } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
 import { filterEvents, rov, rovErr, rovOk, txErr, txOk } from '@clarigen/test';
 import { mineUntil, stxToUStx } from '../test-helpers';
