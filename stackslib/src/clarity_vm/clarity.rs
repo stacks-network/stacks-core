@@ -921,6 +921,25 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         self.cost_track.unwrap()
     }
 
+    /// Set the epoch on this block connection, mirroring what a real
+    /// `initialize_epoch_X_Y` would do: updates the in-memory `epoch` field on
+    /// the block connection, persists the value to the Clarity DB, and updates
+    /// the transaction connection's `epoch` field so subsequent analyses route
+    /// through the correct epoch's type checker.
+    #[cfg(test)]
+    pub fn set_epoch_for_testing(&mut self, epoch: StacksEpochId) {
+        self.epoch = epoch;
+        self.as_transaction(|tx_conn| {
+            tx_conn
+                .with_clarity_db(|db| {
+                    db.set_clarity_epoch_version(epoch)?;
+                    Ok(())
+                })
+                .unwrap();
+            tx_conn.epoch = epoch;
+        });
+    }
+
     pub fn precommit_to_block(self, final_bhh: StacksBlockId) -> PreCommitClarityBlock<'a> {
         self.cost_track
             .expect("Clarity block connection lost cost tracker before commitment");
