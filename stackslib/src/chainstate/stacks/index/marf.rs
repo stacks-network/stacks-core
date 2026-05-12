@@ -1144,19 +1144,7 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<Option<TrieLeaf>, Error> {
         trace!("MARF::get_path({block_hash:?}) {path:?}");
 
-        // In a squashed MARF, blocks below the squash height share the same blob, so reject
-        // historical reads from them.
-        if let Some(squash_height) = storage.squash_info().map(|info| info.height) {
-            if let Some(h) = trie_sql::read_squash_block_height(storage.sqlite_conn(), block_hash)?
-            {
-                if h < squash_height {
-                    return Err(Error::HistoricalReadInSquashedRange {
-                        block_height: h,
-                        squash_height,
-                    });
-                }
-            }
-        }
+        storage.check_historical_read_allowed(block_hash)?;
 
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash).inspect_err(|_e| {
@@ -1429,7 +1417,7 @@ impl<T: MarfTrieId> MARF<T> {
         // `marf_squashed_blocks`, not in per-height trie state. When the
         // caller is inside the squashed range, answer from the side table
         // and preserve the usual "no future blocks" behavior.
-        if let Some(squash_height) = storage.squash_info().map(|info| info.height) {
+        if let Some(squash_height) = storage.squash_height() {
             if current_block_height <= squash_height {
                 if height > current_block_height {
                     return Ok(None);
@@ -1821,17 +1809,7 @@ impl<T: MarfTrieId> MARF<T> {
     where
         F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
     {
-        if let Some(squash_height) = storage.squash_info().map(|info| info.height) {
-            if let Some(h) = trie_sql::read_squash_block_height(storage.sqlite_conn(), block_hash)?
-            {
-                if h < squash_height {
-                    return Err(Error::HistoricalReadInSquashedRange {
-                        block_height: h,
-                        squash_height,
-                    });
-                }
-            }
-        }
+        storage.check_historical_read_allowed(block_hash)?;
 
         let (original_block_hash, original_block_id) = storage.get_cur_block_and_id();
         let result = Self::for_each_leaf_inner(storage, block_hash, &mut handle_leaf);
