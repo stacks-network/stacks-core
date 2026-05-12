@@ -2757,3 +2757,117 @@
         (err u1) ;; indeterminate type otherwise
     )
 )
+
+;;; Lock script helpers
+
+;; Contruct an L1 lockup script
+(define-read-only (construct-unlock-script
+        (stacker principal)
+        (unlock-burn-height uint)
+        (unlock-bytes (buff 255))
+        (early-unlock-bytes (buff 255))
+    )
+    (concat (push-script-bytes (unwrap-panic (to-consensus-buff? stacker)))
+        (concat 0x7563 ;; OP_DROP, OP_IF
+            (concat (push-c-script-num unlock-burn-height)
+                (concat 0xb175 ;; OP_CHECKLOCKTIMEVERIFY, OP_DROP
+                    (concat (push-script-bytes unlock-bytes)
+                        (concat 0x67 ;; OP_ELSE
+                            (concat (push-script-bytes early-unlock-bytes)
+                                (concat (push-script-bytes unlock-bytes) 0x68
+                                    ;; OP_ENDIF
+                                ))
+                        ))
+                ))
+        ))
+)
+
+;; Construct the p2wsh output script for a L1 lockup address
+(define-read-only (construct-output-script
+        (stacker principal)
+        (unlock-burn-height uint)
+        (unlock-bytes (buff 255))
+        (early-unlock-bytes (buff 255))
+    )
+    (concat 0x0020
+        (sha256 (construct-unlock-script stacker unlock-burn-height unlock-bytes
+            early-unlock-bytes
+        ))
+    )
+)
+
+;; Convert a u8 or u16 to a little-endian byte buffer,
+;; ONLY FOR n < 0xffff
+(define-read-only (uint-to-buff-le (n uint))
+    (unwrap-panic (as-max-len?
+        (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? n))
+            (if (< n u256)
+                u16
+                u17
+            ) u17
+        ))
+        u2
+    ))
+)
+
+;; Construct the correct script for pushing bytes into a Bitcoin script.
+;;
+;; If len < 76, just push the length
+;; If len < 256, push PUSHDATA1, then the little-endian length
+;; If len < 65535 (0xffff), push PUSHDATA2, then the U16LE-encoded length
+(define-read-only (push-script-bytes (bytes (buff 1024)))
+    (let ((byte-length (len bytes)))
+        (concat
+            (if (< byte-length u76)
+                (uint-to-buff-le byte-length)
+                (if (< byte-length u256)
+                    (concat 0x4c (uint-to-buff-le byte-length))
+                    (concat 0x4d (uint-to-buff-le byte-length))
+                )
+            )
+            bytes
+        )
+    )
+)
+
+(define-read-only (serialize-c-script-num (n uint))
+    (unwrap-panic (as-max-len?
+        (if (is-eq n u0)
+            0x
+            (let (
+                    (bytes (unwrap-panic (to-consensus-buff? n)))
+                    (b0 (unwrap-panic (slice? bytes u16 u17)))
+                    (b1 (unwrap-panic (slice? bytes u15 u16)))
+                    (b2 (unwrap-panic (slice? bytes u14 u15)))
+                )
+                (if (< n u128)
+                    b0
+                    (if (< n u256)
+                        (concat b0 0x00)
+                        (if (< n u32768)
+                            (concat b0 b1)
+                            (if (< n u65536)
+                                (concat b0 (concat b1 0x00))
+                                (concat b0 (concat b1 b2))
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        u5
+    ))
+)
+
+(define-read-only (push-c-script-num (n uint))
+    (if (is-eq n u0)
+        0x00
+        (if (<= n u16)
+            (unwrap-panic (as-max-len?
+                (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? (+ u80 n))) u16 u17))
+                u1
+            ))
+            (push-script-bytes (serialize-c-script-num n))
+        )
+    )
+)

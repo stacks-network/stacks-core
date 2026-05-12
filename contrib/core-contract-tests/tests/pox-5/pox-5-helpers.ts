@@ -1,9 +1,10 @@
 import * as BTC from '@scure/btc-signer';
 import {
   Cl,
-  createAddress,
   encodeStructuredDataBytes,
   getAddressFromPublicKey,
+  principalCV,
+  serializeCV,
   signWithKey,
 } from '@stacks/transactions';
 import { hex } from '@scure/base';
@@ -39,19 +40,26 @@ export function serializeLockupScript({
   stacker,
   unlockBurnHeight,
   unlockBytes,
+  earlyUnlockBytes,
 }: {
   stacker: string;
   unlockBurnHeight: bigint;
   unlockBytes: Uint8Array;
+  earlyUnlockBytes: Uint8Array;
 }) {
-  const addr = createAddress(stacker);
+  const stackerEncoded = serializeCV(principalCV(stacker));
   return BTC.Script.encode([
-    new Uint8Array([5, addr.version, ...hex.decode(addr.hash160)]),
+    hex.decode(stackerEncoded),
     'DROP',
+    'IF',
     Number(unlockBurnHeight),
     'CHECKLOCKTIMEVERIFY',
     'DROP',
     unlockBytes,
+    'ELSE',
+    earlyUnlockBytes,
+    unlockBytes,
+    'ENDIF',
   ]);
 }
 

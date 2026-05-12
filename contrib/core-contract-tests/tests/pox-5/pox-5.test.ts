@@ -21,10 +21,8 @@ import {
   sbtcBalance,
   testSigner,
   testSignerErrors,
+  pox5,
 } from './pox-5-helpers';
-
-const contracts = projectFactory(project, 'simnet');
-const pox5 = contracts.pox5;
 
 const pox5Errors = extractErrors(pox5);
 
@@ -2222,7 +2220,7 @@ test('scenario - waterfall distributions', () => {
   const extra1 = 100n;
 
   txOk(
-    contracts.sbtcToken.transfer({
+    sbtc.transfer({
       recipient: pox5.identifier,
       amount: perRewardCalcYieldPeriod1 + extra1,
       sender: deployer,
@@ -2292,7 +2290,7 @@ test('scenario - waterfall distributions', () => {
   // give some new rewards
   const rewards2 = perRewardCalcYieldPeriod1 + extra1;
   txOk(
-    contracts.sbtcToken.transfer({
+    sbtc.transfer({
       recipient: pox5.identifier,
       amount: rewards2,
       sender: deployer,

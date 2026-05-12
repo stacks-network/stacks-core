@@ -5093,6 +5093,44 @@ export const contracts = {
         [lockPeriod: TypedAbiArg<number | bigint, 'lockPeriod'>],
         boolean
       >,
+      constructOutputScript: {
+        name: 'construct-output-script',
+        access: 'read_only',
+        args: [
+          { name: 'stacker', type: 'principal' },
+          { name: 'unlock-burn-height', type: 'uint128' },
+          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+          { name: 'early-unlock-bytes', type: { buffer: { length: 255 } } },
+        ],
+        outputs: { type: { buffer: { length: 34 } } },
+      } as TypedAbiFunction<
+        [
+          stacker: TypedAbiArg<string, 'stacker'>,
+          unlockBurnHeight: TypedAbiArg<number | bigint, 'unlockBurnHeight'>,
+          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+          earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
+        ],
+        Uint8Array
+      >,
+      constructUnlockScript: {
+        name: 'construct-unlock-script',
+        access: 'read_only',
+        args: [
+          { name: 'stacker', type: 'principal' },
+          { name: 'unlock-burn-height', type: 'uint128' },
+          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+          { name: 'early-unlock-bytes', type: { buffer: { length: 255 } } },
+        ],
+        outputs: { type: { buffer: { length: 5141 } } },
+      } as TypedAbiFunction<
+        [
+          stacker: TypedAbiArg<string, 'stacker'>,
+          unlockBurnHeight: TypedAbiArg<number | bigint, 'unlockBurnHeight'>,
+          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+          earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
+        ],
+        Uint8Array
+      >,
       currentDistributionCycle: {
         name: 'current-distribution-cycle',
         access: 'read_only',
@@ -5671,6 +5709,21 @@ export const contracts = {
           bigint
         >
       >,
+      pushCScriptNum: {
+        name: 'push-c-script-num',
+        access: 'read_only',
+        args: [{ name: 'n', type: 'uint128' }],
+        outputs: { type: { buffer: { length: 1027 } } },
+      } as TypedAbiFunction<[n: TypedAbiArg<number | bigint, 'n'>], Uint8Array>,
+      pushScriptBytes: {
+        name: 'push-script-bytes',
+        access: 'read_only',
+        args: [{ name: 'bytes', type: { buffer: { length: 1024 } } }],
+        outputs: { type: { buffer: { length: 1027 } } },
+      } as TypedAbiFunction<
+        [bytes: TypedAbiArg<Uint8Array, 'bytes'>],
+        Uint8Array
+      >,
       readHashslice: {
         name: 'read-hashslice',
         access: 'read_only',
@@ -5810,6 +5863,12 @@ export const contracts = {
         [cycle: TypedAbiArg<number | bigint, 'cycle'>],
         bigint
       >,
+      serializeCScriptNum: {
+        name: 'serialize-c-script-num',
+        access: 'read_only',
+        args: [{ name: 'n', type: 'uint128' }],
+        outputs: { type: { buffer: { length: 5 } } },
+      } as TypedAbiFunction<[n: TypedAbiArg<number | bigint, 'n'>], Uint8Array>,
       stakerSetContainsForCycle: {
         name: 'staker-set-contains-for-cycle',
         access: 'read_only',
@@ -5825,6 +5884,12 @@ export const contracts = {
         ],
         boolean
       >,
+      uintToBuffLe: {
+        name: 'uint-to-buff-le',
+        access: 'read_only',
+        args: [{ name: 'n', type: 'uint128' }],
+        outputs: { type: { buffer: { length: 2 } } },
+      } as TypedAbiFunction<[n: TypedAbiArg<number | bigint, 'n'>], Uint8Array>,
       verifyBlockHeader: {
         name: 'verify-block-header',
         access: 'read_only',
