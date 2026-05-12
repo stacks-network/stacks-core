@@ -290,6 +290,7 @@
 )
 
 ;; The role that is allowed to set bond parameters
+;; TODO: this should be set to some predefined multisig for mainnet
 (define-data-var bond-admin principal tx-sender)
 
 ;; Data vars that store a copy of the burnchain configuration.
@@ -362,12 +363,12 @@
     )
 )
 
-;; This is private so that it may be called only by the node as part of
-;; consensus, which would require a hard-fork.
-;; Tests and testnets can trigger a call to this function during epoch 4.0
-;; activation by setting the `pox_5_bond_admin` config parameter.
-(define-private (set-bond-admin_ (new-admin principal))
-    (ok (var-set bond-admin new-admin))
+(define-public (set-bond-admin (new-admin principal))
+    (begin
+        ;; only bond admin can call this.
+        (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
+        (ok (var-set bond-admin new-admin))
+    )
 )
 
 (define-public (setup-bond

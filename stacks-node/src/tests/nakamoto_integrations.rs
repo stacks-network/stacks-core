@@ -19632,7 +19632,11 @@ fn check_pox_5_stake_lifecycle() {
     ;; #[allow(unused_binding)]
     (amount-ustx uint)
     ;; #[allow(unused_binding)]
+    (amount-sats uint)
+    ;; #[allow(unused_binding)]
     (num-cycles uint)
+    ;; #[allow(unused_binding)]
+    (is-bond bool)
     ;; #[allow(unused_binding)]
     (signer-calldata (optional (buff 500)))
   )
@@ -20052,6 +20056,7 @@ fn check_pox_5_register_for_bond_lifecycle() {
             break;
         }
     }
+    info!("Reached Epoch-4.0 boundary, deploying signer-manager and registering signer");
 
     let mut sender_nonce = 0;
 
@@ -20066,7 +20071,11 @@ fn check_pox_5_register_for_bond_lifecycle() {
     ;; #[allow(unused_binding)]
     (amount-ustx uint)
     ;; #[allow(unused_binding)]
+    (amount-sats uint)
+    ;; #[allow(unused_binding)]
     (num-cycles uint)
+    ;; #[allow(unused_binding)]
+    (is-bond bool)
     ;; #[allow(unused_binding)]
     (signer-calldata (optional (buff 500)))
   )
@@ -20189,9 +20198,16 @@ fn check_pox_5_register_for_bond_lifecycle() {
     })
     .expect("Timed out waiting for setup-bond");
 
-    // 2) Mint sBTC to the staker so `register-for-bond`'s sBTC branch
-    // (`(err sbtc-amount)`) can pull `SBTC_AMT` sats from `tx-sender` into
-    // pox-5. The sBTC stub's `mint` has no caller restriction.
+    // 2) Mint `2 * SBTC_AMT` sBTC to the staker so `register-for-bond`'s sBTC
+    // branch (`(err sbtc-amount)`) can pull `SBTC_AMT` sats from `tx-sender`
+    // into pox-5. We mint enough for two calls because step (4) below
+    // exercises a *second* `register-for-bond` from the same staker that
+    // must reach the `ERR_ALREADY_REGISTERED` (u9) assertion in the contract
+    // body. `register-for-bond` performs the sBTC `ft-transfer?` inside its
+    // `let` binding before the duplicate-membership check, so the staker
+    // needs a balance for that attempted lock; the assert then rolls back
+    // the transfer along with the rest of the failed tx. The sBTC stub's
+    // `mint` has no caller restriction.
     let mint_tx = make_contract_call(
         &staker_sk,
         0,
@@ -20201,7 +20217,7 @@ fn check_pox_5_register_for_bond_lifecycle() {
         "sbtc-token",
         "mint",
         &[
-            Value::UInt(SBTC_AMT),
+            Value::UInt(SBTC_AMT * 2),
             Value::Principal(staker_addr.clone().into()),
         ],
     );
@@ -20551,7 +20567,11 @@ fn check_with_stacking_allowances_stake() {
     ;; #[allow(unused_binding)]
     (amount-ustx uint)
     ;; #[allow(unused_binding)]
+    (amount-sats uint)
+    ;; #[allow(unused_binding)]
     (num-cycles uint)
+    ;; #[allow(unused_binding)]
+    (is-bond bool)
     ;; #[allow(unused_binding)]
     (signer-calldata (optional (buff 500)))
   )
@@ -21177,7 +21197,11 @@ fn check_with_stacking_allowances_register_for_bond() {
     ;; #[allow(unused_binding)]
     (amount-ustx uint)
     ;; #[allow(unused_binding)]
+    (amount-sats uint)
+    ;; #[allow(unused_binding)]
     (num-cycles uint)
+    ;; #[allow(unused_binding)]
+    (is-bond bool)
     ;; #[allow(unused_binding)]
     (signer-calldata (optional (buff 500)))
   )

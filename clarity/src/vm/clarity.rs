@@ -417,63 +417,6 @@ pub trait TransactionConnection: ClarityConnection {
         })
     }
 
-    /// Execute a contract call in the current block.
-    /// If an error occurs while processing the transaction, its modifications will be rolled back.
-    /// `abort_call_back` is called with an `AssetMap` and a `ClarityDatabase` reference,
-    /// If `abort_call_back` returns `Some(reason)`, all modifications from this transaction will be rolled back.
-    /// Otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
-    #[allow(clippy::too_many_arguments)]
-    fn run_private_contract_call<F>(
-        &mut self,
-        sender: &PrincipalData,
-        sponsor: Option<&PrincipalData>,
-        contract: &QualifiedContractIdentifier,
-        private_function: &str,
-        args: &[Value],
-        abort_call_back: F,
-        max_execution_time: Option<std::time::Duration>,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
-    where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
-    {
-        let expr_args: Vec<_> = args
-            .iter()
-            .map(|x| SymbolicExpression::atom_value(x.clone()))
-            .collect();
-
-        self.with_abort_callback(
-            |vm_env| {
-                if let Some(max_execution_time_duration) = max_execution_time {
-                    vm_env
-                        .context
-                        .set_max_execution_time(max_execution_time_duration);
-                }
-                vm_env
-                    .execute_private_transaction(
-                        sender.clone(),
-                        sponsor.cloned(),
-                        contract.clone(),
-                        private_function,
-                        &expr_args,
-                    )
-                    .map_err(ClarityError::from)
-            },
-            abort_call_back,
-        )
-        .and_then(|(value, assets_modified, tx_events, reason)| {
-            if let Some(reason) = reason {
-                Err(ClarityError::AbortedByCallback {
-                    output: Some(Box::new(value)),
-                    assets_modified: Box::new(assets_modified),
-                    tx_events,
-                    reason,
-                })
-            } else {
-                Ok((value, assets_modified, tx_events))
-            }
-        })
-    }
-
     /// Initialize a contract in the current block.
     ///  If an error occurs while processing the initialization, it's modifications will be rolled back.
     /// `abort_call_back` is called with an `AssetMap` and a `ClarityDatabase` reference,

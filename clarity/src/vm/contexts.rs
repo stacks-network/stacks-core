@@ -874,25 +874,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         })
     }
 
-    pub fn execute_private_transaction(
-        &mut self,
-        sender: PrincipalData,
-        sponsor: Option<PrincipalData>,
-        contract_identifier: QualifiedContractIdentifier,
-        tx_name: &str,
-        args: &[SymbolicExpression],
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
-        self.execute_in_env(sender, sponsor, None, |exec_state, invoke_ctx| {
-            exec_state.execute_contract_allow_private(
-                invoke_ctx,
-                &contract_identifier,
-                tx_name,
-                args,
-                false,
-            )
-        })
-    }
-
     pub fn stx_transfer(
         &mut self,
         from: &PrincipalData,

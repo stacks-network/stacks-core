@@ -2051,11 +2051,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 #[cfg(any(test, feature = "testing"))]
                 if let Some(bond_admin) = pox_5_bond_admin() {
                     let (_, _, _bond_admin_events) = tx_conn
-                        .run_private_contract_call(
+                        .run_contract_call(
                             &consts_setter,
                             None,
                             &pox_5_contract_id,
-                            "set-bond-admin_",
+                            "set-bond-admin",
                             &[Value::Principal(bond_admin)],
                             |_, _| None,
                             None,
