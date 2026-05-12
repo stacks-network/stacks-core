@@ -16435,14 +16435,13 @@ fn check_with_stacking_allowances_delegate_stx() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -16862,14 +16861,13 @@ fn check_with_stacking_allowances_stack_stx() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -17554,14 +17552,13 @@ fn check_restrict_assets_rollback() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -18275,14 +18272,13 @@ fn check_as_contract_rollback() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -19582,14 +19578,13 @@ fn check_pox_5_stake_lifecycle() {
     (ft-mint? sbtc-token amount recipient)
 )
 "#;
-    let sbtc_deploy_tx = make_contract_publish_versioned(
+    let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
         sbtc_token_contract,
-        None,
     );
     submit_tx(&http_origin, &sbtc_deploy_tx);
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
@@ -19659,14 +19654,13 @@ fn check_pox_5_stake_lifecycle() {
   )
 )
 "#;
-    let signer_deploy_tx = make_contract_publish_versioned(
+    let signer_deploy_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "test-signer",
         signer_contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     submit_tx(&http_origin, &signer_deploy_tx);
@@ -20020,14 +20014,13 @@ fn check_pox_5_register_for_bond_lifecycle() {
     (ft-mint? sbtc-token amount recipient)
 )
 "#;
-    let sbtc_deploy_tx = make_contract_publish_versioned(
+    let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
         sbtc_token_contract,
-        None,
     );
     submit_tx(&http_origin, &sbtc_deploy_tx);
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
@@ -20098,14 +20091,13 @@ fn check_pox_5_register_for_bond_lifecycle() {
   )
 )
 "#;
-    let signer_deploy_tx = make_contract_publish_versioned(
+    let signer_deploy_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "test-signer",
         signer_contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     submit_tx(&http_origin, &signer_deploy_tx);
@@ -20504,14 +20496,13 @@ fn check_with_stacking_allowances_stake() {
     (ft-mint? sbtc-token amount recipient)
 )
 "#;
-    let sbtc_deploy_tx = make_contract_publish_versioned(
+    let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
         sbtc_token_contract,
-        None,
     );
     let sbtc_deploy_txid = submit_tx(&http_origin, &sbtc_deploy_tx);
     info!("Submitted sbtc-token deploy txid: {sbtc_deploy_txid}");
@@ -20594,14 +20585,13 @@ fn check_with_stacking_allowances_stake() {
   )
 )
 "#;
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "test-signer",
         signer_contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -20661,14 +20651,13 @@ fn check_with_stacking_allowances_stake() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -21137,14 +21126,13 @@ fn check_with_stacking_allowances_register_for_bond() {
     (ft-mint? sbtc-token amount recipient)
 )
 "#;
-    let sbtc_deploy_tx = make_contract_publish_versioned(
+    let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
         sbtc_token_contract,
-        None,
     );
     let sbtc_deploy_txid = submit_tx(&http_origin, &sbtc_deploy_tx);
     info!("Submitted sbtc-token deploy txid: {sbtc_deploy_txid}");
@@ -21224,14 +21212,13 @@ fn check_with_stacking_allowances_register_for_bond() {
   )
 )
 "#;
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "test-signer",
         signer_contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -21310,14 +21297,13 @@ fn check_with_stacking_allowances_register_for_bond() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);

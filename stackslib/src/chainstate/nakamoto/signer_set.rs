@@ -78,12 +78,20 @@ pub fn pox_5_sbtc_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
     }
 }
 
+/// The default mainnet PoX-5 bond admin principal.
+pub const POX_5_BOND_ADMIN_MAINNET: &str = "SP000000000000000000002Q6VF78";
+
+/// The default non-mainnet PoX-5 bond admin principal — the unsignable
+/// testnet boot principal. Used as the substitution target on non-mainnet
+/// unless overridden via [`set_pox_5_bond_admin`].
+pub const POX_5_BOND_ADMIN_TESTNET: &str = "ST000000000000000000002AMW42H";
+
 /// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes the
-/// `bond-admin` data var to. By default the contract source initializes it to
-/// `tx-sender`, which at deploy time is the unsignable boot principal — that
-/// makes `setup-bond` uncallable. Devnets and integration tests can override
-/// the initializer to a key they control via `NodeConfig::pox_5_bond_admin`.
-/// Forbidden on mainnet.
+/// `bond-admin` data var to. The contract source bakes in the mainnet
+/// principal ([`POX_5_BOND_ADMIN_MAINNET`]); on non-mainnet,
+/// `make_pox_5_body` rewrites it to the configured override (set via
+/// `NodeConfig::pox_5_bond_admin`) or the testnet default
+/// ([`POX_5_BOND_ADMIN_TESTNET`]). Forbidden on mainnet.
 static POX_5_BOND_ADMIN: RwLock<Option<PrincipalData>> = RwLock::new(None);
 
 /// Set the configured PoX-5 bond admin principal. Call once during node
@@ -92,9 +100,19 @@ pub fn set_pox_5_bond_admin(principal: Option<PrincipalData>) {
     *POX_5_BOND_ADMIN.write().unwrap() = principal;
 }
 
-/// Read the configured PoX-5 bond admin principal, if one was set.
-pub fn pox_5_bond_admin() -> Option<PrincipalData> {
-    POX_5_BOND_ADMIN.read().unwrap().clone()
+/// Resolve the PoX-5 bond admin principal: the configured override if any,
+/// otherwise the network-specific default.
+pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
+    let principal = POX_5_BOND_ADMIN.read().unwrap().clone();
+    if let Some(principal) = principal {
+        principal
+    } else if is_mainnet {
+        PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET)
+            .expect("Invalid default mainnet bond admin principal")
+    } else {
+        PrincipalData::parse(POX_5_BOND_ADMIN_TESTNET)
+            .expect("Invalid default testnet bond admin principal")
+    }
 }
 
 pub struct NakamotoSigners();

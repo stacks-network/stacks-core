@@ -36,8 +36,6 @@ use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 
 use crate::burnchains::PoxConstants;
-#[cfg(any(test, feature = "testing"))]
-use crate::chainstate::nakamoto::signer_set::pox_5_bond_admin;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     make_pox_5_body, make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2,
@@ -2044,24 +2042,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-5 contract");
-
-                // Override the `bond-admin` data var if the node config
-                // supplies one (devnet/test only — forbidden on mainnet by
-                // `Config::from_config_file`).
-                #[cfg(any(test, feature = "testing"))]
-                if let Some(bond_admin) = pox_5_bond_admin() {
-                    let (_, _, _bond_admin_events) = tx_conn
-                        .run_contract_call(
-                            &consts_setter,
-                            None,
-                            &pox_5_contract_id,
-                            "set-bond-admin",
-                            &[Value::Principal(bond_admin)],
-                            |_, _| None,
-                            None,
-                        )
-                        .expect("Failed to set bond-admin in PoX-5 contract");
-                }
 
                 receipt
             });
