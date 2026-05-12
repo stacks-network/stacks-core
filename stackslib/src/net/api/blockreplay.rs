@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::{Duration, Instant};
+
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
@@ -261,6 +263,8 @@ where
     for (i, tx) in transactions.iter().enumerate() {
         let tx_len = tx.tx_len();
 
+        let start = Instant::now();
+
         let mut profiler: Option<BlockReplayProfiler> = None;
         let mut profiler_result = BlockReplayProfilerResult::default();
 
@@ -285,7 +289,7 @@ where
 
         let err = match tx_result {
             TransactionResult::Success(tx_result) => {
-                txs_receipts.push((tx_result.receipt, profiler_result));
+                txs_receipts.push((tx_result.receipt, start.elapsed(), profiler_result));
                 Ok(())
             }
             TransactionResult::ProcessingError(e) => {
@@ -318,8 +322,9 @@ where
     let mut rpc_replayed_block =
         RPCReplayedBlock::from_block(&replayed_block, block_fees, tenure_id, parent_block_id);
 
-    for (receipt, profiler_result) in &txs_receipts {
-        let transaction = RPCReplayedBlockTransaction::from_receipt(receipt, &profiler_result);
+    for (receipt, time, profiler_result) in &txs_receipts {
+        let transaction =
+            RPCReplayedBlockTransaction::from_receipt(receipt, time, &profiler_result);
         rpc_replayed_block.transactions.push(transaction);
     }
 
@@ -394,11 +399,13 @@ pub struct RPCReplayedBlockTransaction {
     pub cpu_instructions: Option<u64>,
     pub cpu_cycles: Option<u64>,
     pub cpu_ref_cycles: Option<u64>,
+    pub time: u64,
 }
 
 impl RPCReplayedBlockTransaction {
     pub fn from_receipt(
         receipt: &StacksTransactionReceipt,
+        time: &Duration,
         profiler_result: &BlockReplayProfilerResult,
     ) -> Self {
         let events = if receipt.post_condition_aborted {
@@ -437,6 +444,7 @@ impl RPCReplayedBlockTransaction {
             cpu_instructions: profiler_result.cpu_instructions,
             cpu_cycles: profiler_result.cpu_cycles,
             cpu_ref_cycles: profiler_result.cpu_ref_cycles,
+            time: time.as_millis() as u64,
         }
     }
 }
