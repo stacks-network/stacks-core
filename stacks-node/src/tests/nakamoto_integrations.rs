@@ -16464,7 +16464,7 @@ fn check_with_stacking_allowances_delegate_stx() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
+        Some(ClarityVersion::Clarity5),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -16891,7 +16891,7 @@ fn check_with_stacking_allowances_stack_stx() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
+        Some(ClarityVersion::Clarity5),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -17583,7 +17583,7 @@ fn check_restrict_assets_rollback() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
+        Some(ClarityVersion::Clarity5),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -18304,7 +18304,7 @@ fn check_as_contract_rollback() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
+        Some(ClarityVersion::Clarity5),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
