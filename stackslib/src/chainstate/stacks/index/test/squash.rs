@@ -21,7 +21,7 @@ use tempfile::tempdir;
 
 use super::marf::setup_marf;
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, read_nodetype, update_inline_child_ptrs,
+    get_node_byte_len, read_nodetype, resolve_inline_child_offsets,
 };
 use crate::chainstate::stacks::index::marf::{
     MARFOpenOpts, MarfConnection, SquashStats, MARF, OWN_BLOCK_HEIGHT_KEY,
@@ -1237,11 +1237,11 @@ fn test_stream_squash_blob_at_nonzero_offset() {
     );
 }
 
-/// Test `update_inline_child_ptrs` directly: verify it replaces forward
+/// Test `resolve_inline_child_offsets` directly: verify it replaces forward
 /// child pointers with their blob offsets, leaves back/empty pointers
 /// untouched, and returns CorruptionError for out-of-bounds indices.
 #[test]
-fn test_update_inline_child_ptrs() {
+fn test_resolve_inline_child_offsets() {
     // Build a Node4 with a mix of pointer types:
     //   slot 0: forward ptr to child index 1
     //   slot 1: back ptr (should be left untouched)
@@ -1264,7 +1264,7 @@ fn test_update_inline_child_ptrs() {
     );
 
     let offsets: Vec<u64> = vec![100, 200, 300];
-    update_inline_child_ptrs(node.ptrs_mut(), &offsets).unwrap();
+    resolve_inline_child_offsets(node.ptrs_mut(), &offsets).unwrap();
 
     let ptrs = node.ptrs();
     // Forward ptrs remapped to blob offsets.
@@ -1278,7 +1278,7 @@ fn test_update_inline_child_ptrs() {
 
     // Empty pointer slices are a no-op.
     let mut empty: [TriePtr; 0] = [];
-    update_inline_child_ptrs(&mut empty, &offsets).unwrap();
+    resolve_inline_child_offsets(&mut empty, &offsets).unwrap();
 
     // Out-of-bounds child index returns CorruptionError.
     let mut bad_node = make_test_node4(
@@ -1290,13 +1290,13 @@ fn test_update_inline_child_ptrs() {
             TriePtr::default(),
         ],
     );
-    assert!(update_inline_child_ptrs(bad_node.ptrs_mut(), &offsets).is_err());
+    assert!(resolve_inline_child_offsets(bad_node.ptrs_mut(), &offsets).is_err());
 }
 
-/// Verify that `update_inline_child_ptrs` with offsets > u32::MAX causes
+/// Verify that `resolve_inline_child_offsets` with offsets > u32::MAX causes
 /// the node's serialized size to grow (u32 -> u64 pointer encoding).
 #[test]
-fn test_update_inline_child_ptrs_u64_encoding_widens_node() {
+fn test_resolve_inline_child_offsets_u64_encoding_widens_node() {
     let mut node = make_test_node4(
         &[0],
         [
@@ -1311,7 +1311,7 @@ fn test_update_inline_child_ptrs_u64_encoding_widens_node() {
 
     // One offset below u32::MAX, one above -> mixed encoding.
     let offsets: Vec<u64> = vec![1000, u64::from(u32::MAX) + 1];
-    update_inline_child_ptrs(node.ptrs_mut(), &offsets).unwrap();
+    resolve_inline_child_offsets(node.ptrs_mut(), &offsets).unwrap();
 
     let size_after = get_node_byte_len(&node);
 

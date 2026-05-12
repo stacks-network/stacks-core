@@ -27,7 +27,7 @@ use sha2::Digest;
 
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_byte_len_compressed, is_inline_child_ptr, read_hash_bytes,
-    read_nodetype, read_root_hash, reserved_root_size, update_inline_child_ptrs,
+    read_nodetype, read_root_hash, reserved_root_size, resolve_inline_child_offsets,
     write_nodetype_bytes, write_nodetype_bytes_compressed,
 };
 use crate::chainstate::stacks::index::cache::*;
@@ -916,7 +916,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             })?;
 
             if !entry.0.is_leaf() {
-                update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+                resolve_inline_child_offsets(entry.0.ptrs_mut(), &file_offsets)?;
             }
 
             write_nodetype_bytes(f, &entry.0, &entry.1)?;
@@ -931,7 +931,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             .ok_or_else(|| Error::CorruptionError("Invalid root pointer in dump_consume".into()))?;
 
         if !entry.0.is_leaf() {
-            update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+            resolve_inline_child_offsets(entry.0.ptrs_mut(), &file_offsets)?;
         }
         f.seek(SeekFrom::Start(header_size))?;
         let root_written = write_nodetype_bytes(f, &entry.0, &entry.1)?;
@@ -1182,13 +1182,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 Error::CorruptionError("Node index out of range in dump_compressed_consume".into())
             })? = f.stream_position()?;
             if let Some(patch) = dp.patch_mut() {
-                update_inline_child_ptrs(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
+                resolve_inline_child_offsets(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
             } else {
                 let entry = self.data.get_mut(dp_idx).ok_or_else(|| {
                     Error::CorruptionError("Invalid node pointer in dump_compressed_consume".into())
                 })?;
                 if !entry.0.is_leaf() {
-                    update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+                    resolve_inline_child_offsets(entry.0.ptrs_mut(), &file_offsets)?;
                 }
             }
             write_dump_ptr(f, dp, &self.data)?;
@@ -1198,13 +1198,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         // Step 4: write the root node into its reserved space.
         if let Some(patch) = root_dp.patch_mut() {
-            update_inline_child_ptrs(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
+            resolve_inline_child_offsets(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
         } else {
             let entry = self.data.get_mut(root_dp.ptr() as usize).ok_or_else(|| {
                 Error::CorruptionError("Invalid root pointer in dump_compressed_consume".into())
             })?;
             if !entry.0.is_leaf() {
-                update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+                resolve_inline_child_offsets(entry.0.ptrs_mut(), &file_offsets)?;
             }
         }
         f.seek(SeekFrom::Start(header_size))?;

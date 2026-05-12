@@ -27,7 +27,7 @@ use super::fmt_duration;
 use super::node_store::{CountingWriter, NodeStore};
 use crate::chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_byte_len, is_inline_child_ptr, reserved_root_size,
-    update_inline_child_ptrs, write_nodetype_bytes,
+    resolve_inline_child_offsets, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::node::{is_backptr, TrieNodeType};
 use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieHasher};
@@ -162,7 +162,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
 
         // Convert array-index pointers to byte offsets (relative to blob start)
         if !node.is_leaf() {
-            update_inline_child_ptrs(node.ptrs_mut(), &blob_offsets)?;
+            resolve_inline_child_offsets(node.ptrs_mut(), &blob_offsets)?;
         }
 
         write_nodetype_bytes(&mut sink, &node, hash)?;
@@ -177,7 +177,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
         .ok_or_else(|| Error::CorruptionError("empty blob offset table".into()))? = header_size;
     let mut root_node = store.read_node_with(&mut reader, 0)?;
     if !root_node.is_leaf() {
-        update_inline_child_ptrs(root_node.ptrs_mut(), &blob_offsets)?;
+        resolve_inline_child_offsets(root_node.ptrs_mut(), &blob_offsets)?;
     }
 
     sink.seek(SeekFrom::Start(
