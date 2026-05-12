@@ -171,7 +171,7 @@ format_docker_pulls() {
 }
 
 ## ── Generate docker pull section with or without digests ───────────────────
-if [[ -n "${DIGEST_MANIFEST:-}" ]] && [[ -f "${DIGEST_MANIFEST}" ]]; then
+if [[ -n "${DIGEST_MANIFEST}" ]] && [[ -f "${DIGEST_MANIFEST}" ]]; then
     info "docker_pulls: using digest manifest from ${DIGEST_MANIFEST}"
     if ! docker_pulls_with_digests=$(format_docker_pulls "${DIGEST_MANIFEST}" "${node_tag}" "${signer_tag}" "${repo_owner}"); then
         # Fallback if manifest processing fails
@@ -245,7 +245,7 @@ info "node_tag:          $(hl "${node_tag}")"
 info "signer_tag:        $(hl "${signer_tag}")"
 info "node_epoch:        $(hl "${node_epoch}")"
 info "changelog_link:    $(hl "${changelog_link}")"
-info "DIGEST_MANIFEST:   $(hl "${DIGEST_MANIFEST:-}")"
+info "DIGEST_MANIFEST:   $(hl "${DIGEST_MANIFEST}")"
 
 changelog_lines=0
 [[ -n "${changelog_content}" ]] && changelog_lines=$(printf '%s\n' "${changelog_content}" | wc -l | tr -d '[:space:]')
