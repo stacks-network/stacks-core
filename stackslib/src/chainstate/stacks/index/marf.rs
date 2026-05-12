@@ -1339,12 +1339,43 @@ impl<T: MarfTrieId> MARF<T> {
         result.map(|option_result| option_result.map(|leaf| leaf.data))
     }
 
+    /// Read `OWN_BLOCK_HEIGHT_KEY` for the block the caller is standing on.
+    ///
+    /// In a squashed MARF the shared squashed blob's `OWN_BLOCK_HEIGHT_KEY`
+    /// is pinned at the squash height for every block in the squashed range,
+    /// so the per-block height must come from `marf_squashed_blocks` instead.
+    /// A trie answer of `h <= squash_height` with no side-table entry means
+    /// the squash metadata is corrupted.
+    fn get_own_block_height(
+        storage: &mut TrieStorageConnection<T>,
+        current_block_hash: &T,
+    ) -> Result<Option<u32>, Error> {
+        let Some(squash_height) = storage.squash_height() else {
+            return MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)
+                .map(|value| value.map(u32::from));
+        };
+
+        if let Some(h) = storage.squashed_block_height(current_block_hash)? {
+            return Ok(Some(h));
+        }
+
+        let marf_height =
+            MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?.map(u32::from);
+        if marf_height.is_some_and(|h| h <= squash_height) {
+            return Err(Error::CorruptionError(format!(
+                "squashed MARF inconsistency: trie reports block \
+                 {current_block_hash} at height <= squash height \
+                 {squash_height} but marf_squashed_blocks has no entry"
+            )));
+        }
+        Ok(marf_height)
+    }
+
     pub fn get_block_height_miner_tip(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
-        let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
         #[cfg(test)]
         {
             // used in testing in order to short-circuit block-height lookups
@@ -1354,23 +1385,21 @@ impl<T: MarfTrieId> MARF<T> {
             }
         }
 
-        // In a squashed MARF, OWN_BLOCK_HEIGHT_KEY returns the squash
-        // height H for every block in the squashed range.  Use the
-        // side-table when available.
-        if storage.is_squashed() {
-            if let Some(h) = trie_sql::read_squash_block_height(storage.sqlite_conn(), block_hash)?
-            {
-                return Ok(Some(h));
-            }
+        if block_hash == current_block_hash {
+            return MARF::get_own_block_height(storage, current_block_hash);
         }
 
-        let marf_value = if block_hash == current_block_hash {
-            MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?
-        } else {
-            MARF::get_by_key(storage, current_block_hash, &hash_key)?
-        };
-
-        Ok(marf_value.map(u32::from))
+        // Cross-block metadata remains MARF-backed.  If the caller is standing
+        // on a squashed block, the trie read is rejected and the target block
+        // height must come from the squashed-block side table instead.
+        let hash_key = format!("{BLOCK_HASH_TO_HEIGHT_MAPPING_KEY}::{block_hash}");
+        match MARF::get_by_key(storage, current_block_hash, &hash_key) {
+            Ok(value) => Ok(value.map(u32::from)),
+            Err(Error::HistoricalReadInSquashedRange { .. }) => {
+                storage.squashed_block_height(block_hash)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn get_block_height(
