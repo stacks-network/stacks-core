@@ -21,6 +21,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufWriter, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use rusqlite::params;
@@ -39,9 +40,9 @@ use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
 mod node_store;
 mod stream;
 
+pub(crate) use node_store::NodeStore;
 #[cfg(test)]
-pub(crate) use node_store::deserialize_node;
-pub(crate) use node_store::{serialize_node, NodeStore};
+pub(crate) use node_store::{deserialize_node, serialize_node};
 pub(crate) use stream::stream_squash_blob;
 use stream::{recompute_content_hashes, BlobReader};
 
@@ -162,11 +163,50 @@ fn remap_child_ptrs(
 /// Per-height block metadata: `(height, block_hash, root_hash)`.
 type BlockInfo<T> = (u32, T, TrieHash);
 
+/// Wall-clock duration of each squash step.
+#[derive(Debug, Clone, Default)]
+pub struct SquashStepDurations {
+    /// [1/8] Build the block_id -> blob offset map from `marf_data`.
+    pub load_block_map: Duration,
+    /// [2/8] Walk per-height keys and resolve each block's root hash.
+    pub build_height_index: Duration,
+    /// [3/8] DFS over the reachable trie nodes at the squash tip.
+    pub collect_trie_nodes: Duration,
+    /// [4/8] Bulk-insert placeholder rows for blocks 0..H-1.
+    pub register_placeholders: Duration,
+    /// [5/8] Disk-backed remap of inline pointers and backpointers.
+    pub remap_pointers: Duration,
+    /// [6/8] Recompute leaf and internal node hashes.
+    pub recompute_hashes: Duration,
+    /// [7/8] Stream the squashed trie blob to the destination.
+    pub write_trie_blob: Duration,
+    /// [8/8] Persist squash metadata, broadcast blob offsets, commit.
+    pub persist_metadata: Duration,
+}
+
 /// Summary statistics from a squashing run.
 #[derive(Debug, Clone)]
 pub struct SquashStats {
     /// Total number of nodes collected into the squashed MARF.
     pub node_count: u64,
+    /// Squash height (blocks 0..=height are squashed).
+    pub squash_height: u32,
+    /// Path to the destination MARF SQLite database.
+    pub dst_db_path: PathBuf,
+    /// Path to the destination `.blobs` file containing the shared trie.
+    pub dst_blobs_path: PathBuf,
+    /// Size in bytes of the squashed trie blob written to `.blobs`.
+    pub blob_size: u64,
+    /// Number of placeholder rows inserted for historical blocks 0..H-1.
+    pub historical_placeholder_count: u64,
+    /// Root hash of the archival MARF at `squash_height`.
+    pub source_root_hash: TrieHash,
+    /// Hash of the squashed trie root node.
+    pub squash_root_node_hash: TrieHash,
+    /// Per-step wall-clock durations.
+    pub step_durations: SquashStepDurations,
+    /// End-to-end wall-clock duration of `squash_to_path`.
+    pub total_duration: Duration,
 }
 
 /// Step 1: Build an in-memory block_map from all `marf_data` entries.
@@ -355,15 +395,55 @@ impl<T: MarfTrieId> MARF<T> {
             ));
         }
 
-        if std::path::Path::new(dst_path).exists() {
+        let dst_db_path = PathBuf::from(dst_path);
+        let dst_blobs_path = PathBuf::from(format!("{dst_path}.blobs"));
+        if dst_db_path.exists() {
             return Err(Error::DestinationExists(dst_path.to_string()));
         }
-        let dst_blobs_path = format!("{dst_path}.blobs");
-        if std::path::Path::new(&dst_blobs_path).exists() {
-            return Err(Error::DestinationExists(dst_blobs_path));
+        if dst_blobs_path.exists() {
+            return Err(Error::DestinationExists(
+                dst_blobs_path.to_string_lossy().into_owned(),
+            ));
         }
 
+        // Run the actual squash work. On any failure after this point we may
+        // have created `dst_db_path` and/or `dst_blobs_path`, so remove them
+        // before propagating the error.
+        let result = Self::squash_to_path_inner(
+            src_path,
+            &dst_db_path,
+            &dst_blobs_path,
+            open_opts,
+            tip,
+            height,
+            label,
+        );
+
+        if result.is_err() {
+            let _ = std::fs::remove_file(&dst_db_path);
+            let _ = std::fs::remove_file(&dst_blobs_path);
+        }
+        result
+    }
+
+    fn squash_to_path_inner(
+        src_path: &str,
+        dst_db_path: &Path,
+        dst_blobs_path: &Path,
+        open_opts: MARFOpenOpts,
+        tip: &T,
+        height: u32,
+        label: &str,
+    ) -> Result<SquashStats, Error> {
+        let dst_path = dst_db_path.to_str().ok_or_else(|| {
+            Error::CorruptionError(format!(
+                "squash dst path is not valid UTF-8: {}",
+                dst_db_path.display()
+            ))
+        })?;
+
         let overall_start = Instant::now();
+        let mut step_durations = SquashStepDurations::default();
 
         // Step 1: bulk SQL block map
         let src_storage = TrieFileStorage::open_readonly(src_path, open_opts.clone())?;
@@ -375,10 +455,11 @@ impl<T: MarfTrieId> MARF<T> {
 
         let start = Instant::now();
         let block_map = collect_block_map(&src)?;
+        step_durations.load_block_map = start.elapsed();
         info!(
             "[{label}] [1/8] Load block map: {} entries in {}",
             block_map.len(),
-            fmt_duration(start.elapsed())
+            fmt_duration(step_durations.load_block_map)
         );
 
         // [2/8] Build height index
@@ -386,6 +467,7 @@ impl<T: MarfTrieId> MARF<T> {
             "[{label}] [2/8] Build height index: reading {} heights...",
             height + 1
         );
+        let start = Instant::now();
         let mut blob_reader = BlobReader::new(src_path, open_opts.external_blobs)?;
         let block_info = collect_per_height_metadata(
             &mut src,
@@ -395,11 +477,12 @@ impl<T: MarfTrieId> MARF<T> {
             height,
             label,
         )?;
+        step_durations.build_height_index = start.elapsed();
 
         // [3/8] Collect trie nodes (DFS walk)
         //
         // Derive the temp directory from dst_path: use the parent directory.
-        let tmp_dir = std::path::Path::new(dst_path)
+        let tmp_dir = dst_db_path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .and_then(|p| p.to_str())
@@ -410,9 +493,10 @@ impl<T: MarfTrieId> MARF<T> {
             MARF::<T>::collect_reachable_nodes(conn, &block_at_height, tmp_dir)
         })?;
         let node_count = node_store.len() as u64;
+        step_durations.collect_trie_nodes = start.elapsed();
         info!(
             "[{label}] [3/8] Collect trie nodes: {node_count} nodes in {}",
-            fmt_duration(start.elapsed())
+            fmt_duration(step_durations.collect_trie_nodes)
         );
 
         let mut dst_open_opts = open_opts;
@@ -424,6 +508,7 @@ impl<T: MarfTrieId> MARF<T> {
         tx.begin(&T::sentinel(), &block_at_height)?;
 
         // [4/8] Register placeholder blocks
+        let start = Instant::now();
         let mut archival_to_squashed = insert_placeholder_blocks(
             tx.sqlite_tx(),
             &block_info,
@@ -431,6 +516,7 @@ impl<T: MarfTrieId> MARF<T> {
             &block_map,
             label,
         )?;
+        let historical_placeholder_count = archival_to_squashed.len() as u64;
 
         // Build `block_id_map`: every archival `block_id` that appears
         // as a node origin in the DFS must be mappable. insert_placeholder_blocks
@@ -467,6 +553,7 @@ impl<T: MarfTrieId> MARF<T> {
             placeholder_id
         };
         drop(block_map);
+        step_durations.register_placeholders = start.elapsed();
 
         // [5/8] Remap trie pointers (disk-backed)
         info!("[{label}] [5/8] Remap trie pointers: {node_count} nodes...");
@@ -477,9 +564,10 @@ impl<T: MarfTrieId> MARF<T> {
             &archival_to_squashed,
             label,
         )?;
+        step_durations.remap_pointers = start.elapsed();
         info!(
             "[{label}] [5/8] Remap trie pointers: {node_count} nodes in {}",
-            fmt_duration(start.elapsed())
+            fmt_duration(step_durations.remap_pointers)
         );
         drop(source_to_idx);
         drop(archival_to_squashed);
@@ -489,9 +577,10 @@ impl<T: MarfTrieId> MARF<T> {
         info!("[{label}] [6/8] Recompute node hashes: {node_count} nodes...");
         let start = Instant::now();
         recompute_content_hashes(&mut node_store)?;
+        step_durations.recompute_hashes = start.elapsed();
         info!(
             "[{label}] [6/8] Recompute node hashes: {node_count} nodes in {}",
-            fmt_duration(start.elapsed())
+            fmt_duration(step_durations.recompute_hashes)
         );
 
         let squash_root_node_hash = if node_store.len() > 0 {
@@ -540,9 +629,10 @@ impl<T: MarfTrieId> MARF<T> {
             )
             .map(|block_id| (block_id, total_blob_size))
         })?;
+        step_durations.write_trie_blob = start.elapsed();
         info!(
             "[{label}] [7/8] Write trie blob: block_id={block_id}, {total_blob_size} bytes in {}",
-            fmt_duration(start.elapsed())
+            fmt_duration(step_durations.write_trie_blob)
         );
 
         drop(node_store); // free temp file + metadata
@@ -568,17 +658,30 @@ impl<T: MarfTrieId> MARF<T> {
         // Commit the SQL transaction without flushing TrieRAM (we already wrote the blob directly)
         tx.commit_squash()?;
 
+        step_durations.persist_metadata = step8_start.elapsed();
         info!(
             "[{label}] [8/8] Persist metadata & commit: finished in {}",
-            fmt_duration(step8_start.elapsed())
+            fmt_duration(step_durations.persist_metadata)
         );
 
+        let total_duration = overall_start.elapsed();
         info!(
             "[{label}] Squash complete: {node_count} nodes, total time {}",
-            fmt_duration(overall_start.elapsed())
+            fmt_duration(total_duration)
         );
 
-        Ok(SquashStats { node_count })
+        Ok(SquashStats {
+            node_count,
+            squash_height: height,
+            dst_db_path: dst_db_path.to_path_buf(),
+            dst_blobs_path: dst_blobs_path.to_path_buf(),
+            blob_size: total_blob_size,
+            historical_placeholder_count,
+            source_root_hash,
+            squash_root_node_hash,
+            step_durations,
+            total_duration,
+        })
     }
 
     /// DFS collection pass: gather all trie nodes reachable from `block_hash`.
