@@ -76,7 +76,7 @@ pub mod crypto;
 mod database;
 pub mod define;
 mod options;
-mod post_conditions;
+pub mod post_conditions;
 pub mod principals;
 mod sequences;
 pub mod tuples;

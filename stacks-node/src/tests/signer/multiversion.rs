@@ -18,15 +18,18 @@ use std::time::Duration;
 
 use libsigner::v0::messages::{SignerMessage, StateMachineUpdate};
 use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
+use libsigner_v3_1_0_0_13;
+use signer_v3_1_0_0_13;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::util::hash::Hash160;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common_v3_1_00_13;
 use stacks_common_v3_1_00_13::codec::StacksMessageCodec as OldStacksMessageCodec;
 use stacks_signer::runloop::{RewardCycleInfo, State, StateInfo};
 use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::SpawnedSigner;
-use {libsigner_v3_1_0_0_13, signer_v3_1_0_0_13, stacks_common_v3_1_00_13, stacks_v3_1_00_13};
+use stacks_v3_1_00_13;
 
 use super::SpawnedSignerTrait;
 use crate::stacks_common::codec::StacksMessageCodec;

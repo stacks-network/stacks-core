@@ -1543,8 +1543,7 @@ mod test {
     use std::sync::{Arc, Mutex};
     use std::{io, thread};
 
-    use rand;
-    use rand::RngCore;
+    use rand::{self, RngCore};
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::*;
 
