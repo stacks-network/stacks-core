@@ -2156,6 +2156,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_exit_as_contract_pre_v4_fn(linker)?;
     link_enter_as_contract_post_v4_fn(linker)?;
     link_exit_as_contract_post_v4_fn(linker)?;
+    link_cleanup_as_contract_post_v4_fn(linker)?;
     link_with_all_assets_unsafe_fn(linker)?;
     link_with_ft_fn(linker)?;
     link_with_nft_fn(linker)?;
@@ -3401,13 +3402,13 @@ fn link_exit_as_contract_post_v4_fn(linker: &mut Linker<ClarityWasmContext>) -> 
                 match check_allowances(&owner, allowances, asset_map)? {
                     None => {
                         caller.data_mut().global_context.commit()?;
-                        Ok((1i32, 0i64, 0i64)) // no violation
+                        Ok((0i64, 0i64, 1i32)) // no violation
                     }
                     Some(violation_index) => {
                         caller.data_mut().global_context.roll_back()?;
                         let lo = violation_index as i64;
                         let hi = (violation_index >> 64) as i64;
-                        Ok((0i32, lo, hi)) // violation — Wasm returns (err index)
+                        Ok((lo, hi, 0i32)) // violation — Wasm returns (err index)
                     }
                 }
             },
@@ -3416,6 +3417,34 @@ fn link_exit_as_contract_post_v4_fn(linker: &mut Linker<ClarityWasmContext>) -> 
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "exit_as_contract".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `cleanup_as_contract_post_v4`, into the Wasm module.
+/// This function is after before processing the inner-expression of
+/// `as-contract?`, and is used to restore the caller and sender in the case where
+/// an inner-expresion failed.
+fn link_cleanup_as_contract_post_v4_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "cleanup_as_contract_post_v4",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().pop_sender()?;
+                caller.data_mut().pop_caller()?;
+                caller.data_mut().global_context.roll_back()?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "cleanup_as_contract".to_string(),
                 e,
             ))
         })
