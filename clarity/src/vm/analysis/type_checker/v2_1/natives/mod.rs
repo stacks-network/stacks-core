@@ -21,7 +21,7 @@ use super::{
     check_arguments_at_most, compute_typecheck_cost, no_type,
 };
 use crate::vm::analysis::errors::{
-    StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, get_nth_argument,
+    StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, get_arguments_exact,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
@@ -879,27 +879,14 @@ fn check_verify_merkle_proof(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
+    let [leaf_hash, root_hash, tx_index, tx_count, sibling_hashes] =
+        get_arguments_exact::<_, 5>(args)?;
+
     check_argument_count(5, args)?;
-    checker.type_check_expects(
-        get_nth_argument(0, args)?,
-        context,
-        &TypeSignature::BUFFER_32,
-    )?;
-    checker.type_check_expects(
-        get_nth_argument(1, args)?,
-        context,
-        &TypeSignature::BUFFER_32,
-    )?;
-    checker.type_check_expects(
-        get_nth_argument(2, args)?,
-        context,
-        &TypeSignature::UIntType,
-    )?;
-    checker.type_check_expects(
-        get_nth_argument(3, args)?,
-        context,
-        &TypeSignature::UIntType,
-    )?;
+    checker.type_check_expects(leaf_hash, context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(root_hash, context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(tx_index, context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(tx_count, context, &TypeSignature::UIntType)?;
     let siblings_type = TypeSignature::list_of(
         TypeSignature::BUFFER_32,
         VERIFY_MERKLE_PROOF_MAX_DEPTH,
@@ -907,7 +894,7 @@ fn check_verify_merkle_proof(
     .map_err(|_| {
         StaticCheckErrorKind::Unreachable("FATAL: failed to build (list 24 (buff 32)) type".into())
     })?;
-    checker.type_check_expects(get_nth_argument(4, args)?, context, &siblings_type)?;
+    checker.type_check_expects(sibling_hashes, context, &siblings_type)?;
     Ok(TypeSignature::BoolType)
 }
 
@@ -916,18 +903,10 @@ fn check_get_bitcoin_tx_output(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_argument_count(2, args)?;
+    let [tx_bytes, vout_index] = get_arguments_exact::<_, 2>(args)?;
 
-    checker.type_check_expects(
-        get_nth_argument(0, args)?,
-        context,
-        &TypeSignature::BUFFER_MAX,
-    )?;
-    checker.type_check_expects(
-        get_nth_argument(1, args)?,
-        context,
-        &TypeSignature::UIntType,
-    )?;
+    checker.type_check_expects(tx_bytes, context, &TypeSignature::BUFFER_MAX)?;
+    checker.type_check_expects(vout_index, context, &TypeSignature::UIntType)?;
 
     let ok_type: TypeSignature = TupleTypeSignature::try_from(vec![
         (
