@@ -404,12 +404,20 @@ pub use stacks_codec::transaction::{
     OrderIndependentMultisigSpendingCondition, PostConditionPrincipal, PostConditionPrincipalID,
     SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader, TenureChangeCause,
     TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
-    StacksTransaction, StacksTransactionSigner, TransactionContractCall, TransactionPayload,
-    TransactionPayloadID, TransactionPostCondition, TransactionPostConditionMode,
-    TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
-    TransactionVersion,
+    StacksTransaction, TransactionAuth, TransactionAuthField, TransactionAuthFieldID,
+    TransactionAuthFlags, TransactionContractCall, TransactionPayload, TransactionPayloadID,
+    TransactionPostCondition, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
 };
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksTransactionSigner {
+    pub tx: StacksTransaction,
+    pub sighash: Txid,
+    origin_done: bool,
+    check_oversign: bool,
+    check_overlap: bool,
+}
 
 /// A block that contains blockchain-anchored data
 /// (corresponding to a LeaderBlockCommitOp)

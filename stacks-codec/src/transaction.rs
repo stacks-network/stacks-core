@@ -2832,15 +2832,6 @@ pub struct StacksTransaction {
     pub payload: TransactionPayload,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct StacksTransactionSigner {
-    pub tx: StacksTransaction,
-    pub sighash: Txid,
-    origin_done: bool,
-    check_oversign: bool,
-    check_overlap: bool,
-}
-
 impl<'a, H> FromIterator<&'a StacksTransaction> for MerkleTree<H>
 where
     H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
@@ -3146,19 +3137,6 @@ impl StacksTransaction {
         }
     }
 
-    /// Pop the last auth field
-    fn pop_auth_field(
-        condition: &mut TransactionSpendingCondition,
-    ) -> Option<TransactionAuthField> {
-        match condition {
-            TransactionSpendingCondition::Multisig(ref mut cond) => cond.pop_auth_field(),
-            TransactionSpendingCondition::OrderIndependentMultisig(ref mut cond) => {
-                cond.pop_auth_field()
-            }
-            TransactionSpendingCondition::Singlesig(ref mut cond) => cond.pop_signature(),
-        }
-    }
-
     /// Append a public key to a multisig condition
     fn append_pubkey(
         condition: &mut TransactionSpendingCondition,
@@ -3323,159 +3301,6 @@ impl StacksTransaction {
             *address == boot_address && *amount == 0
         } else {
             false
-        }
-    }
-}
-
-impl StacksTransactionSigner {
-    pub fn new(tx: &StacksTransaction) -> StacksTransactionSigner {
-        StacksTransactionSigner {
-            tx: tx.clone(),
-            sighash: tx.sign_begin(),
-            origin_done: false,
-            check_oversign: true,
-            check_overlap: true,
-        }
-    }
-
-    pub fn new_sponsor(
-        tx: &StacksTransaction,
-        spending_condition: TransactionSpendingCondition,
-    ) -> Result<StacksTransactionSigner, AuthError> {
-        if !tx.auth.is_sponsored() {
-            return Err(AuthError::IncompatibleSpendingConditionError);
-        }
-        let mut new_tx = tx.clone();
-        new_tx.auth.set_sponsor(spending_condition)?;
-        let origin_sighash = new_tx.verify_origin()?;
-
-        Ok(StacksTransactionSigner {
-            tx: new_tx,
-            sighash: origin_sighash,
-            origin_done: true,
-            check_oversign: true,
-            check_overlap: true,
-        })
-    }
-
-    pub fn resume(&mut self, tx: &StacksTransaction) {
-        self.tx = tx.clone()
-    }
-
-    pub fn disable_checks(&mut self) {
-        self.check_oversign = false;
-        self.check_overlap = false;
-    }
-
-    pub fn sign_origin(&mut self, privk: &StacksPrivateKey) -> Result<(), AuthError> {
-        if self.check_overlap && self.origin_done {
-            // can't sign another origin private key since we started signing sponsors
-            return Err(AuthError::SigningError(
-                "Cannot sign origin after sponsor key".to_string(),
-            ));
-        }
-
-        match self.tx.auth {
-            TransactionAuth::Standard(ref origin_condition) => {
-                if self.check_oversign
-                    && origin_condition.num_signatures() >= origin_condition.signatures_required()
-                {
-                    return Err(AuthError::SigningError(
-                        "Origin would have too many signatures".to_string(),
-                    ));
-                }
-            }
-            TransactionAuth::Sponsored(ref origin_condition, _) => {
-                if self.check_oversign
-                    && origin_condition.num_signatures() >= origin_condition.signatures_required()
-                {
-                    return Err(AuthError::SigningError(
-                        "Origin would have too many signatures".to_string(),
-                    ));
-                }
-            }
-        }
-
-        let next_sighash = self.tx.sign_next_origin(&self.sighash, privk)?;
-        self.sighash = next_sighash;
-        Ok(())
-    }
-
-    pub fn append_origin(&mut self, pubk: &StacksPublicKey) -> Result<(), AuthError> {
-        if self.check_overlap && self.origin_done {
-            // can't append another origin key
-            return Err(AuthError::SigningError(
-                "Cannot append public key to origin after sponsor key".to_string(),
-            ));
-        }
-
-        self.tx.append_next_origin(pubk)
-    }
-
-    pub fn sign_sponsor(&mut self, privk: &StacksPrivateKey) -> Result<(), AuthError> {
-        if let TransactionAuth::Sponsored(_, ref sponsor_condition) = self.tx.auth {
-            if self.check_oversign
-                && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
-            {
-                return Err(AuthError::SigningError(
-                    "Sponsor would have too many signatures".to_string(),
-                ));
-            }
-        }
-
-        let next_sighash = self.tx.sign_next_sponsor(&self.sighash, privk)?;
-        self.sighash = next_sighash;
-        self.origin_done = true;
-        Ok(())
-    }
-
-    pub fn append_sponsor(&mut self, pubk: &StacksPublicKey) -> Result<(), AuthError> {
-        self.tx.append_next_sponsor(pubk)
-    }
-
-    pub fn pop_origin_auth_field(&mut self) -> Option<TransactionAuthField> {
-        match self.tx.auth {
-            TransactionAuth::Standard(ref mut origin_condition) => {
-                StacksTransaction::pop_auth_field(origin_condition)
-            }
-            TransactionAuth::Sponsored(ref mut origin_condition, _) => {
-                StacksTransaction::pop_auth_field(origin_condition)
-            }
-        }
-    }
-
-    pub fn pop_sponsor_auth_field(&mut self) -> Option<TransactionAuthField> {
-        match self.tx.auth {
-            TransactionAuth::Sponsored(_, ref mut sponsor_condition) => {
-                StacksTransaction::pop_auth_field(sponsor_condition)
-            }
-            _ => None,
-        }
-    }
-
-    pub fn complete(&self) -> bool {
-        match self.tx.auth {
-            TransactionAuth::Standard(ref origin_condition) => {
-                origin_condition.num_signatures() >= origin_condition.signatures_required()
-            }
-            TransactionAuth::Sponsored(ref origin_condition, ref sponsored_condition) => {
-                origin_condition.num_signatures() >= origin_condition.signatures_required()
-                    && sponsored_condition.num_signatures()
-                        >= sponsored_condition.signatures_required()
-                    && (self.origin_done || !self.check_overlap)
-            }
-        }
-    }
-
-    pub fn get_tx_incomplete(&self) -> StacksTransaction {
-        self.tx.clone()
-    }
-
-    pub fn get_tx(&self) -> Option<StacksTransaction> {
-        if self.complete() {
-            Some(self.tx.clone())
-        } else {
-            None
         }
     }
 }
