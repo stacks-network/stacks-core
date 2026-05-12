@@ -4322,6 +4322,7 @@ dependencies = [
  "clarity 0.0.1",
  "clarity-cli",
  "serde_json",
+ "stacks-codec",
  "stacks-common 0.0.1",
  "stackslib 0.0.1",
  "tempfile",
