@@ -42,10 +42,12 @@ use crate::vm::types::{BuffData, ListData, SequenceData, TupleData, TypeSignatur
 use crate::vm::{LocalContext, eval};
 
 /// Maximum supported merkle proof depth for `(verify-merkle-proof ...)`.
-const VERIFY_MERKLE_PROOF_MAX_DEPTH: u32 = 24;
+/// Also pins the `(list N (buff 32))` type the type checker enforces for the
+/// `sibling-hashes` argument.
+pub(crate) const VERIFY_MERKLE_PROOF_MAX_DEPTH: u32 = 24;
 
 /// Maximum supported `scriptPubKey` size for `(get-bitcoin-tx-output? ...)`.
-const GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN: usize = 1024;
+pub(crate) const GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN: usize = 1024;
 
 /// Failure modes of `(get-bitcoin-tx-output? ...)`. Mapped to Clarity `(err
 /// uN)` codes so callers can distinguish "the tx didn't parse" from "the tx
@@ -820,5 +822,291 @@ mod tests {
         let mut tampered = siblings;
         tampered[5][0] ^= 0x01;
         assert!(!verify_merkle(leaf, root, 12, 1866, &tampered));
+    }
+
+    // ---------------------------------------------------------------------
+    // Property tests.
+    //
+    // These probe the same invariants as the unit tests above across a
+    // randomized search space, to catch corner cases we wouldn't think to
+    // hand-write.
+    // ---------------------------------------------------------------------
+
+    use pinny::tag;
+    use proptest::prelude::*;
+    use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::{OutPoint, TxIn, TxOut};
+    use stacks_common::deps_common::bitcoin::network::serialize::serialize as btc_serialize;
+
+    /// Walk a Bitcoin-style merkle proof bottom-up and return the root it
+    /// implies for `(leaf, tx_index)`. Used to synthesize valid proofs at
+    /// arbitrary depth without materializing 2^24-leaf trees in memory.
+    /// Independent canonical-tree coverage comes from the real-mainnet
+    /// merkle proof unit tests above.
+    fn compute_root_from_proof(leaf: [u8; 32], tx_index: u128, siblings: &[[u8; 32]]) -> [u8; 32] {
+        let mut cur = leaf;
+        let mut idx = tx_index;
+        let mut buf = [0u8; 64];
+        for sibling in siblings {
+            if idx & 1 == 1 {
+                buf[..32].copy_from_slice(sibling);
+                buf[32..].copy_from_slice(&cur);
+            } else {
+                buf[..32].copy_from_slice(&cur);
+                buf[32..].copy_from_slice(sibling);
+            }
+            cur = Sha256dHash::from_data(&buf).0;
+            idx >>= 1;
+        }
+        cur
+    }
+
+    prop_compose! {
+        /// Synthesize a valid merkle proof spanning the full supported range:
+        /// `tx_count` ranges over `1..=2^24` (depths 0..=24, the cap enforced
+        /// by `VERIFY_MERKLE_PROOF_MAX_DEPTH`). Returns
+        /// `(leaf, root, tx_index, tx_count, siblings)` where `root` is
+        /// computed from the synthesized siblings, so the proof verifies by
+        /// construction.
+        fn arb_merkle_proof()(
+            tx_count in 1u128..=(1u128 << VERIFY_MERKLE_PROOF_MAX_DEPTH),
+            leaf in any::<[u8; 32]>(),
+        )(
+            tx_index in 0u128..tx_count,
+            leaf in Just(leaf),
+            tx_count in Just(tx_count),
+            siblings in prop::collection::vec(
+                any::<[u8; 32]>(),
+                canonical_merkle_depth(tx_count) as usize,
+            ),
+        ) -> ([u8; 32], [u8; 32], u128, u128, Vec<[u8; 32]>) {
+            let root = compute_root_from_proof(leaf, tx_index, &siblings);
+            (leaf, root, tx_index, tx_count, siblings)
+        }
+    }
+
+    /// Either an empty witness (forces non-segwit serialization) or 1..=4
+    /// witness items of 0..=128 bytes (forces segwit marker/flag/witness
+    /// encoding). With only one input, this toggles the whole tx between
+    /// the two encodings.
+    fn arb_witness() -> impl Strategy<Value = Vec<Vec<u8>>> {
+        prop_oneof![
+            Just(Vec::new()),
+            prop::collection::vec(prop::collection::vec(any::<u8>(), 0..=128), 1..=4),
+        ]
+    }
+
+    /// Tx with 1..=16 outputs and scripts spanning the full 0..=1024-byte
+    /// allowed range. Randomized witness exercises both segwit and
+    /// non-segwit encodings; the canonical (witness-stripped) txid is
+    /// recovered via `Transaction::txid()` regardless of which path is
+    /// taken.
+    fn arb_simple_tx() -> impl Strategy<Value = (Transaction, Vec<(u64, Vec<u8>)>)> {
+        (
+            arb_witness(),
+            prop::collection::vec(
+                (
+                    any::<u64>(),
+                    prop::collection::vec(any::<u8>(), 0..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN),
+                ),
+                1..=16,
+            ),
+        )
+            .prop_map(|(witness, outputs)| {
+                let tx = Transaction {
+                    version: 1,
+                    lock_time: 0,
+                    input: vec![TxIn {
+                        previous_output: OutPoint {
+                            txid: Sha256dHash([0u8; 32]),
+                            vout: 0,
+                        },
+                        script_sig: Script::from(Vec::<u8>::new()),
+                        sequence: 0xffffffff,
+                        witness,
+                    }],
+                    output: outputs
+                        .iter()
+                        .map(|(amount, script)| TxOut {
+                            value: *amount,
+                            script_pubkey: Script::from(script.clone()),
+                        })
+                        .collect(),
+                };
+                (tx, outputs)
+            })
+    }
+
+    proptest! {
+        /// Any canonical proof we hand to the verifier must verify.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_roundtrip_verifies(
+            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+        ) {
+            prop_assert!(verify_merkle(leaf, root, tx_index, tx_count, &siblings));
+        }
+
+        /// `tx_index >= tx_count` must never verify, regardless of proof
+        /// contents.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_out_of_range_index_fails(
+            (leaf, root, _idx, tx_count, siblings) in arb_merkle_proof(),
+            slop in 0u128..1024,
+        ) {
+            let bad_idx = tx_count.saturating_add(slop);
+            prop_assert!(!verify_merkle(leaf, root, bad_idx, tx_count, &siblings));
+        }
+
+        /// Flipping a bit of the leaf, root, or any sibling must break the
+        /// proof.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_tampering_breaks_proof(
+            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+            target in 0u8..3,
+            byte_idx in 0usize..32,
+            bit in 0u8..8,
+        ) {
+            let mask = 1u8 << bit;
+
+            // Sanity: the untampered proof verifies.
+            prop_assert!(verify_merkle(leaf, root, tx_index, tx_count, &siblings));
+
+            match target {
+                0 => {
+                    let mut tampered = leaf;
+                    tampered[byte_idx] ^= mask;
+                    // A bit-flip that happens to land on a same-as-original
+                    // collision is astronomically unlikely; skip the equality
+                    // edge case rather than weakening the assertion.
+                    prop_assume!(tampered != leaf);
+                    prop_assert!(!verify_merkle(
+                        tampered, root, tx_index, tx_count, &siblings,
+                    ));
+                }
+                1 => {
+                    let mut tampered = root;
+                    tampered[byte_idx] ^= mask;
+                    prop_assume!(tampered != root);
+                    prop_assert!(!verify_merkle(
+                        leaf, tampered, tx_index, tx_count, &siblings,
+                    ));
+                }
+                _ => {
+                    prop_assume!(!siblings.is_empty());
+                    let mut tampered = siblings.clone();
+                    let pick = byte_idx % siblings.len();
+                    tampered[pick][byte_idx] ^= mask;
+                    prop_assume!(tampered != siblings);
+                    prop_assert!(!verify_merkle(
+                        leaf, root, tx_index, tx_count, &tampered,
+                    ));
+                }
+            }
+        }
+
+        /// A proof whose sibling count doesn't match canonical depth must
+        /// fail. Closes the CVE-2012-2459 family of attacks.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_wrong_depth_fails(
+            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+        ) {
+            // Truncated proof rejects (skip when proof is already empty).
+            if !siblings.is_empty() {
+                prop_assert!(!verify_merkle(
+                    leaf, root, tx_index, tx_count, &siblings[..siblings.len() - 1],
+                ));
+            }
+            // Extra sibling rejects.
+            let mut extended = siblings.clone();
+            extended.push([0u8; 32]);
+            prop_assert!(!verify_merkle(
+                leaf, root, tx_index, tx_count, &extended,
+            ));
+        }
+
+        /// `canonical_merkle_depth(n)` agrees with a naive halving reference
+        /// across the full u128 range.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_canonical_depth_matches_naive(n in any::<u128>()) {
+            let mut k = 0u32;
+            let mut count = n;
+            while count > 1 {
+                count = count.div_ceil(2);
+                k += 1;
+            }
+            prop_assert_eq!(canonical_merkle_depth(n), k);
+        }
+
+        /// Parsing a freshly-built tx must recover the original amounts and
+        /// scripts, and the returned txid must equal the canonical
+        /// (witness-stripped) hash — invariant across segwit and non-segwit
+        /// encodings.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_parse_tx_roundtrips_outputs(
+            (tx, outputs) in arb_simple_tx(),
+        ) {
+            let bytes = btc_serialize(&tx).expect("serialize tx");
+            let expected_txid = tx.txid().0;
+            for (vout, (amount, script)) in outputs.iter().enumerate() {
+                let (got_script, got_amount, got_txid) =
+                    parse_tx_output(&bytes, vout as u64).expect("vout in range");
+                prop_assert_eq!(got_amount, *amount);
+                prop_assert_eq!(got_script, script.clone());
+                prop_assert_eq!(got_txid, expected_txid);
+            }
+        }
+
+        /// `vout >= n_outputs` must always return `VoutOutOfRange`, for any
+        /// valid tx.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_parse_tx_vout_out_of_range(
+            (tx, outputs) in arb_simple_tx(),
+            slop in 0u64..16,
+        ) {
+            let bytes = btc_serialize(&tx).expect("serialize tx");
+            let bad_vout = outputs.len() as u64 + slop;
+            prop_assert_eq!(
+                parse_tx_output(&bytes, bad_vout),
+                Err(ParseTxError::VoutOutOfRange),
+            );
+        }
+
+        /// Any output whose scriptPubKey exceeds the 1024-byte cap is
+        /// rejected with `ScriptTooLarge` — even by 1 byte, all the way up
+        /// to scripts approaching the OP_PUSHDATA2 boundary.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_parse_tx_script_too_large(extra in 1usize..=65_535 - GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN) {
+            let script_len = GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN + extra;
+            let tx = Transaction {
+                version: 1,
+                lock_time: 0,
+                input: vec![TxIn {
+                    previous_output: OutPoint {
+                        txid: Sha256dHash([0u8; 32]),
+                        vout: 0,
+                    },
+                    script_sig: Script::from(Vec::<u8>::new()),
+                    sequence: 0xffffffff,
+                    witness: vec![],
+                }],
+                output: vec![TxOut {
+                    value: 1,
+                    script_pubkey: Script::from(vec![0x51u8; script_len]),
+                }],
+            };
+            let bytes = btc_serialize(&tx).expect("serialize tx");
+            prop_assert_eq!(
+                parse_tx_output(&bytes, 0),
+                Err(ParseTxError::ScriptTooLarge),
+            );
+        }
     }
 }

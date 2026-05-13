@@ -26,6 +26,7 @@ use crate::vm::analysis::errors::{
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
+use crate::vm::functions::bitcoin::VERIFY_MERKLE_PROOF_MAX_DEPTH;
 use crate::vm::functions::{NativeFunctions, handle_binding_list};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
@@ -869,10 +870,6 @@ fn check_get_tenure_info(
 
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
-
-/// Maximum depth of a Bitcoin merkle proof accepted by `verify-merkle-proof`.
-/// 24 = up to ~16M leaves, far beyond any plausible Bitcoin block.
-const VERIFY_MERKLE_PROOF_MAX_DEPTH: u32 = 24;
 
 fn check_verify_merkle_proof(
     checker: &mut TypeChecker,

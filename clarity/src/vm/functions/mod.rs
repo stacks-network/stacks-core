@@ -55,7 +55,7 @@ use crate::vm::ClarityVersion;
 
 mod arithmetic;
 mod assets;
-mod bitcoin;
+pub(crate) mod bitcoin;
 mod boolean;
 mod conversions;
 mod crypto;
