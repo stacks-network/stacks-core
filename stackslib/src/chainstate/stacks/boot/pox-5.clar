@@ -399,6 +399,14 @@
     )
 )
 
+(define-public (set-bond-admin (new-admin principal))
+    (begin
+        ;; only bond admin can call this.
+        (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
+        (ok (var-set bond-admin new-admin))
+    )
+)
+
 ;; Setup a new protocol bond by providing parameters and the
 ;; allowlist for the bond.
 ;;
@@ -474,14 +482,6 @@
                 max-allocation-sats: (get sum-max-sats accumulator),
             })
         )
-    )
-)
-
-(define-public (set-bond-admin (new-admin principal))
-    (begin
-        ;; only bond admin can call this.
-        (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
-        (ok (var-set bond-admin new-admin))
     )
 )
 
