@@ -21,6 +21,7 @@ use std::sync::LazyLock;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{ResponseData, TupleData};
@@ -37,7 +38,9 @@ use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
+use crate::chainstate::nakamoto::miner::{
+    make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
+};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
@@ -352,12 +355,19 @@ impl NakamotoBlockProposal {
         connection_opts: &ConnectionOptions,
     ) -> Result<JoinHandle<()>, std::io::Error> {
         let timeout_secs = connection_opts.block_proposal_validation_timeout_secs;
+        let max_tx_mem_bytes = connection_opts.block_proposal_max_tx_mem_bytes;
         let auth_token = connection_opts.auth_token.clone();
         thread::Builder::new()
             .name("block-proposal".into())
             .spawn(move || {
                 let result = self
-                    .validate(&sortdb, &mut chainstate, timeout_secs, auth_token)
+                    .validate(
+                        &sortdb,
+                        &mut chainstate,
+                        timeout_secs,
+                        max_tx_mem_bytes,
+                        auth_token,
+                    )
                     .map_err(|reason| BlockValidateReject {
                         signer_signature_hash: self.block.header.signer_signature_hash(),
                         reason_code: reason.reason_code,
@@ -531,6 +541,7 @@ impl NakamotoBlockProposal {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
         timeout_secs: u64,
+        max_tx_mem_bytes: u64,
         auth_token: Option<String>,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
         fault_injection_validation_stall(auth_token);
@@ -729,6 +740,10 @@ impl NakamotoBlockProposal {
 
             let tx_len = tx.tx_len();
 
+            if max_tx_mem_bytes > 0 {
+                tenure_tx.set_abort_callback(make_mem_abort_callback(max_tx_mem_bytes));
+            }
+
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,
                 tx,
@@ -737,6 +752,9 @@ impl NakamotoBlockProposal {
                 Some(remaining),
                 &mut receipts_total,
             );
+
+            tenure_tx.set_abort_callback(AbortCallback::None);
+
             let reason = match tx_result {
                 TransactionResult::Success(success_result) => {
                     let all_events_valid = success_result

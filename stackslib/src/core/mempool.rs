@@ -155,6 +155,26 @@ pub enum MempoolIterationStopReason {
     IteratorExited,
 }
 
+impl MempoolIterationStopReason {
+    /// Report the stop reason to Prometheus monitoring.
+    ///
+    /// `IteratorExited` is not reported here because the miner's
+    /// `iterate_candidates` callback already reports the specific reason
+    /// it returned early (Preempted, LimitReached, or DeadlineReached).
+    pub fn report_to_monitoring(&self) {
+        let reason = match self {
+            MempoolIterationStopReason::NoMoreCandidates => {
+                monitoring::MinerStopReason::NoTransactions
+            }
+            MempoolIterationStopReason::DeadlineReached => {
+                monitoring::MinerStopReason::DeadlineReached
+            }
+            MempoolIterationStopReason::IteratorExited => return,
+        };
+        monitoring::increment_miner_stop_reason(reason);
+    }
+}
+
 impl StacksMessageCodec for MemPoolSyncData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
@@ -1754,9 +1774,6 @@ impl MemPoolDB {
                                                 !start_with_no_estimate,
                                             ),
                                             None => {
-                                                monitoring::increment_miner_stop_reason(
-                                                    monitoring::MinerStopReason::NoTransactions,
-                                                );
                                                 break MempoolIterationStopReason::NoMoreCandidates;
                                             }
                                         }
@@ -1773,9 +1790,6 @@ impl MemPoolDB {
                                 (tx, update_estimate)
                             }
                             None => {
-                                monitoring::increment_miner_stop_reason(
-                                    monitoring::MinerStopReason::NoTransactions,
-                                );
                                 break MempoolIterationStopReason::NoMoreCandidates;
                             }
                         }
@@ -1980,6 +1994,8 @@ impl MemPoolDB {
 
         // Write through the nonce cache to the database
         nonce_cache.flush(&mut self.db);
+
+        stop_reason.report_to_monitoring();
 
         info!(
             "Mempool iteration finished";

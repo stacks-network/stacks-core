@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
+use stacks_common::alloc_tracker::{AllocationCounter, thread_allocated};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -275,6 +276,58 @@ pub enum ExecutionTimeTracker {
     },
 }
 
+/// Per-`eval` abort check. This operates alongside the execution time
+/// tracker.
+///
+/// The `None` variant is a no-op (the common case during
+/// block append/replay); other variants encode specific abort
+/// conditions and are dispatched statically via match.
+#[derive(Clone)]
+pub enum AbortCallback {
+    /// No abort check.
+    None,
+    /// Abort when net heap allocation since `baseline` exceeds
+    /// `limit_bytes` (per-thread).
+    ///
+    /// Used by miner block assembly and proposal validation.
+    MemAbort {
+        baseline: AllocationCounter,
+        limit_bytes: u64,
+    },
+    /// Test fixture: always aborts with the given reason.
+    #[cfg(test)]
+    AlwaysAbort(String),
+}
+
+impl AbortCallback {
+    /// Run the abort check.
+    ///
+    /// Returns:
+    ///   * `Ok(())` to continue
+    ///   * `Err(reason)` to abort execution with
+    ///     `RuntimeCheckErrorKind::AbortedByExecutionHook`.
+    pub fn check(&self) -> Result<(), String> {
+        match self {
+            Self::None => Ok(()),
+            Self::MemAbort {
+                baseline,
+                limit_bytes,
+            } => {
+                let net_alloc = thread_allocated().net_allocated(baseline);
+                if net_alloc > *limit_bytes {
+                    Err(format!(
+                        "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            #[cfg(test)]
+            Self::AlwaysAbort(reason) => Err(reason.clone()),
+        }
+    }
+}
+
 /** GlobalContext represents the outermost context for a single transaction's
      execution. It tracks an asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
@@ -294,6 +347,11 @@ pub struct GlobalContext<'a, 'hooks> {
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: ExecutionTimeTracker,
+    /// Callback checked at every `eval` call. When `check()` returns
+    /// `Err(reason)`, execution is aborted with
+    /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
+    /// default `AbortCallback::None` is a no-op.
+    pub abort_callback: AbortCallback,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -737,6 +795,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
         }
+    }
+
+    /// Set an abort callback that will be checked at every `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.context.abort_callback = callback;
     }
 
     pub fn get_exec_environment<'b>(
@@ -1703,6 +1766,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
+            abort_callback: AbortCallback::None,
         }
     }
 
