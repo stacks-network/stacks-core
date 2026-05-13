@@ -593,6 +593,9 @@
             ERR_BOND_ALREADY_STARTED
         )
 
+        ;; Cannot be already staked
+        (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
+
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
         ;; Validate that the staker can join this signer
