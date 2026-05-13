@@ -853,6 +853,7 @@ impl LimitedCostTracker {
         Self::Free
     }
 
+    /// Return the default cost contract name for the provided epoch.
     pub fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String, CostErrors> {
         let result = match epoch_id {
             StacksEpochId::Epoch10 => {
