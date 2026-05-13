@@ -407,7 +407,8 @@ impl<T: MarfTrieId> MARF<T> {
             label,
         );
 
-        if result.is_err() {
+        if let Err(e) = &result {
+            error!("[{label}] squash failed: {e}; cleaning up partial output at {dst_path}");
             let _ = std::fs::remove_file(&dst_db_path);
             let _ = std::fs::remove_file(&dst_blobs_path);
         }
