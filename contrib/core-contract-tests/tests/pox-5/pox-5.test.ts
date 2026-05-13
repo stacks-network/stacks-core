@@ -2534,3 +2534,62 @@ test('validating that all active bonds are included in a list at a given height'
     errorCodes.ERR_ACTIVE_BOND_NOT_INCLUDED,
   );
 });
+
+/**
+ * Calling `update-bond-registration` with the same signer for old and new
+ * should be a clean rejection.
+ */
+test('update-bond-registration is a no-op when old and new signer are the same', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer, 0n, true))).toBe(
+    aliceSbtc,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
+    aliceSbtc,
+  );
+
+  const errUpdate = txErr(
+    pox5.updateBondRegistration({
+      signerManager: signer,
+      oldSignerManager: signer,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(errUpdate.value).toBe(pox5Errors.ERR_UPDATE_BOND_SAME_SIGNER);
+
+  // Shares must not have grown.
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer, 0n, true))).toBe(
+    aliceSbtc,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 0n, true, signer))).toBe(
+    aliceSbtc,
+  );
+});

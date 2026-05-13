@@ -52,6 +52,8 @@
 (define-constant ERR_INVALID_MERKLE_PROOF (err u41))
 ;; The output script provided is incorrect
 (define-constant ERR_INVALID_LOCKUP_SCRIPT (err u42))
+;; Cannot call `update-bond-registration` with the same signer
+(define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -684,6 +686,11 @@
         (asserts! (is-eq old-signer current-signer)
             ERR_INVALID_OLD_SIGNER_MANAGER
         )
+
+        ;; Validate that the new signer is different
+        (asserts! (not (is-eq signer old-signer)) ERR_UPDATE_BOND_SAME_SIGNER)
+
+
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
             (get amount-ustx current-membership) amount-sats true
