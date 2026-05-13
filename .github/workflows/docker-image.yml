@@ -73,15 +73,6 @@ jobs:
         with:
           ref: ${{ steps.set-vars.outputs.branch }}
 
-      # Setup Docker for the builds
-      - name: Docker setup
-        id: docker-setup
-        uses: ./.github/actions/docker
-        with:
-          registry: ${{ env.DOCKER_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       # Configure target platform, install Rust toolchain, and build binaries
       - name: Build Binaries
         id: build-binaries

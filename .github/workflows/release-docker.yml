@@ -243,7 +243,6 @@ jobs:
 
       # Save digest metadata for consolidation
       - name: Export Image Digest
-        id: digest-export
         env:
           DIGEST: ${{ steps.docker-build.outputs.digest }}
           RELEASE_TYPE: ${{ inputs.release_type }}

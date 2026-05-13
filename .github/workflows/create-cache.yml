@@ -15,7 +15,6 @@ permissions:
 env:
   RUSTFLAGS: "-Cinstrument-coverage -Awarnings"
   LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
-  BTC_VERSION: "25.0"
 
 # Configure concurrency
 #   - cache will exist longer than workflow execution so other runners have access. However, this is only relevant if the commit sha does not change between runs.
@@ -45,7 +44,7 @@ jobs:
           sparse-checkout: |
             .github
 
-      # Check cache for bitcoin v${BTC_VERSION}
+      # Check cache for bitcoin binary (version is defined as a composite input, default is 25.0)
       - name: Check Bitcoin Cache
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin

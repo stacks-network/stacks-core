@@ -198,6 +198,7 @@ jobs:
       # Allows the job to proceed even if the cache restore fails.
       # The fallback steps will build the archive from source in that case.
       - name: Setup Test Environment
+        id: setup-tests
         continue-on-error: true
         uses: ./.github/actions/testenv
 
