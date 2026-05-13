@@ -293,24 +293,20 @@ impl NodeStore {
         Ok(idx)
     }
 
-    /// Flush the writer and return a sequential reader over all nodes.
-    pub(crate) fn finish_writing(&mut self) -> Result<(), Error> {
-        self.writer.flush().map_err(Error::IOError)?;
-        Ok(())
-    }
-
-    /// Overwrite the node at `idx` in place using the existing writer handle.
+    /// Overwrite the node at `idx` in place.
     ///
-    /// Call only after `finish_writing` and only when the new serialization
+    /// Call only after `flush` and only when the new serialization
     /// length matches the original.
     pub(crate) fn overwrite_node(&mut self, idx: usize, node: &TrieNodeType) -> Result<(), Error> {
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
             Error::CorruptionError(format!("overwrite_node: index {idx} out of bounds"))
         })?;
         let next_offset = self.file_offsets.get(idx + 1);
-        self.writer
-            .seek(SeekFrom::Start(offset))
-            .map_err(Error::IOError)?;
+        if self.writer.position() != offset {
+            self.writer
+                .seek(SeekFrom::Start(offset))
+                .map_err(Error::IOError)?;
+        }
         serialize_node(&mut self.writer, node)?;
         if let Some(expected_end) = next_offset {
             debug_assert_eq!(
@@ -322,7 +318,7 @@ impl NodeStore {
         Ok(())
     }
 
-    /// Flush any buffered writes to the underlying file.
+    /// Flush buffered writes so subsequent reads see them.
     pub(crate) fn flush(&mut self) -> Result<(), Error> {
         self.writer.flush().map_err(Error::IOError)?;
         Ok(())

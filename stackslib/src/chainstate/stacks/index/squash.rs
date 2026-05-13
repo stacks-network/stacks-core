@@ -807,7 +807,7 @@ impl<T: MarfTrieId> MARF<T> {
             }
         }
 
-        store.finish_writing()?;
+        store.flush()?;
 
         info!(
             "Trie DFS: {} nodes in {}",
