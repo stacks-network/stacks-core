@@ -322,14 +322,12 @@ impl BurnchainStateTransition {
             } else if burnchain.is_in_prepare_phase(height) {
                 // must burn -> expect a single commit
                 true
+            } else if height >= wf_pox_start_ht {
+                // PoX waterfall expects a single commit
+                true
             } else {
-                if height >= wf_pox_start_ht {
-                    // PoX waterfall expects a single commit
-                    true
-                } else {
-                    // Pre-PoX waterfall and non-burn expects 2 outputs
-                    false
-                }
+                // Pre-PoX waterfall and non-burn expects 2 outputs
+                false
             };
         }
 

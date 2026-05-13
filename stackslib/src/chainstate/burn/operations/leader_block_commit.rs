@@ -777,12 +777,10 @@ impl LeaderBlockCommitOp {
         reward_set_info: Option<&RewardSetInfo>,
     ) -> Result<Vec<Treatment>, op_error> {
         let Some(reward_set_info) = reward_set_info else {
-            // no recipient info for this sortition, so expect all burns
-            if !self.all_outputs_burn() {
-                warn!("Invalid block commit: this transaction should only have burn outputs.");
-                return Err(op_error::BlockCommitBadOutputs);
-            }
-            return Ok(vec![]);
+            // no recipient info for this sortition, which should never happen
+            // in pox-waterfall. out of caution, reject all block commits.
+            error!("Expected reward set to be present during waterfall-enabled epoch-id, but no reward set found");
+            return Err(op_error::BlockCommitBadEpoch);
         };
 
         let wf_info = match reward_set_info {
