@@ -218,8 +218,13 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
 
     // Mine more bitcoin blocks and confirm the chain keeps producing waterfall
     // block commits to the sBTC recipient.
+    //
+    // Make sure to span a full reward cycle past the first waterfall
+    // observation to ensure we cover the prepare-phase blocks of the
+    // first waterfall cycle and the mod-0 transition into the next
+    // cycle.
     let blocks_processed = signer_test.running_nodes.counters.blocks_processed.clone();
-    let target_steady_state_waterfalls = 3;
+    let target_steady_state_waterfalls = 30;
     let mut steady_state_waterfalls = 0;
     let mut last_stacks_tip = get_chain_info(&conf).stacks_tip_height;
     for i in 0..(target_steady_state_waterfalls * 4) {

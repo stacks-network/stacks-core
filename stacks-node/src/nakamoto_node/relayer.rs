@@ -1125,13 +1125,20 @@ impl RelayerThread {
             NakamotoNodeError::SnapshotNotFoundForChainTip
         })?;
 
-        let commit_outs = if self
-            .burnchain
-            .is_in_prepare_phase(sort_tip.block_height + 1)
-        {
-            vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
-        } else {
-            RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet())
+        let commit_outs = match recipients.as_ref() {
+            // Under waterfall PoX, every block in the cycle (including
+            // prepare-phase blocks) commits to the cycle's sBTC address.
+            // Don't let the classic prepare-phase burn-output override clobber it.
+            Some(RewardSetInfo::Waterfall(_)) => {
+                RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet())
+            }
+            _ if self
+                .burnchain
+                .is_in_prepare_phase(sort_tip.block_height + 1) =>
+            {
+                vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
+            }
+            _ => RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet()),
         };
 
         // find the sortition that kicked off this tenure (it may be different from the sortition

@@ -634,6 +634,11 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Does this epoch use a mod-0 start for reward cycles?
+    pub fn starts_reward_cycle_at_0(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     /// What is the coinbase (in uSTX) to award for the given burnchain height?
     /// Applies prior to SIP-029
     fn coinbase_reward_pre_sip029(

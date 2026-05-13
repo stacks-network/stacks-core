@@ -566,6 +566,23 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     Ok(Some((rc_info, anchor_block_header)))
 }
 
+/// Is `block_height` the first reward-receiving block of its reward cycle?
+///
+/// In waterfall epochs (Epoch 4.0+) the cycle's first reward-receiving block
+/// is the mod-0 block (the same block the cycle's signer set first signs).
+/// In classic PoX it is the mod-1 block.
+fn is_naka_reward_cycle_start_for_epoch(
+    burnchain: &Burnchain,
+    epoch_id: StacksEpochId,
+    block_height: u64,
+) -> bool {
+    if epoch_id.starts_reward_cycle_at_0() {
+        burnchain.is_naka_signing_cycle_start(block_height)
+    } else {
+        burnchain.is_reward_cycle_start(block_height)
+    }
+}
+
 /// Get the next PoX recipients in the Nakamoto epoch.
 /// This is a little different than epoch 2.x:
 /// * we're guaranteed to have an anchor block
@@ -584,7 +601,12 @@ pub fn get_nakamoto_next_recipients(
         error!("CORRUPTION: evaluating burn block height before starting burn height");
         return Err(Error::BurnchainError(burnchains::Error::NoStacksEpoch));
     };
-    let reward_cycle_info = if burnchain.is_reward_cycle_start(next_burn_height) {
+    let next_epoch_id = SortitionDB::get_stacks_epoch(sort_db.conn(), next_burn_height)?
+        .ok_or_else(|| Error::BurnchainError(burnchains::Error::NoStacksEpoch))?
+        .epoch_id;
+    let is_cycle_start =
+        is_naka_reward_cycle_start_for_epoch(burnchain, next_epoch_id, next_burn_height);
+    let reward_cycle_info = if is_cycle_start {
         let Some((reward_set, _)) = load_nakamoto_reward_set(
             reward_cycle,
             &sortition_tip.sortition_id,
@@ -1096,9 +1118,24 @@ impl<
                 }
             };
 
-            let reward_cycle_info = if self.burnchain.is_reward_cycle_start(header.block_height) {
+            let current_epoch =
+                SortitionDB::get_stacks_epoch(self.sortition_db.conn(), header.block_height)?
+                    .ok_or_else(|| {
+                        error!(
+                            "Failed to query epoch for block height: {}",
+                            header.block_height
+                        );
+                        Error::DBError(DBError::BlockHeightOutOfRange)
+                    })?
+                    .epoch_id;
+            let is_reward_cycle_start = is_naka_reward_cycle_start_for_epoch(
+                &self.burnchain,
+                current_epoch,
+                header.block_height,
+            );
+            let reward_cycle_info = if is_reward_cycle_start {
                 // we're at the end of the prepare phase, so we'd better have obtained the reward
-                // cycle info of we must block.
+                // cycle info or we must block.
                 // NOTE(safety): the reason it's safe to use the local best stacks tip here is
                 // because as long as at least 30% of the signers are honest, there's no way there
                 // can be two or more distinct reward sets calculated for a reward cycle.  Due to

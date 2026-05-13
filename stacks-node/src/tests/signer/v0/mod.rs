@@ -224,8 +224,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// This is the recommended bootstrap for Epoch 4.0 / PoX-5 integration tests.
     ///
     ///  1. Calls `boot_to_epoch_3` (chain lands at Epoch 3.0).
-    ///  2. Publishes a contract `<sender_addr>.<contract_name>` with
-    ///     `(get-current-aggregate-pubkey)` returning `pubkey`.
+    ///  2. Publishes a contract `<sender_addr>.<contract_name>` exposing
+    ///     `(get-current-aggregate-pubkey)` plus an sBTC-token stub
+    ///     (see [`agg_pubkey_sbtc_stub_source`]) so pox-5's read-only checker
+    ///     accepts the substituted sBTC contract on Epoch 4.0 initialization.
     ///  3. Mines one Nakamoto tenure to include the publish, then waits for the
     ///     `/v2/contracts/source` RPC to confirm the contract is on-chain.
     ///  4. Mines additional tenures until burn height reaches the configured
@@ -279,10 +281,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             );
 
         // 1. Submit the publish.
-        let source = format!(
-            "(define-read-only (get-current-aggregate-pubkey) 0x{})",
-            stacks_common::util::hash::to_hex(pubkey),
-        );
+        let source = agg_pubkey_sbtc_stub_source(pubkey);
         let tx_bytes = make_contract_publish(
             sender_sk,
             sender_nonce,
@@ -352,6 +351,34 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
     reqwest::blocking::get(&url)
         .map(|resp| resp.status().is_success())
         .unwrap_or(false)
+}
+
+/// Source for the combined aggregate-pubkey + sBTC-token stub that
+/// `boot_to_epoch_4` publishes.
+fn agg_pubkey_sbtc_stub_source(pubkey: &[u8; 33]) -> String {
+    format!(
+        r#"
+(define-fungible-token sbtc-token)
+
+(define-read-only (get-current-aggregate-pubkey) 0x{})
+
+(define-public (transfer
+        (amount uint)
+        (sender principal)
+        (recipient principal)
+        (memo (optional (buff 34))))
+    (begin
+        (try! (ft-transfer? sbtc-token amount sender recipient))
+        (ok true)))
+
+(define-read-only (get-balance (who principal))
+    (ok (ft-get-balance sbtc-token who)))
+
+(define-public (mint (amount uint) (recipient principal))
+    (ft-mint? sbtc-token amount recipient))
+"#,
+        stacks_common::util::hash::to_hex(pubkey),
+    )
 }
 
 impl SignerTest<SpawnedSigner> {
@@ -932,8 +959,10 @@ impl MultipleMinerTest {
     /// Boot both miner to Epoch 4.0 with an sBTC stub contract published
     ///
     ///  1. Calls `boot_to_epoch_3` (chain lands at Epoch 3.0).
-    ///  2. Publishes a contract `<sender_addr>.<contract_name>` with
-    ///     `(get-current-aggregate-pubkey)` returning `pubkey`.
+    ///  2. Publishes a contract `<sender_addr>.<contract_name>` exposing
+    ///     `(get-current-aggregate-pubkey)` plus an sBTC-token stub
+    ///     (see [`agg_pubkey_sbtc_stub_source`]) so pox-5's read-only checker
+    ///     accepts the substituted sBTC contract on Epoch 4.0 initialization.
     ///  3. Mines one Nakamoto tenure to include the publish, then waits for both
     ///     nodes to reflect
     ///  4. Mines additional tenures until burn height reaches the configured
@@ -992,10 +1021,7 @@ impl MultipleMinerTest {
         }
 
         // 1. Submit publish to node 1.
-        let source = format!(
-            "(define-read-only (get-current-aggregate-pubkey) 0x{})",
-            stacks_common::util::hash::to_hex(pubkey),
-        );
+        let source = agg_pubkey_sbtc_stub_source(pubkey);
         let tx_bytes = make_contract_publish(
             sender_sk,
             sender_nonce,
