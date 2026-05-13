@@ -289,9 +289,11 @@
     uint
 )
 
-;; The role that is allowed to set bond parameters
-;; TODO: this should be set to some predefined multisig for mainnet
-(define-data-var bond-admin principal tx-sender)
+;; The role that is allowed to set bond parameters.
+;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
+;; configured admin before deploy.
+;; TODO: this should be set to some predefined multisig for mainnet.
+(define-data-var bond-admin principal 'SP000000000000000000002Q6VF78)
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be

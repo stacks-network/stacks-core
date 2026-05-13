@@ -4534,7 +4534,24 @@ export const contracts = {
             type: { optional: { buffer: { length: 500 } } },
           },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [
           bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
@@ -4556,7 +4573,18 @@ export const contracts = {
           >,
           signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
         ],
-        Response<boolean, bigint>
+        Response<
+          {
+            amountUstx: bigint;
+            bondIndex: bigint;
+            firstRewardCycle: bigint;
+            signer: string;
+            staker: string;
+            unlockBurnHeight: bigint;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
       >,
       registerSigner: {
         name: 'register-signer',
@@ -4604,6 +4632,15 @@ export const contracts = {
           signerManager: TypedAbiArg<string, 'signerManager'>,
           signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
         ],
+        Response<boolean, bigint>
+      >,
+      setBondAdmin: {
+        name: 'set-bond-admin',
+        access: 'public',
+        args: [{ name: 'new-admin', type: 'principal' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [newAdmin: TypedAbiArg<string, 'newAdmin'>],
         Response<boolean, bigint>
       >,
       setBurnchainParameters: {
@@ -6452,7 +6489,7 @@ export const contracts = {
       sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
       STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),
       STACKS_ADDR_VERSION_TESTNET: Uint8Array.from([26]),
-      bondAdmin: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
+      bondAdmin: 'SP000000000000000000002Q6VF78',
       configured: false,
       firstBondPeriodCycle: 0n,
       firstBurnchainBlockHeight: 0n,
