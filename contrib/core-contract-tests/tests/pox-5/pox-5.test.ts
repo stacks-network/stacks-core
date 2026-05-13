@@ -2593,3 +2593,44 @@ test('update-bond-registration is a no-op when old and new signer are the same',
     aliceSbtc,
   );
 });
+
+/**
+ * `register-for-bond` should reject participants once the bond period has
+ * started.
+ */
+test('register-for-bond rejects registration after bond starts', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+
+  // Move into the middle of the bond period (cycle 5 of 12).
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(5n)));
+
+  // The bond has been live for several cycles. Registration into a past
+  // cycle should fail.
+  const register = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(register.value).toBe(pox5Errors.ERR_BOND_ALREADY_STARTED);
+});

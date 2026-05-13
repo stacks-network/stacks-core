@@ -52,6 +52,8 @@
 (define-constant ERR_INVALID_MERKLE_PROOF (err u41))
 ;; The output script provided is incorrect
 (define-constant ERR_INVALID_LOCKUP_SCRIPT (err u42))
+;; A staker tried to register for a bond after it already started
+(define-constant ERR_BOND_ALREADY_STARTED (err u43))
 ;; Cannot call `update-bond-registration` with the same signer
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 
@@ -571,6 +573,7 @@
                 ERR_NOT_ALLOWLISTED
             ))
             (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+            (bond-start-height (bond-period-to-burn-height bond-index))
             ;; the first cycle in which their stx are unlocked
             (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
             (current-total-staked (get-total-shares-staked-for-cycle bond-index true))
@@ -583,6 +586,11 @@
                     (get min-ustx-ratio bond)
                 ))
             ERR_INSUFFICIENT_STX
+        )
+
+        ;; Verify that the bond hasn't started
+        (asserts! (< burn-block-height bond-start-height)
+            ERR_BOND_ALREADY_STARTED
         )
 
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
