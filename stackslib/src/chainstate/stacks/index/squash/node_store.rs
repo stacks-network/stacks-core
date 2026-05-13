@@ -240,6 +240,8 @@ impl<W: Seek> Seek for CountingWriter<W> {
 pub(crate) struct NodeStore {
     /// Temp file holding serialized nodes (write handle).
     writer: CountingWriter<BufWriter<File>>,
+    /// Lazily-opened read handle to the temp file. Opened on first read.
+    reader: Option<BufReader<File>>,
     /// Path to the temp file (for re-opening as reader).
     pub(crate) path: std::path::PathBuf,
     /// Byte offset in the temp file for each node.
@@ -265,6 +267,7 @@ impl NodeStore {
                 Ok(file) => {
                     return Ok(NodeStore {
                         writer: CountingWriter::new(BufWriter::with_capacity(1 << 20, file)),
+                        reader: None,
                         path,
                         file_offsets: Vec::new(),
                         hashes: Vec::new(),
@@ -336,21 +339,21 @@ impl NodeStore {
         Ok(())
     }
 
-    /// Open a reader for random-access reads.
-    pub(crate) fn open_reader(&self) -> Result<BufReader<File>, Error> {
-        let file = File::open(&self.path).map_err(Error::IOError)?;
-        Ok(BufReader::with_capacity(1 << 20, file))
-    }
-
-    /// Read a node from the temp file using the given reader.
-    pub(crate) fn read_node_with(
-        &self,
-        reader: &mut BufReader<File>,
-        idx: usize,
-    ) -> Result<TrieNodeType, Error> {
+    /// Read the node at `idx`. Lazily opens a shared `BufReader` on first call.
+    ///
+    /// Reads see only flushed writes; re-reading an overwritten node requires
+    /// a preceding `flush`.
+    pub(crate) fn read_node(&mut self, idx: usize) -> Result<TrieNodeType, Error> {
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
             Error::CorruptionError(format!("NodeStore: index {idx} out of bounds"))
         })?;
+        let reader = match &mut self.reader {
+            Some(r) => r,
+            None => {
+                let file = File::open(&self.path).map_err(Error::IOError)?;
+                self.reader.insert(BufReader::with_capacity(1 << 20, file))
+            }
+        };
         reader
             .seek(SeekFrom::Start(offset))
             .map_err(Error::IOError)?;

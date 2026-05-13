@@ -971,33 +971,30 @@ fn test_node_store_roundtrip_all_variants() {
     store.finish_writing().unwrap();
     assert_eq!(store.len(), 5);
 
-    // Read back and verify
-    let mut reader = store.open_reader().unwrap();
-
     // Leaf round-trip
-    let rt_leaf = store.read_node_with(&mut reader, 0).unwrap();
+    let rt_leaf = store.read_node(0).unwrap();
     assert!(rt_leaf.is_leaf());
     assert_eq!(rt_leaf.path_bytes(), &[1, 2, 3]);
     assert_eq!(*store.hash(0), leaf_hash);
     assert_eq!(store.block_id(0), 10);
 
     // Node4 round-trip
-    let rt_n4 = store.read_node_with(&mut reader, 1).unwrap();
+    let rt_n4 = store.read_node(1).unwrap();
     assert_eq!(rt_n4.ptrs()[0].chr(), b'a');
     assert_eq!(rt_n4.ptrs()[0].ptr(), 100);
 
     // Node16 round-trip
-    let rt_n16 = store.read_node_with(&mut reader, 2).unwrap();
+    let rt_n16 = store.read_node(2).unwrap();
     assert_eq!(rt_n16.ptrs()[0].chr(), b'b');
     assert_eq!(rt_n16.ptrs()[0].ptr(), 200);
 
     // Node48 round-trip
-    let rt_n48 = store.read_node_with(&mut reader, 3).unwrap();
+    let rt_n48 = store.read_node(3).unwrap();
     assert_eq!(rt_n48.ptrs()[0].chr(), b'c');
     assert_eq!(rt_n48.ptrs()[0].ptr(), 300);
 
     // Node256 round-trip
-    let rt_n256 = store.read_node_with(&mut reader, 4).unwrap();
+    let rt_n256 = store.read_node(4).unwrap();
     assert_eq!(rt_n256.ptrs()[b'd' as usize].chr(), b'd');
     assert_eq!(rt_n256.ptrs()[b'd' as usize].ptr(), 400);
 }

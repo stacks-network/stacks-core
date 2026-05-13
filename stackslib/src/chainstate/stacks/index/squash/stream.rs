@@ -41,12 +41,11 @@ use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieHasher};
 pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Error> {
     let empty_hash = TrieHash::EMPTY;
     let node_count = store.len();
-    let mut reader = store.open_reader()?;
     let start = Instant::now();
 
     // Pass 1: compute leaf hashes
     for idx in 0..node_count {
-        let node = store.read_node_with(&mut reader, idx)?;
+        let node = store.read_node(idx)?;
         if let TrieNodeType::Leaf(ref leaf) = node {
             store.set_hash(idx, get_leaf_hash(leaf));
         }
@@ -58,7 +57,7 @@ pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Erro
 
     // Pass 2: internal nodes in reverse order
     for idx in (0..node_count).rev() {
-        let node = store.read_node_with(&mut reader, idx)?;
+        let node = store.read_node(idx)?;
         if node.is_leaf() {
             continue;
         }
@@ -116,14 +115,13 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
             "Cannot stream empty squash trie".to_string(),
         ));
     }
-    let mut reader = store.open_reader()?;
 
     // Record the base offset so all writes are relative to blob start.
     let base = sink.stream_position().map_err(Error::IOError)?;
     let mut sink = CountingWriter::with_position(sink, base);
     let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
 
-    let root_node = store.read_node_with(&mut reader, 0)?;
+    let root_node = store.read_node(0)?;
     let root_reserved_size = reserved_root_size(get_node_byte_len(&root_node), root_node.ptrs())?;
 
     // Write header: parent block hash + zero identifier
@@ -157,7 +155,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
             .ok_or_else(|| Error::CorruptionError("blob offset index out of bounds".into()))? =
             current.checked_sub(base).ok_or(Error::OverflowError)?;
 
-        let mut node = store.read_node_with(&mut reader, idx)?;
+        let mut node = store.read_node(idx)?;
         let hash = store.hash(idx);
 
         // Convert array-index pointers to byte offsets (relative to blob start)
@@ -175,7 +173,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
     *blob_offsets
         .get_mut(0)
         .ok_or_else(|| Error::CorruptionError("empty blob offset table".into()))? = header_size;
-    let mut root_node = store.read_node_with(&mut reader, 0)?;
+    let mut root_node = store.read_node(0)?;
     if !root_node.is_leaf() {
         resolve_inline_child_offsets(root_node.ptrs_mut(), &blob_offsets)?;
     }

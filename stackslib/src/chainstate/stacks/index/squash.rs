@@ -92,7 +92,6 @@ fn remap_child_ptrs(
 ) -> Result<(), Error> {
     let remap_start = Instant::now();
     let node_count = store.len();
-    let mut reader = store.open_reader()?;
 
     for idx in 0..node_count {
         if idx > 0 && idx % 1_000_000 == 0 {
@@ -102,7 +101,7 @@ fn remap_child_ptrs(
             );
         }
 
-        let mut node = store.read_node_with(&mut reader, idx)?;
+        let mut node = store.read_node(idx)?;
         let origin_block_id = store.block_id(idx);
 
         if node.is_leaf() {
