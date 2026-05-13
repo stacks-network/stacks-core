@@ -71,9 +71,7 @@ impl GlobalStateEvaluator {
         let mut total_weight_support: u32 = 0;
         for (version, weight_support) in protocol_versions.into_iter().rev() {
             total_weight_support += weight_support;
-            if u64::from(total_weight_support)
-                >= u64::from(self.total_weight).strict_mul(NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD)
-                    / 10
+            if self.reached_agreement(total_weight_support)
             {
                 return Some(version);
             }
