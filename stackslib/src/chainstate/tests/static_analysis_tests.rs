@@ -548,7 +548,7 @@ fn static_check_error_unknown_type_name() {
         contract_code: "
         (define-public (trigger)
             (ok (from-consensus-buff? foo 0x00)))",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
 
@@ -633,7 +633,7 @@ fn static_check_error_could_not_determine_serialization_type() {
         (define-trait trait-b ((pong () (response bool bool))))
         (define-public (trigger (first <trait-a>) (second <trait-b>))
             (ok (to-consensus-buff? (list first second))))",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
 
@@ -1093,18 +1093,14 @@ fn static_check_error_bad_map_name() {
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBlockInfoExpectPropertyName`]
 /// Caused by: calling `get-block-info` with a non-atom property argument.
 /// Outcome: block accepted.
-/// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
+/// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3+
 ///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "info-exp-prop-name",
         contract_code: "(get-block-info? u1 u0)",
-        exclude_clarity_versions: &[
-            ClarityVersion::Clarity3,
-            ClarityVersion::Clarity4,
-            ClarityVersion::Clarity5
-        ],
+        clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity2),
     );
 }
 
@@ -1118,7 +1114,7 @@ fn static_check_error_get_burn_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "burn-exp-prop-name",
         contract_code: "(get-burn-block-info? u1 u0)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
 
@@ -1132,7 +1128,7 @@ fn static_check_error_get_stacks_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "stacks-exp-prop-name",
         contract_code: "(get-stacks-block-info? u1 u0)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity3),
     );
 }
 
@@ -1146,7 +1142,7 @@ fn static_check_error_get_tenure_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "tenure-exp-prop-name",
         contract_code: "(get-tenure-info? u1 u0)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity3),
     );
 }
 
@@ -1160,7 +1156,7 @@ fn static_check_error_no_such_tenure_info_property() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-tenure-info",
         contract_code: "(get-tenure-info? none u1)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity3),
     );
 }
 
@@ -1222,9 +1218,6 @@ fn static_check_error_write_attempted_in_read_only() {
 ///       contract fails earlier with `UnknownFunction("at-block")`.
 #[test]
 fn static_check_error_at_block_closure_must_be_read_only() {
-    let mut exclude_clarity_versions = ClarityVersion::ALL.to_vec();
-    exclude_clarity_versions.retain(|version| *version > ClarityVersion::Clarity4);
-
     contract_deploy_consensus_test!(
         contract_name: "closure-must-be-ro",
         contract_code: "
@@ -1232,7 +1225,7 @@ fn static_check_error_at_block_closure_must_be_read_only() {
         (define-private (foo-bar)
             (at-block (sha256 0)
                (var-set foo 0)))",
-        exclude_clarity_versions: &exclude_clarity_versions,
+        clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity4),
     );
 }
 
@@ -1243,8 +1236,6 @@ fn static_check_error_at_block_closure_must_be_read_only() {
 ///       contract fails earlier with `UnknownFunction("at-block")`.
 #[test]
 fn static_check_error_at_block_unavailable() {
-    let mut exclude_clarity_versions = ClarityVersion::ALL.to_vec();
-    exclude_clarity_versions.retain(|version| *version > ClarityVersion::Clarity4);
     contract_deploy_consensus_test!(
         contract_name: "at-block-unavailable",
         contract_code: "
@@ -1252,7 +1243,7 @@ fn static_check_error_at_block_unavailable() {
             (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
                     u1)))",
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch34),
-        exclude_clarity_versions: &exclude_clarity_versions,
+        clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity4),
     );
 }
 
@@ -1266,7 +1257,7 @@ fn static_check_error_allowance_expr_not_allowed() {
     contract_deploy_consensus_test!(
         contract_name: "allow-expr-not-allo",
         contract_code: "(with-stx u1)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -1280,7 +1271,7 @@ fn static_check_error_expected_list_of_allowances() {
     contract_deploy_consensus_test!(
         contract_name: "exp-list-of-allowances",
         contract_code: "(restrict-assets? tx-sender u1 true)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -1294,7 +1285,7 @@ fn static_check_error_expected_allowance_expr() {
     contract_deploy_consensus_test!(
         contract_name: "exp-allowa-expr",
         contract_code: "(restrict-assets? tx-sender ((not true)) true)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -1308,7 +1299,7 @@ fn static_check_error_with_all_allowance_not_allowed() {
     contract_deploy_consensus_test!(
         contract_name: "all-allow-not-allowed",
         contract_code: "(restrict-assets? tx-sender ((with-all-assets-unsafe)) true)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -1322,7 +1313,7 @@ fn static_check_error_with_all_allowance_not_alone() {
     contract_deploy_consensus_test!(
         contract_name: "all-allow-not-alone",
         contract_code: "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -1336,7 +1327,7 @@ fn static_check_error_with_nft_expected_list_of_identifiers() {
     contract_deploy_consensus_test!(
         contract_name: "with-nft-exp-ident",
         contract_code: r#"(restrict-assets? tx-sender ((with-nft tx-sender "token-name" tx-sender)) true)"#,
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -1355,7 +1346,7 @@ fn static_check_error_max_identifier_length_exceeded() {
                 .collect::<Vec<_>>()
                 .join(" ")
         ),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -1374,7 +1365,7 @@ fn static_check_error_too_many_allowances() {
                 .collect::<Vec<_>>()
                 .join(" ")
         ),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
