@@ -1591,6 +1591,7 @@
                 (stx-cycle (burn-height-to-reward-cycle calculation-height))
                 (cycle-staked-ustx (get-total-shares-staked-for-cycle stx-cycle false))
                 (current-rewards-per-ustx (get-rewards-per-token-for-cycle stx-cycle false))
+                (prev-accounted-rewards (var-get last-accounted-rewards-only))
                 (new-rewards-per-ustx (if (is-eq cycle-staked-ustx u0)
                     ;; if there are no stx staked, we have a problem
                     u0
@@ -1611,7 +1612,9 @@
             })
             (var-set reserve-balance (+ cur-reserve new-reserve))
             (var-set last-reward-compute-height calculation-height)
-            (var-set last-accounted-rewards-only (- accrued-rewards new-reserve))
+            (var-set last-accounted-rewards-only
+                (+ prev-accounted-rewards (- accrued-rewards new-reserve))
+            )
             (map-set rewards-per-token-for-cycle {
                 index: stx-cycle,
                 is-bond: false,

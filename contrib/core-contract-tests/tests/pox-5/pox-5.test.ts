@@ -2109,6 +2109,53 @@ test('zero reward claim should not reset paid rewards', () => {
   expect(zeroClaim.value).toBe(errorCodes.ERR_NO_CLAIMABLE_REWARDS);
 });
 
+test('signer can claim rewards accrued across multiple calculations', () => {
+  const signer = testSigner.identifier;
+  const stakeAmount = stxToUStx(50_000);
+
+  registerSigner();
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([]), deployer);
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
+  txOk(pox5.calculateRewards([]), deployer);
+
+  const expectedRewards = stxRewards(2000n);
+  expect(rov(pox5.getEarned(signer, 1n, false))).toBe(expectedRewards);
+  expect(
+    txOk(testSigner.claimRewards([], 1n), deployer).value.totalRewards,
+  ).toBe(expectedRewards);
+});
+
 /** Scenario: waterfall distributions
  *
  * - Alice and Bob are in bond period 1
