@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -139,6 +139,11 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+/// Default maximum memory allocation during miner block assembly
+const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
+/// Default maximum memory allocation during block proposal evaluation. Defaults higher than miner default
+///  to avoid miner/signer environment skews.
+pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -1159,6 +1164,7 @@ impl Config {
                 .map(Duration::from_secs),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
+            max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
         }
     }
 
@@ -1209,6 +1215,7 @@ impl Config {
                 .map(Duration::from_secs),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
+            max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
         }
     }
 
@@ -2168,6 +2175,30 @@ pub struct NodeConfig {
     /// @default: `300` (5 minutes)
     /// @units: seconds
     pub chain_liveness_poll_time_secs: u64,
+    /// By default, HTTP requests to event observers block the operation of the node
+    /// until a successful response is received from the observer. This creates a
+    /// predictable order of operations, but it also means that an event observer that
+    /// is slow to respond might stall the node. This can be prevented by changing this
+    /// setting to `false`, in which case those requests are enqueued to be delivered
+    /// on a background thread. Only if the queue is full will new requests cause
+    /// blocking again. The size of that queue can be controlled with the
+    /// `event_dispatcher_queue_size` setting.
+    ///
+    /// Pending requests are persisted across restarts of the node. On restart, the
+    /// node will deliver all remaining event payloads before resuming normal operations.
+    /// ---
+    /// @default: `true`
+    pub event_dispatcher_blocking: bool,
+    /// This setting does nothing if the `event_dispatcher_blocking` has its default
+    /// value of `true`. But if the event dispatcher is set to be non-blocking, this
+    /// queue size controls how many events can be in-flight (not yet delivered) before
+    /// the event dispatcher becomes blocking again until space becomes available.
+    ///
+    /// Setting this value to `0` is equivalent to setting `event_dispatcher_blocking`
+    /// to `true`, as no in-flight requests are allowed.
+    /// ---
+    /// @default: `1_000`
+    pub event_dispatcher_queue_size: usize,
     /// A list of specific StackerDB contracts (identified by their qualified contract
     /// identifiers, e.g., "SP000000000000000000002Q6VF78.pox-3") that this node
     /// should actively replicate.
@@ -2453,6 +2484,8 @@ impl Default for NodeConfig {
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            event_dispatcher_blocking: true,
+            event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
             txindex: false,
         }
@@ -2614,6 +2647,14 @@ impl NodeConfig {
             false,
         )
         .with_compression(self.marf_compress)
+    }
+
+    pub fn effective_event_dispatcher_queue_size(&self) -> usize {
+        if self.event_dispatcher_blocking {
+            0
+        } else {
+            self.event_dispatcher_queue_size
+        }
     }
 }
 
@@ -3109,6 +3150,14 @@ pub struct MinerConfig {
     /// @notes:
     ///   - Primarily intended for testing purposes.
     pub log_skipped_transactions: bool,
+    /// Maximum number of bytes the miner thread may allocate during block
+    /// assembly before aborting. Tracked via `TrackingAllocator`
+    ///
+    /// A value of `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES`]
+    /// @units: bytes
+    pub max_assembly_mem_bytes: u64,
 }
 
 impl Default for MinerConfig {
@@ -3167,6 +3216,7 @@ impl Default for MinerConfig {
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             log_skipped_transactions: false,
+            max_assembly_mem_bytes: DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES,
         }
     }
 }
@@ -3673,6 +3723,13 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS`]
     /// @units: seconds
     pub block_proposal_validation_timeout_secs: Option<u64>,
+    /// Maximum bytes a single transaction may allocate on the heap during
+    /// block-proposal validation before it is rejected.
+    /// `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_PROPOSAL_MEMORY_BYTES`]
+    /// @units: bytes
+    pub block_proposal_max_tx_mem_bytes: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3830,6 +3887,9 @@ impl ConnectionOptionsFile {
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
+            block_proposal_max_tx_mem_bytes: self
+                .block_proposal_max_tx_mem_bytes
+                .unwrap_or(default.block_proposal_max_tx_mem_bytes),
             ..default
         })
     }
@@ -3867,6 +3927,9 @@ pub struct NodeConfigFile {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    pub event_dispatcher_blocking: Option<bool>,
+    /// Only relevant if `event_dispatcher_blocking` is false
+    pub event_dispatcher_queue_size: Option<usize>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
     /// fault injection: fail to push blocks with this probability (0-100)
@@ -3950,6 +4013,12 @@ impl NodeConfigFile {
             chain_liveness_poll_time_secs: self
                 .chain_liveness_poll_time_secs
                 .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+            event_dispatcher_blocking: self
+                .event_dispatcher_blocking
+                .unwrap_or(default_node_config.event_dispatcher_blocking),
+            event_dispatcher_queue_size: self
+                .event_dispatcher_queue_size
+                .unwrap_or(default_node_config.event_dispatcher_queue_size),
             stacker_dbs: self
                 .stacker_dbs
                 .unwrap_or_default()
@@ -4118,6 +4187,7 @@ pub struct MinerConfigFile {
     pub stackerdb_timeout_secs: Option<u64>,
     pub max_tenure_bytes: Option<u64>,
     pub log_skipped_transactions: Option<bool>,
+    pub max_assembly_mem_bytes: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -4313,6 +4383,7 @@ impl MinerConfigFile {
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
             log_skipped_transactions: self.log_skipped_transactions.unwrap_or(miner_default_config.log_skipped_transactions),
             read_count_extend_cost_threshold: miner_default_config.read_count_extend_cost_threshold,
+            max_assembly_mem_bytes: self.max_assembly_mem_bytes.unwrap_or(miner_default_config.max_assembly_mem_bytes),
         })
     }
 }

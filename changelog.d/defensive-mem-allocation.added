@@ -1,0 +1,1 @@
+Add defensive memory allocation checks for miners and signers. This adds two new config options: `max_assembly_mem_bytes` and `block_proposal_max_tx_mem_bytes`
