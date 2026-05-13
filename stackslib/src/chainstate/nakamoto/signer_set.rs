@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp::min;
 use std::collections::HashMap;
-use std::sync::RwLock;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, RwLock};
 
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{
@@ -819,7 +819,13 @@ impl NakamotoSigners {
                 .or_insert_with(|| entry.amount_ustx);
         }
 
-        let threshold = total_ustx_locked / u128::from(pox_constants.reward_slots());
+        // set threshold to the ceil of (total/reward_slots) to guarantee that we don't assign
+        //  more total weight than reward_slots, and set the minimum return to 1 to avoid a div by zero
+        //  in the unlikely event of a 0 stacked amount.
+        let threshold = std::cmp::max(
+            1,
+            total_ustx_locked.div_ceil(u128::from(pox_constants.reward_slots())),
+        );
 
         let mut signer_set: Vec<_> = signer_set
             .into_iter()
