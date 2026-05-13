@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -65,11 +65,17 @@ fn variant_coverage_report(variant: ParseErrorKind) {
 
         TooManyExpressions => Unreachable_ExpectLike,
         ExpressionStackDepthTooDeep { .. } => Tested(vec![
-            test_stack_depth_too_deep_case_2_list_only_parsing,
+            test_stack_depth_too_deep_case_1_tuple_only_parsing,
             test_stack_depth_too_deep_case_2_list_only_parsing,
             test_stack_depth_too_deep_case_3_list_only_checker,
+            test_stack_depth_too_deep_case_4_tuple_only_parsing_latest_limit,
+            test_stack_depth_too_deep_case_5_list_only_parsing_latest_limit,
+            test_stack_depth_too_deep_case_6_list_only_checker_latest_limit,
         ]),
-        VaryExpressionStackDepthTooDeep { .. } => Tested(vec![test_vary_stack_depth_too_deep_checker]),
+        VaryExpressionStackDepthTooDeep { .. } => Tested(vec![
+            test_vary_stack_depth_too_deep_checker,
+            test_vary_stack_depth_too_deep_checker_latest_limit
+        ]),
         FailedParsingIntValue(_) => Tested(vec![test_failed_parsing_int_value]),
         CircularReference(_) => Tested(vec![test_circular_reference]),
         NameAlreadyUsed(_) => Tested(vec![test_named_already_used]),
@@ -267,27 +273,11 @@ fn test_stack_depth_too_deep_case_3_list_only_checker() {
     );
 }
 
-/// ParserError: [`ParseErrorKind::VaryExpressionStackDepthTooDeep`]
-/// Caused by: nested contract body exceeding stack depth limit on checking vary list/tuple ast
-/// Outcome: block rejected pre-3.4, accepted 3.4+.
-#[test]
-fn test_vary_stack_depth_too_deep_checker() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: &{
-            let count = StackDepthLimits::for_epoch(StacksEpochId::Epoch33).max_nesting_depth() - 1;
-            let body_start = "(list ".repeat(count as usize);
-            let body_end = ")".repeat(count as usize);
-            format!("{{ a: {body_start}u1 {body_end} }}")
-        },
-    );
-}
-
 /// ParserError: [`ParseErrorKind::ExpressionStackDepthTooDeep`]
 /// Caused by: nested contract body exceeding stack depth limit on parsing tuples
 /// Outcome: block rejected
 #[test]
-fn test_stack_depth_too_deep_case_1_tuple_only_parsing_latest_limit() {
+fn test_stack_depth_too_deep_case_4_tuple_only_parsing_latest_limit() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: &{
@@ -305,7 +295,7 @@ fn test_stack_depth_too_deep_case_1_tuple_only_parsing_latest_limit() {
 /// Caused by: nested contract body exceeding stack depth limit on parsing lists
 /// Outcome: block rejected
 #[test]
-fn test_stack_depth_too_deep_case_2_list_only_parsing_latest_limit() {
+fn test_stack_depth_too_deep_case_5_list_only_parsing_latest_limit() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: &{
@@ -322,7 +312,7 @@ fn test_stack_depth_too_deep_case_2_list_only_parsing_latest_limit() {
 /// Caused by: nested contract body exceeding stack depth limit on checking lists ast
 /// Outcome: block rejected
 #[test]
-fn test_stack_depth_too_deep_case_3_list_only_checker_latest_limit() {
+fn test_stack_depth_too_deep_case_6_list_only_checker_latest_limit() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: &{
@@ -331,6 +321,22 @@ fn test_stack_depth_too_deep_case_3_list_only_checker_latest_limit() {
             let body_start = "(list ".repeat(count as usize);
             let body_end = ")".repeat(count as usize);
             format!("{body_start}u1 {body_end}")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrorKind::VaryExpressionStackDepthTooDeep`]
+/// Caused by: nested contract body exceeding stack depth limit on checking vary list/tuple ast
+/// Outcome: block rejected pre-3.4, accepted 3.4+.
+#[test]
+fn test_vary_stack_depth_too_deep_checker() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let count = StackDepthLimits::for_epoch(StacksEpochId::Epoch33).max_nesting_depth() - 1;
+            let body_start = "(list ".repeat(count as usize);
+            let body_end = ")".repeat(count as usize);
+            format!("{{ a: {body_start}u1 {body_end} }}")
         },
     );
 }

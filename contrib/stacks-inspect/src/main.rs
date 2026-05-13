@@ -21,6 +21,7 @@ use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes, vm_execute};
+use stacks_common::alloc_tracker::TrackingAllocator;
 use stacks_inspect::cli::{Cli, Command};
 use stacks_inspect::{
     CommonOpts, command_contract_hash, command_replay_mock_mining, command_try_mine,
@@ -41,7 +42,13 @@ use tikv_jemallocator::Jemalloc;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator { inner: Jemalloc };
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_arch = "arm"))]
+#[global_allocator]
+static GLOBAL: TrackingAllocator<std::alloc::System> = TrackingAllocator {
+    inner: std::alloc::System,
+};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
