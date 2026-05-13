@@ -6405,6 +6405,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_BOND_ALREADY_STARTED: {
+        name: 'ERR_BOND_ALREADY_STARTED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_BOND_NOT_ACTIVE: {
         name: 'ERR_BOND_NOT_ACTIVE',
         type: {
@@ -6785,6 +6795,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UPDATE_BOND_SAME_SIGNER: {
+        name: 'ERR_UPDATE_BOND_SAME_SIGNER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       MAX_ADDRESS_VERSION: {
         name: 'MAX_ADDRESS_VERSION',
         type: 'uint128',
@@ -6954,6 +6974,10 @@ export const contracts = {
         isOk: false,
         value: 4n,
       },
+      ERR_BOND_ALREADY_STARTED: {
+        isOk: false,
+        value: 43n,
+      },
       ERR_BOND_NOT_ACTIVE: {
         isOk: false,
         value: 31n,
@@ -7105,6 +7129,10 @@ export const contracts = {
       ERR_UNSTAKE_IN_PREPARE_PHASE: {
         isOk: false,
         value: 28n,
+      },
+      ERR_UPDATE_BOND_SAME_SIGNER: {
+        isOk: false,
+        value: 44n,
       },
       MAX_ADDRESS_VERSION: 6n,
       mAX_ADDRESS_VERSION_BUFF_20: 4n,
