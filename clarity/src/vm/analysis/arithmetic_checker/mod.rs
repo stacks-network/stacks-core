@@ -32,7 +32,9 @@
 //!   itself be cheap and predictable.
 //! - **Trait-free**: traits introduce dynamic dispatch that the cost
 //!   accountant cannot reason about statically.
-//! - **Cheap**: only simple arithmetic and logic operations.
+//! - **Cheap**: only a restricted, predictable, constant-time subset of
+//!   native forms is allowed, including arithmetic/logic and certain simple
+//!   expression-building constructs.
 //!
 //! The pass walks every top-level form and expression and rejects anything
 //! outside the set of allowed constructs. The result is stored in
