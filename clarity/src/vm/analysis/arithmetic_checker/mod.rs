@@ -24,8 +24,7 @@
 //! accounting path itself, they must be:
 //!
 //! - **Deterministic**: no chain-state reads (`block-height`, `tx-sender`,
-//!   `contract-caller`, `chain-id`, ...), no `contract-call?`, no
-//!   `at-block`.
+//!   `contract-caller`, `chain-id`, ...), no `contract-call?`.
 //! - **Side-effect free**: no map/var/FT/NFT defines or mutations, no STX
 //!   transfers, no asset mints or burns, no `print`.
 //! - **Bounded**: no `map`/`fold`/`filter`/list-cons or other iterating
