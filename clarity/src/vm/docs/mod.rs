@@ -1419,7 +1419,7 @@ NIST P-256 curve (also known as secp256r1).",
 };
 
 const ED25519VERIFY_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 1024), (buff 64), (buff 32)",
+    input_type: "(buff), (buff 64), (buff 32)",
     snippet: "ed25519-verify ${1:message} ${2:signature} ${3:public-key})",
     output_type: "bool",
     signature: "(ed25519-verify message signature public-key)",

@@ -1,3 +1,4 @@
+use clarity_types::types::MAX_VALUE_SIZE;
 // Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -1126,7 +1127,7 @@ proptest! {
     #[test]
     fn prop_ed25519_verify_accepts_valid_signatures(
         seed in any::<[u8; 32]>(),
-        message_bytes in vec(any::<u8>(), 0..1024)
+        message_bytes in vec(any::<u8>(), 0..MAX_VALUE_SIZE as usize)
     ) {
         let privk = Ed25519PrivateKey::from_seed(&seed);
         let pubk = Ed25519PublicKey::from_private(&privk);

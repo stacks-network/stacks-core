@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::types::MAX_VALUE_SIZE;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
@@ -340,7 +341,7 @@ pub fn special_ed25519_verify(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (ed25519-verify message signature public-key)
-    // message: (buff 1024), signature: (buff 64), public-key: (buff 32)
+    // message: (buff MAX_VALUE_SIZE), signature: (buff 64), public-key: (buff 32)
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::Ed25519verify, exec_state, 0)?;
@@ -350,7 +351,11 @@ pub fn special_ed25519_verify(
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(0, 3))?;
     let message_value = eval(arg0, exec_state, invoke_ctx, context)?;
     let message = match message_value.as_ref() {
-        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= 1024 => data,
+        Value::Sequence(SequenceData::Buffer(BuffData { data }))
+            if data.len() <= MAX_VALUE_SIZE as usize =>
+        {
+            data
+        }
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_MAX),
