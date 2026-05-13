@@ -241,7 +241,7 @@ pub(crate) struct NodeStore {
     /// Temp file holding serialized nodes (write handle).
     writer: CountingWriter<BufWriter<File>>,
     /// Lazily-opened read handle to the temp file. Opened on first read.
-    reader: Option<BufReader<File>>,
+    reader: BufReader<File>,
     /// Path to the temp file (for re-opening as reader).
     pub(crate) path: std::path::PathBuf,
     /// Byte offset in the temp file for each node.
@@ -256,32 +256,21 @@ impl NodeStore {
     pub(crate) fn new(dir: &str) -> Result<Self, Error> {
         let pid = std::process::id();
         // Try up to 16 times with atomic create_new to avoid collision.
-        for attempt in 0u32..16 {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            let mut path = std::path::PathBuf::from(dir);
-            path.push(format!(".squash_nodes_{pid}_{nanos}_{attempt}.tmp"));
-            match File::options().write(true).create_new(true).open(&path) {
-                Ok(file) => {
-                    return Ok(NodeStore {
-                        writer: CountingWriter::new(BufWriter::with_capacity(1 << 20, file)),
-                        reader: None,
-                        path,
-                        file_offsets: Vec::new(),
-                        hashes: Vec::new(),
-                        block_ids: Vec::new(),
-                    });
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(Error::IOError(e)),
-            }
-        }
-        Err(Error::IOError(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "failed to create unique NodeStore temp file after 16 attempts",
-        )))
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let mut path = std::path::PathBuf::from(dir);
+        path.push(format!(".squash_nodes_{pid}_{nanos}.tmp"));
+        let temp_file = File::options().write(true).create_new(true).open(&path)?;
+        Ok(NodeStore {
+            writer: CountingWriter::new(BufWriter::with_capacity(1 << 20, temp_file)),
+            reader: BufReader::new(File::open(&path)?),
+            path,
+            file_offsets: Vec::new(),
+            hashes: Vec::new(),
+            block_ids: Vec::new(),
+        })
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -347,17 +336,11 @@ impl NodeStore {
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
             Error::CorruptionError(format!("NodeStore: index {idx} out of bounds"))
         })?;
-        let reader = match &mut self.reader {
-            Some(r) => r,
-            None => {
-                let file = File::open(&self.path).map_err(Error::IOError)?;
-                self.reader.insert(BufReader::with_capacity(1 << 20, file))
-            }
-        };
-        reader
+
+        self.reader
             .seek(SeekFrom::Start(offset))
             .map_err(Error::IOError)?;
-        deserialize_node(reader)
+        deserialize_node(&mut self.reader)
     }
 
     pub(crate) fn hash(&self, idx: usize) -> &TrieHash {
