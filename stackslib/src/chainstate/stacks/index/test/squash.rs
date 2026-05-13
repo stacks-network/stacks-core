@@ -245,6 +245,7 @@ fn test_squashed_historical_root_hash_and_height() {
         .map(|i| archival.get_root_hash_at(&blocks[i]).unwrap())
         .collect();
 
+    // The archival roots should not all be identical (sanity).
     assert_ne!(archival_roots[0], archival_roots[4]);
 
     // Squash at height 4 (blocks 0..=4 are in the squashed range).
