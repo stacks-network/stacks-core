@@ -668,7 +668,6 @@ impl MissedBlockCommit {
 
 impl RewardSetInfo {
     /// Create a RewardSetInfo struct for a missed block commit.
-    /// This always creates a V0 variant since missed commits are a V0/PoX concept.
     fn from_missed_commit(
         tx: &mut SortitionHandleTx,
         intended_sortition: &SortitionId,
