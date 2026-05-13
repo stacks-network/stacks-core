@@ -974,12 +974,16 @@ impl Config {
 
         // check for observer config in env vars
         if let Ok(val) = std::env::var("STACKS_EVENT_OBSERVER") {
-            events_observers.insert(EventObserverConfig {
-                endpoint: val,
-                events_keys: vec![EventKeyType::AnyEvent],
-                timeout_ms: 1_000,
-                disable_retries: false,
-            });
+            if events_observers.iter().any(|o| o.endpoint == val) {
+                warn!("STACKS_EVENT_OBSERVER endpoint '{}' is already registered via config file, skipping duplicate", val);
+            } else {
+                events_observers.insert(EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                    timeout_ms: 1_000,
+                    disable_retries: false,
+                });
+            }
         };
 
         let connection_options = match config_file.connection_options {
