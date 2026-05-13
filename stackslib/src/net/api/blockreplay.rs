@@ -322,9 +322,12 @@ where
     let mut rpc_replayed_block =
         RPCReplayedBlock::from_block(&replayed_block, block_fees, tenure_id, parent_block_id);
 
-    for (receipt, time, profiler_result) in &txs_receipts {
-        let transaction =
-            RPCReplayedBlockTransaction::from_receipt(receipt, time, &profiler_result);
+    for (receipt, execution_duration, profiler_result) in &txs_receipts {
+        let transaction = RPCReplayedBlockTransaction::from_receipt(
+            receipt,
+            execution_duration,
+            &profiler_result,
+        );
         rpc_replayed_block.transactions.push(transaction);
     }
 
@@ -399,13 +402,13 @@ pub struct RPCReplayedBlockTransaction {
     pub cpu_instructions: Option<u64>,
     pub cpu_cycles: Option<u64>,
     pub cpu_ref_cycles: Option<u64>,
-    pub time: u64,
+    pub execution_time_millis: u64,
 }
 
 impl RPCReplayedBlockTransaction {
     pub fn from_receipt(
         receipt: &StacksTransactionReceipt,
-        time: &Duration,
+        execution_duration: &Duration,
         profiler_result: &BlockReplayProfilerResult,
     ) -> Self {
         let events = if receipt.post_condition_aborted {
@@ -444,7 +447,7 @@ impl RPCReplayedBlockTransaction {
             cpu_instructions: profiler_result.cpu_instructions,
             cpu_cycles: profiler_result.cpu_cycles,
             cpu_ref_cycles: profiler_result.cpu_ref_cycles,
-            time: time.as_millis() as u64,
+            execution_time_millis: execution_duration.as_millis() as u64,
         }
     }
 }
