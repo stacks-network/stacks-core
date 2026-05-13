@@ -206,7 +206,7 @@
     }
 )
 
-;; Per-cycle staker signer membership.
+;; Per-cycle staker signer membership. Only used for stx-only staking.
 (define-map staker-signer-cycle-memberships
     {
         staker: principal,
@@ -318,8 +318,11 @@
     uint
 )
 
-;; The role that is allowed to set bond parameters
-(define-data-var bond-admin principal tx-sender)
+;; The role that is allowed to set bond parameters.
+;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
+;; configured admin before deploy.
+;; TODO: this should be set to some predefined multisig for mainnet.
+(define-data-var bond-admin principal 'SP000000000000000000002Q6VF78)
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
@@ -474,6 +477,14 @@
     )
 )
 
+(define-public (set-bond-admin (new-admin principal))
+    (begin
+        ;; only bond admin can call this.
+        (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
+        (ok (var-set bond-admin new-admin))
+    )
+)
+
 (define-private (add-staker-to-bond
         (staker-item {
             staker: principal,
@@ -558,6 +569,8 @@
                 ERR_NOT_ALLOWLISTED
             ))
             (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+            ;; the first cycle in which their stx are unlocked
+            (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
             (current-total-staked (get-total-shares-staked-for-cycle bond-index true))
             (current-signer-staked (get-signer-shares-staked-for-cycle signer bond-index true))
         )
@@ -622,7 +635,15 @@
             BOND_LENGTH_CYCLES amount-ustx false
         ))
 
-        (ok true)
+        (ok {
+            signer: signer,
+            staker: tx-sender,
+            amount-ustx: amount-ustx,
+            bond-index: bond-index,
+            first-reward-cycle: first-reward-cycle,
+            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            unlock-cycle: unlock-cycle,
+        })
     )
 )
 
