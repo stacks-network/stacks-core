@@ -575,6 +575,7 @@ fn burn_db_test_pox() -> PoxConstants {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     )
 }
 

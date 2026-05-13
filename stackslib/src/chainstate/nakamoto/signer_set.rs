@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
@@ -35,6 +36,84 @@ use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
+
+/// The default mainnet sBTC token contract.
+pub const SBTC_TOKEN_MAINNET_CONTRACT: &str =
+    "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+/// The default testnet sBTC token contract.
+/// Used as the default on any testnet unless overridden via
+/// [`set_pox_5_sbtc_contract`], typically via the `pox_5_sbtc_contract`
+/// field in the node config file.
+pub const SBTC_TOKEN_TESTNET_CONTRACT: &str = "SN69P7RZRKK8ERQCCABHT2JWKB2S4DHH9H74231T.sbtc-token";
+
+/// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
+/// references. Read in two places:
+///   * `make_pox_5_body` rewrites the canonical mainnet sBTC literal in the
+///     contract source so pox-5's `(contract-call? ... get-balance ...)`
+///     hits this contract.
+///   * signer-set computation reads `get-current-aggregate-pubkey` from this
+///     contract to derive the per-cycle sBTC waterfall recipient.
+///
+/// Set once at node startup from `NodeConfig::pox_5_sbtc_contract`. Goes away
+/// when PoX-5 routing is wired and the aggregate pubkey lives on-chain.
+static POX_5_SBTC_CONTRACT: RwLock<Option<QualifiedContractIdentifier>> = RwLock::new(None);
+
+/// Set the configured PoX-5 sBTC contract id. Call once during node startup
+/// from the run-loop, with the value parsed out of `NodeConfig`.
+pub fn set_pox_5_sbtc_contract(contract_id: Option<QualifiedContractIdentifier>) {
+    *POX_5_SBTC_CONTRACT.write().unwrap() = contract_id;
+}
+
+pub fn pox_5_sbtc_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
+    let contract_id = POX_5_SBTC_CONTRACT.read().unwrap().clone();
+    if let Some(contract_id) = contract_id {
+        contract_id
+    } else if is_mainnet {
+        QualifiedContractIdentifier::parse(SBTC_TOKEN_MAINNET_CONTRACT)
+            .expect("Invalid default mainnet sBTC contract ID")
+    } else {
+        QualifiedContractIdentifier::parse(SBTC_TOKEN_TESTNET_CONTRACT)
+            .expect("Invalid default testnet sBTC contract ID")
+    }
+}
+
+/// The default mainnet PoX-5 bond admin principal.
+pub const POX_5_BOND_ADMIN_MAINNET: &str = "SP000000000000000000002Q6VF78";
+
+/// The default non-mainnet PoX-5 bond admin principal — the unsignable
+/// testnet boot principal. Used as the substitution target on non-mainnet
+/// unless overridden via [`set_pox_5_bond_admin`].
+pub const POX_5_BOND_ADMIN_TESTNET: &str = "ST000000000000000000002AMW42H";
+
+/// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes the
+/// `bond-admin` data var to. The contract source bakes in the mainnet
+/// principal ([`POX_5_BOND_ADMIN_MAINNET`]); on non-mainnet,
+/// `make_pox_5_body` rewrites it to the configured override (set via
+/// `NodeConfig::pox_5_bond_admin`) or the testnet default
+/// ([`POX_5_BOND_ADMIN_TESTNET`]). Forbidden on mainnet.
+static POX_5_BOND_ADMIN: RwLock<Option<PrincipalData>> = RwLock::new(None);
+
+/// Set the configured PoX-5 bond admin principal. Call once during node
+/// startup from the run-loop, with the value parsed out of `NodeConfig`.
+pub fn set_pox_5_bond_admin(principal: Option<PrincipalData>) {
+    *POX_5_BOND_ADMIN.write().unwrap() = principal;
+}
+
+/// Resolve the PoX-5 bond admin principal: the configured override if any,
+/// otherwise the network-specific default.
+pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
+    let principal = POX_5_BOND_ADMIN.read().unwrap().clone();
+    if let Some(principal) = principal {
+        principal
+    } else if is_mainnet {
+        PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET)
+            .expect("Invalid default mainnet bond admin principal")
+    } else {
+        PrincipalData::parse(POX_5_BOND_ADMIN_TESTNET)
+            .expect("Invalid default testnet bond admin principal")
+    }
+}
 
 pub struct NakamotoSigners();
 

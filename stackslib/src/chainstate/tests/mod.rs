@@ -55,6 +55,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::*;
 use crate::chainstate::coordinator::{Error as CoordinatorError, *};
 use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
+use crate::chainstate::nakamoto::signer_set::set_pox_5_sbtc_contract;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBIndexed};
@@ -74,6 +75,36 @@ use crate::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use crate::util_lib::strings::*;
+
+/// Minimal SIP-010 `sbtc-token` stub deployed at chainstate genesis from
+/// the boot-code test address. pox-5 (deployed at the Epoch 4.0 boundary)
+/// statically references an sBTC token contract via `(contract-call?
+/// '<sbtc-token> ...)`; tests can't easily inject a real deploy between
+/// epoch transitions, so the harness installs this stub up front.
+const POX_5_SBTC_STUB_NAME: &str = "sbtc-token";
+const POX_5_SBTC_STUB_BODY: &str = r#"
+(define-fungible-token sbtc-token)
+
+(define-public (transfer
+        (amount uint)
+        (sender principal)
+        (recipient principal)
+        (memo (optional (buff 34)))
+    )
+    (begin
+        (try! (ft-transfer? sbtc-token amount sender recipient))
+        (ok true)
+    )
+)
+
+(define-read-only (get-balance (who principal))
+    (ok (ft-get-balance sbtc-token who))
+)
+
+(define-public (mint (amount uint) (recipient principal))
+    (ft-mint? sbtc-token amount recipient)
+)
+"#;
 
 // describes a chainstate's initial configuration
 #[derive(Debug, Clone)]
@@ -236,6 +267,17 @@ impl<'a> TestChainstate<'a> {
 
         let agg_pub_key_opt = config.aggregate_public_key.clone();
 
+        // pox-5 (deployed at the Epoch 4.0 boundary) statically references
+        // an sBTC token contract. Always point the global pointer at the
+        // boot-code test address before chainstate boots; the post-flight
+        // callback below deploys the matching stub.
+        let sbtc_stub_id = QualifiedContractIdentifier::new(
+            boot_code_test_addr().into(),
+            ContractName::try_from(POX_5_SBTC_STUB_NAME.to_string())
+                .expect("FATAL: invalid sbtc-token stub contract name"),
+        );
+        set_pox_5_sbtc_contract(Some(sbtc_stub_id));
+
         let conf = config.clone();
         let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
             let mut receipts = vec![];
@@ -246,6 +288,38 @@ impl<'a> TestChainstate<'a> {
             } else {
                 debug!("Not setting aggregate public key");
             }
+            // Deploy the `sbtc-token` stub contract
+            let sbtc_receipt = clarity_tx.connection().as_transaction(|clarity| {
+                let boot_code_addr = boot_code_test_addr();
+                let boot_code_account = StacksAccount {
+                    principal: boot_code_addr.to_account_principal(),
+                    nonce: 0,
+                    stx_balance: STXBalance::zero(),
+                };
+                let boot_code_auth = boot_code_tx_auth(boot_code_addr.clone());
+                let smart_contract = TransactionPayload::SmartContract(
+                    TransactionSmartContract {
+                        name: ContractName::try_from(POX_5_SBTC_STUB_NAME.to_string())
+                            .expect("FATAL: invalid sbtc-token stub contract name"),
+                        code_body: StacksString::from_str(POX_5_SBTC_STUB_BODY)
+                            .expect("FATAL: invalid sbtc-token stub body"),
+                    },
+                    None,
+                );
+                let smart_contract_tx = StacksTransaction::new(
+                    TransactionVersion::Testnet,
+                    boot_code_auth,
+                    smart_contract,
+                );
+                StacksChainState::process_transaction_payload(
+                    clarity,
+                    &smart_contract_tx,
+                    &boot_code_account,
+                    None,
+                )
+                .expect("FATAL: failed to deploy sbtc-token stub")
+            });
+            receipts.push(sbtc_receipt);
             // add test-specific boot code
             if !conf.setup_code.is_empty() {
                 let receipt = clarity_tx.connection().as_transaction(|clarity| {
