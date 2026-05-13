@@ -25,7 +25,7 @@
 //!
 //! - **Deterministic**: no chain-state reads (`block-height`, `tx-sender`,
 //!   `contract-caller`, `chain-id`, ...), no `contract-call?`, no
-//!   `at-block`, no crypto/hash builtins.
+//!   `at-block`.
 //! - **Side-effect free**: no map/var/FT/NFT defines or mutations, no STX
 //!   transfers, no asset mints or burns, no `print`.
 //! - **Bounded**: no `map`/`fold`/`filter`/list-cons or other iterating
@@ -33,12 +33,10 @@
 //!   itself be cheap and predictable.
 //! - **Trait-free**: traits introduce dynamic dispatch that the cost
 //!   accountant cannot reason about statically.
+//! - **Cheap**: only simple arithmetic and logic operations.
 //!
 //! The pass walks every top-level form and expression and rejects anything
-//! outside the allow-list (basic arithmetic, comparisons, boolean logic,
-//! `if`/`match`/`let`, tuple construction/access, response/option
-//! constructors and unwraps, and calls to user-defined private/read-only
-//! functions). The result is stored in
+//! outside the set of allowed constructs. The result is stored in
 //! [`ContractAnalysis::is_cost_contract_eligible`]; the cost-voting
 //! machinery in `vm::costs` later refuses to adopt a proposal whose target
 //! contract is not eligible.
