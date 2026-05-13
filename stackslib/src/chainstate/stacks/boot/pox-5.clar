@@ -1023,7 +1023,7 @@
     )
     (let (
             (staker tx-sender)
-            (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
+            (membership (unwrap! (map-get? protocol-bond-memberships staker) ERR_NOT_BOND_PARTICIPANT))
             (bond-index (get bond-index membership))
             (signer (get signer membership))
             (current-amount-sats (get-staker-shares-staked-for-cycle staker bond-index true signer))

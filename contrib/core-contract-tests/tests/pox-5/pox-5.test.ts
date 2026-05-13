@@ -2778,3 +2778,53 @@ test('unstake is rejected when called during the prepare phase', () => {
   const result = txErr(pox5.unstake(signer), alice);
   expect(result.value).toBe(errorCodes.ERR_UNSTAKE_IN_PREPARE_PHASE);
 });
+
+/**
+ * After the bond period ends, an sBTC bond participant should still be able to
+ * retrieve their locked sBTC.
+ */
+test('sbtc bond participant can recover sbtc after bond ends', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Mine past the end of the bond period (12 cycles after bond start).
+  const bondEndCycle =
+    rov(pox5.bondPeriodToBurnHeight(0n)) +
+    pox5.constants.BOND_LENGTH_CYCLES * REWARD_CYCLE_LENGTH;
+  mineUntil(bondEndCycle + 1n);
+
+  const aliceBalance = sbtcBalance(alice);
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: aliceSbtc,
+    }),
+    alice,
+  );
+  expect(sbtcBalance(alice)).toBe(aliceBalance + aliceSbtc);
+});
