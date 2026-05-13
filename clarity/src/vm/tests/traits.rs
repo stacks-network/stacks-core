@@ -14,14 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #[cfg(test)]
+use pinny::tag;
+#[cfg(test)]
+use proptest::prelude::*;
+#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
 #[cfg(test)]
 use super::MemoryEnvironmentGenerator;
+#[cfg(test)]
+use crate::vm::tests::proptest_utils::{trait_default_value, trait_shape_strategy};
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 #[cfg(test)]
 use crate::vm::{
     ContractContext,
+    database::MemoryBackingStore,
     errors::{RuntimeCheckErrorKind, VmExecutionError},
     tests::{env_factory, execute, symbols_from_values},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
@@ -2323,6 +2330,102 @@ fn test_pass_principal_literal_to_trait(
                 )
                 .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
+        );
+    }
+}
+
+/// Deploy contracts and call `dispatch` on one, passing another as the trait
+/// arg.
+#[cfg(test)]
+fn deploy_and_dispatch(
+    contracts: &[(&str, &str)],
+    dispatcher: &str,
+    implementor: &str,
+) -> Result<Value, VmExecutionError> {
+    let mut env_gen = MemoryEnvironmentGenerator(MemoryBackingStore::new());
+    let mut owned_env = env_gen.get_env(StacksEpochId::Epoch34);
+    let ctx = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity5,
+    );
+
+    {
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(None, None, &ctx);
+        for &(name, src) in contracts {
+            exec_state
+                .initialize_contract(
+                    &invoke_ctx,
+                    QualifiedContractIdentifier::local(name).unwrap(),
+                    src,
+                )
+                .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        }
+    }
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let impl_val = Value::from(PrincipalData::Contract(
+        QualifiedContractIdentifier::local(implementor).unwrap(),
+    ));
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(Some(p1.expect_principal().unwrap()), None, &ctx);
+    exec_state.execute_contract(
+        &invoke_ctx,
+        &QualifiedContractIdentifier::local(dispatcher).unwrap(),
+        "dispatch",
+        &symbols_from_values(vec![impl_val]),
+        false,
+    )
+}
+
+#[cfg(test)]
+proptest! {
+    /// Self-define + dispatch succeeds for any trait shape.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_trait_self_define_and_dispatch(shape in trait_shape_strategy()) {
+        let combined = shape.combined_contract_source("my-trait");
+        let impls = shape.impl_functions_source();
+        let result = deploy_and_dispatch(
+            &[("combined", &combined), ("impl", &impls)],
+            "combined", "impl",
+        ).unwrap();
+        let expected = Value::okay(trait_default_value(shape.first_ok_idx())).unwrap();
+        prop_assert_eq!(result, expected);
+    }
+
+    /// Missing method-0 produces `BadTraitImplementation` at runtime.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_trait_missing_method_detected(shape in trait_shape_strategy()) {
+        let combined = shape.combined_contract_source("my-trait");
+        let impls = shape.impl_functions_missing_first();
+        let err = deploy_and_dispatch(
+            &[("combined", &combined), ("impl", &impls)],
+            "combined", "impl",
+        ).unwrap_err();
+        prop_assert!(
+            matches!(err, VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::BadTraitImplementation(_, _)
+            )),
+            "expected BadTraitImplementation, got: {err:?}",
+        );
+    }
+
+    /// Wrong return type on method-0 produces `ReturnTypesMustMatch`.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_trait_wrong_return_type_detected(shape in trait_shape_strategy()) {
+        let combined = shape.combined_contract_source("my-trait");
+        let impls = shape.impl_functions_wrong_return_first();
+        let err = deploy_and_dispatch(
+            &[("combined", &combined), ("impl", &impls)],
+            "combined", "impl",
+        ).unwrap_err();
+        prop_assert!(
+            matches!(err, VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::ReturnTypesMustMatch(_, _)
+            )),
+            "expected ReturnTypesMustMatch, got: {err:?}",
         );
     }
 }
