@@ -1232,14 +1232,8 @@ pub trait SortitionHandle {
     ///
     /// This is the first block of the cycle whose start height is after Epoch40.
     fn get_first_pox_waterfall_block(&self) -> Result<u64, db_error> {
-        let Some(epoch_wf) =
-            SortitionDB::get_stacks_epoch_by_epoch_id(self.sqlite(), &StacksEpochId::Epoch40)?
-        else {
-            warn!("Attempted to query first PoX waterfall block when epoch is undefined, returning u32::max");
-            return Ok(u32::MAX.into());
-        };
         self.pox_constants()
-            .first_pox_waterfall_block(self.first_burn_block_height(), epoch_wf.start_height)
+            .first_pox_waterfall_block(self.first_burn_block_height())
             .ok_or(db_error::Corruption)
     }
 }
@@ -1705,15 +1699,7 @@ impl SortitionHandleTx<'_> {
             );
             return Ok(None);
         };
-        if epoch_id.uses_waterfall_pox() {
-            // this epoch-id sanity check only works because this codepath is reachable only at the reward cycle
-            // boundary, so therefore `epoch_id.uses_waterfall_pox` implies that the reward set calculated must be a waterfall one.
-            // HOWEVER, it is not generally true that `uses_waterfall_pox` implies that the current commits are waterfall commits.
-            // (this is because there will be one "last" classic PoX cycle to finish before the first waterfall cycle).
-            let RewardSet::Waterfall(wf_reward_set) = reward_set else {
-                error!("Attempted to use non-waterfall reward set in epoch with waterfall PoX");
-                return Err(BurnchainError::NoStacksEpoch);
-            };
+        if let RewardSet::Waterfall(wf_reward_set) = reward_set {
             return Ok(Some(RewardSetInfo::Waterfall(RewardSetInfoWaterfall {
                 anchor_block: anchor_block.clone(),
                 sbtc_address: wf_reward_set.sbtc_address.clone(),

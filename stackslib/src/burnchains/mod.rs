@@ -36,7 +36,7 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::core::*;
 #[cfg(test)]
@@ -305,6 +305,7 @@ pub struct PoxConstants {
     /// After this burn height, reward cycles use pox-4 for reward set data
     pub pox_4_activation_height: u32,
     /// After this burn height, reward cycles use pox-5 for reward set data
+    /// DO NOT set this to a reward cycle boundary (i.e. a mod-0 block)
     pub pox_5_activation_height: u32,
     _shadow: PhantomData<()>,
 }
@@ -389,13 +390,16 @@ impl PoxConstants {
     }
 
     /// Returns the PoX contract that is "active" at the given burn block height
-    pub fn static_active_pox_contract(
+    fn static_active_pox_contract(
         v1_unlock_height: u64,
         pox_3_activation_height: u64,
         pox_4_activation_height: u64,
+        pox_5_activation_height: u64,
         burn_height: u64,
     ) -> &'static str {
-        if burn_height > pox_4_activation_height {
+        if burn_height > pox_5_activation_height {
+            POX_5_NAME
+        } else if burn_height > pox_4_activation_height {
             POX_4_NAME
         } else if burn_height > pox_3_activation_height {
             POX_3_NAME
@@ -412,6 +416,7 @@ impl PoxConstants {
             u64::from(self.v1_unlock_height),
             u64::from(self.pox_3_activation_height),
             u64::from(self.pox_4_activation_height),
+            u64::from(self.pox_5_activation_height),
             burn_height,
         )
     }
@@ -586,20 +591,18 @@ impl PoxConstants {
 
     /// First burn block whose leader-block-commits use the PoX-5 waterfall
     /// single-output format: the start of the first reward cycle whose start
-    /// is strictly after `epoch_4_0_start_height`.
+    /// is strictly after `self.pox_5_activation_height`.
     ///
-    /// The reward cycle that *contains* `epoch_4_0_start_height` is the last
+    /// The reward cycle that *contains* `pox_5_activation_height` is the last
     /// classic-PoX cycle; the next reward cycle is the first to follow
     /// waterfall rules.
     ///
-    /// Returns `None` if `epoch_4_0_start_height < first_block_height`
-    pub fn first_pox_waterfall_block(
-        &self,
-        first_block_height: u64,
-        epoch_4_0_start_height: u64,
-    ) -> Option<u64> {
-        let initial_rc =
-            self.block_height_to_reward_cycle(first_block_height, epoch_4_0_start_height)?;
+    /// Returns `None` if `pox_5_activation_height < first_block_height`
+    pub fn first_pox_waterfall_block(&self, first_block_height: u64) -> Option<u64> {
+        let initial_rc = self.block_height_to_reward_cycle(
+            first_block_height,
+            self.pox_5_activation_height.into(),
+        )?;
         Some(self.nakamoto_first_block_of_cycle(first_block_height, initial_rc.saturating_add(1)))
     }
 

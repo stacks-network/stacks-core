@@ -455,30 +455,6 @@ impl BurnchainBlock {
 }
 
 impl Burnchain {
-    /// BTC height at which leader-block-commits switch to the PoX-5 /
-    /// sBTC "waterfall" single-output format
-    ///
-    /// Returns `u64::MAX` if Epoch 4.0 is not configured
-    pub fn first_pox_waterfall_block_from_epochs(&self, epochs: &EpochList) -> u64 {
-        epochs
-            .get(StacksEpochId::Epoch40)
-            .and_then(|epoch_4_0| {
-                self.pox_constants
-                    .first_pox_waterfall_block(self.first_block_height, epoch_4_0.start_height)
-            })
-            .unwrap_or(u64::MAX)
-    }
-
-    /// Same as `first_pox_waterfall_block_from_epochs`, but reads data from a
-    /// `SortitionDB`
-    pub fn compute_first_pox_waterfall_block_via_sortdb(
-        sort_db: &SortitionDB,
-        burnchain: &Burnchain,
-    ) -> Result<u64, burnchain_error> {
-        let epochs = SortitionDB::get_stacks_epochs(sort_db.conn())?;
-        Ok(burnchain.first_pox_waterfall_block_from_epochs(&epochs))
-    }
-
     pub fn handle_thread_join<T>(
         handle: std::thread::JoinHandle<Result<T, burnchain_error>>,
         name: &str,
@@ -1147,8 +1123,10 @@ impl Burnchain {
                 )
             });
 
-        let first_pox_waterfall_block =
-            Burnchain::compute_first_pox_waterfall_block_via_sortdb(db, burnchain)?;
+        let first_pox_waterfall_block = db
+            .pox_constants
+            .first_pox_waterfall_block(db.first_block_height)
+            .unwrap_or(u64::MAX);
 
         let header = block.header();
         let blockstack_txs = burnchain_db.store_new_burnchain_block(
@@ -1757,8 +1735,11 @@ impl Burnchain {
             thread::Builder::new()
                 .name("burnchain-db".to_string())
                 .spawn(move || {
-                    let first_pox_waterfall_block =
-                        myself.first_pox_waterfall_block_from_epochs(&epochs);
+                    let first_pox_waterfall_block = myself
+                        .pox_constants
+                        .first_pox_waterfall_block(myself.first_block_height)
+                        .unwrap_or(u64::MAX);
+
                     let mut last_processed = burnchain_tip;
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
                         debug!("Try recv next parsed block");

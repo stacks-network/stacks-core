@@ -628,12 +628,6 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch34
     }
 
-    /// Does this epoch use a waterfall PoX model, where L1 commits go to a single
-    /// address instead of the reward set slots logic?
-    pub fn uses_waterfall_pox(&self) -> bool {
-        self >= &StacksEpochId::Epoch40
-    }
-
     /// Does this epoch use a mod-0 start for reward cycles?
     pub fn starts_reward_cycle_at_0(&self) -> bool {
         self >= &StacksEpochId::Epoch40

@@ -18,16 +18,16 @@
 //!
 //! The aggregate-pubkey contract is published by `boot_to_epoch_4`.
 //!
-//! This uses two test overrides so that the integration test can run
-//!  without PoX-5 being in place yet:
+//! This uses one test override so that the integration test can run
+//! without the pox-5 contract being able to iterate its own signer set:
 //!
-//! * `TEST_FORCE_POX_5_ACTIVE` makes the PoX-5 dispatch arm reachable as soon
-//!   as `epoch >= Epoch40`. (Without it `PoxConstants::active_pox_contract`
-//!   never returns `pox-5`.)
 //! * `TEST_WATERFALL_SIGNER_SET_OVERRIDE` short-circuits the read against the
 //!   (placeholder) PoX-5 contract body and supplies a hardcoded signer set.
 //!
-//! These override SHOULD BE REMOVED when PoX-5 initial versions land
+//! PoX-5 activation itself is wired through `PoxConstants::pox_5_activation_height`,
+//! which `Config::apply_test_settings` aligns to `epochs[Epoch40].start_height`.
+//!
+//! This override SHOULD BE REMOVED when PoX-5 initial versions land.
 
 use std::collections::HashMap;
 use std::env;
@@ -37,9 +37,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ContractName;
 use pinny::tag;
 use stacks::burnchains::Txid;
-use stacks::chainstate::nakamoto::signer_set::{
-    TEST_FORCE_POX_5_ACTIVE, TEST_WATERFALL_SIGNER_SET_OVERRIDE,
-};
+use stacks::chainstate::nakamoto::signer_set::TEST_WATERFALL_SIGNER_SET_OVERRIDE;
 use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use stacks::chainstate::stacks::boot::POX_5_NAME;
 use stacks::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
@@ -154,11 +152,9 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
         ContractName::try_from(contract_name.to_string()).expect("valid contract name"),
     );
 
-    // Install signer-set override and PoX-5 routing fault-injection BEFORE
-    // constructing the test harness so any burnchain activity that triggers
-    // the PoX-5 path picks them up.
+    // Install the signer-set override BEFORE constructing the test harness so
+    // any burnchain activity that triggers the PoX-5 path picks it up.
     TEST_WATERFALL_SIGNER_SET_OVERRIDE.set(override_map_all_cycles(signer_pairs));
-    TEST_FORCE_POX_5_ACTIVE.set(true);
 
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,

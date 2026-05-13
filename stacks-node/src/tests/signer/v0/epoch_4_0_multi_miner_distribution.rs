@@ -38,16 +38,16 @@
 //!   equals the configured fee total per block. Catches dropped commits or
 //!   a classification flip between burn-output and PoX-recipient paths.
 //!
-//! This uses two test overrides so that the integration test can run
-//!  without PoX-5 being in place yet:
+//! This uses one test override so that the integration test can run
+//! without the pox-5 contract being able to iterate its own signer set:
 //!
-//! * `TEST_FORCE_POX_5_ACTIVE` makes the PoX-5 dispatch arm reachable as soon
-//!   as `epoch >= Epoch40`. (Without it `PoxConstants::active_pox_contract`
-//!   never returns `pox-5`.)
 //! * `TEST_WATERFALL_SIGNER_SET_OVERRIDE` short-circuits the read against the
 //!   (placeholder) PoX-5 contract body and supplies a hardcoded signer set.
 //!
-//! These override SHOULD BE REMOVED when PoX-5 initial versions land
+//! PoX-5 activation itself is wired through `PoxConstants::pox_5_activation_height`,
+//! which `Config::apply_test_settings` aligns to `epochs[Epoch40].start_height`.
+//!
+//! This override SHOULD BE REMOVED when PoX-5 initial versions land.
 
 use std::collections::HashMap;
 use std::env;
@@ -57,9 +57,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use pinny::tag;
 use stacks::chainstate::burn::distribution::LATEST_BURN_DISTRIBUTION;
-use stacks::chainstate::nakamoto::signer_set::{
-    TEST_FORCE_POX_5_ACTIVE, TEST_WATERFALL_SIGNER_SET_OVERRIDE,
-};
+use stacks::chainstate::nakamoto::signer_set::TEST_WATERFALL_SIGNER_SET_OVERRIDE;
 use stacks::chainstate::stacks::events::BurnBlockEvent;
 use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::StacksPrivateKey;
@@ -135,11 +133,6 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
         publisher_addr.clone().into(),
         ContractName::try_from(contract_name.to_string()).expect("valid contract name"),
     );
-
-    // PoX-5 routing fault-injection. Safe to set before construction: it's
-    // gated on `current_epoch >= Epoch40`, so it has no effect until cycle
-    // 9's prepare phase.
-    TEST_FORCE_POX_5_ACTIVE.set(true);
 
     let publisher_addr_str = publisher_addr.to_string();
     let contract_id_modifier = contract_id.clone();

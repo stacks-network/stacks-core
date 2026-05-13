@@ -143,16 +143,6 @@ pub static TEST_WATERFALL_SIGNER_SET_OVERRIDE: LazyLock<
     TestFlag<HashMap<u64, Vec<([u8; SIGNERS_PK_LEN], u128)>>>,
 > = LazyLock::new(TestFlag::default);
 
-/// Test-only override: when set to `Some(true)`, force the PoX-5 dispatch arm
-/// in `check_and_handle_prepare_phase_start` to run as soon as
-/// `epoch >= Epoch40`. Without this, `PoxConstants::active_pox_contract` never
-/// returns `pox-5` (production routing for PoX-5 is not yet wired), so the
-/// PoX-5 code path is unreachable.
-///
-/// DELETE once PoX-5 activation height is set in PoxConstants
-#[cfg(any(test, feature = "testing"))]
-pub static TEST_FORCE_POX_5_ACTIVE: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
-
 #[cfg(any(test, feature = "testing"))]
 fn waterfall_signer_set_override(reward_cycle: u64) -> Option<Vec<([u8; SIGNERS_PK_LEN], u128)>> {
     TEST_WATERFALL_SIGNER_SET_OVERRIDE
@@ -162,15 +152,6 @@ fn waterfall_signer_set_override(reward_cycle: u64) -> Option<Vec<([u8; SIGNERS_
 #[cfg(not(any(test, feature = "testing")))]
 fn waterfall_signer_set_override(_reward_cycle: u64) -> Option<Vec<([u8; SIGNERS_PK_LEN], u128)>> {
     None
-}
-
-#[cfg(any(test, feature = "testing"))]
-fn force_pox_5_active() -> bool {
-    TEST_FORCE_POX_5_ACTIVE.get_opt().unwrap_or(false)
-}
-#[cfg(not(any(test, feature = "testing")))]
-fn force_pox_5_active() -> bool {
-    false
 }
 
 pub struct NakamotoSigners();
@@ -899,12 +880,7 @@ impl NakamotoSigners {
             return Ok(None);
         };
 
-        let active_pox_contract = if force_pox_5_active() && current_epoch >= StacksEpochId::Epoch40
-        {
-            POX_5_NAME
-        } else {
-            pox_constants.active_pox_contract(burn_tip_height.into())
-        };
+        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height.into());
 
         let Some(current_pox_version) = PoxVersions::lookup_by_name(active_pox_contract) else {
             debug!("Active PoX contract is not a recognized version, skipping .signers updates");
