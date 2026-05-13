@@ -2141,7 +2141,7 @@
 ;; Are we currently in a prepare phase at the end of `current-cycle`?
 (define-read-only (is-in-prepare-phase (current-cycle uint))
     (>= burn-block-height
-        (- (reward-cycle-to-unlock-height (+ current-cycle u1))
+        (- (reward-cycle-to-burn-height (+ current-cycle u1))
             (var-get pox-prepare-cycle-length)
         ))
 )

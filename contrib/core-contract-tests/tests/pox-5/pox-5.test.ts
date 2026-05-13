@@ -2751,3 +2751,30 @@ test('concurrent bonds with the same stx-value-ratio accept ascending bond-index
   // "the earlier bond period comes first".
   txOk(pox5.calculateRewards([0n, 1n]), deployer);
 });
+
+test('is-in-prepare-phase triggers near the end of the reward cycle', () => {
+  // We are at the very end of cycle 0 (one block before cycle 1).
+  const lastBlockOfCycle0 = rov(pox5.rewardCycleToBurnHeight(1n)) - 1n;
+  mineUntil(lastBlockOfCycle0);
+  expect(rov(pox5.currentPoxRewardCycle())).toBe(0n);
+  expect(rov(pox5.isInPreparePhase(0n))).toBe(true);
+});
+
+test('unstake is rejected when called during the prepare phase', () => {
+  const signer = testSigner.identifier;
+  registerSigner();
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  const lastBlockOfCycle0 = rov(pox5.rewardCycleToBurnHeight(1n)) - 1n;
+  mineUntil(lastBlockOfCycle0);
+  const result = txErr(pox5.unstake(signer), alice);
+  expect(result.value).toBe(errorCodes.ERR_UNSTAKE_IN_PREPARE_PHASE);
+});
