@@ -27,7 +27,6 @@ use clarity::vm::types::{
     QualifiedContractIdentifier, ResponseData, StacksAddressExtensions, TupleData,
 };
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
-use lazy_static::lazy_static;
 use pinny::tag;
 use reqwest;
 use serde_json::json;
@@ -59,6 +58,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum};
 
 use super::{new_test_conf, ADDR_4, SK_1, SK_2, SK_3};
 use crate::helium::RunLoop;
+use std::sync::LazyLock;
 
 const OTHER_CONTRACT: &str = "
   (define-data-var x uint u0)
@@ -174,9 +174,7 @@ const IMPL_TRAIT_CONTRACT: &str = "
         (define-public (fn-1 (x uint)) (ok u1))
        ";
 
-lazy_static! {
-    static ref HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
-}
+static HTTP_BINDING: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 #[tag(slow)]
 #[test]
@@ -1955,14 +1953,12 @@ fn bad_contract_tx_rollback() {
     run_loop.start(num_rounds).unwrap();
 }
 
-lazy_static! {
-    static ref EXPENSIVE_CONTRACT: String = make_expensive_contract(
+static EXPENSIVE_CONTRACT: LazyLock<String> = LazyLock::new(|| make_expensive_contract(
         "(define-private (inner-loop (x int)) (begin
            (map sha256 list-9)
            0))",
         ""
-    );
-}
+    ));
 
 fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
     let mut contract = "(define-constant list-0 (list 0))".to_string();

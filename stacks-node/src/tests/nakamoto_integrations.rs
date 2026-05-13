@@ -29,7 +29,6 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
-use lazy_static::lazy_static;
 use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
@@ -148,9 +147,9 @@ use stacks::clarity_vm::clarity::SIP_031_INITIAL_MINT;
 use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 
 use crate::clarity::vm::clarity::ClarityConnection;
+use std::sync::LazyLock;
 
-lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 13] = [
+pub static NAKAMOTO_INTEGRATION_EPOCHS: LazyLock<[StacksEpoch; 13]> = LazyLock::new(|| [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -242,8 +241,7 @@ lazy_static! {
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_3
         },
-    ];
-}
+    ]);
 
 pub static TEST_SIGNING: Mutex<Option<TestSigningChannel>> = Mutex::new(None);
 

@@ -5,7 +5,6 @@ authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.
 edition = "2021"
 
 [dependencies]
-lazy_static = "1.4.0"
 pico-args = "0.5.0"
 serde = "1"
 serde_derive = "1"
