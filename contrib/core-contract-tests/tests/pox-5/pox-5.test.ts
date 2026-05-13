@@ -57,6 +57,8 @@ function claimableRewards({
   return (shares * rewardsPerShare) / pox5.constants.PRECISION;
 }
 
+const INITIAL_BOND_ADMIN = 'SP000000000000000000002Q6VF78';
+
 beforeEach(() => {
   txOk(
     pox5.setBurnchainParameters({
@@ -67,6 +69,7 @@ beforeEach(() => {
     }),
     deployer,
   );
+  txOk(pox5.setBondAdmin(deployer), INITIAL_BOND_ADMIN);
 });
 
 /**

@@ -38,12 +38,13 @@ use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
-    make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE,
-    POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE,
-    POX_4_NAME, POX_5_CODE, POX_5_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY,
-    SIGNERS_NAME, SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
+    make_pox_5_body, make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2,
+    BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+    COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
+    POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, POX_5_NAME,
+    SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY,
+    SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1535,7 +1536,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         |_, _| None,
                         None,
                     )
-                    .expect("Failed to set burnchain parameters in PoX-3 contract");
+                    .expect("Failed to set burnchain parameters in PoX-4 contract");
 
                 receipt
             });
@@ -1969,6 +1970,19 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch40;
             });
 
+            let first_block_height = self.burn_state_db.get_burn_start_height();
+            let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
+            let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
+            let pox_5_activation_height = self.burn_state_db.get_pox_5_activation_height();
+
+            let pox_5_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
+                u64::from(pox_5_activation_height),
+                u64::from(first_block_height),
+                u64::from(pox_reward_cycle_length),
+            )
+            .expect("PANIC: PoX-5 first reward cycle begins *before* first burn block height")
+                + 1;
+
             let boot_code_account = self
                 .get_boot_code_account()
                 .expect("FATAL: did not get boot account");
@@ -1985,11 +1999,12 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             // pox-5 contract setup
             let pox_5_contract_id = boot_code_id(POX_5_NAME, mainnet);
+            let pox_5_code = make_pox_5_body(mainnet);
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
                     name: ContractName::try_from(POX_5_NAME)
                         .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(&POX_5_CODE)
+                    code_body: StacksString::from_str(&pox_5_code)
                         .expect("FATAL: invalid boot code body"),
                 },
                 Some(ClarityVersion::Clarity6),
@@ -2006,6 +2021,28 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     None,
                 )
                 .expect("FATAL: Failed to process .pox-5 contract initialization");
+
+                // set burnchain params
+                let consts_setter = PrincipalData::from(pox_5_contract_id.clone());
+                let params = vec![
+                    Value::UInt(u128::from(first_block_height)),
+                    Value::UInt(u128::from(pox_prepare_length)),
+                    Value::UInt(u128::from(pox_reward_cycle_length)),
+                    Value::UInt(u128::from(pox_5_first_cycle)),
+                ];
+
+                let (_, _, _burnchain_params_events) = tx_conn
+                    .run_contract_call(
+                        &consts_setter,
+                        None,
+                        &pox_5_contract_id,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| None,
+                        None,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX-5 contract");
+
                 receipt
             });
 
@@ -3298,6 +3335,10 @@ mod tests {
             }
 
             fn get_pox_4_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+
+            fn get_pox_5_activation_height(&self) -> u32 {
                 u32::MAX
             }
 

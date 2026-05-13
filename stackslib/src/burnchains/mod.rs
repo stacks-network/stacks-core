@@ -304,6 +304,8 @@ pub struct PoxConstants {
     pub pox_3_activation_height: u32,
     /// After this burn height, reward cycles use pox-4 for reward set data
     pub pox_4_activation_height: u32,
+    /// After this burn height, reward cycles use pox-5 for reward set data
+    pub pox_5_activation_height: u32,
     _shadow: PhantomData<()>,
 }
 
@@ -320,6 +322,7 @@ impl PoxConstants {
         v2_unlock_height: u32,
         v3_unlock_height: u32,
         pox_3_activation_height: u32,
+        v4_unlock_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
@@ -341,6 +344,7 @@ impl PoxConstants {
             v3_unlock_height,
             pox_3_activation_height,
             pox_4_activation_height: v3_unlock_height,
+            pox_5_activation_height: v4_unlock_height,
             _shadow: PhantomData,
         }
     }
@@ -355,6 +359,7 @@ impl PoxConstants {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -375,6 +380,7 @@ impl PoxConstants {
             5,
             u64::MAX,
             u64::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -440,6 +446,9 @@ impl PoxConstants {
             BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
+            BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT
+                .try_into()
+                .expect("Epoch transition height must be <= u32::MAX"),
         )
     }
 
@@ -459,11 +468,27 @@ impl PoxConstants {
             BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
+            BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT
+                .try_into()
+                .expect("Epoch transition height must be <= u32::MAX"),
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
     pub fn nakamoto_testnet_default() -> PoxConstants {
-        PoxConstants::new(900, 100, 51, 100, 0, u64::MAX, u64::MAX, 242, 243, 246, 244)
+        PoxConstants::new(
+            900,
+            100,
+            51,
+            100,
+            0,
+            u64::MAX,
+            u64::MAX,
+            242,
+            243,
+            246,
+            244,
+            247,
+        )
     }
 
     // TODO: add tests from mutation testing results #4838
@@ -481,6 +506,7 @@ impl PoxConstants {
             2_000_000,
             4_000_000,
             3_000_000,
+            5_000_000,
         )
     }
 

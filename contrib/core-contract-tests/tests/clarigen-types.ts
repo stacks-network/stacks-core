@@ -7121,7 +7121,7 @@ export const contracts = {
       sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
       STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),
       STACKS_ADDR_VERSION_TESTNET: Uint8Array.from([26]),
-      bondAdmin: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
+      bondAdmin: 'SP000000000000000000002Q6VF78',
       configured: false,
       firstBondPeriodCycle: 0n,
       firstBurnchainBlockHeight: 0n,

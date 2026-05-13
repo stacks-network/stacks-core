@@ -792,6 +792,9 @@ impl RunLoop {
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
+        // Apply config-driven process-wide state before any chainstate is opened.
+        self.config.apply_runtime_state();
+
         Self::setup_termination_handler(self.should_keep_running.clone(), false);
 
         let burnchain_result = Self::instantiate_burnchain_state(
