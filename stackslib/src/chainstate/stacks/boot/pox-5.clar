@@ -1693,7 +1693,7 @@
                 (if (is-eq stx-value-ratio last-ratio)
                     ;; Note that < prevents the same bond period from
                     ;; being included twice
-                    (< bond-index
+                    (> bond-index
                         (unwrap-panic (get last-bond-index accumulator))
                     )
                     (<= stx-value-ratio last-ratio)

@@ -2677,3 +2677,77 @@ test('register-for-bond rejects existing stx-only stakers', () => {
   );
   expect(register.value).toEqual(pox5Errors.ERR_ALREADY_STAKED);
 });
+
+test('concurrent bonds with the same stx-value-ratio accept ascending bond-index order', () => {
+  const signer = testSigner.identifier;
+  const targetRate = 1200n;
+  const minUstxRatio = 100n;
+  const aliceSbtc = 100000n;
+  const bobSbtc = 100000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 10n,
+      minUstxRatio,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 10n, minUstxRatio)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)) + 1n);
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate,
+      stxValueRatio: 10n,
+      minUstxRatio,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: bobSbtc, staker: bob }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, minUstxRatio)),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
+
+  // Ascending bond-index order matches the comment in calculate-bond-rewards:
+  // "the earlier bond period comes first".
+  txOk(pox5.calculateRewards([0n, 1n]), deployer);
+});
