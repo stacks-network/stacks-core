@@ -2397,7 +2397,7 @@
                 })
                 ERR_UNAUTHORIZED_CALLER
             )
-                expiration (>= burn-block-height expiration)
+                expiration (< burn-block-height expiration)
                 true
             )
         )

@@ -5,6 +5,7 @@ import {
   isResponse,
   ok,
 } from '@clarigen/core';
+import { Cl, ClarityType } from '@stacks/transactions';
 import { accounts } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
 import { filterEvents, rov, rovErr, rovOk, txErr, txOk } from '@clarigen/test';
@@ -419,6 +420,39 @@ test('scenario - staking to a signer', () => {
   expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeTruthy();
   expect(isStakerInCycle({ staker: signer, cycle: 2n })).toBeTruthy();
   expect(isStakerInCycle({ staker: signer, cycle: 3n })).toBeFalsy();
+});
+
+test('contract caller authorization expires at until-burn-ht', () => {
+  const callerName = 'pox-5-stake-caller';
+  const caller = `${deployer}.${callerName}`;
+
+  simnet.deployContract(
+    callerName,
+    `(define-public (stake-for-sender
+        (amount-ustx uint)
+        (num-cycles uint)
+        (start-burn-ht uint)
+      )
+      (contract-call? .pox-5 stake .test-pox-5-signer amount-ustx num-cycles start-burn-ht none)
+    )`,
+    { clarityVersion: 4 },
+    deployer,
+  );
+  registerSigner();
+  txOk(
+    pox5.allowContractCaller(caller, BigInt(simnet.burnBlockHeight + 1)),
+    alice,
+  );
+  mineUntil(simnet.burnBlockHeight + 2);
+
+  const stake = simnet.callPublicFn(
+    callerName,
+    'stake-for-sender',
+    [Cl.uint(stxToUStx(50_000)), Cl.uint(1), Cl.uint(simnet.burnBlockHeight)],
+    alice,
+  );
+
+  expect(stake.result.type).toBe(ClarityType.ResponseErr);
 });
 
 /**  Scenario: a user stakes to a signer, then updates their stake.
