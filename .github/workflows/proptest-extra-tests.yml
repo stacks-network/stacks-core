@@ -336,6 +336,7 @@ jobs:
       # parsed by xmllint to extract failed test names for the PR comment step.
       # The step fails if any test fails (--fail-fast matches the old loop behaviour).
       - name: Run new tests (PROPTEST_CASES=${{ env.PROPTEST_CASES }})
+        id: run-tests
         if: steps.discover.outputs.count != '0'
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         run: |
