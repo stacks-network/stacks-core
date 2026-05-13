@@ -60,8 +60,13 @@ path = "./tests/pox_4_test.clar"
 clarity_version = 2
 epoch = 2.4
 
-[contracts.pox-waterfall-0]
-path = "./contracts/pox-waterfall-0.clar"
+[contracts.pox-5]
+path = "./contracts/pox-5.clar"
+clarity_version = 4
+epoch = 3.3
+
+[contracts.test-pox-5-signer]
+path = "./contracts/test-pox-5-signer.clar"
 clarity_version = 4
 epoch = 3.3
 

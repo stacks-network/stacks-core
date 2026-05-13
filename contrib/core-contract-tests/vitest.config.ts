@@ -1,6 +1,4 @@
-/// <reference types="vitest" />
-
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import {
   vitestSetupFilePath,
   getClarinetVitestsArgv,
@@ -21,18 +19,20 @@ import {
     - vitest run -- --coverage --costs          # collect coverage and cost reports
 */
 
+const setupFiles = [
+  vitestSetupFilePath,
+  // custom setup files can be added here
+  process.env.SUPPRESS_CLARINET_LOGS ? './tests/suppress-stdout.js' : undefined,
+].filter((s) => s !== undefined);
+
 export default defineConfig({
   test: {
-    environment: 'clarinet', // use vitest-environment-clarinet
+    environment: 'clarinet',
     pool: 'forks',
-    poolOptions: {
-      threads: { singleThread: true },
-      forks: { singleFork: true },
-    },
-    setupFiles: [
-      vitestSetupFilePath,
-      // custom setup files can be added here
-    ],
+    // clarinet handles test isolation by resetting the simnet between tests
+    isolate: false,
+    maxWorkers: 1,
+    setupFiles,
     environmentOptions: {
       clarinet: {
         ...getClarinetVitestsArgv(),
