@@ -21,9 +21,7 @@ use crate::chainstate::stacks::{
 use crate::net::Error as net_error;
 
 /// Pop the last auth field
-fn pop_auth_field(
-    condition: &mut TransactionSpendingCondition,
-) -> Option<TransactionAuthField> {
+fn pop_auth_field(condition: &mut TransactionSpendingCondition) -> Option<TransactionAuthField> {
     match condition {
         TransactionSpendingCondition::Multisig(ref mut cond) => cond.pop_auth_field(),
         TransactionSpendingCondition::OrderIndependentMultisig(ref mut cond) => {
@@ -141,9 +139,7 @@ impl StacksTransactionSigner {
 
     pub fn pop_origin_auth_field(&mut self) -> Option<TransactionAuthField> {
         match self.tx.auth {
-            TransactionAuth::Standard(ref mut origin_condition) => {
-                pop_auth_field(origin_condition)
-            }
+            TransactionAuth::Standard(ref mut origin_condition) => pop_auth_field(origin_condition),
             TransactionAuth::Sponsored(ref mut origin_condition, _) => {
                 pop_auth_field(origin_condition)
             }
