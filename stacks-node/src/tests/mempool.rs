@@ -20,7 +20,6 @@ use clarity::vm::database::NULL_BURN_STATE_DB;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::Value;
-use lazy_static::lazy_static;
 use stacks::chainstate::stacks::db::blocks::MemPoolRejection;
 use stacks::chainstate::stacks::{
     Error as ChainstateError, StacksBlockHeader, StacksMicroblockHeader, StacksPrivateKey,
@@ -46,6 +45,7 @@ use stacks_common::util::secp256k1::*;
 use super::{SK_1, SK_2};
 use crate::helium::RunLoop;
 use crate::Keychain;
+use std::sync::LazyLock;
 
 const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -88,9 +88,7 @@ pub fn make_bad_stacks_transfer(
     buf
 }
 
-lazy_static! {
-    static ref CHAINSTATE_PATH: Mutex<Option<String>> = Mutex::new(None);
-}
+static CHAINSTATE_PATH: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 #[test]
 fn mempool_setup_chainstate() {

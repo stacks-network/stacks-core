@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::util::hash::hex_bytes;
 
@@ -24,6 +23,7 @@ use crate::vm::representations::{
     ClarityName, ContractName, MAX_STRING_LEN, PreSymbolicExpression,
 };
 use crate::vm::types::{PrincipalData, TraitIdentifier, Value};
+use std::sync::LazyLock;
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
@@ -107,26 +107,22 @@ fn get_lines_at(input: &str) -> Vec<usize> {
     out
 }
 
-lazy_static! {
-    pub static ref STANDARD_PRINCIPAL_REGEX: String =
-        "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();
-    pub static ref CONTRACT_NAME_REGEX: String = format!(
+pub static STANDARD_PRINCIPAL_REGEX: LazyLock<String> = LazyLock::new(|| "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into());
+pub static CONTRACT_NAME_REGEX: LazyLock<String> = LazyLock::new(|| format!(
         r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
         CONTRACT_MIN_NAME_LENGTH - 1,
         CONTRACT_MAX_NAME_LENGTH - 1
-    );
-    pub static ref CONTRACT_PRINCIPAL_REGEX: String = format!(
+    ));
+pub static CONTRACT_PRINCIPAL_REGEX: LazyLock<String> = LazyLock::new(|| format!(
         r#"{}(\.){}"#,
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX
-    );
-    pub static ref PRINCIPAL_DATA_REGEX: String = format!(
+    ));
+pub static PRINCIPAL_DATA_REGEX: LazyLock<String> = LazyLock::new(|| format!(
         "({})|({})",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_PRINCIPAL_REGEX
-    );
-    pub static ref CLARITY_NAME_REGEX: String =
-        format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{MAX_STRING_LEN}}}"#);
-
-    static ref lex_matchers: Vec<LexMatcher> = vec![
+    ));
+pub static CLARITY_NAME_REGEX: LazyLock<String> = LazyLock::new(|| format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{MAX_STRING_LEN}}}"#));
+static lex_matchers: LazyLock<Vec<LexMatcher>> = LazyLock::new(|| vec![
         LexMatcher::new(
             r#"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""#,
             TokenType::StringUTF8Literal,
@@ -181,8 +177,7 @@ lazy_static! {
             &format!("(?P<value>{})", *CLARITY_NAME_REGEX),
             TokenType::Variable,
         ),
-    ];
-}
+    ]);
 
 /// Lex the contract, permitting nesting of lists and tuples up to
 /// `depth_limits.max_nesting_depth()`.

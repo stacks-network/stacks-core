@@ -28,14 +28,13 @@ use crate::net::httpcore::StacksHttpRequest;
 use crate::net::rpc::ConversationHttp;
 use crate::net::Error as net_error;
 use crate::util_lib::db::{sqlite_open, DBConn, Error as DatabaseError};
+use std::sync::LazyLock;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
 #[cfg(feature = "monitoring_prom")]
-lazy_static::lazy_static! {
-    static ref GLOBAL_BURNCHAIN_SIGNER: std::sync::Mutex<Option<BurnchainSigner>> = std::sync::Mutex::new(None);
-}
+static GLOBAL_BURNCHAIN_SIGNER: LazyLock<std::sync::Mutex<Option<BurnchainSigner>>> = LazyLock::new(|| std::sync::Mutex::new(None));
 
 pub fn increment_rpc_calls_counter() {
     #[cfg(feature = "monitoring_prom")]

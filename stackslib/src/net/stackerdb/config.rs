@@ -44,7 +44,6 @@ use clarity::vm::types::{
     SequenceSubtype, TupleTypeSignature, TypeSignature, Value as ClarityValue,
 };
 use clarity::vm::ClarityName;
-use lazy_static::lazy_static;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
@@ -58,11 +57,11 @@ use crate::net::stackerdb::{
     StackerDBConfig, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
 use crate::net::{Error as NetError, NeighborAddress};
+use std::sync::LazyLock;
 
 const MAX_HINT_REPLICAS: u32 = 128;
 
-lazy_static! {
-    pub static ref REQUIRED_FUNCTIONS: [(ClarityName, Vec<TypeSignature>, TypeSignature); 2] = [
+pub static REQUIRED_FUNCTIONS: LazyLock<[(ClarityName, Vec<TypeSignature>, TypeSignature); 2]> = LazyLock::new(|| [
         (
             ClarityName::from_literal(STACKERDB_SLOTS_FUNCTION),
             vec![],
@@ -112,8 +111,7 @@ lazy_static! {
                 TypeSignature::UIntType
             ).expect("FATAL: unable to construct config response type")
         )
-    ];
-}
+    ]);
 
 impl StackerDBConfig {
     /// Check that a smart contract is consistent with being a StackerDB controller.

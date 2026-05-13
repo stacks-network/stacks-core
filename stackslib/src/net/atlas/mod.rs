@@ -18,7 +18,6 @@ use std::collections::HashSet;
 use std::hash::Hash;
 
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, Value};
-use lazy_static::lazy_static;
 use regex::Regex;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Serialize;
@@ -30,6 +29,7 @@ pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
 use crate::burnchains::Txid;
 use crate::util_lib::boot::boot_code_id;
+use std::sync::LazyLock;
 
 /// Implements AtlasDB and associated API. Stores information about attachments and attachment
 /// instances.
@@ -45,9 +45,7 @@ pub const MAX_RETRY_DELAY: u64 = 600; // seconds
 ///  waiting for attachments to be processed.
 pub const ATTACHMENTS_CHANNEL_SIZE: usize = 5;
 
-lazy_static! {
-    pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();
-}
+pub static BNS_CHARS_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new("^([a-z0-9]|[-_])*$").unwrap());
 
 const ATTACHMENTS_MAX_SIZE_MIN: u32 = 1_048_576;
 const MAX_UNINSTANTIATED_ATTACHMENTS_MIN: u32 = 50_000;

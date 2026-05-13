@@ -19,7 +19,6 @@ use std::sync::{Arc, Mutex};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::STXEventType;
-use lazy_static::lazy_static;
 use neon_integrations::test_observer::EVENT_OBSERVER_PORT;
 use rand::Rng;
 use stacks::chainstate::burn::ConsensusHash;
@@ -41,6 +40,7 @@ use super::Config;
 use crate::helium::RunLoop;
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
 use crate::BitcoinRegtestController;
+use std::sync::LazyLock;
 
 mod atlas;
 mod bitcoin;
@@ -78,8 +78,7 @@ pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd862
 
 pub const ADDR_4: &str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
 
-lazy_static! {
-    pub static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
+pub static PUBLISH_CONTRACT: LazyLock<Vec<u8>> = LazyLock::new(|| make_contract_publish(
         &StacksPrivateKey::from_hex(
             "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3"
         )
@@ -89,16 +88,13 @@ lazy_static! {
         CHAIN_ID_TESTNET,
         "store",
         STORE_CONTRACT
-    );
-}
+    ));
 
-lazy_static! {
-    static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new({
+static USED_PORTS: LazyLock<Mutex<HashSet<u16>>> = LazyLock::new(|| Mutex::new({
         let mut set = HashSet::new();
         set.insert(EVENT_OBSERVER_PORT);
         set
-    });
-}
+    }));
 
 /// Generate a random port number between 1024 and 65534 (inclusive) and insert it into the USED_PORTS set.
 /// Returns the generated port number.
