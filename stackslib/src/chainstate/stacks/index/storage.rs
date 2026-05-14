@@ -39,10 +39,11 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
-    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher, MAX_PATCH_DEPTH,
+    blob_layout, trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher,
+    MAX_PATCH_DEPTH,
 };
 use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::util::hash::to_hex;
 use crate::util_lib::db::{
     sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error, SQLITE_MARF_PAGE_SIZE,
@@ -848,7 +849,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// blob (immediately after the header) assuming u64 pointers,
     /// and it is written last once all child offsets are known.
     pub(crate) fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
-        let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
         let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).try_ptr_into_u32()?;
 
         // Step 1: collect nodes in root-first DFS order.
@@ -889,11 +890,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
             reserved_root_size(get_node_byte_len(root_node), root_node.ptrs())?
         };
 
-        // Write the blob header (parent hash + reserved 4-byte block-id field set to 0).
+        // Write the fixed blob header.
         f.rewind()?;
         f.write_all(self.parent.as_bytes())
             .map_err(Error::IOError)?;
-        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
+        f.seek(SeekFrom::Start(blob_layout::RESERVED_FIELD_OFFSET as u64))?;
         f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
 
         f.seek(SeekFrom::Start(header_size + root_reserved_size))?;
@@ -1030,7 +1031,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         storage_tx: &mut TrieStorageTransaction<T>,
         f: &mut F,
     ) -> Result<u64, Error> {
-        let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
         let max_patch_depth = MAX_PATCH_DEPTH as usize;
         let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).try_ptr_into_u32()?;
 
@@ -1139,11 +1140,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
             }
         };
 
-        // Write the blob header.
+        // Write the fixed blob header.
         f.rewind()?;
         f.write_all(self.parent.as_bytes())
             .map_err(Error::IOError)?;
-        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
+        f.seek(SeekFrom::Start(blob_layout::RESERVED_FIELD_OFFSET as u64))?;
         f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
 
         // Seek past the reserved root space.
@@ -1229,7 +1230,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let parent_hash_bytes = read_hash_bytes(f)?;
         let parent_hash = T::from_bytes(parent_hash_bytes);
 
-        let root_disk_ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let root_disk_ptr = blob_layout::ROOT_NODE_OFFSET as u64;
 
         let root_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, root_disk_ptr);
         let (mut root_node, root_hash) = read_nodetype(f, &root_ptr)
@@ -2919,9 +2920,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
     /// Get the TriePtr::ptr() value for a trie's root node if the node is stored to disk.
     pub fn root_ptr_disk() -> u64 {
-        // first 32 bytes are the block parent hash
-        //   next 4 are the identifier
-        (BLOCK_HEADER_HASH_ENCODED_SIZE as u64) + 4
+        blob_layout::ROOT_NODE_OFFSET as u64
     }
 
     /// Read a node's children's hashes into the provided <Write> implementation.

@@ -16,7 +16,7 @@
 use std::io::{Cursor, Seek};
 use std::path::PathBuf;
 
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
 use tempfile::tempdir;
 
 use super::marf::setup_marf;
@@ -35,7 +35,7 @@ use crate::chainstate::stacks::index::squash::{
 };
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::{
-    trie_sql, ClarityMarfTrieId, Error, MARFValue, TrieLeaf, TrieMerkleProof,
+    blob_layout, trie_sql, ClarityMarfTrieId, Error, MARFValue, TrieLeaf, TrieMerkleProof,
 };
 
 // ---------------------------------------------------------------------------
@@ -1172,15 +1172,19 @@ fn test_stream_squash_blob_mixed_node_types() {
     // Verify blob header.
     let blob = output.into_inner();
     assert_eq!(blob.len() as u64, bytes_written);
-    assert_eq!(&blob[..32], parent_hash.as_bytes());
     assert_eq!(
-        &blob[BLOCK_HEADER_HASH_ENCODED_SIZE..BLOCK_HEADER_HASH_ENCODED_SIZE + 4],
+        &blob[..blob_layout::RESERVED_FIELD_OFFSET],
+        parent_hash.as_bytes()
+    );
+    assert_eq!(
+        &blob[blob_layout::RESERVED_FIELD_OFFSET
+            ..blob_layout::RESERVED_FIELD_OFFSET + blob_layout::RESERVED_FIELD_LEN],
         &0u32.to_le_bytes()
     );
 
     // Verify the root was written at the canonical root position and its child
     // pointers target readable descendants.
-    let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+    let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
     let mut cursor = Cursor::new(blob.as_slice());
     let root_ptr = TriePtr::new(TrieNodeID::Node16 as u8, 0, header_size);
     let (root_node, _) = read_nodetype(&mut cursor, &root_ptr).unwrap();
@@ -1548,6 +1552,293 @@ fn test_squash_follows_explicit_tip_on_forked_marf() {
     assert_ne!(h1, fork_tip);
 }
 
+/// Below-tip `commit_to` blocks should squash using their real hashes.
+#[test]
+fn test_squash_handles_commit_to_renamed_blocks_below_tip() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("index.sqlite");
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut src = MARF::from_path(src_path.to_str().unwrap(), open_opts.clone()).unwrap();
+
+    let dummy = StacksBlockId::from_bytes(&[0xee; 32]).unwrap();
+    let reals: Vec<StacksBlockId> = (1u8..=5)
+        .map(|i| StacksBlockId::from_bytes(&[i; 32]).unwrap())
+        .collect();
+
+    src.begin(&StacksBlockId::sentinel(), &dummy).unwrap();
+    src.insert("k0", MARFValue::from_value("v0")).unwrap();
+    src.commit_to(&reals[0]).unwrap();
+
+    for i in 1..reals.len() {
+        src.begin(&reals[i - 1], &dummy).unwrap();
+        let key = format!("k{i}");
+        let val = format!("v{i}");
+        src.insert(&key, MARFValue::from_value(&val)).unwrap();
+        src.commit_to(&reals[i]).unwrap();
+    }
+    drop(src);
+
+    let (dst_path, stats) = squash_helper(
+        src_path.to_str().unwrap(),
+        &dir.path().join("squashed"),
+        &reals[4],
+        3,
+    );
+
+    let mut squashed = MARF::from_path(
+        dst_path.to_str().unwrap(),
+        MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
+    )
+    .unwrap();
+
+    for h in 0..=3u32 {
+        let bh = squashed
+            .get_bhh_at_height(&reals[3], h)
+            .unwrap()
+            .unwrap_or_else(|| panic!("missing block at height {h}"));
+        assert_eq!(bh, reals[h as usize], "height {h} resolved to wrong block");
+    }
+    assert_eq!(stats.squash_height, 3);
+    assert_eq!(stats.historical_placeholder_count, 3);
+}
+
+/// Tip-height `commit_to` squashes must tolerate the stale dummy height key.
+#[test]
+fn test_squash_handles_commit_to_renamed_blocks_at_tip() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("index.sqlite");
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut src = MARF::from_path(src_path.to_str().unwrap(), open_opts.clone()).unwrap();
+
+    let dummy = StacksBlockId::from_bytes(&[0xee; 32]).unwrap();
+    let reals: Vec<StacksBlockId> = (1u8..=3)
+        .map(|i| StacksBlockId::from_bytes(&[i; 32]).unwrap())
+        .collect();
+
+    src.begin(&StacksBlockId::sentinel(), &dummy).unwrap();
+    src.insert("k0", MARFValue::from_value("v0")).unwrap();
+    src.commit_to(&reals[0]).unwrap();
+
+    for i in 1..reals.len() {
+        src.begin(&reals[i - 1], &dummy).unwrap();
+        let key = format!("k{i}");
+        let val = format!("v{i}");
+        src.insert(&key, MARFValue::from_value(&val)).unwrap();
+        src.commit_to(&reals[i]).unwrap();
+    }
+    drop(src);
+
+    let (dst_path, stats) = squash_helper(
+        src_path.to_str().unwrap(),
+        &dir.path().join("squashed"),
+        &reals[2],
+        2,
+    );
+
+    let mut squashed = MARF::from_path(
+        dst_path.to_str().unwrap(),
+        MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
+    )
+    .unwrap();
+    for h in 0..=2u32 {
+        let bh = squashed
+            .get_bhh_at_height(&reals[2], h)
+            .unwrap()
+            .unwrap_or_else(|| panic!("missing block at height {h}"));
+        assert_eq!(bh, reals[h as usize], "height {h} resolved to wrong block");
+    }
+    assert_eq!(stats.squash_height, 2);
+}
+
+/// Re-squash walks new blocks and reads old heights from the side table.
+#[test]
+fn test_resquash_after_squash_succeeds() {
+    let dir = tempdir().unwrap();
+    let archival_path = dir.path().join("archival.sqlite");
+    let (mut archival, blocks, _) = setup_marf(archival_path.to_str().unwrap(), 3, 1);
+
+    let squashed_dir = dir.path().join("squashed");
+    let (squashed_path, _) = squash_helper(
+        archival_path.to_str().unwrap(),
+        &squashed_dir,
+        blocks.last().unwrap(),
+        2,
+    );
+
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut squashed = MARF::from_path(squashed_path.to_str().unwrap(), open_opts).unwrap();
+    let post: Vec<StacksBlockId> = (0u8..3)
+        .map(|i| StacksBlockId::from_bytes(&[0x80 + i; 32]).unwrap())
+        .collect();
+
+    squashed.begin(&blocks[2], &post[0]).unwrap();
+    squashed
+        .insert("k_post0", MARFValue::from_value("v_post0"))
+        .unwrap();
+    squashed.commit().unwrap();
+    squashed.begin(&post[0], &post[1]).unwrap();
+    squashed
+        .insert("k_post1", MARFValue::from_value("v_post1"))
+        .unwrap();
+    squashed.commit().unwrap();
+    squashed.begin(&post[1], &post[2]).unwrap();
+    squashed
+        .insert("k_post2", MARFValue::from_value("v_post2"))
+        .unwrap();
+    squashed.commit().unwrap();
+    drop(squashed);
+
+    archival.begin(&blocks[2], &post[0]).unwrap();
+    archival
+        .insert("k_post0", MARFValue::from_value("v_post0"))
+        .unwrap();
+    archival.commit().unwrap();
+    archival.begin(&post[0], &post[1]).unwrap();
+    archival
+        .insert("k_post1", MARFValue::from_value("v_post1"))
+        .unwrap();
+    archival.commit().unwrap();
+    archival.begin(&post[1], &post[2]).unwrap();
+    archival
+        .insert("k_post2", MARFValue::from_value("v_post2"))
+        .unwrap();
+    archival.commit().unwrap();
+    drop(archival);
+
+    let resquashed_dir = dir.path().join("resquashed");
+    let (resquashed_path, resquash_stats) = squash_helper(
+        squashed_path.to_str().unwrap(),
+        &resquashed_dir,
+        &post[2],
+        4,
+    );
+    assert_eq!(resquash_stats.squash_height, 4);
+
+    let mut resquashed = MARF::from_path(
+        resquashed_path.to_str().unwrap(),
+        MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
+    )
+    .unwrap();
+    let expected: Vec<StacksBlockId> = (0..=4)
+        .map(|h| {
+            if h <= 2 {
+                blocks[h as usize].clone()
+            } else {
+                post[(h - 3) as usize].clone()
+            }
+        })
+        .collect();
+    for h in 0..=4u32 {
+        let bh = resquashed
+            .get_bhh_at_height(&post[1], h)
+            .unwrap()
+            .unwrap_or_else(|| panic!("missing block at height {h}"));
+        assert_eq!(bh, expected[h as usize], "height {h} mismatch");
+    }
+}
+
+/// Re-squash must advance beyond the source squash height.
+#[test]
+fn test_resquash_rejects_height_at_or_below_existing_squash() {
+    let dir = tempdir().unwrap();
+    let archival_path = dir.path().join("archival.sqlite");
+    let (_archival, blocks, _) = setup_marf(archival_path.to_str().unwrap(), 3, 1);
+
+    let squashed_dir = dir.path().join("squashed");
+    let (squashed_path, _) = squash_helper(
+        archival_path.to_str().unwrap(),
+        &squashed_dir,
+        blocks.last().unwrap(),
+        2,
+    );
+
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut squashed = MARF::from_path(squashed_path.to_str().unwrap(), open_opts.clone()).unwrap();
+    let post = StacksBlockId::from_bytes(&[0x80; 32]).unwrap();
+    squashed.begin(&blocks[2], &post).unwrap();
+    squashed
+        .insert("k_post", MARFValue::from_value("v_post"))
+        .unwrap();
+    squashed.commit().unwrap();
+    drop(squashed);
+
+    for bad_height in [1u32, 2u32] {
+        let resquashed_dir = dir.path().join(format!("bad_{bad_height}"));
+        let result = MARF::squash_to_path(
+            squashed_path.to_str().unwrap(),
+            resquashed_dir.join("index.sqlite").to_str().unwrap(),
+            open_opts.clone(),
+            &post,
+            bad_height,
+            "test",
+        );
+        match result {
+            Err(Error::CorruptionError(msg)) => {
+                assert!(
+                    msg.contains("already squashed"),
+                    "unexpected error for bad_height={bad_height}: {msg}"
+                );
+            }
+            other => panic!("expected CorruptionError for bad_height={bad_height}, got {other:?}"),
+        }
+    }
+}
+
+/// Parent walk should match the trie height index for a `commit_to` chain.
+#[test]
+fn test_parent_walk_matches_height_index_lookups() {
+    use crate::chainstate::stacks::index::marf::BLOCK_HEIGHT_TO_HASH_MAPPING_KEY;
+
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut src = MARF::from_path(src_path.to_str().unwrap(), open_opts.clone()).unwrap();
+
+    let dummy = StacksBlockId::from_bytes(&[0xee; 32]).unwrap();
+    let reals: Vec<StacksBlockId> = (1u8..=5)
+        .map(|i| StacksBlockId::from_bytes(&[i; 32]).unwrap())
+        .collect();
+    src.begin(&StacksBlockId::sentinel(), &dummy).unwrap();
+    src.insert("k0", MARFValue::from_value("v0")).unwrap();
+    src.commit_to(&reals[0]).unwrap();
+    for i in 1..reals.len() {
+        src.begin(&reals[i - 1], &dummy).unwrap();
+        src.insert(&format!("k{i}"), MARFValue::from_value(&format!("v{i}")))
+            .unwrap();
+        src.commit_to(&reals[i]).unwrap();
+    }
+
+    let squash_height = 3u32;
+    let tip = &reals[4];
+
+    let mut expected: Vec<(u32, StacksBlockId, TrieHash)> = Vec::new();
+    for h in 0..=squash_height {
+        let h_key = format!("{BLOCK_HEIGHT_TO_HASH_MAPPING_KEY}::{h}");
+        let bh = src
+            .with_conn(|conn| MARF::<StacksBlockId>::get_by_key(conn, tip, &h_key))
+            .unwrap()
+            .map(StacksBlockId::from)
+            .unwrap_or_else(|| panic!("missing ::h mapping for h={h}"));
+        let rh = src.get_root_hash_at(&bh).unwrap();
+        expected.push((h, bh, rh));
+    }
+    drop(src);
+
+    let (dst_db_path, _) = squash_helper(
+        src_path.to_str().unwrap(),
+        &dir.path().join("squashed"),
+        tip,
+        squash_height,
+    );
+
+    let conn = rusqlite::Connection::open(&dst_db_path).unwrap();
+    let actual = trie_sql::bulk_read_squashed_blocks::<StacksBlockId>(&conn).unwrap();
+    assert_eq!(
+        expected, actual,
+        "parent walk diverged from MARF height-index lookups for the same chain"
+    );
+}
+
 #[test]
 fn test_squash_rejects_existing_destination() {
     let dir = tempdir().unwrap();
@@ -1709,7 +2000,7 @@ fn stream_squash_blob_large_offset_sets_u64_ptr_bit() {
         stream_squash_blob(&mut store, &parent_hash, &mut file).expect("stream squash blob");
     assert!(bytes_written > u64::from(u32::MAX));
 
-    let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+    let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
     let root_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, header_size);
     let (root_node, _) = read_nodetype(&mut file, &root_ptr).expect("read root node");
     let child_ptr = root_node.ptrs()[0];
@@ -1842,8 +2133,9 @@ fn test_squash_extend_many_keys_patch_backptr_regression() {
 
     let blobs_path = format!("{}.blobs", dst_db_path.display());
     let mut blobs_file = std::fs::File::open(&blobs_path).unwrap();
-    // Root node type ID is at: blob_offset + 32 (parent hash) + 4 (identifier) + 32 (node hash)
-    let root_type_offset = b3_blob_offset + (BLOCK_HEADER_HASH_ENCODED_SIZE as u64) + 4 + 32;
+    // Root node type ID sits one root-hash past the start of the root node.
+    let root_type_offset =
+        b3_blob_offset + blob_layout::ROOT_NODE_OFFSET as u64 + TRIEHASH_ENCODED_SIZE as u64;
     blobs_file
         .seek(std::io::SeekFrom::Start(root_type_offset))
         .unwrap();

@@ -27,6 +27,7 @@ use stacks_common::types::chainstate::{
 use crate::util_lib::db::Error as db_error;
 
 pub mod bits;
+pub mod blob_layout;
 pub mod cache;
 pub mod file;
 pub mod marf;

@@ -27,9 +27,7 @@ use std::time::{Duration, Instant};
 use rusqlite::params;
 use stacks_common::types::chainstate::TrieHash;
 
-use crate::chainstate::stacks::index::marf::{
-    MARFOpenOpts, MarfConnection as _, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
-};
+use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _, MARF};
 use crate::chainstate::stacks::index::node::{clear_backptr, is_backptr, TrieNodeID, TriePtr};
 use crate::chainstate::stacks::index::storage::{
     SquashInfo, TrieFileStorage, TrieStorageConnection,
@@ -45,6 +43,36 @@ pub(crate) use node_store::NodeStore;
 pub(crate) use node_store::{deserialize_node, serialize_node};
 pub(crate) use stream::stream_squash_blob;
 use stream::{recompute_content_hashes, BlobReader};
+
+/// Read exactly `buf.len()` bytes at `offset` without moving the file cursor.
+/// Unix uses `pread`; Windows loops `seek_read` to handle short reads.
+pub(super) fn read_exact_at(
+    file: &std::fs::File,
+    buf: &mut [u8],
+    offset: u64,
+) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_exact_at(buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileExt;
+        let mut total = 0;
+        while total < buf.len() {
+            let n = file.seek_read(&mut buf[total..], offset + total as u64)?;
+            if n == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "read_exact_at: short read at end of file",
+                ));
+            }
+            total += n;
+        }
+        Ok(())
+    }
+}
 
 /// Classify a child pointer: resolve the `(block_id, byte_offset)` pair that
 /// locates the child in blob storage. Backpointers carry the target block_id
@@ -205,13 +233,36 @@ fn collect_block_map<T: MarfTrieId>(src: &MARF<T>) -> Result<HashMap<T, (u32, u6
         .collect())
 }
 
-/// Step 2: For each height 0..=H, resolve (block_hash, root_hash) via trie
-/// walk + direct blob seek.
+/// Check that raw blob-header parsing agrees with the MARF root reader.
+fn verify_blob_root_matches_marf<T: MarfTrieId>(
+    src: &mut MARF<T>,
+    blob_reader: &mut BlobReader,
+    block_map: &HashMap<T, (u32, u64)>,
+    block_hash: &T,
+) -> Result<(), Error> {
+    let &(block_id, blob_offset) = block_map.get(block_hash).ok_or(Error::NotFoundError)?;
+    let (_parent_from_blob, root_from_blob): (T, TrieHash) =
+        blob_reader.read_parent_and_root_hash(block_id, blob_offset)?;
+    let root_from_marf = src.get_root_hash_at(block_hash)?;
+    if root_from_blob != root_from_marf {
+        return Err(Error::CorruptionError(format!(
+            "Blob root mismatch for {block_hash}: blob={root_from_blob}, marf={root_from_marf}"
+        )));
+    }
+    Ok(())
+}
+
+/// For each height 0..=height, resolve (block_hash, root_hash).
+/// Archival sources are walked through blob parent links.
+/// Squashed sources walk only post-squash blocks and fill older
+/// rows from `marf_squashed_blocks`.
 fn collect_per_height_metadata<T: MarfTrieId>(
     src: &mut MARF<T>,
     tip: &T,
+    block_at_height: &T,
     block_map: &HashMap<T, (u32, u64)>,
     blob_reader: &mut BlobReader,
+    src_squash_height: Option<u32>,
     height: u32,
     label: &str,
 ) -> Result<Vec<BlockInfo<T>>, Error> {
@@ -219,35 +270,96 @@ fn collect_per_height_metadata<T: MarfTrieId>(
     let mut last_log = Instant::now();
     let start = Instant::now();
 
-    for h in 0..=height {
-        let h_key = format!("{BLOCK_HEIGHT_TO_HASH_MAPPING_KEY}::{h}");
-        let val = src
-            .with_conn(|conn| MARF::<T>::get_by_key(conn, tip, &h_key))?
-            .ok_or_else(|| {
-                Error::CorruptionError(format!("Missing height mapping for height {h}"))
-            })?;
-        let bh = T::from(val);
+    let sentinel = T::sentinel();
+    // Rows below this come from the source squash table.
+    let walk_floor = src_squash_height.map(|sh| sh + 1).unwrap_or(0);
+    debug_assert!(walk_floor <= height);
 
-        let &(block_id, blob_offset) = block_map.get(&bh).ok_or_else(|| {
+    // Walk parents down to the squash boundary, if any.
+    let mut current = block_at_height.clone();
+    for h in (walk_floor..=height).rev() {
+        if current == sentinel {
+            return Err(Error::CorruptionError(format!(
+                "Block walk hit sentinel at height {h} (expected non-sentinel \
+                 until height {walk_floor}); likely an off-by-one in caller's \
+                 height arg or a truncated chain"
+            )));
+        }
+        let &(block_id, blob_offset) = block_map.get(&current).ok_or_else(|| {
             Error::CorruptionError(format!(
-                "Missing block map entry for block hash at height {h}"
+                "Missing block map entry for block hash {current} at height {h}"
             ))
         })?;
 
-        let rh = blob_reader.read_root_hash(block_id, blob_offset)?;
+        let (parent, root_hash): (T, TrieHash) =
+            blob_reader.read_parent_and_root_hash(block_id, blob_offset)?;
+        block_info.push((h, current.clone(), root_hash));
 
-        block_info.push((h, bh, rh));
+        if h == 0 {
+            // Genesis must point at sentinel.
+            if parent != sentinel {
+                return Err(Error::CorruptionError(format!(
+                    "Block at height 0 ({current}) has non-sentinel parent {parent}"
+                )));
+            }
+        } else {
+            current = parent;
+        }
 
         if last_log.elapsed().as_secs() >= 30 || (h > 0 && h % 100_000 == 0) {
+            let done = height + 1 - h;
             info!(
-                "[{label}] [2/8] Build height index: {}/{} heights in {}",
-                h + 1,
+                "[{label}] [2/8] Build height index: {}/{} heights walked in {}",
+                done,
                 height + 1,
                 fmt_duration(start.elapsed())
             );
             last_log = Instant::now();
         }
     }
+
+    // Re-squash: fill pre-existing squash rows from the source side table.
+    if walk_floor > 0 {
+        let side_table = trie_sql::bulk_read_squashed_blocks::<T>(src.sqlite_conn())?;
+        let max_h = walk_floor - 1;
+        // The first post-squash block must chain to the old squash tip.
+        let boundary_bh = side_table
+            .iter()
+            .find(|(h, _, _)| *h == max_h)
+            .map(|(_, bh, _)| bh.clone())
+            .ok_or_else(|| {
+                Error::CorruptionError(format!(
+                    "Source squash side table missing row for height {max_h}"
+                ))
+            })?;
+        if current != boundary_bh {
+            return Err(Error::CorruptionError(format!(
+                "Re-squash boundary mismatch: block at height {walk_floor} \
+                 claims parent {current}, but source squash side table has \
+                 {boundary_bh} at height {max_h}"
+            )));
+        }
+        for (h, bh, rh) in side_table {
+            if h <= max_h {
+                block_info.push((h, bh, rh));
+            }
+        }
+        info!(
+            "[{label}] [2/8] Build height index: filled heights 0..={max_h} from \
+             source squash side table"
+        );
+    }
+
+    if block_info.len() != (height as usize) + 1 {
+        return Err(Error::CorruptionError(format!(
+            "Build height index: expected {} entries, got {}",
+            (height as usize) + 1,
+            block_info.len()
+        )));
+    }
+
+    block_info.sort_by_key(|(h, _, _)| *h);
+
     info!(
         "[{label}] [2/8] Build height index: {} heights in {}",
         height + 1,
@@ -433,9 +545,20 @@ impl<T: MarfTrieId> MARF<T> {
         let overall_start = Instant::now();
         let mut step_durations = SquashStepDurations::default();
 
-        // Step 1: bulk SQL block map
+        // [1/8] Bulk SQL block map
         let src_storage = TrieFileStorage::open_readonly(src_path, open_opts.clone())?;
         let mut src = MARF::from_storage(src_storage);
+
+        // Re-squashes must advance past the source squash height.
+        let src_squash_height = trie_sql::read_squash_info(src.sqlite_conn())?.map(|(_, _, sh)| sh);
+        if let Some(sh) = src_squash_height {
+            if height <= sh {
+                return Err(Error::CorruptionError(format!(
+                    "Cannot re-squash at height {height}: source is already squashed \
+                     at height {sh}; the new height must be strictly greater"
+                )));
+            }
+        }
 
         let block_at_height = src
             .get_block_at_height(height, tip)?
@@ -457,11 +580,16 @@ impl<T: MarfTrieId> MARF<T> {
         );
         let start = Instant::now();
         let mut blob_reader = BlobReader::new(src_path, open_opts.external_blobs)?;
+
+        verify_blob_root_matches_marf(&mut src, &mut blob_reader, &block_map, &block_at_height)?;
+
         let block_info = collect_per_height_metadata(
             &mut src,
             tip,
+            &block_at_height,
             &block_map,
             &mut blob_reader,
+            src_squash_height,
             height,
             label,
         )?;

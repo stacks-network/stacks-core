@@ -14,10 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 
 use stacks_common::types::chainstate::TrieHash;
 
+use super::read_exact_at;
 use crate::chainstate::stacks::index::node::{
     TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeType, TriePtr,
 };
@@ -240,8 +241,12 @@ impl<W: Seek> Seek for CountingWriter<W> {
 pub(crate) struct NodeStore {
     /// Temp file holding serialized nodes (write handle).
     writer: CountingWriter<BufWriter<File>>,
-    /// Lazily-opened read handle to the temp file. Opened on first read.
-    reader: BufReader<File>,
+    /// Read handle to the temp file.
+    reader: File,
+    /// Reusable `read_node` buffer.
+    scratch: Vec<u8>,
+    /// End offset of the last pushed node.
+    total_bytes: u64,
     /// Path to the temp file (for re-opening as reader).
     pub(crate) path: std::path::PathBuf,
     /// Byte offset in the temp file for each node.
@@ -265,7 +270,10 @@ impl NodeStore {
         let temp_file = File::options().write(true).create_new(true).open(&path)?;
         Ok(NodeStore {
             writer: CountingWriter::new(BufWriter::with_capacity(1 << 20, temp_file)),
-            reader: BufReader::new(File::open(&path)?),
+            reader: File::open(&path)?,
+            // Node256 (the largest) has a size of 3.7KiB.
+            scratch: vec![0; 4 * 1024],
+            total_bytes: 0,
             path,
             file_offsets: Vec::new(),
             hashes: Vec::new(),
@@ -290,6 +298,8 @@ impl NodeStore {
         self.hashes.push(hash);
         self.block_ids.push(block_id);
         serialize_node(&mut self.writer, node)?;
+        // Used as the end boundary for the last node.
+        self.total_bytes = self.writer.position();
         Ok(idx)
     }
 
@@ -324,19 +334,46 @@ impl NodeStore {
         Ok(())
     }
 
-    /// Read the node at `idx`. Lazily opens a shared `BufReader` on first call.
+    /// Read the node at `idx`.
     ///
     /// Reads see only flushed writes; re-reading an overwritten node requires
     /// a preceding `flush`.
     pub(crate) fn read_node(&mut self, idx: usize) -> Result<TrieNodeType, Error> {
+        let size = self.node_size(idx)?;
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
             Error::CorruptionError(format!("NodeStore: index {idx} out of bounds"))
         })?;
 
-        self.reader
-            .seek(SeekFrom::Start(offset))
-            .map_err(Error::IOError)?;
-        deserialize_node(&mut self.reader)
+        if self.scratch.len() < size {
+            self.scratch.resize(size, 0);
+        }
+        let scratch_mut = self.scratch.get_mut(..size).ok_or_else(|| {
+            Error::CorruptionError(format!("NodeStore: scratch < {size} after resize"))
+        })?;
+        read_exact_at(&self.reader, scratch_mut, offset).map_err(Error::IOError)?;
+        let scratch_ref = self.scratch.get(..size).ok_or_else(|| {
+            Error::CorruptionError(format!("NodeStore: scratch < {size} after read"))
+        })?;
+        let mut cursor = Cursor::new(scratch_ref);
+        deserialize_node(&mut cursor)
+    }
+
+    /// Serialized byte size of node `idx`.
+    fn node_size(&self, idx: usize) -> Result<usize, Error> {
+        let off = *self.file_offsets.get(idx).ok_or_else(|| {
+            Error::CorruptionError(format!("NodeStore::node_size: idx {idx} out of bounds"))
+        })?;
+        let end = self
+            .file_offsets
+            .get(idx + 1)
+            .copied()
+            .unwrap_or(self.total_bytes);
+        if end < off {
+            return Err(Error::CorruptionError(format!(
+                "NodeStore::node_size: end {end} < off {off} for idx {idx}"
+            )));
+        }
+        usize::try_from(end - off).map_err(|_| Error::OverflowError)
     }
 
     pub(crate) fn hash(&self, idx: usize) -> &TrieHash {

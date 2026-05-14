@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fs::File;
-use std::io::{BufReader, Read as _, Seek, SeekFrom, Write};
+use std::io::{Read as _, Seek, SeekFrom, Write};
 use std::time::Instant;
 
 use rusqlite::DatabaseName;
@@ -23,14 +23,14 @@ use stacks_common::types::chainstate::{
     StacksBlockId, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
 
-use super::fmt_duration;
 use super::node_store::{CountingWriter, NodeStore};
+use super::{fmt_duration, read_exact_at};
 use crate::chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_byte_len, is_inline_child_ptr, reserved_root_size,
     resolve_inline_child_offsets, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::node::{is_backptr, TrieNodeType};
-use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieHasher};
+use crate::chainstate::stacks::index::{blob_layout, BlockMap, Error, MarfTrieId, TrieHasher};
 
 /// Recompute content hashes using a `NodeStore`.
 ///
@@ -119,16 +119,16 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
     // Record the base offset so all writes are relative to blob start.
     let base = sink.stream_position().map_err(Error::IOError)?;
     let mut sink = CountingWriter::with_position(sink, base);
-    let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+    let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
 
     let root_node = store.read_node(0)?;
     let root_reserved_size = reserved_root_size(get_node_byte_len(&root_node), root_node.ptrs())?;
 
-    // Write header: parent block hash + zero identifier
+    // Write the fixed blob header.
     sink.write_all(parent_hash.as_bytes())
         .map_err(Error::IOError)?;
     sink.seek(SeekFrom::Start(
-        base + BLOCK_HEADER_HASH_ENCODED_SIZE as u64,
+        base + blob_layout::RESERVED_FIELD_OFFSET as u64,
     ))
     .map_err(Error::IOError)?;
     sink.write_all(&0u32.to_le_bytes())
@@ -198,10 +198,9 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
     Ok(total_size)
 }
 
-/// Reads root hashes from either an external `.blobs` file or from SQLite
-/// internal `marf_data.data` BLOB columns.
+/// Reads trie headers from external blobs or SQLite BLOB columns.
 pub(super) enum BlobReader {
-    External(BufReader<File>),
+    External(File),
     Internal(rusqlite::Connection),
 }
 
@@ -210,10 +209,7 @@ impl BlobReader {
         if external_blobs {
             let blobs_path = format!("{db_path}.blobs");
             let file = File::open(&blobs_path).map_err(Error::IOError)?;
-            Ok(BlobReader::External(BufReader::with_capacity(
-                64 * 1024,
-                file,
-            )))
+            Ok(BlobReader::External(file))
         } else {
             let conn = rusqlite::Connection::open_with_flags(
                 db_path,
@@ -224,20 +220,16 @@ impl BlobReader {
     }
 
     /// Read the root hash for a block.
-    ///
-    /// For `External`, seeks to `blob_offset + root_ptr_offset` in the `.blobs` file.
-    /// For `Internal`, opens the SQLite blob for `block_id` and seeks within it.
     pub(super) fn read_root_hash(
         &mut self,
         block_id: u32,
         blob_offset: u64,
     ) -> Result<TrieHash, Error> {
-        let root_ptr_offset = (BLOCK_HEADER_HASH_ENCODED_SIZE as u64) + 4;
+        let root_ptr_offset = blob_layout::ROOT_NODE_OFFSET as u64;
         let mut hash_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
         match self {
-            BlobReader::External(reader) => {
-                reader.seek(SeekFrom::Start(blob_offset + root_ptr_offset))?;
-                reader.read_exact(&mut hash_bytes)?;
+            BlobReader::External(file) => {
+                read_exact_at(file, &mut hash_bytes, blob_offset + root_ptr_offset)?;
             }
             BlobReader::Internal(conn) => {
                 let mut blob = conn.blob_open(
@@ -252,6 +244,38 @@ impl BlobReader {
             }
         }
         Ok(TrieHash(hash_bytes))
+    }
+
+    /// Read `(parent_hash, root_hash)` from the blob header.
+    pub(super) fn read_parent_and_root_hash<T: MarfTrieId>(
+        &mut self,
+        block_id: u32,
+        blob_offset: u64,
+    ) -> Result<(T, TrieHash), Error> {
+        let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
+        match self {
+            BlobReader::External(file) => {
+                read_exact_at(file, &mut buf, blob_offset)?;
+            }
+            BlobReader::Internal(conn) => {
+                let mut blob = conn.blob_open(
+                    DatabaseName::Main,
+                    "marf_data",
+                    "data",
+                    block_id.into(),
+                    true, // readonly
+                )?;
+                blob.read_exact(&mut buf)?;
+            }
+        }
+        let mut parent_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+        parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
+        let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+        root_bytes.copy_from_slice(
+            &buf[blob_layout::ROOT_NODE_OFFSET
+                ..blob_layout::ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE],
+        );
+        Ok((T::from_bytes(parent_bytes), TrieHash(root_bytes)))
     }
 }
 
