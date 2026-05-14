@@ -354,8 +354,10 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
 }
 
 /// Source for the combined aggregate-pubkey + sBTC-token stub that
-/// `boot_to_epoch_4` publishes.
-fn agg_pubkey_sbtc_stub_source(pubkey: &[u8; 33]) -> String {
+/// `boot_to_epoch_4` publishes. Also used by Epoch-4.0 tests in
+/// `crate::tests::nakamoto_integrations` that deploy their own stub before
+/// crossing the boundary.
+pub(crate) fn agg_pubkey_sbtc_stub_source(pubkey: &[u8; 33]) -> String {
     format!(
         r#"
 (define-fungible-token sbtc-token)
