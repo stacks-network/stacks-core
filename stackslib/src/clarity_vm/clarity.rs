@@ -2007,7 +2007,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     code_body: StacksString::from_str(&pox_5_code)
                         .expect("FATAL: invalid boot code body"),
                 },
-                Some(ClarityVersion::Clarity5), // THIS MUST BE CHANGED LATER
+                Some(ClarityVersion::Clarity6),
             );
 
             let pox_5_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
