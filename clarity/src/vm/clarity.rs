@@ -200,7 +200,7 @@ pub trait TransactionConnection: ClarityConnection {
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
-        E: From<InterpreterError>;
+        E: From<InterpreterError> + std::error::Error;
 
     /// Do something with the analysis database and cost tracker
     ///  instance of this transaction connection. This is a low-level
