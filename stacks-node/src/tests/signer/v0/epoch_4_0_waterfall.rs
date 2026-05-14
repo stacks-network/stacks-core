@@ -156,18 +156,24 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
     // any burnchain activity that triggers the PoX-5 path picks it up.
     TEST_WATERFALL_SIGNER_SET_OVERRIDE.set(override_map_all_cycles(signer_pairs));
 
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(spender_addr, 1_000_000)],
-        |_| {},
-        |node_config| {
-            node_config.miner.block_commit_delay = Duration::from_secs(1);
-            node_config.node.pox_5_sbtc_contract = Some(contract_id.clone());
-            enable_epoch_4_0(node_config);
-        },
-        None,
-        Some(signer_keys),
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(spender_addr, 1_000_000)],
+            |_| {},
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.node.pox_5_sbtc_contract = Some(contract_id.clone());
+                enable_epoch_4_0(node_config);
+            },
+            None,
+            Some(signer_keys),
+            Some(function_name!()),
+        );
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
 
     let conf = signer_test.running_nodes.conf.clone();
     let miner_pk = get_miner_pubkey(&signer_test);

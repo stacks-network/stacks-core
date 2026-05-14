@@ -18,6 +18,7 @@ use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+use clarity::consts::MICROSTACKS_PER_STACKS;
 use clarity::types::Address;
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::clarity::{ClarityError, TransactionConnection};
@@ -471,11 +472,13 @@ impl RewardSet {
         }
     }
 
-    /// Return the pox_ustx_threshold (V0 only). Returns `None` for Waterfall.
+    /// Return the pox_ustx_threshold.
+    ///
+    /// Only calculated in V0, Returns `50_000 STX` for Waterfall.
     pub fn pox_ustx_threshold(&self) -> Option<u128> {
         match self {
             RewardSet::V0(v0) => v0.pox_ustx_threshold,
-            _ => None,
+            _ => Some(50_000 * u128::from(MICROSTACKS_PER_STACKS)),
         }
     }
 

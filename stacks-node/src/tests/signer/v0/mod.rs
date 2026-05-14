@@ -251,7 +251,18 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         contract_name: &str,
         pubkey: &[u8; 33],
     ) {
-        self.boot_to_epoch_3();
+        let conf = &self.running_nodes.conf;
+        let epoch_3 = conf
+            .burnchain
+            .epochs
+            .as_ref()
+            .and_then(|e| e.get(StacksEpochId::Epoch30))
+            .map(|epoch| epoch.start_height - 1)
+            .unwrap();
+        let current_info = get_chain_info(conf);
+        if current_info.burn_block_height < epoch_3 {
+            self.boot_to_epoch_3();
+        }
 
         let conf = &self.running_nodes.conf;
         let http_origin = format!("http://{}", conf.node.rpc_bind);
