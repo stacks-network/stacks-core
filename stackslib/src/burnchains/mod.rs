@@ -305,7 +305,8 @@ pub struct PoxConstants {
     /// After this burn height, reward cycles use pox-4 for reward set data
     pub pox_4_activation_height: u32,
     /// After this burn height, reward cycles use pox-5 for reward set data
-    /// DO NOT set this to a reward cycle boundary (i.e. a mod-0 block)
+    /// DO NOT set this to a reward cycle boundary
+    /// i.e. where (block height - first block height) % cycle_length == 0
     pub pox_5_activation_height: u32,
     _shadow: PhantomData<()>,
 }
