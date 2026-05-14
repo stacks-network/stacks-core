@@ -1,0 +1,46 @@
+name: Run Tests
+description: |
+    Run tests with cargo nextest
+
+inputs:
+  test-name:
+    description: "Test name to run"
+    required: true
+  archive-file:
+    description: "Archive file to use for tests"
+    required: true
+    default: "~/test_archive.tar.zst"
+  failure-output:
+    description: "Failure output"
+    required: false
+    default: "final"
+  success-output:
+    description: "Success output"
+    required: false
+    default: "never"
+  status-level:
+    description: "Output status level"
+    required: false
+    default: "fail"
+  retries:
+    description: "Number of test retries"
+    required: false
+    default: "0"
+
+runs:
+  using: "composite"
+  steps:
+    # Run a provided test
+    - name: Run Tests
+      shell: bash
+      run: |
+        export LLVM_PROFILE_FILE="test-results-%p-%m.profraw" && \
+        cargo nextest run \
+          --archive-file ${{ inputs.archive-file }} \
+          --retries ${{ inputs.retries }} \
+          --run-ignored all \
+          --fail-fast \
+          --failure-output ${{ inputs.failure-output }} \
+          --success-output ${{ inputs.success-output }} \
+          --status-level ${{ inputs.status-level }} \
+          -E "test(=${{ inputs.test-name }})"

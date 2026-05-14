@@ -1,0 +1,73 @@
+name: Stacks Core Test Environment
+description: |
+    Sets up the testing environment for the Stacks Blockchain.
+
+
+inputs:
+  btc-version:
+    description: "Bitcoin version"
+    required: false
+    default: "25.0"
+
+runs:
+  using: "composite"
+  steps:
+    # Checkout the code
+    - name: Checkout the latest code
+      id: git_checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+    # Setup rust toolchain with llvm-tools-preview
+    - name: Setup Rust Toolchain
+      uses: ./.github/actions/setup-rust-toolchain
+      with:
+        components: llvm-tools-preview
+
+    # Restore cargo cache data
+    - name: Restore Cargo Cache
+      uses: ./.github/actions/cache/cargo
+      with:
+        action: restore
+
+    # Restore bitcoin cache data
+    - name: Restore Bitcoin Binary Cache
+      uses: ./.github/actions/cache/bitcoin
+      with:
+        action: restore
+        btc-version: ${{ inputs.btc-version }}
+
+    # Symlink bitoind to $PATH
+    - name: Link Bitcoin Binary
+      shell: bash
+      run: |
+        sudo ln -s ~/bitcoin/bin/bitcoind /bin/
+
+    # Increase open file descriptors limit
+    - name: Increase Open File Descriptors
+      shell: bash
+      run: |
+        sudo prlimit --nofile=4096:4096
+
+    # Restore nextest test archive cache data
+    - name: Restore Test Archive Cache
+      id: restore_test_cache
+      uses: ./.github/actions/cache/test-archive
+      with:
+        action: restore
+
+    # Restore cargo target cache data
+    - name: Restore Cargo Target Cache
+      id: restore_target_cache
+      uses: ./.github/actions/cache/cargo-target
+      with:
+        action: restore
+
+    # Install dependencies
+    #   grcov is used in the code coverage workflow in tests, so it's installed here
+    - name: Install Dependencies
+      id: install_dependencies
+      uses: ./.github/actions/install-tool
+      with:
+        tool: nextest, grcov
