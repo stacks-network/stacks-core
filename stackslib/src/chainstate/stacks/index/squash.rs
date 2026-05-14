@@ -584,7 +584,6 @@ impl<T: MarfTrieId> MARF<T> {
 
         let block_info = collect_per_height_metadata(
             &mut src,
-            tip,
             &block_at_height,
             &block_map,
             &mut blob_reader,
