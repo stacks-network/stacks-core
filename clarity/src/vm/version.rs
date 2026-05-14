@@ -51,6 +51,28 @@ impl ClarityVersion {
         ClarityVersion::Clarity5,
     ];
 
+    /// Returns all [`ClarityVersion`] starting from the given `version` (inclusive)
+    #[cfg(any(test, feature = "testing"))]
+    pub fn since(version: ClarityVersion) -> &'static [ClarityVersion] {
+        let idx = Self::ALL
+            .iter()
+            .position(|&v| v == version)
+            .expect("version not found in ALL");
+
+        &Self::ALL[idx..]
+    }
+
+    /// Returns all [`ClarityVersion`] up to the given `version` (inclusive)
+    #[cfg(any(test, feature = "testing"))]
+    pub fn up_to(version: ClarityVersion) -> &'static [ClarityVersion] {
+        let idx = Self::ALL
+            .iter()
+            .position(|&v| v == version)
+            .expect("version not found in ALL");
+
+        &Self::ALL[..=idx]
+    }
+
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
             StacksEpochId::Epoch10 => {
