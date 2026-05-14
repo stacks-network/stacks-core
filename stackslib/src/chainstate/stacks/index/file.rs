@@ -106,6 +106,15 @@ impl TrieFile {
         }
     }
 
+    /// Durably sync blob data to disk.
+    /// No-op for RAM-backed TrieFiles.
+    pub fn sync_data(&mut self) -> Result<(), io::Error> {
+        if let TrieFile::Disk(ref mut data) = self {
+            data.fd.sync_data()?;
+        }
+        Ok(())
+    }
+
     /// Get a copy of the path to this TrieFile.
     /// If in RAM, then the path will be ":memory:"
     pub fn get_path(&self) -> String {
@@ -442,10 +451,7 @@ impl TrieFile {
         self.seek(SeekFrom::Start(offset))?;
         self.write_all(buf)?;
         self.flush()?;
-
-        if let TrieFile::Disk(ref mut data) = self {
-            data.fd.sync_data()?;
-        }
+        self.sync_data()?;
         Ok(offset)
     }
 }

@@ -1,0 +1,1 @@
+Allow non-blocking event dispatching. This is off by default, but can be enabled in the node configuration.

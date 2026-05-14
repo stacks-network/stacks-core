@@ -15,6 +15,7 @@
 pub mod consensus;
 mod consensus_unit_tests;
 mod early_return_tests;
+mod madhouse;
 mod parse_tests;
 mod runtime_analysis_tests;
 mod runtime_tests;
