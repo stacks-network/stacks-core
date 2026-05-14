@@ -22,7 +22,7 @@ use std::{env, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::ContractName;
+use clarity::vm::{ContractName, Value};
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, PeerInfo, RejectCode,
     RejectReason, SignerMessage, StateMachineUpdateContent, StateMachineUpdateMinerState,
@@ -354,6 +354,171 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             get_chain_info(conf).burn_block_height
         );
     }
+
+    /// Like [`SignerTest::boot_to_epoch_4`], but additionally drives the
+    /// chain through PoX-5's `grant-signer-key` / `register-signer` /
+    /// `stake` entrypoints so that the test signer set enrolls in PoX-5
+    ///
+    /// For each signer `i` in `self.signer_stacks_private_keys`:
+    ///
+    /// 1. `stakers[i]` publishes a per-signer signer-manager contract
+    ///    named `pox5-signer-{i}` (a minimal `impl-trait` of pox-5's
+    ///    `signer-manager-trait` whose `register-self` forwards a signer
+    ///    grant + `register-signer` call to pox-5).
+    /// 2. `stakers[i]` calls `register-self` with a signer-key-grant
+    ///    signature produced by `signer_stacks_private_keys[i]`.
+    /// 3. `stakers[i]` calls `pox-5::stake`, locking `stake_amount` uSTX
+    ///    for `lock_cycles` cycles against the per-signer contract.
+    ///
+    /// `stakers` must be one private key per signer. The caller is
+    /// responsible for funding each staker via initial balances with at
+    /// least `stake_amount + (fees * 3)` unlocked uSTX (the signer keys
+    /// themselves cannot be reused as stakers because they remain locked
+    /// in PoX-4 after `boot_to_epoch_3`).
+    ///
+    /// # Panics
+    /// - If `stakers.len() != self.signer_stacks_private_keys.len()`.
+    /// - If a publish/register/stake transaction fails to confirm.
+    /// - If the resulting on-chain `locked` balance does not match
+    ///   `stake_amount` for any staker.
+    pub fn boot_to_epoch_4_with_pox5_lockups(
+        &self,
+        sender_sk: &StacksPrivateKey,
+        sender_nonce: u64,
+        contract_name: &str,
+        pubkey: &[u8; 33],
+        stakers: &[StacksPrivateKey],
+        stake_amount: u128,
+        lock_cycles: u128,
+    ) {
+        let num_signers = self.signer_stacks_private_keys.len();
+        assert_eq!(
+            stakers.len(),
+            num_signers,
+            "stakers must have one private key per signer"
+        );
+
+        // Reach Epoch 4.0 first. After this returns, pox-5 has been
+        // instantiated and `set-burnchain-parameters` has been called, so
+        // it accepts grant/register/stake.
+        self.boot_to_epoch_4(sender_sk, sender_nonce, contract_name, pubkey);
+
+        let conf = &self.running_nodes.conf;
+        let chain_id = conf.burnchain.chain_id;
+        let http_origin = format!("http://{}", conf.node.rpc_bind);
+        let publish_fee: u64 = 3_000;
+        let call_fee: u64 = 1_000;
+
+        let pox_5_addr: StacksAddress = boot_code_id("pox-5", false).issuer.into();
+        let contract_source = pox5_signer_manager_source();
+
+        // Step 1: publish all per-signer signer-manager contracts.
+        let mut contract_principals: Vec<(StacksAddress, String, PrincipalData)> =
+            Vec::with_capacity(num_signers);
+        for (i, staker_sk) in stakers.iter().enumerate() {
+            let staker_addr = tests::to_addr(staker_sk);
+            let per_signer_name = format!("pox5-signer-{i}");
+            let tx = make_contract_publish(
+                staker_sk,
+                0,
+                publish_fee,
+                chain_id,
+                &per_signer_name,
+                contract_source,
+            );
+            submit_tx(&http_origin, &tx);
+            let principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
+                staker_addr.clone().into(),
+                ContractName::try_from(per_signer_name.clone())
+                    .expect("invalid per-signer contract name"),
+            ));
+            contract_principals.push((staker_addr, per_signer_name, principal));
+        }
+        self.mine_nakamoto_block(Duration::from_secs(60), true);
+        wait_for(120, || {
+            Ok(stakers
+                .iter()
+                .all(|sk| get_account(&http_origin, &tests::to_addr(sk)).nonce >= 1))
+        })
+        .expect("Timed out waiting for per-signer contract publishes to confirm");
+
+        // Step 2: call register-self on each per-signer contract.
+        for (i, (staker_sk, signer_sk)) in stakers
+            .iter()
+            .zip(self.signer_stacks_private_keys.iter())
+            .enumerate()
+        {
+            let (staker_addr, per_signer_name, principal) = &contract_principals[i];
+            let auth_id: u128 = u128::try_from(i).unwrap();
+            let signer_pk = StacksPublicKey::from_private(signer_sk);
+            let sig =
+                stacks::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature(
+                    principal, auth_id, chain_id, signer_sk,
+                )
+                .expect("failed to construct pox-5 signer-grant signature");
+
+            let tx = make_contract_call(
+                staker_sk,
+                1,
+                call_fee,
+                chain_id,
+                staker_addr,
+                per_signer_name,
+                "register-self",
+                &[
+                    Value::Principal(principal.clone()),
+                    Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                    Value::UInt(auth_id),
+                    Value::buff_from(sig.to_rsv()).unwrap(),
+                ],
+            );
+            submit_tx(&http_origin, &tx);
+        }
+        self.mine_nakamoto_block(Duration::from_secs(60), true);
+        wait_for(120, || {
+            Ok(stakers
+                .iter()
+                .all(|sk| get_account(&http_origin, &tests::to_addr(sk)).nonce >= 2))
+        })
+        .expect("Timed out waiting for register-self confirmations");
+
+        // Step 3: each staker locks `stake_amount` for `lock_cycles` cycles.
+        let start_burn_ht = u128::from(get_chain_info(conf).burn_block_height);
+        for (i, staker_sk) in stakers.iter().enumerate() {
+            let (_, _, principal) = &contract_principals[i];
+            let tx = make_contract_call(
+                staker_sk,
+                2,
+                call_fee,
+                chain_id,
+                &pox_5_addr,
+                "pox-5",
+                "stake",
+                &[
+                    Value::Principal(principal.clone()),
+                    Value::UInt(stake_amount),
+                    Value::UInt(lock_cycles),
+                    Value::UInt(start_burn_ht),
+                    Value::none(),
+                ],
+            );
+            submit_tx(&http_origin, &tx);
+        }
+        self.mine_nakamoto_block(Duration::from_secs(60), true);
+        wait_for(120, || {
+            Ok(stakers.iter().all(|sk| {
+                let acct = get_account(&http_origin, &tests::to_addr(sk));
+                acct.nonce >= 3 && acct.locked == stake_amount
+            }))
+        })
+        .expect("Timed out waiting for pox-5 stake to lock");
+
+        info!(
+            "boot_to_epoch_4_with_pox5_lockups complete: {} signers registered + staked; burn_height={}",
+            num_signers,
+            get_chain_info(conf).burn_block_height,
+        );
+    }
 }
 
 /// Returns true iff `/v2/contracts/source/<addr>/<name>` returns 200.
@@ -362,6 +527,74 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
     reqwest::blocking::get(&url)
         .map(|resp| resp.status().is_success())
         .unwrap_or(false)
+}
+
+/// Generate `num_signers` deterministic PoX-5 staker private keys for use
+/// with [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]. The seed format
+/// is `pox5_staker_{i}_{seed_tag}`, so derived addresses are stable across
+/// runs of the same test.
+pub fn pox5_staker_keys(num_signers: usize, seed_tag: &str) -> Vec<StacksPrivateKey> {
+    (0..num_signers)
+        .map(|i| StacksPrivateKey::from_seed(format!("pox5_staker_{i}_{seed_tag}").as_bytes()))
+        .collect()
+}
+
+/// Build the `(address, balance)` entries for the staker keys returned by
+/// [`pox5_staker_keys`], ready to be passed via
+/// `SignerTest::new_with_config_modifications`'s `initial_balances`.
+pub fn pox5_staker_initial_balances(
+    num_signers: usize,
+    seed_tag: &str,
+    per_staker_balance: u64,
+) -> Vec<(StacksAddress, u64)> {
+    pox5_staker_keys(num_signers, seed_tag)
+        .iter()
+        .map(|sk| (tests::to_addr(sk), per_staker_balance))
+        .collect()
+}
+
+/// Source for the per-signer signer-manager contract published by
+/// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]. `validate-stake!` is
+/// a no-op (always ok) and `register-self` forwards a signer-key grant +
+/// `register-signer` call to pox-5 under `as-contract?`.
+fn pox5_signer_manager_source() -> &'static str {
+    r#"
+(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+
+(define-public (validate-stake!
+    ;; #[allow(unused_binding)]
+    (staker principal)
+    ;; #[allow(unused_binding)]
+    (amount-ustx uint)
+    ;; #[allow(unused_binding)]
+    (amount-sats uint)
+    ;; #[allow(unused_binding)]
+    (num-cycles uint)
+    ;; #[allow(unused_binding)]
+    (is-bond bool)
+    ;; #[allow(unused_binding)]
+    (signer-calldata (optional (buff 500)))
+  )
+  (ok true)
+)
+
+(define-public (register-self
+    (signer-manager <signer-manager-trait>)
+    (signer-key (buff 33))
+    (auth-id uint)
+    (signer-sig (buff 65))
+  )
+  (as-contract? ()
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
+      signer-key current-contract auth-id signer-sig
+    ))
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
+      signer-manager signer-key
+    ))
+  )
+)
+"#
 }
 
 /// Source for the combined aggregate-pubkey + sBTC-token stub that
@@ -1110,11 +1343,215 @@ impl MultipleMinerTest {
         );
     }
 
+    /// Multi-miner counterpart to
+    /// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]: boots both miners
+    /// to Epoch 4.0 and then drives `grant-signer-key` / `register-signer` /
+    /// `pox-5::stake` on the running chain so the first PoX-5 prepare phase
+    /// reads a real on-chain signer set instead of a test override.
+    ///
+    /// All txs are submitted to node 1; each step then mines one bitcoin
+    /// block (after waiting for both miners to commit) and waits for both
+    /// nodes' `/v2/accounts` views to reflect it.
+    ///
+    /// `stakers` must be funded via `add_initial_balance` (see
+    /// [`pox5_staker_initial_balances`]) with at least
+    /// `stake_amount + 3 * fees` of unlocked uSTX. The signer Stacks keys
+    /// themselves remain locked in PoX-4 after `boot_to_epoch_3` and cannot
+    /// double as stakers.
+    pub fn boot_to_epoch_4_with_pox5_lockups(
+        &mut self,
+        sender_sk: &StacksPrivateKey,
+        sender_nonce: u64,
+        contract_name: &str,
+        pubkey: &[u8; 33],
+        stakers: &[StacksPrivateKey],
+        stake_amount: u128,
+        lock_cycles: u128,
+    ) {
+        let num_signers = self.signer_stacks_private_keys().len();
+        assert_eq!(
+            stakers.len(),
+            num_signers,
+            "stakers must have one private key per signer"
+        );
+
+        self.boot_to_epoch_4(sender_sk, sender_nonce, contract_name, pubkey);
+
+        let (conf_1, conf_2) = self.get_node_configs();
+        let chain_id = conf_1.burnchain.chain_id;
+        let http_origin_1 = format!("http://{}", conf_1.node.rpc_bind);
+        let http_origin_2 = format!("http://{}", conf_2.node.rpc_bind);
+        let sortdb = conf_1
+            .get_burnchain()
+            .open_sortition_db(true)
+            .expect("open sortition db");
+        let publish_fee: u64 = 3_000;
+        let call_fee: u64 = 1_000;
+
+        let pox_5_addr: StacksAddress = boot_code_id("pox-5", false).issuer.into();
+        let contract_source = pox5_signer_manager_source();
+
+        // Step 1: publish per-signer signer-manager contracts.
+        let mut contract_principals: Vec<(StacksAddress, String, PrincipalData)> =
+            Vec::with_capacity(num_signers);
+        for (i, staker_sk) in stakers.iter().enumerate() {
+            let staker_addr = tests::to_addr(staker_sk);
+            let per_signer_name = format!("pox5-signer-{i}");
+            let tx = make_contract_publish(
+                staker_sk,
+                0,
+                publish_fee,
+                chain_id,
+                &per_signer_name,
+                contract_source,
+            );
+            submit_tx(&http_origin_1, &tx);
+            let principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
+                staker_addr.clone().into(),
+                ContractName::try_from(per_signer_name.clone())
+                    .expect("invalid per-signer contract name"),
+            ));
+            contract_principals.push((staker_addr, per_signer_name, principal));
+        }
+        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
+            .expect("settle before per-signer publish");
+        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+            .expect("mine bitcoin block to include per-signer publishes");
+        // mine_bitcoin_blocks_and_confirm only waits for signers to see the
+        // new burn block, not to promote it as the active tenure. Without
+        // this wait the next mine can drive a fresh sortition before signers
+        // approve any blocks under the current one, and miner 2 starts
+        // proposing under a tenure id the signers still treat as inactive.
+        let tenure_id = self.get_peer_info().pox_consensus;
+        wait_for_state_machine_update_by_miner_tenure_id(
+            180,
+            &tenure_id,
+            &self.signer_test.signer_addresses_versions(),
+        )
+        .expect("signers did not promote per-signer-publish tenure");
+        wait_for(300, || {
+            Ok(stakers.iter().all(|sk| {
+                let addr = tests::to_addr(sk);
+                get_account(&http_origin_1, &addr).nonce >= 1
+                    && get_account(&http_origin_2, &addr).nonce >= 1
+            }))
+        })
+        .expect("Timed out waiting for per-signer publishes on both nodes");
+
+        // Step 2: register-self on each per-signer contract.
+        let signer_keys = self.signer_stacks_private_keys().to_vec();
+        for (i, (staker_sk, signer_sk)) in stakers.iter().zip(signer_keys.iter()).enumerate() {
+            let (staker_addr, per_signer_name, principal) = &contract_principals[i];
+            let auth_id: u128 = u128::try_from(i).unwrap();
+            let signer_pk = StacksPublicKey::from_private(signer_sk);
+            let sig =
+                stacks::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature(
+                    principal, auth_id, chain_id, signer_sk,
+                )
+                .expect("failed to construct pox-5 signer-grant signature");
+
+            let tx = make_contract_call(
+                staker_sk,
+                1,
+                call_fee,
+                chain_id,
+                staker_addr,
+                per_signer_name,
+                "register-self",
+                &[
+                    Value::Principal(principal.clone()),
+                    Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                    Value::UInt(auth_id),
+                    Value::buff_from(sig.to_rsv()).unwrap(),
+                ],
+            );
+            submit_tx(&http_origin_1, &tx);
+        }
+        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
+            .expect("settle before register-self");
+        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+            .expect("mine bitcoin block to include register-self");
+        let tenure_id = self.get_peer_info().pox_consensus;
+        wait_for_state_machine_update_by_miner_tenure_id(
+            180,
+            &tenure_id,
+            &self.signer_test.signer_addresses_versions(),
+        )
+        .expect("signers did not promote register-self tenure");
+        wait_for(300, || {
+            Ok(stakers.iter().all(|sk| {
+                let addr = tests::to_addr(sk);
+                get_account(&http_origin_1, &addr).nonce >= 2
+                    && get_account(&http_origin_2, &addr).nonce >= 2
+            }))
+        })
+        .expect("Timed out waiting for register-self on both nodes");
+
+        // Step 3: stake. Same cycle-alignment caveat as SignerTest's
+        // version: pox-5 asserts start-burn-ht is in the current reward
+        // cycle, so the one bitcoin block we mine below must not cross a
+        // cycle boundary.
+        let start_burn_ht = u128::from(self.get_peer_info().burn_block_height);
+        for (i, staker_sk) in stakers.iter().enumerate() {
+            let (_, _, principal) = &contract_principals[i];
+            let tx = make_contract_call(
+                staker_sk,
+                2,
+                call_fee,
+                chain_id,
+                &pox_5_addr,
+                "pox-5",
+                "stake",
+                &[
+                    Value::Principal(principal.clone()),
+                    Value::UInt(stake_amount),
+                    Value::UInt(lock_cycles),
+                    Value::UInt(start_burn_ht),
+                    Value::none(),
+                ],
+            );
+            submit_tx(&http_origin_1, &tx);
+        }
+        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
+            .expect("settle before stake");
+        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+            .expect("mine bitcoin block to include stake");
+        let tenure_id = self.get_peer_info().pox_consensus;
+        wait_for_state_machine_update_by_miner_tenure_id(
+            180,
+            &tenure_id,
+            &self.signer_test.signer_addresses_versions(),
+        )
+        .expect("signers did not promote stake tenure");
+        wait_for(300, || {
+            Ok(stakers.iter().all(|sk| {
+                let addr = tests::to_addr(sk);
+                let acct_1 = get_account(&http_origin_1, &addr);
+                let acct_2 = get_account(&http_origin_2, &addr);
+                acct_1.nonce >= 3
+                    && acct_1.locked == stake_amount
+                    && acct_2.nonce >= 3
+                    && acct_2.locked == stake_amount
+            }))
+        })
+        .expect("Timed out waiting for pox-5 stake lock on both nodes");
+
+        // Settle once more so block-commits land before the test starts
+        // exercising post-boundary tenures.
+        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
+            .expect("settle after stake");
+
+        info!(
+            "Multi-miner: boot_to_epoch_4_with_pox5_lockups complete: {} signers registered + staked; burn_height={}",
+            num_signers,
+            self.get_peer_info().burn_block_height,
+        );
+    }
+
     /// The (auto-generated) signer Stacks private keys held by the underlying
-    /// `SignerTest`. Tests that need to seed test-side fixtures (e.g.,
-    /// `TEST_WATERFALL_SIGNER_SET_OVERRIDE`) with the same pubkeys the
-    /// running signers actually have should pull them from here rather than
-    /// reproducing SignerTest's auto-generation seed format.
+    /// `SignerTest`. Tests that need to seed test-side fixtures with the same
+    /// pubkeys the running signers actually have should pull them from here
+    /// rather than reproducing SignerTest's auto-generation seed format.
     pub fn signer_stacks_private_keys(&self) -> &[StacksPrivateKey] {
         &self.signer_test.signer_stacks_private_keys
     }
