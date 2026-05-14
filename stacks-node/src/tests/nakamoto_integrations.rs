@@ -81,7 +81,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, PEER_VERSION_TESTNET,
+    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_TESTNET,
 };
 use stacks::libstackerdb::{SlotMetadata, StackerDBChunkData};
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
@@ -135,6 +135,7 @@ use crate::tests::neon_integrations::{
     get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
+use crate::tests::signer::v0::agg_pubkey_sbtc_stub_source;
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
@@ -255,7 +256,7 @@ lazy_static! {
             start_height: 1_000,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_4_0
+            network_epoch: PEER_VERSION_EPOCH_3_4
         },
     ];
 }
@@ -759,6 +760,24 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.connection_options.inv_sync_interval = 1;
 
     (conf, miner_account)
+}
+
+/// Activate Epoch 4.0 (inactive by default in `NAKAMOTO_INTEGRATION_EPOCHS`).
+/// Must be applied to every node's config so peers agree on the boundary.
+pub fn enable_epoch_4_0(conf: &mut Config) {
+    let epochs = conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("Missing burnchain epochs in config");
+    epochs
+        .get_mut(StacksEpochId::Epoch34)
+        .expect("Missing epoch 3.4 in config")
+        .end_height = 254;
+    epochs
+        .get_mut(StacksEpochId::Epoch40)
+        .expect("Missing epoch 4.0 in config")
+        .start_height = 254;
 }
 
 pub fn next_block_and<F>(
@@ -1294,7 +1313,7 @@ fn get_signer_index(
     stacker_set: &GetStackersResponse,
     signer_key: &Secp256k1PublicKey,
 ) -> Result<usize, String> {
-    let Some(ref signer_set) = stacker_set.stacker_set.signers else {
+    let Some(signer_set) = stacker_set.stacker_set.signers() else {
         return Err("Empty signer set for reward cycle".into());
     };
     let signer_key_bytes = signer_key.to_bytes_compressed();
@@ -3071,12 +3090,16 @@ fn correct_burn_outs() {
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let stacker_response = get_stacker_set(&http_origin, first_epoch_3_cycle).unwrap();
-    assert!(stacker_response.stacker_set.signers.is_some());
+    assert!(stacker_response.stacker_set.signers().is_some());
+    assert_eq!(stacker_response.stacker_set.signers().unwrap().len(), 1);
     assert_eq!(
-        stacker_response.stacker_set.signers.as_ref().unwrap().len(),
+        stacker_response
+            .stacker_set
+            .rewarded_addresses()
+            .unwrap()
+            .len(),
         1
     );
-    assert_eq!(stacker_response.stacker_set.rewarded_addresses.len(), 1);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -19555,36 +19578,18 @@ fn check_pox_5_stake_lifecycle() {
     blind_signer(&naka_conf, &signers, &counters);
     wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
 
-    let sbtc_token_contract = r#"
-(define-fungible-token sbtc-token)
-
-(define-public (transfer
-        (amount uint)
-        (sender principal)
-        (recipient principal)
-        (memo (optional (buff 34)))
-    )
-    (begin
-        (try! (ft-transfer? sbtc-token amount sender recipient))
-        (ok true)
-    )
-)
-
-(define-read-only (get-balance (who principal))
-    (ok (ft-get-balance sbtc-token who))
-)
-
-(define-public (mint (amount uint) (recipient principal))
-    (ft-mint? sbtc-token amount recipient)
-)
-"#;
+    let pubkey_bytes: [u8; 33] = signer_pk
+        .to_bytes_compressed()
+        .try_into()
+        .expect("compressed secp256k1 pubkey should be 33 bytes");
+    let sbtc_token_contract = agg_pubkey_sbtc_stub_source(&pubkey_bytes);
     let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
-        sbtc_token_contract,
+        &sbtc_token_contract,
     );
     submit_tx(&http_origin, &sbtc_deploy_tx);
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
@@ -19991,36 +19996,18 @@ fn check_pox_5_register_for_bond_lifecycle() {
     blind_signer(&naka_conf, &signers, &counters);
     wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
 
-    let sbtc_token_contract = r#"
-(define-fungible-token sbtc-token)
-
-(define-public (transfer
-        (amount uint)
-        (sender principal)
-        (recipient principal)
-        (memo (optional (buff 34)))
-    )
-    (begin
-        (try! (ft-transfer? sbtc-token amount sender recipient))
-        (ok true)
-    )
-)
-
-(define-read-only (get-balance (who principal))
-    (ok (ft-get-balance sbtc-token who))
-)
-
-(define-public (mint (amount uint) (recipient principal))
-    (ft-mint? sbtc-token amount recipient)
-)
-"#;
+    let pubkey_bytes: [u8; 33] = signer_pk
+        .to_bytes_compressed()
+        .try_into()
+        .expect("compressed secp256k1 pubkey should be 33 bytes");
+    let sbtc_token_contract = agg_pubkey_sbtc_stub_source(&pubkey_bytes);
     let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
-        sbtc_token_contract,
+        &sbtc_token_contract,
     );
     submit_tx(&http_origin, &sbtc_deploy_tx);
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
@@ -20473,36 +20460,18 @@ fn check_with_stacking_allowances_stake() {
     // Deploy the sBTC token stub before the epoch 4.0 transition. The pox-5
     // boot contract references this contract by its qualified identifier and
     // will fail static analysis at the epoch boundary if it is not present.
-    let sbtc_token_contract = r#"
-(define-fungible-token sbtc-token)
-
-(define-public (transfer
-        (amount uint)
-        (sender principal)
-        (recipient principal)
-        (memo (optional (buff 34)))
-    )
-    (begin
-        (try! (ft-transfer? sbtc-token amount sender recipient))
-        (ok true)
-    )
-)
-
-(define-read-only (get-balance (who principal))
-    (ok (ft-get-balance sbtc-token who))
-)
-
-(define-public (mint (amount uint) (recipient principal))
-    (ft-mint? sbtc-token amount recipient)
-)
-"#;
+    let pubkey_bytes: [u8; 33] = signer_pk
+        .to_bytes_compressed()
+        .try_into()
+        .expect("compressed secp256k1 pubkey should be 33 bytes");
+    let sbtc_token_contract = agg_pubkey_sbtc_stub_source(&pubkey_bytes);
     let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
-        sbtc_token_contract,
+        &sbtc_token_contract,
     );
     let sbtc_deploy_txid = submit_tx(&http_origin, &sbtc_deploy_tx);
     info!("Submitted sbtc-token deploy txid: {sbtc_deploy_txid}");
@@ -21103,36 +21072,18 @@ fn check_with_stacking_allowances_register_for_bond() {
     wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
 
     // Deploy the sBTC token stub before the epoch 4.0 transition.
-    let sbtc_token_contract = r#"
-(define-fungible-token sbtc-token)
-
-(define-public (transfer
-        (amount uint)
-        (sender principal)
-        (recipient principal)
-        (memo (optional (buff 34)))
-    )
-    (begin
-        (try! (ft-transfer? sbtc-token amount sender recipient))
-        (ok true)
-    )
-)
-
-(define-read-only (get-balance (who principal))
-    (ok (ft-get-balance sbtc-token who))
-)
-
-(define-public (mint (amount uint) (recipient principal))
-    (ft-mint? sbtc-token amount recipient)
-)
-"#;
+    let pubkey_bytes: [u8; 33] = signer_pk
+        .to_bytes_compressed()
+        .try_into()
+        .expect("compressed secp256k1 pubkey should be 33 bytes");
+    let sbtc_token_contract = agg_pubkey_sbtc_stub_source(&pubkey_bytes);
     let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
-        sbtc_token_contract,
+        &sbtc_token_contract,
     );
     let sbtc_deploy_txid = submit_tx(&http_origin, &sbtc_deploy_tx);
     info!("Submitted sbtc-token deploy txid: {sbtc_deploy_txid}");

@@ -1342,6 +1342,7 @@ impl<'a> TestChainstate<'a> {
         block_commit_op.commit_outs = match recipients {
             Some(info) => {
                 let mut recipients = info
+                    .unwrap_v0()
                     .recipients
                     .into_iter()
                     .map(|x| x.0)
@@ -1619,6 +1620,7 @@ impl<'a> TestChainstate<'a> {
         block_commit_op.commit_outs = match recipients {
             Some(info) => {
                 let mut recipients = info
+                    .unwrap_v0()
                     .recipients
                     .into_iter()
                     .map(|x| x.0)

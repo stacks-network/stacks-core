@@ -94,7 +94,7 @@ impl NakamotoBlockHeader {
 
     /// Get the signing weight of a shadow block
     pub fn get_shadow_signer_weight(&self, reward_set: &RewardSet) -> Result<u32, Error> {
-        let Some(signers) = &reward_set.signers else {
+        let Some(signers) = reward_set.signers() else {
             return Err(ChainstateError::InvalidStacksBlock(
                 "No signers in the reward set".to_string(),
             ));
