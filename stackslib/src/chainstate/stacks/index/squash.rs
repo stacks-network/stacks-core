@@ -258,7 +258,6 @@ fn verify_blob_root_matches_marf<T: MarfTrieId>(
 /// rows from `marf_squashed_blocks`.
 fn collect_per_height_metadata<T: MarfTrieId>(
     src: &mut MARF<T>,
-    tip: &T,
     block_at_height: &T,
     block_map: &HashMap<T, (u32, u64)>,
     blob_reader: &mut BlobReader,
