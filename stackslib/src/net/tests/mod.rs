@@ -224,7 +224,8 @@ impl NakamotoBootPlan {
             3 * cycle_length + 1,
             // pox-3 activates at start of third cycle, just before v2 unlock
             2 * cycle_length + 1,
-            4 * cycle_length + 1,
+            // do not activate pox-5 in default tests for now.
+            1000 * cycle_length + 1,
         );
         self.pox_constants = new_consts;
         self

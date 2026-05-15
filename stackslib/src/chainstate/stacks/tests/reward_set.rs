@@ -56,7 +56,7 @@ pub fn check_make_reward_set(
     let reward_set =
         StacksChainState::make_reward_set(threshold, addresses.to_vec(), StacksEpochId::latest());
 
-    prop_assert_eq!(Some(threshold), reward_set.pox_ustx_threshold);
+    prop_assert_eq!(Some(threshold), reward_set.pox_ustx_threshold());
 
     let mut sum_by_addresses: HashMap<PoxAddress, u128> = HashMap::new();
     for addr in addresses.iter() {
@@ -68,7 +68,8 @@ pub fn check_make_reward_set(
 
     for (addr, stacked_amount) in sum_by_addresses.iter() {
         let slot_count: u128 = reward_set
-            .rewarded_addresses
+            .rewarded_addresses()
+            .unwrap()
             .iter()
             .filter(|x| *x == addr)
             .count()

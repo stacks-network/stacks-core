@@ -964,7 +964,7 @@ expression: result
     error: "Invalid Stacks block a2f78c97a10909247e07cb1003f1e12b60e26330089e9b3ec165080a511ef5b2: CostOverflowError(ExecutionCost { write_length: 1275935, write_count: 20, read_length: 5, read_count: 5, runtime: 52204921 }, ExecutionCost { write_length: 1275935, write_count: 20, read_length: 480031, read_count: 15001, runtime: 59926682 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "00d01573735393b92c76b8f18a941849a8bac931580df7b40a686014a654cb1f",
+    marf_hash: "df1f9c82de0a894eafbb2c9199af4e921e5dda5559d61f9a66e8f3bf8b8e1ec2",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -992,7 +992,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3c7119307390b0763df4638790d0e22beb470d343fb0d160364376eb7eba16f4",
+    marf_hash: "03300a23351719558c4787d0b6e67073aab948423f885457c539cf73611abd9c",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -1020,7 +1020,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cf8fbcd965eb4e69f59931d294e0a820258dace196e853a3508a2c759bde730d",
+    marf_hash: "4ad0640abe141bd1cb343df3110ea95d6bc24e375ca9b6d10f5c86f509336045",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -1048,7 +1048,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a4bda42fb0407f58c9fc83b219cd2320da668ae243bff5b996648d773e6e1aec",
+    marf_hash: "55236f4a98e1352c492e5574397aca497c06c7e83d169566d1f5d93b6ff203e4",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -1076,7 +1076,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "85b312eb95977c423442e3d2f3c32b21d73d815bcfb8b6c1f0bf724a978181a4",
+    marf_hash: "2d784206ecf12fbea942bc5df4b6a529f28356775026cdc9619b49d04fbdae13",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -1104,7 +1104,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5e5a2987f4cea763b5a39d0a95b724db1ae12fbbb6e984d526ae411ee5baa18d",
+    marf_hash: "a0a39de6287f4e0528acfdf54b0f7d39454170be97c586430752404a93525d8a",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -1133,146 +1133,146 @@ expression: result
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block a0634723e89e4673cc31d483f8dae124d699a5693b9851fd24542e905c0c5b8e: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 26d007bfb32aaa0563ac9441390013c731bf0e51ed65198bab13afec6ade00d3: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 6a41947a1a5d4b1e011e9a3d4a79f98684d4526076d0698b25f5c2ae29f37a2e: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 1d9e224a96fe554966046fe572fe19b7dea04a2b7cf552c9e1ed20856f6fc468: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block f8bea58b60df98bb012e5297ef32f3d188461a84bd0947c02aaeae0edbf4c668: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block a11bc91b529ad9ad69725a60a7b26afd1b3a8fc620d4eb0a30092d024cc735d6: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block f152be08ec3ba14fc3d97b888345a0a18f8d00c67be9aecf6f18522e58cdb4f6: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 5935bad11677ccb15951927fadb1a5f3dd277ebd506888cd86dad810c6fb6bef: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 43a6896c8b313bdac8b551b5cb5dd6c7b08eef412acd0ab62a23d93ac950c60e: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 0376ea7a3439aa5f1f87aa8e44f4314b3c454e5ae6f962d225b9f0bd10094a0b: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 6714b23eb9bf1415d74896a4956e4df0934a9e6aa369e914db42d5488b720fe0: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 8dac5f3057431d914585ab1f19a9b46da6e46b9a9439640282846d31f540b409: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 11aa52e239c45440c270e0501b5f7733f68dc24302920f83529fa11f64aa96ab: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 7d57e3a74c5937dfecb496428e1bf9902a54cacba889b07c686ef4eb6be03a35: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block ed04ad36a13f902e7a2520335a5c6a5a03c9cb14f0cae5d1833c304823de53ca: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block d8f79c94c012ef33a1cbf104a7028c1a4f3c59c175a5a753ab619a72350c382e: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 630754cdd2f685f6a991818ba53135da14f2a8450b30c4b6a9fdbe8962fb49b1: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 2992e6ce955b21e8cf9917aef28c3f0f6083eb1db96f1f130af4a80c7d9079c8: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block c29497d6bbe1fb22d89dfe4cb9716779004c4f0f95e6e8b343efe7a81e9a61f5: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 22929c9d627b87114236d629aea5b1e2ceff7a68fddd73d099687409f72f51ea: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 70437e39968c6e981d2afc34ad630b1245675d09cc30bfe41ea013a54759fdb5: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 9abc330d02c236b0a588e5f267446530dad615e0267a58027de5a5e437487860: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 5c177fb7f608d6465ca77234ad3498dbc396439471bbfa5d9ad429d8c8294aac: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block d768402582483848831922ef0137a93691761ccf9aa643918804c621538b7933: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block eb5eada1c574948d2de1721dcb64a28da51fc21e890eab36c84899d639e825e1: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block ca5046b4b16c303fa16bab6b2e803210c372b20c6dcbd8bd694a27e9244cb3a8: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 97977d990c25b378a2c5af10930d169ad579ef57790a845ecf7437c4217b4ce3: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block d508620ae1047e066c4512db9f9150882efd05a6e5a5816cff7c093578556ef5: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 1cd6266c9bb0ffd30c903950e9f2c443bbaf0e59faf07d4ddb0508fe963fe900: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 6695cce38687ff476f4dfedb68891751008ce6dbc746930b150675311466e246: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block ff81cc0a6240dff9a404e88782ec97e652f7c4aebd6a74fc5a5d9b1ebf706349: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 2cfbe3bed388362ab0027ecf0c08949850aff742a1715a6461f11fcc3887edba: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block c635454c304666061c5847f4014a1ce84b2af0eef67da2f1b37f44498049d269: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 120d17fa3f8cfff26e9cce056044bc286b6111da80a8baa4567960952596bc11: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 28f7e8eafb5c63238bbfefb920684c188bbb85a08184f5151bdfe9351aaeef67: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block cc76b1897f28427837b4f6db9f7bd701939946b7ad36a77278664b35353454db: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 35b3ac6043c0b1c2d41fe4520d52fc6b956c8d7accce3da6091a4c5965b9c454: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 9911a06d724e1f7a1be7aaad9628cbed567a1bc9b775db425e2cda7b00fa8af2: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block a66b71833e4361bb411eb4a6480d77fc7fcfb8f4c98d11db21cceec9a9aee177: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block b68941704bd065555feef6752a4089af6243abe75e752d1bf5ad5424086fc421: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 5160fc4470d5820b9564c6539326245652b39ce980e0b9c7090410e8675de0d3: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 6fb655705860ebed5bff397c443bfe82f7c8488338244e9a9fdcec604bdd07d3: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block fa5d5b02aed60053a4a07e10869531d5b4a11895d457c70dcfdb3f4b2be03e74: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 9648a2331db4e5b01f130fab6dcc25741d9ef80d9927b97dde369613e273732a: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 315e619dd9bf57453598cf619a1a3d943bc82955938f9304f3a79ec6bcfbb0cc: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 5e7c6f2f9e19418be0c6603e5aac5bb58f6b2c5639018eb0b414cbbdc7ffc6c5: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 41dfd03837a5ce6835dd6185e2d3d018295d7888f44cd03cf01ab463e6b1de6e: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 2e8a22d90d9fd5c4907037d3acd2f86e68a3aab1a1b2dbd3a1f61e5aedd586b2: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 36a49e910722306827a6506141b60faec3fefd41aadb1345b709cb1f6f7c2057: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block c1e99eb8e3d887a49a1f6faadfdd918cb0fdecf2bbba60b0ead6f9757eaec9f0: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 24711fbce2ab2d2f5e1f95cd8d93e1426d0cfe722d7754b76c1a141e1d2cef5b: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 1228ef040f6740194026533538f4d89efea42b0f8997a1ed570e933818e39e32: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 618215f8734c6979f0c76ba5d02b1d004e3b714d7814649027b07bb03a5af2ed: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 28eb7996c83c891c1d9b7448f4a208b6b075f0150bc22977f74e8ec10541f68e: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 0e8454dd05ca71fafa990fe69fc0bc42a615a78fe406e2061e8f1382c4fe6c78: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 52da8d77ffbfa1568994f9ac82136a4edc3432b1b121025c6a4ac647d7a7e9ff: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 6e21052691f40f7d6f38ed2652829ddd0a9b0b77c565cf5ab928b6fe4511c6cd: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 1acb29d7505d61614aa172a6bdb314f6793c12173d9492d03a4c07ff410ab0f1: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block f4399f4c421d77f7117d1d2698c899f7a379cc5cba638debc002674cb0b7114a: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block a882d6a7dae0fc5f25e51a3f7450191d1fc9b16c63e9a654193842a1d637f35d: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 8054968945875880567b68d1fc1103e66494088891267cecf0e2cb5cbb107713: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block b56b2030b384bde1f90edb58ad88fcce70460dd33bfd0c9c2e71c11d29f8d21a: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block e8d783e3580825f88a60d0b05c604442ef58b46b066f2cebeeb918a1606ad1a7: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 3dc372c719995eaae3d4b0e3a07b7bed76d96aed5a1159218c824fd0aac0316f: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 807e7ba66cfc710ff0cee2051d66e7be8d9490bb2108f05485c02c38dd7665fe: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 89306bf748d1277669d81fef6549476ba2ef861e33feff43403fe4c9fbeb00ff: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 4a453dd62101038fe5593925414f1c6e4a41fc434a9085b695e0634f389c3cea: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 769d25e05a0bc124978fce60f97bcceedda466b5f326b6e240d0ee1f806d4ec8: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 914263757fb6495ec0c4d71891abcb5c8685cad76fe258ee2af165bc3b41841b: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block 44e0e3cc3da11b686acf82482e601f7efbf6003974a671f644b812bdd670203c: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block d1f3df34d6881f1bb5a9dcb401f15325d8235ba3b16fa6d14d8ebdd51358146c: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+    error: "Invalid Stacks block f4179a06936801df9698572db4e037242fd3aefb6a055aa861199c9e8a11f4dc: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
 ]

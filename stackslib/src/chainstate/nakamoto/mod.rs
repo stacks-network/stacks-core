@@ -845,7 +845,7 @@ impl NakamotoBlockHeader {
     #[cfg_attr(test, mutants::skip)]
     pub fn verify_signer_signatures(&self, reward_set: &RewardSet) -> Result<u32, ChainstateError> {
         let message = self.signer_signature_hash();
-        let Some(signers) = &reward_set.signers else {
+        let Some(signers) = reward_set.signers() else {
             return Err(ChainstateError::InvalidStacksBlock(
                 "No signers in the reward set".to_string(),
             ));
@@ -4447,14 +4447,20 @@ impl NakamotoChainState {
             return Ok(());
         }
 
-        let address_to_indeces: HashMap<_, Vec<_>> = active_reward_set
-            .rewarded_addresses
-            .iter()
-            .enumerate()
-            .fold(HashMap::new(), |mut map, (ix, addr)| {
-                map.entry(addr).or_default().push(ix);
-                map
-            });
+        let rewarded_addresses = match active_reward_set.rewarded_addresses() {
+            Some(addrs) => addrs,
+            // Waterfall cycles have no PoX reward addresses, so no bitvector to check
+            None => return Ok(()),
+        };
+
+        let address_to_indeces: HashMap<_, Vec<_>> =
+            rewarded_addresses
+                .iter()
+                .enumerate()
+                .fold(HashMap::new(), |mut map, (ix, addr)| {
+                    map.entry(addr).or_default().push(ix);
+                    map
+                });
 
         // our block commit issued a punishment, check the reward set and bitvector
         //  to ensure that this was valid.
