@@ -1,5 +1,5 @@
-## Github workflow to create release docker images
-##   - uses binary archives produced by the ./release-build.yml workflow
+# Github workflow to create release docker images
+#   - uses binary archives produced by the ./release-build.yml workflow
 
 name: Docker Release Images
 
@@ -19,67 +19,78 @@ on:
         required: true
         type: string
 
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default shell
+defaults:
+  run:
+    shell: bash
+
+# Configure concurrency
 concurrency:
-  group: ${{ inputs.release_type }}-${{ github.head_ref || github.ref }}
-  ## Always cancel duplicate jobs
+  group: release-docker-${{ inputs.release_type }}-${{ github.head_ref || github.ref }}
+  # Always cancel duplicate jobs
   cancel-in-progress: true
 
 run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
+# Set default env vars
 env:
-  # build for both x64 and arm64 arch
+  # Build for both x64 and arm64 arch
   DOCKER_PLATFORMS: "linux/amd64,linux/arm64"
-  # publish images to ghcr
+  # Publish images to ghcr
   DOCKER_REGISTRY: "ghcr.io"
-  # do not generate provenance from the docker build step, instead attest the image specifically
+  # Boolean on whether to generate provenance from the docker build step (default to false, only attest immages)
   PROVENANCE: false
 
 jobs:
   release-images:
+    name: Docker Image (${{ inputs.release_type }}, ${{ matrix.dist }})
     if: |
       ( inputs.release_type == 'stacks-core' || inputs.release_type == 'stacks-signer') &&
       ( inputs.signer_tag != '' || inputs.node_tag != '' )
-    name: Docker Image (${{ inputs.release_type }}, ${{ matrix.dist }})
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      attestations: write
-      packages: write
     strategy:
       fail-fast: false
-      ## Build a maximum of 2 images concurrently based on matrix.dist
+      # Build a maximum of 2 images concurrently based on matrix.dist
       max-parallel: 2
       matrix:
         dist:
           - alpine
           - debian
+    permissions:
+      contents: read       # required for checkout
+      id-token: write      # required for attestation
+      attestations: write  # required for attestation
+      packages: write      # required for image push
     steps:
-      ## Retrieve repository description for image annotation
+      # Retrieve repository description for image annotation
       - name: Get repository description
-        id: repo_desc
+        id: repo-desc
         run: |
-          DESCRIPTION=$(gh api repos/${{ github.repository }} --jq '.description')
-          echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
+          description=$(gh api repos/${{ github.repository }} --jq '.description')
+          echo "description=$description" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ github.token }}
 
-      ## set local env vars
+      # Set local env vars
       - name: Set Local Vars
-        id: set_vars
-        shell: bash
+        id: set-vars
         run: |
-          var_dockerfile_name="Dockerfile.release"
+          var_dockerfile_name="Dockerfile"
           var_build_arch=glibc # default build architecture to glibc
+          var_docker_tag_rc=false
           if [ "${{ matrix.dist }}" == "alpine" ]; then
             var_build_arch=musl
           fi
-
           # set a default docker image: registry/repo/release_type
           var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}"
           var_artifact_pattern="${{ github.sha }}-${{ inputs.release_type }}-linux-${var_build_arch}*"
           if [ "${{ inputs.release_type }}" == "stacks-signer" ]; then
             # stacks-signer
-            var_dockerfile_name="Dockerfile.release.signer"
+            var_dockerfile_name="Dockerfile.signer"
             var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
             var_docker_tag=${{ inputs.signer_tag }} # use the input signer_tag if this is the stacks-signer build
             var_annotation_pattern="Stacks Signer"
@@ -89,126 +100,117 @@ jobs:
             var_docker_tag=${{ inputs.node_tag }} # use the input node_tag if this is the stacks-node build
             var_annotation_pattern="Stacks Core"
           fi
-
-          # Add vars to github env for later steps
-          echo "DOCKER_IMAGES=${var_images}" >> $GITHUB_ENV
-          echo "DOCKER_TAG=${var_docker_tag}" >> $GITHUB_ENV
-          echo "ARTIFACT_PATTERN=${var_artifact_pattern}" >> $GITHUB_ENV
-          echo "ANNOTATION_PATTERN=${var_annotation_pattern}" >> $GITHUB_ENV
-          echo "DOCKERFILE_NAME=${var_dockerfile_name}" >> "$GITHUB_ENV"
-
-      ## Set docker rc tag if branch is named `..-rc[0-9]`
-      - name: Set Docker Tag RC Flag
-        id: docker_tag_rc_flag
-        shell: bash
-        run: |
-          var_docker_tag_rc=false
-          if [[ "${{ env.DOCKER_TAG }}" =~ -rc[0-9]*$ ]]; then
+          # Set docker rc tag if branch is named `..-rc[0-9]`
+          if [[ "${var_docker_tag}" =~ -rc[0-9]*$ ]]; then
             # is a release candidate
             var_docker_tag_rc=true
           fi
-          echo "DOCKER_TAG_RC=${var_docker_tag_rc}" >> "$GITHUB_ENV"
+          # Add vars to github output for later steps
+          {
+            echo "docker_images=${var_images}"
+            echo "docker_tag=${var_docker_tag}"
+            echo "artifact_pattern=${var_artifact_pattern}"
+            echo "annotation_pattern=${var_annotation_pattern}"
+            echo "dockerfile_name=${var_dockerfile_name}"
+            echo "docker_tag_rc=${var_docker_tag_rc}"
+          } >> "${GITHUB_OUTPUT}"
 
-      ## Checkout the code
+      # Checkout the code
+      #   - only .github is required for this job
       - name: Checkout the latest code
-        id: git_checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ env.BRANCH_NAME }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
-      ## Download binary artifacts
+      # Download binary artifacts
       - name: Download Artifacts
-        id: download_artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: ${{ env.ARTIFACT_PATTERN }}
+          pattern: ${{ steps.set-vars.outputs.artifact_pattern }}
           path: /tmp/release
           merge-multiple: true
 
-      ## Setup Docker for the builds
+      # Setup Docker for the builds
       - name: Docker setup
-        id: docker_setup
-        uses: stacks-network/actions/docker@main
+        id: docker-setup
+        uses: ./.github/actions/docker
         with:
           registry: ${{ env.DOCKER_REGISTRY }} # set the registry to ghcr (default is docker.io)
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      ## Set docker metatdata
+      # Set docker metatdata
       - name: Docker Metadata ( ${{ matrix.dist }} )
-        id: docker_metadata
-        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 #v5.9.0
+        id: docker-metadata
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf #v6.0.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: |
-            ${{ env.DOCKER_IMAGES }}
+            ${{ steps.set-vars.outputs.docker_images }}
           labels: |
             org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
-            org.opencontainers.image.version=${{ env.DOCKER_TAG }}
+            org.opencontainers.image.version=${{ steps.set-vars.outputs.docker_tag }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.title=${{ inputs.release_type }}
           annotations: |
             org.opencontainers.image.title=${{ inputs.release_type }}
-            org.opencontainers.image.description=${{ steps.repo_desc.outputs.description }} | ${{ env.ANNOTATION_PATTERN}} Image
+            org.opencontainers.image.description=${{ steps.repo-desc.outputs.description }} | ${{ steps.set-vars.outputs.annotation_pattern }} Image
           tags: |
             # debian tags #
             #  latest tag
-            type=raw,value=latest,enable=${{ env.DOCKER_TAG != '' && env.DOCKER_TAG_RC != 'true' && matrix.dist == 'debian' }}
+            type=raw,value=latest,enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
             #  latest-debian tag
-            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.DOCKER_TAG != '' && env.DOCKER_TAG_RC != 'true' && matrix.dist == 'debian' }}
+            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
             #  version tag
-            type=raw,value=${{ env.DOCKER_TAG }},enable=${{ env.DOCKER_TAG != '' && matrix.dist == 'debian'}}
+            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'debian'}}
             #  version-dist tag
-            type=raw,value=${{ env.DOCKER_TAG }},suffix=-${{ matrix.dist }},enable=${{ env.DOCKER_TAG != '' && matrix.dist == 'debian' }}
+            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'debian' }}
             #
             # alpine tags #
             #   latest-alpine tag
-            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.DOCKER_TAG != '' && env.DOCKER_TAG_RC != 'true' && matrix.dist == 'alpine' }}
+            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'alpine' }}
             #  version-dist tag
-            type=raw,value=${{ env.DOCKER_TAG }},suffix=-${{ matrix.dist }},enable=${{ env.DOCKER_TAG != '' && matrix.dist == 'alpine' }}
+            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'alpine' }}
 
-      ## Build docker image for release
+      # Build docker image for release
       - name: Build and Push ( ${{matrix.dist}} )
-        id: docker_build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        id: docker-build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           sbom: false
           provenance: ${{ env.PROVENANCE }}
           context: /tmp
-          file: ./.github/actions/dockerfiles/${{ matrix.dist }}/${{ env.DOCKERFILE_NAME }}
+          no-cache: true
+          file: ./.github/dockerfiles/${{ matrix.dist }}/${{ steps.set-vars.outputs.dockerfile_name }}
           platforms: ${{ env.DOCKER_PLATFORMS }}
-          tags: ${{ steps.docker_metadata.outputs.tags }}
-          labels: ${{ steps.docker_metadata.outputs.labels }}
-          annotations: ${{ steps.docker_metadata.outputs.annotations }} # Note: annotations are used for multi-architecture ghcr images
-          push: ${{ env.DOCKER_PUSH }}
+          tags: ${{ steps.docker-metadata.outputs.tags }}
+          labels: ${{ steps.docker-metadata.outputs.labels }}
+          annotations: ${{ steps.docker-metadata.outputs.annotations }} # Note: annotations are used for multi-architecture ghcr images
+          push: ${{ steps.docker-setup.outputs.docker_push }} # defined in .github/actions/docker composite
 
-      ## Generate docker image attestation(s)
+      # Generate docker image attestation(s)
       - name: Attest Image (${{ github.event.repository.name }})
         if: |
           env.PROVENANCE != true
-        id: attest_image
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
           subject-name: ${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}
-          subject-digest: ${{ steps.docker_build.outputs.digest }}
-          push-to-registry: ${{ env.DOCKER_PUSH }}
+          subject-digest: ${{ steps.docker-build.outputs.digest }}
+          push-to-registry: ${{ steps.docker-setup.outputs.docker_push }} # defined in .github/actions/docker composite
 
-      ## Sign the images with GitHub OIDC Token
-      ##   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
-      ##   - annotations show as null per https://github.com/sigstore/cosign/pull/4508 until a future release (or tagging this specific commit)
+      # Sign the images with GitHub OIDC Token
+      #   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
       - name: Install Cosign
-        id: cosign_install
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
+      # Sign the images with Github OIDC token
       - name: Sign the images with OIDC Token
-        id: cosign_artifact
-        shell: bash
         env:
-          DIGEST: ${{ steps.docker_build.outputs.digest }}
-          TAGS: ${{ steps.docker_metadata.outputs.tags }}
+          DIGEST: ${{ steps.docker-build.outputs.digest }}
+          TAGS: ${{ steps.docker-metadata.outputs.tags }}
         run: |
           images=""
           for tag in ${TAGS}; do
@@ -220,3 +222,53 @@ jobs:
             -a "dist=${{ matrix.dist }}" \
             --yes \
           ${images}
+
+      - name: Get package ID
+        id: pkg_id
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Determine if owner is a user or organization (useful for running this workflow from a fork)
+          owner_type=$(gh api repos/${{ github.repository }} --jq .owner.type)
+
+          if [[ "$owner_type" == "Organization" ]]; then
+            endpoint="/orgs/${{ github.repository_owner }}/packages"
+          else
+            endpoint="/user/packages"
+          fi
+
+          var_pkg_id=$(gh api ${endpoint}/container/${{ inputs.release_type }}/versions \
+            --jq '.[] | select(.metadata.container.tags[] == "${{ steps.set-vars.outputs.docker_tag }}-${{ matrix.dist }}") | .id' 2>/dev/null) || var_pkg_id=""
+          echo "package_id=${var_pkg_id}" >> $GITHUB_OUTPUT
+
+      # Save digest metadata for consolidation
+      - name: Export Image Digest
+        env:
+          DIGEST: ${{ steps.docker-build.outputs.digest }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          DIST: ${{ matrix.dist }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_ID: ${{ steps.pkg_id.outputs.package_id }}
+        run: |
+          # Determine libc variant from distribution
+          libc_variant="glibc"
+          [[ "${{ matrix.dist }}" == "alpine" ]] && libc_variant="musl"
+
+          # Save digest to a file for consolidation job
+          # Use a filename that includes the release type and variant to avoid collisions
+          mkdir -p /tmp/digest-exports
+          digest_file="/tmp/digest-exports/${RELEASE_TYPE}-${libc_variant}.json"
+
+          # Create individual digest file
+          echo "{\"release_type\": \"${RELEASE_TYPE}\", \"package_id\": \"${PACKAGE_ID}\", \"libc_variant\": \"${libc_variant}\", \"digest\": \"${DIGEST}\"}" > "${digest_file}"
+
+          echo "Saved digest for ${RELEASE_TYPE} (${DIST}): ${DIGEST} to ${digest_file}"
+
+      # Upload individual digest file as artifact for consolidation
+      - name: Upload Individual Digest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ inputs.release_type }}-${{ matrix.dist }}
+          path: /tmp/digest-exports/
+          retention-days: 1
