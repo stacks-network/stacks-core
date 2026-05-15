@@ -15,7 +15,7 @@ import {
   errorCodes,
   expectAllSignersHaveKeys,
   getAllStakers,
-  isStakerInCycle,
+  isSignerInCycle,
   registerSigner,
   sbtc,
   sbtcBalance,
@@ -346,8 +346,8 @@ test('scenario - staking to a signer', () => {
     signer,
   });
 
-  expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer, cycle: 2n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer, cycle: 1n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer, cycle: 2n })).toBeFalsy();
 
   txOk(
     pox5.stake({
@@ -382,9 +382,9 @@ test('scenario - staking to a signer', () => {
 
   expectAllSignersHaveKeys();
 
-  expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer, cycle: 2n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer, cycle: 3n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer, cycle: 1n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer, cycle: 2n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer, cycle: 3n })).toBeFalsy();
 
   txOk(
     pox5.stake({
@@ -417,9 +417,9 @@ test('scenario - staking to a signer', () => {
   expectAllSignersHaveKeys();
 
   // finally, our signer should be in the signer set
-  expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeTruthy();
-  expect(isStakerInCycle({ staker: signer, cycle: 2n })).toBeTruthy();
-  expect(isStakerInCycle({ staker: signer, cycle: 3n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer, cycle: 1n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer, cycle: 2n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer, cycle: 3n })).toBeFalsy();
 });
 
 test('contract caller authorization expires at until-burn-ht', () => {
@@ -522,22 +522,22 @@ test('scenario - updating a stake', () => {
   ).toBe(0n);
 
   // signer1 should be removed from the signer set
-  expect(isStakerInCycle({ staker: signer1, cycle: 1n })).toBeTruthy();
-  expect(isStakerInCycle({ staker: signer1, cycle: 2n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer1, cycle: 3n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 1n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 2n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 3n })).toBeFalsy();
 
   // testSigner2 should be added to the signer set from 2-4
   expect(
-    isStakerInCycle({ staker: testSigner2.identifier, cycle: 1n }),
+    isSignerInCycle({ signer: testSigner2.identifier, cycle: 1n }),
   ).toBeFalsy();
   expect(
-    isStakerInCycle({ staker: testSigner2.identifier, cycle: 2n }),
+    isSignerInCycle({ signer: testSigner2.identifier, cycle: 2n }),
   ).toBeTruthy();
   expect(
-    isStakerInCycle({ staker: testSigner2.identifier, cycle: 3n }),
+    isSignerInCycle({ signer: testSigner2.identifier, cycle: 3n }),
   ).toBeTruthy();
   expect(
-    isStakerInCycle({ staker: testSigner2.identifier, cycle: 4n }),
+    isSignerInCycle({ signer: testSigner2.identifier, cycle: 4n }),
   ).toBeTruthy();
 
   expectAllSignersHaveKeys();
@@ -578,9 +578,9 @@ test('scenario - unstaking', () => {
     signer,
   });
 
-  expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeTruthy();
-  expect(isStakerInCycle({ staker: signer, cycle: 2n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer, cycle: 3n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer, cycle: 1n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer, cycle: 2n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer, cycle: 3n })).toBeFalsy();
 
   expect(getAllStakers().length).toBe(0);
 
@@ -1256,7 +1256,7 @@ test('only early unlock admin can announce l1 early exit', () => {
   expect(rov(pox5.getSignerSharesStakedForCycle(signer, 0n, true))).toBe(0n);
   expect(rov(pox5.getTotalSharesStakedForCycle(0n, true))).toBe(0n);
   expect(rov(pox5.getAmountDelegatedForSigner(signer, 1n))).toBe(aliceUstx);
-  expect(isStakerInCycle({ staker: signer, cycle: 1n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer, cycle: 1n })).toBeTruthy();
 });
 
 test('cannot announce l1 early exit for sbtc bond participant', () => {
@@ -1809,8 +1809,8 @@ test('bond participant can update signer before bond starts', () => {
   });
   expect(rov(pox5.getAmountDelegatedForSigner(signer1, 1n))).toBe(0n);
   expect(rov(pox5.getAmountDelegatedForSigner(signer2, 1n))).toBe(aliceUstx);
-  expect(isStakerInCycle({ staker: signer1, cycle: 1n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer2, cycle: 1n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 1n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer2, cycle: 1n })).toBeTruthy();
 });
 
 test('bond participant signer update changes signer set starting next cycle', () => {
@@ -1850,10 +1850,10 @@ test('bond participant signer update changes signer set starting next cycle', ()
   expect(rov(pox5.getAmountDelegatedForSigner(signer1, 2n))).toBe(aliceUstx);
   expect(rov(pox5.getAmountDelegatedForSigner(signer2, 1n))).toBe(0n);
   expect(rov(pox5.getAmountDelegatedForSigner(signer2, 2n))).toBe(0n);
-  expect(isStakerInCycle({ staker: signer1, cycle: 1n })).toBeTruthy();
-  expect(isStakerInCycle({ staker: signer1, cycle: 2n })).toBeTruthy();
-  expect(isStakerInCycle({ staker: signer2, cycle: 1n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer2, cycle: 2n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 1n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 2n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer2, cycle: 1n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer2, cycle: 2n })).toBeFalsy();
 
   mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)) + 1n);
 
@@ -1895,12 +1895,12 @@ test('bond participant signer update changes signer set starting next cycle', ()
   expect(rov(pox5.getUstxDelegatedForCycle(2n))).toBe(aliceUstx);
   expect(rov(pox5.getUstxDelegatedForCycle(12n))).toBe(aliceUstx);
 
-  expect(isStakerInCycle({ staker: signer1, cycle: 1n })).toBeTruthy();
-  expect(isStakerInCycle({ staker: signer1, cycle: 2n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer1, cycle: 12n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer2, cycle: 1n })).toBeFalsy();
-  expect(isStakerInCycle({ staker: signer2, cycle: 2n })).toBeTruthy();
-  expect(isStakerInCycle({ staker: signer2, cycle: 12n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 1n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 2n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer1, cycle: 12n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer2, cycle: 1n })).toBeFalsy();
+  expect(isSignerInCycle({ signer: signer2, cycle: 2n })).toBeTruthy();
+  expect(isSignerInCycle({ signer: signer2, cycle: 12n })).toBeTruthy();
 });
 
 test('bond participant rewards follow updated signer', () => {

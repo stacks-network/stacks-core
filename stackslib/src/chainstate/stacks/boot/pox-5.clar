@@ -701,7 +701,6 @@
         ;; Validate that the new signer is different
         (asserts! (not (is-eq signer old-signer)) ERR_UPDATE_BOND_SAME_SIGNER)
 
-
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
             (get amount-ustx current-membership) amount-sats true
@@ -1023,7 +1022,9 @@
     )
     (let (
             (staker tx-sender)
-            (membership (unwrap! (map-get? protocol-bond-memberships staker) ERR_NOT_BOND_PARTICIPANT))
+            (membership (unwrap! (map-get? protocol-bond-memberships staker)
+                ERR_NOT_BOND_PARTICIPANT
+            ))
             (bond-index (get bond-index membership))
             (signer (get signer membership))
             (current-amount-sats (get-staker-shares-staked-for-cycle staker bond-index true signer))
@@ -1224,7 +1225,7 @@
                 u0
             ))
             (new-delegated (- cur-delegated-for-signer amount))
-            (is-in-signer-set (is-some (get-staker-set-item-for-cycle signer cycle)))
+            (is-in-signer-set (is-some (get-signer-set-item-for-cycle signer cycle)))
         )
         ;; Crystallize STX-only rewards before mutating anything
         (crystallize-rewards signer cycle false)
@@ -1388,7 +1389,7 @@
                 (if (< cur-delegated-for-signer SIGNER_SET_MIN_USTX)
                     ;; They just crossed the threshold - add to signer set and add to reward calculations
                     (begin
-                        (try! (add-staker-to-set-for-cycle signer cycle))
+                        (try! (add-signer-to-set-for-cycle signer cycle))
                         (map-set total-shares-staked-for-cycle {
                             index: cycle,
                             is-bond: false,
@@ -2263,10 +2264,6 @@
     })
 )
 
-(define-read-only (get-signer-key (staker principal))
-    (map-get? signers staker)
-)
-
 (define-read-only (get-total-sbtc-staked-for-bond (bond-index uint))
     (default-to u0 (map-get? protocol-bonds-total-staked bond-index))
 )
@@ -2392,7 +2389,6 @@
     (get-ustx-delegated-for-cycle reward-cycle)
 )
 
-
 (define-read-only (check-pox-lock-period (lock-period uint))
     (and
         (>= lock-period u1)
@@ -2466,21 +2462,21 @@
 ;;; Cycle-based Linked List functions
 
 ;; First item in the linked list of stakers
-(define-map staker-set-ll-first-for-cycle
+(define-map signer-set-ll-first-for-cycle
     uint
     principal
 )
 ;; Last item in the linked list of stakers
-(define-map staker-set-ll-last-for-cycle
+(define-map signer-set-ll-last-for-cycle
     uint
     principal
 )
 
 ;; Linked list of all stakers for a cycle
-(define-map staker-set-ll-for-cycle
+(define-map signer-set-ll-for-cycle
     {
         cycle: uint,
-        staker: principal,
+        signer: principal,
     }
     {
         prev: (optional principal),
@@ -2488,121 +2484,121 @@
     }
 )
 
-(define-read-only (get-staker-set-last-item-for-cycle (cycle uint))
-    (map-get? staker-set-ll-last-for-cycle cycle)
+(define-read-only (get-signer-set-last-item-for-cycle (cycle uint))
+    (map-get? signer-set-ll-last-for-cycle cycle)
 )
 
-(define-read-only (get-staker-set-first-item-for-cycle (cycle uint))
-    (map-get? staker-set-ll-first-for-cycle cycle)
+(define-read-only (get-signer-set-first-item-for-cycle (cycle uint))
+    (map-get? signer-set-ll-first-for-cycle cycle)
 )
 
-(define-read-only (get-staker-set-item-for-cycle
-        (staker principal)
+(define-read-only (get-signer-set-item-for-cycle
+        (signer principal)
         (cycle uint)
     )
-    (map-get? staker-set-ll-for-cycle {
+    (map-get? signer-set-ll-for-cycle {
         cycle: cycle,
-        staker: staker,
+        signer: signer,
     })
 )
 
-(define-read-only (get-staker-set-next-item-for-cycle
-        (staker principal)
+(define-read-only (get-signer-set-next-item-for-cycle
+        (signer principal)
         (cycle uint)
     )
-    (match (map-get? staker-set-ll-for-cycle {
+    (match (map-get? signer-set-ll-for-cycle {
         cycle: cycle,
-        staker: staker,
+        signer: signer,
     })
         item (get next item)
         none
     )
 )
 
-(define-read-only (get-staker-set-prev-item-for-cycle
-        (staker principal)
+(define-read-only (get-signer-set-prev-item-for-cycle
+        (signer principal)
         (cycle uint)
     )
-    (match (map-get? staker-set-ll-for-cycle {
+    (match (map-get? signer-set-ll-for-cycle {
         cycle: cycle,
-        staker: staker,
+        signer: signer,
     })
         item (get prev item)
         none
     )
 )
 
-(define-read-only (staker-set-contains-for-cycle
-        (staker principal)
+(define-read-only (signer-set-contains-for-cycle
+        (signer principal)
         (cycle uint)
     )
-    (is-some (map-get? staker-set-ll-for-cycle {
+    (is-some (map-get? signer-set-ll-for-cycle {
         cycle: cycle,
-        staker: staker,
+        signer: signer,
     }))
 )
 
-(define-private (add-staker-to-set-for-cycle
-        (staker principal)
+(define-private (add-signer-to-set-for-cycle
+        (signer principal)
         (cycle uint)
     )
-    (let ((last-item (map-get? staker-set-ll-last-for-cycle cycle)))
+    (let ((last-item (map-get? signer-set-ll-last-for-cycle cycle)))
         ;; Todo: remove this and guard in a higher-level fn
         (asserts!
-            (not (is-some (map-get? staker-set-ll-for-cycle {
+            (not (is-some (map-get? signer-set-ll-for-cycle {
                 cycle: cycle,
-                staker: staker,
+                signer: signer,
             })))
             ERR_ALREADY_STAKED
         )
 
         (match last-item
-            last-stacker (let ((last-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
+            last-signer (let ((last-node (unwrap-panic (map-get? signer-set-ll-for-cycle {
                     cycle: cycle,
-                    staker: last-stacker,
+                    signer: last-signer,
                 }))))
-                (map-set staker-set-ll-for-cycle {
+                (map-set signer-set-ll-for-cycle {
                     cycle: cycle,
-                    staker: last-stacker,
+                    signer: last-signer,
                 } {
                     prev: (get prev last-node),
-                    next: (some staker),
+                    next: (some signer),
                 })
-                (map-set staker-set-ll-for-cycle {
+                (map-set signer-set-ll-for-cycle {
                     cycle: cycle,
-                    staker: staker,
+                    signer: signer,
                 } {
-                    prev: (some last-stacker),
+                    prev: (some last-signer),
                     next: none,
                 })
             )
             (begin
                 ;; This is the first item
-                (map-set staker-set-ll-for-cycle {
+                (map-set signer-set-ll-for-cycle {
                     cycle: cycle,
-                    staker: staker,
+                    signer: signer,
                 } {
                     prev: none,
                     next: none,
                 })
-                (map-set staker-set-ll-first-for-cycle cycle staker)
+                (map-set signer-set-ll-first-for-cycle cycle signer)
             )
         )
 
-        (map-set staker-set-ll-last-for-cycle cycle staker)
+        (map-set signer-set-ll-last-for-cycle cycle signer)
         (ok true)
     )
 )
 
 (define-private (remove-staker-from-set-for-cycle
-        (stacker principal)
+        (signer principal)
         (cycle uint)
     )
     (let (
             (node (unwrap!
-                (map-get? staker-set-ll-for-cycle {
+                (map-get? signer-set-ll-for-cycle {
                     cycle: cycle,
-                    staker: stacker,
+                    signer: signer,
                 })
                 ERR_NOT_STAKING
             ))
@@ -2610,14 +2606,14 @@
             (next-item (get next node))
         )
         (match prev-item
-            prev-stacker
-            (map-set staker-set-ll-for-cycle {
+            prev-signer
+            (map-set signer-set-ll-for-cycle {
                 cycle: cycle,
-                staker: prev-stacker,
+                signer: prev-signer,
             } {
                 prev: (get prev
-                    (unwrap-panic (map-get? staker-set-ll-for-cycle {
-                        staker: prev-stacker,
+                    (unwrap-panic (map-get? signer-set-ll-for-cycle {
+                        signer: prev-signer,
                         cycle: cycle,
                     }))
                 ),
@@ -2626,38 +2622,38 @@
             ;; this is the first item
             (match next-item
                 next
-                (map-set staker-set-ll-first-for-cycle cycle next)
+                (map-set signer-set-ll-first-for-cycle cycle next)
                 ;; no previous or next - this is the only item
                 (begin
-                    (map-delete staker-set-ll-last-for-cycle cycle)
-                    (map-delete staker-set-ll-first-for-cycle cycle)
+                    (map-delete signer-set-ll-last-for-cycle cycle)
+                    (map-delete signer-set-ll-first-for-cycle cycle)
                 )
             )
         )
 
         (match next-item
-            next-stacker (map-set staker-set-ll-for-cycle {
+            next-signer (map-set signer-set-ll-for-cycle {
                 cycle: cycle,
-                staker: next-stacker,
+                signer: next-signer,
             } {
                 prev: prev-item,
                 next: (get next
-                    (unwrap-panic (map-get? staker-set-ll-for-cycle {
-                        staker: next-stacker,
+                    (unwrap-panic (map-get? signer-set-ll-for-cycle {
+                        signer: next-signer,
                         cycle: cycle,
                     }))
                 ),
             })
             (match prev-item
-                prev-stacker
-                (map-set staker-set-ll-last-for-cycle cycle prev-stacker)
+                prev-signer
+                (map-set signer-set-ll-last-for-cycle cycle prev-signer)
                 ;; This is the only item - we've already handled this, though
                 true
             )
         )
-        (map-delete staker-set-ll-for-cycle {
+        (map-delete signer-set-ll-for-cycle {
             cycle: cycle,
-            staker: stacker,
+            signer: signer,
         })
         (ok true)
     )
