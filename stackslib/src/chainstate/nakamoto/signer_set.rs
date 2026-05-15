@@ -189,6 +189,12 @@ pub struct AggregateKeyVoteParams {
     pub reward_cycle: u64,
 }
 
+#[derive(Debug)]
+pub(crate) struct Pox5SignerSetOutput {
+    pub(crate) signer_set: Vec<NakamotoSignerEntry>,
+    pub(crate) pox_ustx_threshold: u128,
+}
+
 impl RawRewardSetEntry {
     pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Result<Self, ChainstateError> {
         let mut tuple_data = tuple.data_map;
@@ -702,7 +708,10 @@ impl NakamotoSigners {
 
         // Build the `(signer_key, amount_ustx)` pair stream
         let mut entries = Self::pox_5_stake_entries(clarity, reward_cycle, pox_contract)?;
-        let signer_set = Self::pox_5_make_signer_set(&mut entries, pox_constants)?;
+        let Pox5SignerSetOutput {
+            signer_set,
+            pox_ustx_threshold,
+        } = Self::pox_5_make_signer_set(&mut entries, pox_constants)?;
 
         let events = Self::update_signers(
             clarity,
@@ -752,6 +761,7 @@ impl NakamotoSigners {
             reward_set: RewardSet::Waterfall(WaterfallCycleSet {
                 sbtc_address,
                 signers: signer_set,
+                pox_ustx_threshold,
             }),
             events,
         })
@@ -760,7 +770,7 @@ impl NakamotoSigners {
     pub(crate) fn pox_5_make_signer_set<I>(
         entries: &mut I,
         pox_constants: &PoxConstants,
-    ) -> Result<Vec<NakamotoSignerEntry>, ChainstateError>
+    ) -> Result<Pox5SignerSetOutput, ChainstateError>
     where
         I: Iterator<Item = Result<RawPox5Entry, PoxEntryParsingError>>,
     {
@@ -821,7 +831,10 @@ impl NakamotoSigners {
         //  on a consensus-critical ordering of the signer set.
         signer_set.sort_by_key(|entry| entry.signing_key);
 
-        Ok(signer_set)
+        Ok(Pox5SignerSetOutput {
+            signer_set,
+            pox_ustx_threshold: threshold,
+        })
     }
 
     /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If

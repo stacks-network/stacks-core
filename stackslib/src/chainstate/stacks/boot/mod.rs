@@ -18,7 +18,6 @@ use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-use clarity::consts::MICROSTACKS_PER_STACKS;
 use clarity::types::Address;
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::clarity::{ClarityError, TransactionConnection};
@@ -315,6 +314,7 @@ pub struct RewardSetV0 {
 pub struct WaterfallCycleSet {
     pub sbtc_address: PoxAddress,
     pub signers: Vec<NakamotoSignerEntry>,
+    pub pox_ustx_threshold: u128,
 }
 
 /// Versioned reward set enum. Serializes with a `reward_set_version` field
@@ -478,7 +478,7 @@ impl RewardSet {
     pub fn pox_ustx_threshold(&self) -> Option<u128> {
         match self {
             RewardSet::V0(v0) => v0.pox_ustx_threshold,
-            _ => Some(50_000 * u128::from(MICROSTACKS_PER_STACKS)),
+            RewardSet::Waterfall(set) => Some(set.pox_ustx_threshold),
         }
     }
 
