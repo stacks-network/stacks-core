@@ -199,10 +199,7 @@ fn collect_block_map<T: MarfTrieId>(src: &mut MARF<T>) -> Result<HashMap<T, u32>
     src.with_conn(|conn| {
         conn.warm_trie_offsets()?;
         let all_blocks = trie_sql::bulk_read_block_entries::<T>(conn.sqlite_conn())?;
-        Ok(all_blocks
-            .into_iter()
-            .map(|(id, bh, _)| (bh, id))
-            .collect())
+        Ok(all_blocks.into_iter().map(|(id, bh, _)| (bh, id)).collect())
     })
 }
 
@@ -261,8 +258,7 @@ fn collect_per_height_metadata<T: MarfTrieId>(
             ))
         })?;
 
-        let (parent, root_hash): (T, TrieHash) =
-            conn.read_parent_and_root_hash(block_id)?;
+        let (parent, root_hash): (T, TrieHash) = conn.read_parent_and_root_hash(block_id)?;
         block_info.push((h, current.clone(), root_hash));
 
         if h == 0 {
@@ -393,15 +389,25 @@ fn persist_squash_metadata<T: MarfTrieId>(
 ) -> Result<(), Error> {
     let start = Instant::now();
     trie_sql::write_squash_info(conn, source_root_hash, height)?;
-    let mut stmt = conn.prepare(
-        "INSERT OR REPLACE INTO marf_squashed_blocks (height, block_hash, marf_root_hash) VALUES (?1, ?2, ?3)",
-    )?;
-    for (h, bh, rh) in block_info {
-        stmt.execute(params![
-            i64::from(*h),
-            bh.as_bytes(),
-            rh.as_bytes().to_vec()
-        ])?;
+
+    const CHUNK_ROWS: usize = 500;
+
+    let mut chunks = block_info.chunks_exact(CHUNK_ROWS);
+    let tail = chunks.remainder();
+
+    // Full chunks share one prepared statement.
+    let full_sql = build_squashed_blocks_insert_sql(CHUNK_ROWS);
+    let mut full_stmt = conn.prepare(&full_sql)?;
+    for chunk in &mut chunks {
+        bind_squashed_blocks_chunk(&mut full_stmt, chunk)?;
+        full_stmt.raw_execute()?;
+    }
+
+    if !tail.is_empty() {
+        let tail_sql = build_squashed_blocks_insert_sql(tail.len());
+        let mut tail_stmt = conn.prepare(&tail_sql)?;
+        bind_squashed_blocks_chunk(&mut tail_stmt, tail)?;
+        tail_stmt.raw_execute()?;
     }
     info!(
         "Squash: wrote {} root hashes and block heights in {}",
@@ -409,6 +415,34 @@ fn persist_squash_metadata<T: MarfTrieId>(
         fmt_duration(start.elapsed())
     );
     Ok(())
+}
+
+/// Bind one chunk of `(height, block_hash, marf_root_hash)` rows to a statement.
+fn bind_squashed_blocks_chunk<T: MarfTrieId>(
+    stmt: &mut rusqlite::Statement<'_>,
+    chunk: &[BlockInfo<T>],
+) -> rusqlite::Result<()> {
+    for (i, (h, bh, rh)) in chunk.iter().enumerate() {
+        let base = i * 3;
+        stmt.raw_bind_parameter(base + 1, i64::from(*h))?;
+        stmt.raw_bind_parameter(base + 2, bh.as_bytes())?;
+        stmt.raw_bind_parameter(base + 3, rh.as_bytes())?;
+    }
+    Ok(())
+}
+
+/// Build `INSERT OR REPLACE INTO marf_squashed_blocks (...) VALUES (?,?,?), (?,?,?), ...`
+fn build_squashed_blocks_insert_sql(rows: usize) -> String {
+    let mut sql = String::from(
+        "INSERT OR REPLACE INTO marf_squashed_blocks (height, block_hash, marf_root_hash) VALUES ",
+    );
+    for i in 0..rows {
+        if i > 0 {
+            sql.push(',');
+        }
+        sql.push_str("(?,?,?)");
+    }
+    sql
 }
 
 /// Persist `squash_root_node_hash` and broadcast the tip blob offset to all
