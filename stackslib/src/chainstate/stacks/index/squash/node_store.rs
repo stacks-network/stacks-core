@@ -18,7 +18,7 @@ use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 
 use stacks_common::types::chainstate::TrieHash;
 
-use super::read_exact_at;
+use crate::chainstate::stacks::index::file::read_exact_at;
 use crate::chainstate::stacks::index::node::{
     TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeType, TriePtr,
 };

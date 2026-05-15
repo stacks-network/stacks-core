@@ -40,7 +40,7 @@ pub const READER_PREFIX_LEN: usize = ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE;
 
 // If these values change, update the blob writers in `storage.rs`
 // (`TrieRAM::dump_consume`, `TrieRAM::dump_compressed_consume`) and the
-// header reader in `squash/stream.rs` (`BlobReader::read_parent_and_root_hash`).
+// header reader in `file.rs` (`TrieFile::read_parent_and_root_hash`).
 const _: () = {
     assert!(BLOCK_HEADER_HASH_ENCODED_SIZE == 32);
     assert!(TRIEHASH_ENCODED_SIZE == 32);

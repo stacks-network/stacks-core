@@ -43,7 +43,7 @@ use crate::chainstate::stacks::index::{
     MAX_PATCH_DEPTH,
 };
 use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
 use crate::util::hash::to_hex;
 use crate::util_lib::db::{
     sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error, SQLITE_MARF_PAGE_SIZE,
@@ -2502,6 +2502,44 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     /// Returns a reference to the underlying SQLite connection.
     pub(crate) fn sqlite_conn(&self) -> &Connection {
         &self.db
+    }
+
+    /// Warm the file-backed blob offset cache.
+    ///
+    /// No-op for SQLite-internal storage.
+    pub fn warm_trie_offsets(&mut self) -> Result<(), Error> {
+        let db: &Connection = &self.db;
+        if let Some(trie_file) = self.blobs.as_deref_mut() {
+            trie_file.warm_trie_offsets(db)?;
+        }
+        Ok(())
+    }
+
+    /// Read `(parent_hash, root_hash)` for a block.
+    pub fn read_parent_and_root_hash(&mut self, block_id: u32) -> Result<(T, TrieHash), Error> {
+        let db: &Connection = &self.db;
+        match self.blobs.as_deref_mut() {
+            Some(trie_file) => trie_file.read_parent_and_root_hash::<T>(db, block_id),
+            None => {
+                let mut blob = db.blob_open(
+                    rusqlite::DatabaseName::Main,
+                    "marf_data",
+                    "data",
+                    block_id.into(),
+                    true,
+                )?;
+                let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
+                blob.read_exact(&mut buf)?;
+                let mut parent_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+                parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
+                let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+                root_bytes.copy_from_slice(
+                    &buf[blob_layout::ROOT_NODE_OFFSET
+                        ..blob_layout::ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE],
+                );
+                Ok((T::from_bytes(parent_bytes), TrieHash(root_bytes)))
+            }
+        }
     }
 
     /// Read this block's height from the squashed-block side table.
