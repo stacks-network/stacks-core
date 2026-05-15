@@ -5674,6 +5674,15 @@ export const contracts = {
         ],
         bigint
       >,
+      getTotalUstxStacked: {
+        name: 'get-total-ustx-stacked',
+        access: 'read_only',
+        args: [{ name: 'reward-cycle', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>],
+        bigint
+      >,
       getUstxDelegatedForCycle: {
         name: 'get-ustx-delegated-for-cycle',
         access: 'read_only',
