@@ -28,37 +28,22 @@ use crate::chainstate::stacks::index::bits::{
 use crate::chainstate::stacks::index::node::{is_backptr, TrieNodeType};
 use crate::chainstate::stacks::index::{blob_layout, BlockMap, Error, MarfTrieId, TrieHasher};
 
-/// Recompute content hashes using a `NodeStore`.
+/// Recompute content hashes in reverse NodeStore order.
 ///
-/// Leaf hashes are computed by reading each leaf from the temp file.
-/// Internal node hashes are computed bottom-up (reverse order) using
-/// the in-memory hashes Vec for child lookups and reading the node
-/// structure from the temp file.
+/// The squash collector writes tree nodes in DFS preorder, so inline children
+/// are expected to appear after their parent.
 pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Error> {
     let empty_hash = TrieHash::EMPTY;
     let node_count = store.len();
     let start = Instant::now();
 
-    // Pass 1: compute leaf hashes
-    for idx in 0..node_count {
+    for idx in (0..node_count).rev() {
         let node = store.read_node(idx)?;
         if let TrieNodeType::Leaf(ref leaf) = node {
             store.set_hash(idx, get_leaf_hash(leaf));
-        }
-    }
-    info!(
-        "Trie hash: leaf pass done in {}",
-        fmt_duration(start.elapsed())
-    );
-
-    // Pass 2: internal nodes in reverse order
-    for idx in (0..node_count).rev() {
-        let node = store.read_node(idx)?;
-        if node.is_leaf() {
             continue;
         }
 
-        // Collect child hashes
         let ptrs = node.ptrs();
         let mut child_hashes = Vec::with_capacity(ptrs.len());
         for child_ptr in ptrs {
@@ -66,9 +51,12 @@ pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Erro
                 child_hashes.push(empty_hash);
             } else {
                 let child_idx = child_ptr.ptr() as usize;
-                if child_idx >= node_count {
+                // Reverse order only works for parent-before-child storage.
+                if child_idx <= idx || child_idx >= node_count {
                     return Err(Error::CorruptionError(format!(
-                        "Invalid child index {child_idx} at node {idx}"
+                        "invalid child index {child_idx} at node {idx} \
+                         (node_count={node_count}); preorder DFS invariant requires \
+                         parent < child < node_count"
                     )));
                 }
                 child_hashes.push(*store.hash(child_idx));
