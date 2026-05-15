@@ -3601,6 +3601,21 @@ export const contracts = {
   },
   pox5: {
     functions: {
+      addSignerToSetForCycle: {
+        name: 'add-signer-to-set-for-cycle',
+        access: 'private',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'cycle', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          cycle: TypedAbiArg<number | bigint, 'cycle'>,
+        ],
+        Response<boolean, bigint>
+      >,
       addStakerToBond: {
         name: 'add-staker-to-bond',
         access: 'private',
@@ -3669,21 +3684,6 @@ export const contracts = {
           },
           bigint
         >
-      >,
-      addStakerToSetForCycle: {
-        name: 'add-staker-to-set-for-cycle',
-        access: 'private',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'cycle', type: 'uint128' },
-        ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          cycle: TypedAbiArg<number | bigint, 'cycle'>,
-        ],
-        Response<boolean, bigint>
       >,
       addStakerToSignerCycles: {
         name: 'add-staker-to-signer-cycles',
@@ -4090,13 +4090,13 @@ export const contracts = {
         name: 'remove-staker-from-set-for-cycle',
         access: 'private',
         args: [
-          { name: 'stacker', type: 'principal' },
+          { name: 'signer', type: 'principal' },
           { name: 'cycle', type: 'uint128' },
         ],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<
         [
-          stacker: TypedAbiArg<string, 'stacker'>,
+          signer: TypedAbiArg<string, 'signer'>,
           cycle: TypedAbiArg<number | bigint, 'cycle'>,
         ],
         Response<boolean, bigint>
@@ -5450,15 +5450,6 @@ export const contracts = {
         [signer: TypedAbiArg<string, 'signer'>],
         Uint8Array | null
       >,
-      getSignerKey: {
-        name: 'get-signer-key',
-        access: 'read_only',
-        args: [{ name: 'staker', type: 'principal' }],
-        outputs: { type: { optional: { buffer: { length: 33 } } } },
-      } as TypedAbiFunction<
-        [staker: TypedAbiArg<string, 'staker'>],
-        Uint8Array | null
-      >,
       getSignerPendingRewardsForCycle: {
         name: 'get-signer-pending-rewards-for-cycle',
         access: 'read_only',
@@ -5508,6 +5499,81 @@ export const contracts = {
         ],
         bigint
       >,
+      getSignerSetFirstItemForCycle: {
+        name: 'get-signer-set-first-item-for-cycle',
+        access: 'read_only',
+        args: [{ name: 'cycle', type: 'uint128' }],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
+        string | null
+      >,
+      getSignerSetItemForCycle: {
+        name: 'get-signer-set-item-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'cycle', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'next', type: { optional: 'principal' } },
+                { name: 'prev', type: { optional: 'principal' } },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          cycle: TypedAbiArg<number | bigint, 'cycle'>,
+        ],
+        {
+          next: string | null;
+          prev: string | null;
+        } | null
+      >,
+      getSignerSetLastItemForCycle: {
+        name: 'get-signer-set-last-item-for-cycle',
+        access: 'read_only',
+        args: [{ name: 'cycle', type: 'uint128' }],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
+        string | null
+      >,
+      getSignerSetNextItemForCycle: {
+        name: 'get-signer-set-next-item-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'cycle', type: 'uint128' },
+        ],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          cycle: TypedAbiArg<number | bigint, 'cycle'>,
+        ],
+        string | null
+      >,
+      getSignerSetPrevItemForCycle: {
+        name: 'get-signer-set-prev-item-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'cycle', type: 'uint128' },
+        ],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          cycle: TypedAbiArg<number | bigint, 'cycle'>,
+        ],
+        string | null
+      >,
       getSignerSharesStakedForCycle: {
         name: 'get-signer-shares-staked-for-cycle',
         access: 'read_only',
@@ -5549,81 +5615,6 @@ export const contracts = {
           numCycles: bigint;
           signer: string;
         } | null
-      >,
-      getStakerSetFirstItemForCycle: {
-        name: 'get-staker-set-first-item-for-cycle',
-        access: 'read_only',
-        args: [{ name: 'cycle', type: 'uint128' }],
-        outputs: { type: { optional: 'principal' } },
-      } as TypedAbiFunction<
-        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
-        string | null
-      >,
-      getStakerSetItemForCycle: {
-        name: 'get-staker-set-item-for-cycle',
-        access: 'read_only',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'cycle', type: 'uint128' },
-        ],
-        outputs: {
-          type: {
-            optional: {
-              tuple: [
-                { name: 'next', type: { optional: 'principal' } },
-                { name: 'prev', type: { optional: 'principal' } },
-              ],
-            },
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          cycle: TypedAbiArg<number | bigint, 'cycle'>,
-        ],
-        {
-          next: string | null;
-          prev: string | null;
-        } | null
-      >,
-      getStakerSetLastItemForCycle: {
-        name: 'get-staker-set-last-item-for-cycle',
-        access: 'read_only',
-        args: [{ name: 'cycle', type: 'uint128' }],
-        outputs: { type: { optional: 'principal' } },
-      } as TypedAbiFunction<
-        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
-        string | null
-      >,
-      getStakerSetNextItemForCycle: {
-        name: 'get-staker-set-next-item-for-cycle',
-        access: 'read_only',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'cycle', type: 'uint128' },
-        ],
-        outputs: { type: { optional: 'principal' } },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          cycle: TypedAbiArg<number | bigint, 'cycle'>,
-        ],
-        string | null
-      >,
-      getStakerSetPrevItemForCycle: {
-        name: 'get-staker-set-prev-item-for-cycle',
-        access: 'read_only',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'cycle', type: 'uint128' },
-        ],
-        outputs: { type: { optional: 'principal' } },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          cycle: TypedAbiArg<number | bigint, 'cycle'>,
-        ],
-        string | null
       >,
       getStakerSharesStakedForCycle: {
         name: 'get-staker-shares-staked-for-cycle',
@@ -5928,17 +5919,17 @@ export const contracts = {
         args: [{ name: 'n', type: 'uint128' }],
         outputs: { type: { buffer: { length: 5 } } },
       } as TypedAbiFunction<[n: TypedAbiArg<number | bigint, 'n'>], Uint8Array>,
-      stakerSetContainsForCycle: {
-        name: 'staker-set-contains-for-cycle',
+      signerSetContainsForCycle: {
+        name: 'signer-set-contains-for-cycle',
         access: 'read_only',
         args: [
-          { name: 'staker', type: 'principal' },
+          { name: 'signer', type: 'principal' },
           { name: 'cycle', type: 'uint128' },
         ],
         outputs: { type: 'bool' },
       } as TypedAbiFunction<
         [
-          staker: TypedAbiArg<string, 'staker'>,
+          signer: TypedAbiArg<string, 'signer'>,
           cycle: TypedAbiArg<number | bigint, 'cycle'>,
         ],
         boolean
@@ -6163,6 +6154,40 @@ export const contracts = {
         },
         bigint
       >,
+      signerSetLlFirstForCycle: {
+        name: 'signer-set-ll-first-for-cycle',
+        key: 'uint128',
+        value: 'principal',
+      } as TypedAbiMap<number | bigint, string>,
+      signerSetLlForCycle: {
+        name: 'signer-set-ll-for-cycle',
+        key: {
+          tuple: [
+            { name: 'cycle', type: 'uint128' },
+            { name: 'signer', type: 'principal' },
+          ],
+        },
+        value: {
+          tuple: [
+            { name: 'next', type: { optional: 'principal' } },
+            { name: 'prev', type: { optional: 'principal' } },
+          ],
+        },
+      } as TypedAbiMap<
+        {
+          cycle: number | bigint;
+          signer: string;
+        },
+        {
+          next: string | null;
+          prev: string | null;
+        }
+      >,
+      signerSetLlLastForCycle: {
+        name: 'signer-set-ll-last-for-cycle',
+        key: 'uint128',
+        value: 'principal',
+      } as TypedAbiMap<number | bigint, string>,
       signerSharesStakedForCycle: {
         name: 'signer-shares-staked-for-cycle',
         key: {
@@ -6206,40 +6231,6 @@ export const contracts = {
           signer: string;
         }
       >,
-      stakerSetLlFirstForCycle: {
-        name: 'staker-set-ll-first-for-cycle',
-        key: 'uint128',
-        value: 'principal',
-      } as TypedAbiMap<number | bigint, string>,
-      stakerSetLlForCycle: {
-        name: 'staker-set-ll-for-cycle',
-        key: {
-          tuple: [
-            { name: 'cycle', type: 'uint128' },
-            { name: 'staker', type: 'principal' },
-          ],
-        },
-        value: {
-          tuple: [
-            { name: 'next', type: { optional: 'principal' } },
-            { name: 'prev', type: { optional: 'principal' } },
-          ],
-        },
-      } as TypedAbiMap<
-        {
-          cycle: number | bigint;
-          staker: string;
-        },
-        {
-          next: string | null;
-          prev: string | null;
-        }
-      >,
-      stakerSetLlLastForCycle: {
-        name: 'staker-set-ll-last-for-cycle',
-        key: 'uint128',
-        value: 'principal',
-      } as TypedAbiMap<number | bigint, string>,
       stakerSharesStakedForCycle: {
         name: 'staker-shares-staked-for-cycle',
         key: {

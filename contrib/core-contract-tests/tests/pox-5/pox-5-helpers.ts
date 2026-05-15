@@ -249,14 +249,14 @@ export function deployTestSigner(name: string) {
   return testSigner2;
 }
 
-export function isStakerInCycle({
-  staker,
+export function isSignerInCycle({
+  signer,
   cycle,
 }: {
-  staker: string;
+  signer: string;
   cycle: bigint;
 }): boolean {
-  return rov(pox5.getStakerSetItemForCycle({ cycle, staker })) !== null;
+  return rov(pox5.getSignerSetItemForCycle({ cycle, signer })) !== null;
 }
 
 /** Get all stakers for the next reward cycle */
@@ -267,22 +267,22 @@ export function getAllStakers(): string[] {
 
 /** Get all stakers for a given reward cycle */
 function getAllStakersForCycle(cycle: bigint): string[] {
-  const first = rov(pox5.getStakerSetFirstItemForCycle(cycle));
-  let stackers: string[] = [];
+  const first = rov(pox5.getSignerSetFirstItemForCycle(cycle));
+  let signers: string[] = [];
   let cur: string | null = first;
-  if (cur) stackers.push(cur);
+  if (cur) signers.push(cur);
   while (cur) {
-    const item = rov(pox5.getStakerSetNextItemForCycle(cur, cycle));
-    if (item) stackers.push(item);
+    const item = rov(pox5.getSignerSetNextItemForCycle(cur, cycle));
+    if (item) signers.push(item);
     cur = item;
   }
-  return stackers;
+  return signers;
 }
 
 export function expectAllSignersHaveKeys() {
   const stakers = getAllStakers();
   for (const staker of stakers) {
-    const signerKey = rov(pox5.getSignerKey(staker));
+    const signerKey = rov(pox5.getSignerInfo(staker));
     expect(signerKey).not.toBeNull();
   }
 }
