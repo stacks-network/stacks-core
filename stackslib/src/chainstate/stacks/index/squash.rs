@@ -350,7 +350,7 @@ fn insert_placeholder_blocks<T: MarfTrieId>(
     label: &str,
 ) -> Result<HashMap<u32, u32>, Error> {
     let start = Instant::now();
-    let mut archival_to_squashed: HashMap<u32, u32> = HashMap::new();
+    let mut archival_to_squashed = HashMap::with_capacity(block_info.len() + 1);
     let mut stmt = conn.prepare(PLACEHOLDER_INSERT_SQL)?;
     for (h, bh, _) in block_info {
         if bh == block_at_height {
