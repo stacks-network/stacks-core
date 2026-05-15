@@ -563,20 +563,24 @@ fn pox5_signer_manager_source() -> &'static str {
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 
 (define-public (validate-stake!
-    ;; #[allow(unused_binding)]
-    (staker principal)
-    ;; #[allow(unused_binding)]
-    (amount-ustx uint)
-    ;; #[allow(unused_binding)]
-    (amount-sats uint)
-    ;; #[allow(unused_binding)]
-    (num-cycles uint)
-    ;; #[allow(unused_binding)]
-    (is-bond bool)
-    ;; #[allow(unused_binding)]
-    (signer-calldata (optional (buff 500)))
-  )
-  (ok true)
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (checkpoint-staker
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (is-bond bool)
+    )
+    (ok true)
 )
 
 (define-public (register-self
