@@ -579,13 +579,17 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             Secp256r1Verify => {
                 SpecialFunction("native_secp256r1-verify", &crypto::special_secp256r1_verify)
             }
-            VerifyMerkleProof => SpecialFunction(
-                "special_verify_merkle_proof",
-                &bitcoin::special_verify_merkle_proof,
+            VerifyMerkleProof => NativeFunction205(
+                "native_verify_merkle_proof",
+                NativeHandle::MoreArg(&bitcoin::native_verify_merkle_proof),
+                ClarityCostFunction::VerifyMerkleProof,
+                &bitcoin::cost_input_verify_merkle_proof,
             ),
-            GetBitcoinTxOutput => SpecialFunction(
-                "special_get_bitcoin_tx_output",
-                &bitcoin::special_get_bitcoin_tx_output,
+            GetBitcoinTxOutput => NativeFunction205(
+                "native_get_bitcoin_tx_output",
+                NativeHandle::DoubleArg(&bitcoin::native_get_bitcoin_tx_output),
+                ClarityCostFunction::GetBitcoinTxOutput,
+                &bitcoin::cost_input_get_bitcoin_tx_output,
             ),
         };
         Some(callable)

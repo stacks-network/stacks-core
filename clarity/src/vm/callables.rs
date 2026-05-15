@@ -37,17 +37,33 @@ use crate::vm::{LocalContext, Value, eval};
 
 #[allow(clippy::type_complexity, clippy::large_enum_variant)]
 pub enum CallableType {
+    /// A function defined in a Clarity contract via `define-public`,
+    /// `define-read-only`, or `define-private`. Arguments are evaluated by
+    /// the caller and then bound into a fresh `LocalContext` before the
+    /// body is interpreted.
     UserFunction(DefinedFunction),
+    /// A built-in function implemented in Rust. The string is the function's
+    /// Clarity name (used for identifier construction and diagnostics), the
+    /// [`NativeHandle`] dispatches on arity, and the [`ClarityCostFunction`]
+    /// is charged with the argument count as its input size.
     NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
-    /// These native functions have a new method for calculating input size in 2.05
-    /// If the global context's epoch is >= 2.05, the fn field is applied to obtain
-    /// the input to the cost function.
+    /// A built-in function whose runtime-cost input size is computed from
+    /// the actual argument values rather than just their count. Introduced
+    /// in epoch 2.05: when the current epoch is >= 2.05, the trailing
+    /// closure is applied to the evaluated arguments to obtain the input
+    /// passed to the cost function. In earlier epochs this variant behaves
+    /// like [`Self::NativeFunction`].
     NativeFunction205(
         &'static str,
         NativeHandle,
         ClarityCostFunction,
         &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>,
     ),
+    /// A built-in form that needs control over how (or whether) its
+    /// arguments are evaluated — e.g. `if`, `let`, `match`, `contract-call?`.
+    /// The closure receives the raw [`SymbolicExpression`]s along with the
+    /// execution and local contexts, and is responsible for cost tracking,
+    /// arity checking, and argument evaluation itself.
     SpecialFunction(
         &'static str,
         &'static dyn Fn(

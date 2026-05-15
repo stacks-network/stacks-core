@@ -32,14 +32,8 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
-use crate::vm::analysis::errors::get_arguments_exact;
-use crate::vm::contexts::{ExecutionState, InvocationContext};
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, VmInternalError};
-use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, ListData, SequenceData, TupleData, TypeSignature, Value};
-use crate::vm::{LocalContext, eval};
 
 /// Maximum supported merkle proof depth for `(verify-merkle-proof ...)`.
 /// Also pins the `(list N (buff 32))` type the type checker enforces for the
@@ -160,6 +154,18 @@ fn buff_to_array_32(value: &Value) -> Option<[u8; 32]> {
     }
 }
 
+/// Cost-input function for `verify-merkle-proof`: the number of siblings in
+/// the proof, which is what `ClarityCostFunction::VerifyMerkleProof` scales
+/// on. Ignore and default around type errors here since they are already
+/// caught by the type-checker and again in the implementation.
+pub fn cost_input_verify_merkle_proof(args: &[Value]) -> Result<u64, VmExecutionError> {
+    let len = match args.get(4) {
+        Some(Value::Sequence(SequenceData::List(ListData { data, .. }))) => data.len(),
+        _ => 0,
+    };
+    Ok(u64::try_from(len).unwrap_or(u64::MAX))
+}
+
 /// Implements the `verify-merkle-proof` Clarity 6 builtin.
 ///
 /// `(verify-merkle-proof leaf-hash root-hash tx-index tx-count sibling-hashes)`
@@ -171,67 +177,52 @@ fn buff_to_array_32(value: &Value) -> Option<[u8; 32]> {
 /// root is being checked. It pins down the canonical tree shape and prevents
 /// CVE-2012-2459-style attacks where an intermediate node could be passed
 /// off as a leaf.
-pub fn special_verify_merkle_proof(
-    args: &[SymbolicExpression],
-    exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-    context: &LocalContext,
-) -> Result<Value, VmExecutionError> {
-    let [leaf_arg, root_arg, tx_index_arg, tx_count_arg, siblings_arg] =
-        get_arguments_exact::<_, 5>(args)?;
+pub fn native_verify_merkle_proof(args: Vec<Value>) -> Result<Value, VmExecutionError> {
+    let [
+        leaf_value,
+        root_value,
+        tx_index_value,
+        tx_count_value,
+        siblings_value,
+    ]: [Value; 5] = args
+        .try_into()
+        .map_err(|_| VmInternalError::Expect("verify-merkle-proof received wrong arity".into()))?;
 
-    let leaf_value = eval(leaf_arg, exec_state, invoke_ctx, context)?;
-    let leaf = match buff_to_array_32(leaf_value.as_ref()) {
-        Some(b) => b,
-        None => {
-            return Err(RuntimeCheckErrorKind::TypeValueError(
-                Box::new(TypeSignature::BUFFER_32),
-                leaf_value.as_ref().to_error_string(),
-            )
-            .into());
-        }
-    };
-
-    let root_value = eval(root_arg, exec_state, invoke_ctx, context)?;
-    let root = match buff_to_array_32(root_value.as_ref()) {
-        Some(b) => b,
-        None => {
-            return Err(RuntimeCheckErrorKind::TypeValueError(
-                Box::new(TypeSignature::BUFFER_32),
-                root_value.as_ref().to_error_string(),
-            )
-            .into());
-        }
-    };
-
-    let tx_index_value = eval(tx_index_arg, exec_state, invoke_ctx, context)?;
-    let tx_index = match tx_index_value.as_ref() {
+    let leaf = buff_to_array_32(&leaf_value).ok_or_else(|| {
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_32),
+            leaf_value.to_error_string(),
+        )
+    })?;
+    let root = buff_to_array_32(&root_value).ok_or_else(|| {
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_32),
+            root_value.to_error_string(),
+        )
+    })?;
+    let tx_index = match &tx_index_value {
         Value::UInt(v) => *v,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                tx_index_value.as_ref().to_error_string(),
+                tx_index_value.to_error_string(),
             )
             .into());
         }
     };
-
-    let tx_count_value = eval(tx_count_arg, exec_state, invoke_ctx, context)?;
-    let tx_count = match tx_count_value.as_ref() {
+    let tx_count = match &tx_count_value {
         Value::UInt(v) => *v,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                tx_count_value.as_ref().to_error_string(),
+                tx_count_value.to_error_string(),
             )
             .into());
         }
     };
-
-    let siblings_value = eval(siblings_arg, exec_state, invoke_ctx, context)?;
-    let siblings_data = match siblings_value.as_ref() {
-        Value::Sequence(SequenceData::List(ListData { data, .. })) => data.clone(),
-        _ => {
+    let siblings_data = match siblings_value {
+        Value::Sequence(SequenceData::List(ListData { data, .. })) => data,
+        other => {
             let expected =
                 TypeSignature::list_of(TypeSignature::BUFFER_32, VERIFY_MERKLE_PROOF_MAX_DEPTH)
                     .map_err(|_| {
@@ -241,17 +232,11 @@ pub fn special_verify_merkle_proof(
                     })?;
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(expected),
-                siblings_value.as_ref().to_error_string(),
+                other.to_error_string(),
             )
             .into());
         }
     };
-
-    runtime_cost(
-        ClarityCostFunction::VerifyMerkleProof,
-        exec_state,
-        u64::try_from(siblings_data.len()).unwrap_or(u64::MAX),
-    )?;
 
     let mut siblings: Vec<[u8; 32]> = Vec::with_capacity(siblings_data.len());
     for v in &siblings_data {
@@ -269,6 +254,18 @@ pub fn special_verify_merkle_proof(
     )))
 }
 
+/// Cost-input function for `get-bitcoin-tx-output?`: the length of the raw
+/// transaction buffer, which is what `ClarityCostFunction::GetBitcoinTxOutput`
+/// scales on. Ignore and default around type errors here since they are
+/// already caught by the type-checker and again in the implementation.
+pub fn cost_input_get_bitcoin_tx_output(args: &[Value]) -> Result<u64, VmExecutionError> {
+    let len = match args.first() {
+        Some(Value::Sequence(SequenceData::Buffer(BuffData { data }))) => data.len(),
+        _ => 0,
+    };
+    Ok(u64::try_from(len).unwrap_or(u64::MAX))
+}
+
 /// Implements the `get-bitcoin-tx-output?` Clarity 6 builtin.
 ///
 /// `(get-bitcoin-tx-output? tx-bytes vout)` returns
@@ -278,43 +275,31 @@ pub fn special_verify_merkle_proof(
 /// - `(err u1)` — `tx-bytes` did not deserialize as a Bitcoin transaction.
 /// - `(err u2)` — `vout` is out of range for this tx.
 /// - `(err u3)` — the output's `scriptPubKey` exceeds the 1024-byte cap.
-pub fn special_get_bitcoin_tx_output(
-    args: &[SymbolicExpression],
-    exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-    context: &LocalContext,
+pub fn native_get_bitcoin_tx_output(
+    tx_value: Value,
+    vout_value: Value,
 ) -> Result<Value, VmExecutionError> {
-    let [tx_bytes_arg, vout_arg] = get_arguments_exact::<_, 2>(args)?;
-
-    let tx_value = eval(tx_bytes_arg, exec_state, invoke_ctx, context)?;
-    let tx_bytes = match tx_value.as_ref() {
+    let tx_bytes = match &tx_value {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => data.clone(),
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_MAX),
-                tx_value.as_ref().to_error_string(),
+                tx_value.to_error_string(),
             )
             .into());
         }
     };
 
-    let vout_value = eval(vout_arg, exec_state, invoke_ctx, context)?;
-    let vout = match vout_value.as_ref() {
+    let vout = match &vout_value {
         Value::UInt(v) => *v,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                vout_value.as_ref().to_error_string(),
+                vout_value.to_error_string(),
             )
             .into());
         }
     };
-
-    runtime_cost(
-        ClarityCostFunction::GetBitcoinTxOutput,
-        exec_state,
-        u64::try_from(tx_bytes.len()).unwrap_or(u64::MAX),
-    )?;
 
     let vout_u64 = match u64::try_from(vout) {
         Ok(v) => v,
