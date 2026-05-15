@@ -376,30 +376,31 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     /// Like [`SignerTest::boot_to_epoch_4`], but additionally drives the
     /// chain through PoX-5's `grant-signer-key` / `register-signer` /
-    /// `stake` entrypoints so that the test signer set enrolls in PoX-5
+    /// `stake` entrypoints so that the test signer set enrolls in PoX-5.
     ///
     /// For each signer `i` in `self.signer_stacks_private_keys`:
     ///
-    /// 1. `stakers[i]` publishes a per-signer signer-manager contract
-    ///    named `pox5-signer-{i}` (a minimal `impl-trait` of pox-5's
+    /// 1. The signer publishes a per-signer signer-manager contract named
+    ///    `pox5-signer-{i}` (a minimal `impl-trait` of pox-5's
     ///    `signer-manager-trait` whose `register-self` forwards a signer
     ///    grant + `register-signer` call to pox-5).
-    /// 2. `stakers[i]` calls `register-self` with a signer-key-grant
-    ///    signature produced by `signer_stacks_private_keys[i]`.
-    /// 3. `stakers[i]` calls `pox-5::stake`, locking `stake_amount` uSTX
+    /// 2. The signer calls `register-self` with a signer-key-grant
+    ///    signature produced by its own private key.
+    /// 3. The signer calls `pox-5::stake`, locking `stake_amount` uSTX
     ///    for `lock_cycles` cycles against the per-signer contract.
     ///
-    /// `stakers` must be one private key per signer. The caller is
-    /// responsible for funding each staker via initial balances with at
-    /// least `stake_amount + (fees * 3)` unlocked uSTX (the signer keys
-    /// themselves cannot be reused as stakers because they remain locked
-    /// in PoX-4 after `boot_to_epoch_3`).
+    /// The signer Stacks keys are reused as stakers: PoX-4 locks created
+    /// during `boot_to_epoch_3` are auto-released at the Epoch 4.0 boundary
+    /// via the `v4_unlock_height` early-unlock path (which is wired to
+    /// `pox_5_activation_height`). `boot_to_epoch_4` mines past that
+    /// height before this helper submits any pox-5 stake, so each signer's
+    /// account reports zero locked balance and has its full
+    /// `POX_DEFAULT_STACKER_BALANCE` available to lock under pox-5.
     ///
     /// # Panics
-    /// - If `stakers.len() != self.signer_stacks_private_keys.len()`.
     /// - If a publish/register/stake transaction fails to confirm.
     /// - If the resulting on-chain `locked` balance does not match
-    ///   `stake_amount` for any staker.
+    ///   `stake_amount` for any signer.
     pub fn boot_to_epoch_4_with_pox5_lockups(
         &self,
         sender_sk: &StacksPrivateKey,
@@ -407,20 +408,16 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         token_contract_name: &str,
         registry_contract_name: &str,
         pubkey: &[u8; 33],
-        stakers: &[StacksPrivateKey],
         stake_amount: u128,
         lock_cycles: u128,
     ) {
         let num_signers = self.signer_stacks_private_keys.len();
-        assert_eq!(
-            stakers.len(),
-            num_signers,
-            "stakers must have one private key per signer"
-        );
 
         // Reach Epoch 4.0 first. After this returns, pox-5 has been
         // instantiated and `set-burnchain-parameters` has been called, so
-        // it accepts grant/register/stake.
+        // it accepts grant/register/stake. The chain is also past
+        // `pox_5_activation_height`, so each signer's pox-4 lock is
+        // reported as released.
         self.boot_to_epoch_4(
             sender_sk,
             sender_nonce,
@@ -438,15 +435,28 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let pox_5_addr: StacksAddress = boot_code_id("pox-5", false).issuer.into();
         let contract_source = pox5_signer_manager_source();
 
+        // Capture each signer's current nonce: boot_to_epoch_3 already used
+        // nonce 0 for their pox-4 stack-stx, so the publish/register/stake
+        // sequence below starts from whatever the live nonce is.
+        let signer_addrs: Vec<StacksAddress> = self
+            .signer_stacks_private_keys
+            .iter()
+            .map(tests::to_addr)
+            .collect();
+        let initial_nonces: Vec<u64> = signer_addrs
+            .iter()
+            .map(|addr| get_account(&http_origin, addr).nonce)
+            .collect();
+
         // Step 1: publish all per-signer signer-manager contracts.
         let mut contract_principals: Vec<(StacksAddress, String, PrincipalData)> =
             Vec::with_capacity(num_signers);
-        for (i, staker_sk) in stakers.iter().enumerate() {
-            let staker_addr = tests::to_addr(staker_sk);
+        for (i, signer_sk) in self.signer_stacks_private_keys.iter().enumerate() {
+            let signer_addr = signer_addrs[i].clone();
             let per_signer_name = format!("pox5-signer-{i}");
             let tx = make_contract_publish(
-                staker_sk,
-                0,
+                signer_sk,
+                initial_nonces[i],
                 publish_fee,
                 chain_id,
                 &per_signer_name,
@@ -454,27 +464,25 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             );
             submit_tx(&http_origin, &tx);
             let principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
-                staker_addr.clone().into(),
+                signer_addr.clone().into(),
                 ContractName::try_from(per_signer_name.clone())
                     .expect("invalid per-signer contract name"),
             ));
-            contract_principals.push((staker_addr, per_signer_name, principal));
+            contract_principals.push((signer_addr, per_signer_name, principal));
         }
         self.mine_nakamoto_block(Duration::from_secs(60), true);
         wait_for(120, || {
-            Ok(stakers
+            Ok(signer_addrs
                 .iter()
-                .all(|sk| get_account(&http_origin, &tests::to_addr(sk)).nonce >= 1))
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| get_account(&http_origin, addr).nonce >= initial + 1))
         })
         .expect("Timed out waiting for per-signer contract publishes to confirm");
 
-        // Step 2: call register-self on each per-signer contract.
-        for (i, (staker_sk, signer_sk)) in stakers
-            .iter()
-            .zip(self.signer_stacks_private_keys.iter())
-            .enumerate()
-        {
-            let (staker_addr, per_signer_name, principal) = &contract_principals[i];
+        // Step 2: call register-self on each per-signer contract. Each
+        // signer signs its own grant.
+        for (i, signer_sk) in self.signer_stacks_private_keys.iter().enumerate() {
+            let (signer_addr, per_signer_name, principal) = &contract_principals[i];
             let auth_id: u128 = u128::try_from(i).unwrap();
             let signer_pk = StacksPublicKey::from_private(signer_sk);
             let sig =
@@ -484,11 +492,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 .expect("failed to construct pox-5 signer-grant signature");
 
             let tx = make_contract_call(
-                staker_sk,
-                1,
+                signer_sk,
+                initial_nonces[i] + 1,
                 call_fee,
                 chain_id,
-                staker_addr,
+                signer_addr,
                 per_signer_name,
                 "register-self",
                 &[
@@ -502,19 +510,20 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         }
         self.mine_nakamoto_block(Duration::from_secs(60), true);
         wait_for(120, || {
-            Ok(stakers
+            Ok(signer_addrs
                 .iter()
-                .all(|sk| get_account(&http_origin, &tests::to_addr(sk)).nonce >= 2))
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| get_account(&http_origin, addr).nonce >= initial + 2))
         })
         .expect("Timed out waiting for register-self confirmations");
 
-        // Step 3: each staker locks `stake_amount` for `lock_cycles` cycles.
+        // Step 3: each signer locks `stake_amount` for `lock_cycles` cycles.
         let start_burn_ht = u128::from(get_chain_info(conf).burn_block_height);
-        for (i, staker_sk) in stakers.iter().enumerate() {
+        for (i, signer_sk) in self.signer_stacks_private_keys.iter().enumerate() {
             let (_, _, principal) = &contract_principals[i];
             let tx = make_contract_call(
-                staker_sk,
-                2,
+                signer_sk,
+                initial_nonces[i] + 2,
                 call_fee,
                 chain_id,
                 &pox_5_addr,
@@ -532,10 +541,13 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         }
         self.mine_nakamoto_block(Duration::from_secs(60), true);
         wait_for(120, || {
-            Ok(stakers.iter().all(|sk| {
-                let acct = get_account(&http_origin, &tests::to_addr(sk));
-                acct.nonce >= 3 && acct.locked == stake_amount
-            }))
+            Ok(signer_addrs
+                .iter()
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| {
+                    let acct = get_account(&http_origin, addr);
+                    acct.nonce >= initial + 3 && acct.locked == stake_amount
+                }))
         })
         .expect("Timed out waiting for pox-5 stake to lock");
 
@@ -553,30 +565,6 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
     reqwest::blocking::get(&url)
         .map(|resp| resp.status().is_success())
         .unwrap_or(false)
-}
-
-/// Generate `num_signers` deterministic PoX-5 staker private keys for use
-/// with [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]. The seed format
-/// is `pox5_staker_{i}_{seed_tag}`, so derived addresses are stable across
-/// runs of the same test.
-pub fn pox5_staker_keys(num_signers: usize, seed_tag: &str) -> Vec<StacksPrivateKey> {
-    (0..num_signers)
-        .map(|i| StacksPrivateKey::from_seed(format!("pox5_staker_{i}_{seed_tag}").as_bytes()))
-        .collect()
-}
-
-/// Build the `(address, balance)` entries for the staker keys returned by
-/// [`pox5_staker_keys`], ready to be passed via
-/// `SignerTest::new_with_config_modifications`'s `initial_balances`.
-pub fn pox5_staker_initial_balances(
-    num_signers: usize,
-    seed_tag: &str,
-    per_staker_balance: u64,
-) -> Vec<(StacksAddress, u64)> {
-    pox5_staker_keys(num_signers, seed_tag)
-        .iter()
-        .map(|sk| (tests::to_addr(sk), per_staker_balance))
-        .collect()
 }
 
 /// Source for the per-signer signer-manager contract published by
@@ -1415,11 +1403,10 @@ impl MultipleMinerTest {
     /// block (after waiting for both miners to commit) and waits for both
     /// nodes' `/v2/accounts` views to reflect it.
     ///
-    /// `stakers` must be funded via `add_initial_balance` (see
-    /// [`pox5_staker_initial_balances`]) with at least
-    /// `stake_amount + 3 * fees` of unlocked uSTX. The signer Stacks keys
-    /// themselves remain locked in PoX-4 after `boot_to_epoch_3` and cannot
-    /// double as stakers.
+    /// The signer Stacks keys are reused as stakers. PoX-4 locks created
+    /// during `boot_to_epoch_3` are auto-released at the Epoch 4.0 boundary
+    /// via the `v4_unlock_height` early-unlock path. See
+    /// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`] for details.
     pub fn boot_to_epoch_4_with_pox5_lockups(
         &mut self,
         sender_sk: &StacksPrivateKey,
@@ -1427,16 +1414,10 @@ impl MultipleMinerTest {
         token_contract_name: &str,
         registry_contract_name: &str,
         pubkey: &[u8; 33],
-        stakers: &[StacksPrivateKey],
         stake_amount: u128,
         lock_cycles: u128,
     ) {
         let num_signers = self.signer_stacks_private_keys().len();
-        assert_eq!(
-            stakers.len(),
-            num_signers,
-            "stakers must have one private key per signer"
-        );
 
         self.boot_to_epoch_4(
             sender_sk,
@@ -1460,15 +1441,25 @@ impl MultipleMinerTest {
         let pox_5_addr: StacksAddress = boot_code_id("pox-5", false).issuer.into();
         let contract_source = pox5_signer_manager_source();
 
+        let signer_keys = self.signer_stacks_private_keys().to_vec();
+        let signer_addrs: Vec<StacksAddress> = signer_keys.iter().map(tests::to_addr).collect();
+        // Capture each signer's current nonce: boot_to_epoch_3 already used
+        // nonce 0 for their pox-4 stack-stx, so the sequence below starts
+        // from whatever the live nonce is.
+        let initial_nonces: Vec<u64> = signer_addrs
+            .iter()
+            .map(|addr| get_account(&http_origin_1, addr).nonce)
+            .collect();
+
         // Step 1: publish per-signer signer-manager contracts.
         let mut contract_principals: Vec<(StacksAddress, String, PrincipalData)> =
             Vec::with_capacity(num_signers);
-        for (i, staker_sk) in stakers.iter().enumerate() {
-            let staker_addr = tests::to_addr(staker_sk);
+        for (i, signer_sk) in signer_keys.iter().enumerate() {
+            let signer_addr = signer_addrs[i].clone();
             let per_signer_name = format!("pox5-signer-{i}");
             let tx = make_contract_publish(
-                staker_sk,
-                0,
+                signer_sk,
+                initial_nonces[i],
                 publish_fee,
                 chain_id,
                 &per_signer_name,
@@ -1476,11 +1467,11 @@ impl MultipleMinerTest {
             );
             submit_tx(&http_origin_1, &tx);
             let principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
-                staker_addr.clone().into(),
+                signer_addr.clone().into(),
                 ContractName::try_from(per_signer_name.clone())
                     .expect("invalid per-signer contract name"),
             ));
-            contract_principals.push((staker_addr, per_signer_name, principal));
+            contract_principals.push((signer_addr, per_signer_name, principal));
         }
         self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
             .expect("settle before per-signer publish");
@@ -1499,18 +1490,20 @@ impl MultipleMinerTest {
         )
         .expect("signers did not promote per-signer-publish tenure");
         wait_for(300, || {
-            Ok(stakers.iter().all(|sk| {
-                let addr = tests::to_addr(sk);
-                get_account(&http_origin_1, &addr).nonce >= 1
-                    && get_account(&http_origin_2, &addr).nonce >= 1
-            }))
+            Ok(signer_addrs
+                .iter()
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| {
+                    get_account(&http_origin_1, addr).nonce >= initial + 1
+                        && get_account(&http_origin_2, addr).nonce >= initial + 1
+                }))
         })
         .expect("Timed out waiting for per-signer publishes on both nodes");
 
-        // Step 2: register-self on each per-signer contract.
-        let signer_keys = self.signer_stacks_private_keys().to_vec();
-        for (i, (staker_sk, signer_sk)) in stakers.iter().zip(signer_keys.iter()).enumerate() {
-            let (staker_addr, per_signer_name, principal) = &contract_principals[i];
+        // Step 2: register-self on each per-signer contract. Each signer
+        // signs its own grant.
+        for (i, signer_sk) in signer_keys.iter().enumerate() {
+            let (signer_addr, per_signer_name, principal) = &contract_principals[i];
             let auth_id: u128 = u128::try_from(i).unwrap();
             let signer_pk = StacksPublicKey::from_private(signer_sk);
             let sig =
@@ -1520,11 +1513,11 @@ impl MultipleMinerTest {
                 .expect("failed to construct pox-5 signer-grant signature");
 
             let tx = make_contract_call(
-                staker_sk,
-                1,
+                signer_sk,
+                initial_nonces[i] + 1,
                 call_fee,
                 chain_id,
-                staker_addr,
+                signer_addr,
                 per_signer_name,
                 "register-self",
                 &[
@@ -1548,11 +1541,13 @@ impl MultipleMinerTest {
         )
         .expect("signers did not promote register-self tenure");
         wait_for(300, || {
-            Ok(stakers.iter().all(|sk| {
-                let addr = tests::to_addr(sk);
-                get_account(&http_origin_1, &addr).nonce >= 2
-                    && get_account(&http_origin_2, &addr).nonce >= 2
-            }))
+            Ok(signer_addrs
+                .iter()
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| {
+                    get_account(&http_origin_1, addr).nonce >= initial + 2
+                        && get_account(&http_origin_2, addr).nonce >= initial + 2
+                }))
         })
         .expect("Timed out waiting for register-self on both nodes");
 
@@ -1561,11 +1556,11 @@ impl MultipleMinerTest {
         // cycle, so the one bitcoin block we mine below must not cross a
         // cycle boundary.
         let start_burn_ht = u128::from(self.get_peer_info().burn_block_height);
-        for (i, staker_sk) in stakers.iter().enumerate() {
+        for (i, signer_sk) in signer_keys.iter().enumerate() {
             let (_, _, principal) = &contract_principals[i];
             let tx = make_contract_call(
-                staker_sk,
-                2,
+                signer_sk,
+                initial_nonces[i] + 2,
                 call_fee,
                 chain_id,
                 &pox_5_addr,
@@ -1593,15 +1588,17 @@ impl MultipleMinerTest {
         )
         .expect("signers did not promote stake tenure");
         wait_for(300, || {
-            Ok(stakers.iter().all(|sk| {
-                let addr = tests::to_addr(sk);
-                let acct_1 = get_account(&http_origin_1, &addr);
-                let acct_2 = get_account(&http_origin_2, &addr);
-                acct_1.nonce >= 3
-                    && acct_1.locked == stake_amount
-                    && acct_2.nonce >= 3
-                    && acct_2.locked == stake_amount
-            }))
+            Ok(signer_addrs
+                .iter()
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| {
+                    let acct_1 = get_account(&http_origin_1, addr);
+                    let acct_2 = get_account(&http_origin_2, addr);
+                    acct_1.nonce >= initial + 3
+                        && acct_1.locked == stake_amount
+                        && acct_2.nonce >= initial + 3
+                        && acct_2.locked == stake_amount
+                }))
         })
         .expect("Timed out waiting for pox-5 stake lock on both nodes");
 
