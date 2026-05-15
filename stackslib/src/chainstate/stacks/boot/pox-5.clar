@@ -2386,6 +2386,13 @@
     (default-to u0 (map-get? ustx-delegated-per-cycle reward-cycle))
 )
 
+;; How many uSTX are staked? - Required to be named this to
+;; work with `chainstate.get_total_ustx_stacked`
+(define-read-only (get-total-ustx-stacked (reward-cycle uint))
+    (get-ustx-delegated-for-cycle reward-cycle)
+)
+
+
 (define-read-only (check-pox-lock-period (lock-period uint))
     (and
         (>= lock-period u1)
