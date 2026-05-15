@@ -61,7 +61,7 @@ use crate::cost_estimates::{CostEstimator, EstimatorError};
 use crate::monitoring::increment_stx_mempool_gc;
 use crate::net::api::postblock_proposal::{BlockValidateOk, BlockValidateReject};
 use crate::net::Error as net_error;
-use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
+use crate::util_lib::bloom::{bloom_hash_count, BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::util_lib::db::{
     query_int, query_row, query_row_columns, query_rows, sqlite_open, table_exists,
     tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error, Error, FromColumn, FromRow,
@@ -199,6 +199,16 @@ impl StacksMessageCodec for MemPoolSyncData {
         )))? {
             MemPoolSyncDataID::BloomFilter => {
                 let bloom_filter: BloomFilter<BloomNodeHasher> = read_next(fd)?;
+
+                // hash parameters must be valid for the mempool
+                let (_, num_hashes) =
+                    bloom_hash_count(BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS);
+                if bloom_filter.num_hashes > num_hashes {
+                    return Err(codec_error::DeserializeError(format!(
+                        "Too many bloom hashers (max {})",
+                        num_hashes
+                    )));
+                }
                 Ok(MemPoolSyncData::BloomFilter(bloom_filter))
             }
             MemPoolSyncDataID::TxTags => {
