@@ -16,20 +16,12 @@
 //! Integration tests covering the Epoch 4.0 transition to PoX-5 / sBTC
 //! "waterfall" leader block commits.
 //!
-//! The aggregate-pubkey contract is published by `boot_to_epoch_4`.
-//!
-//! This uses one test override so that the integration test can run
-//! without the pox-5 contract being able to iterate its own signer set:
-//!
-//! * `TEST_WATERFALL_SIGNER_SET_OVERRIDE` short-circuits the read against the
-//!   (placeholder) PoX-5 contract body and supplies a hardcoded signer set.
-//!
-//! PoX-5 activation itself is wired through `PoxConstants::pox_5_activation_height`,
-//! which `Config::apply_test_settings` aligns to `epochs[Epoch40].start_height`.
-//!
-//! This override SHOULD BE REMOVED when PoX-5 initial versions land.
+//! Signer registration is driven through real pox-5 stake calls via
+//! `SignerTest::boot_to_epoch_4_with_pox5_lockups`; no test-only signer-set
+//! override is used. PoX-5 activation is wired through
+//! `PoxConstants::pox_5_activation_height`, which `Config::apply_test_settings`
+//! aligns to `epochs[Epoch40].start_height`.
 
-use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
@@ -37,7 +29,6 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ContractName;
 use pinny::tag;
 use stacks::burnchains::Txid;
-use stacks::chainstate::nakamoto::signer_set::TEST_WATERFALL_SIGNER_SET_OVERRIDE;
 use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use stacks::chainstate::stacks::boot::POX_5_NAME;
 use stacks::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
@@ -48,7 +39,7 @@ use stacks::util_lib::boot::boot_code_id;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BitcoinTransaction;
 use stacks_signer::v0::SpawnedSigner;
 
-use super::SignerTest;
+use super::{pox5_staker_initial_balances, pox5_staker_keys, SignerTest};
 use crate::tests::nakamoto_integrations::{enable_epoch_4_0, wait_for};
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
 use crate::tests::to_addr;
@@ -61,37 +52,6 @@ fn make_sbtc_recipient_fixture(pubkey: &[u8; 33], is_mainnet: bool) -> PoxAddres
         sbtc_pox5_deposit_taproot_output_key(pubkey, &recipient, POX_5_SBTC_DEPOSIT_MAX_FEE_SATS)
             .expect("sBTC P2TR derivation failed for fixture");
     PoxAddress::Addr32(is_mainnet, PoxAddressType32::P2TR, output_key)
-}
-
-/// Derive `(signer_key, amount_ustx)` pairs from the test's signer private keys
-/// for use as a hardcoded signer-set fixture.
-fn signer_pairs_from_keys(keys: &[StacksPrivateKey]) -> Vec<([u8; 33], u128)> {
-    keys.iter()
-        .map(|sk| {
-            let signer_key: [u8; 33] = Secp256k1PublicKey::from_private(sk)
-                .to_bytes_compressed()
-                .try_into()
-                .expect("compressed secp256k1 pubkey is 33 bytes");
-            (signer_key, 100_000_000_000_u128)
-        })
-        .collect()
-}
-
-/// Populate the override map for a wide span of reward cycles
-fn override_map_all_cycles(pairs: Vec<([u8; 33], u128)>) -> HashMap<u64, Vec<([u8; 33], u128)>> {
-    let mut map = HashMap::new();
-    for cycle in 0..1_000 {
-        map.insert(cycle, pairs.clone());
-    }
-    map
-}
-
-/// Pre-generate signer keys deterministically so the override can be derived
-/// before `SignerTest` is constructed.
-fn pre_generate_signer_keys(num_signers: usize, seed_tag: &str) -> Vec<StacksPrivateKey> {
-    (0..num_signers)
-        .map(|i| StacksPrivateKey::from_seed(format!("signer_{i}_{seed_tag}").as_bytes()))
-        .collect()
 }
 
 /// Get the most recent unconfirmed block-commit bitcoin transaction, if one
@@ -134,8 +94,11 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
     }
 
     let num_signers = 5;
-    let signer_keys = pre_generate_signer_keys(num_signers, "epoch_4_0_basic");
-    let signer_pairs = signer_pairs_from_keys(&signer_keys);
+    let seed = "epoch_4_0_basic";
+    let stake_amount: u128 = 100_000_000_000;
+    let lock_cycles: u128 = 12;
+    let stakers = pox5_staker_keys(num_signers, seed);
+    let per_staker_balance: u64 = u64::try_from(stake_amount).unwrap() + 1_000_000;
 
     let agg_pubkey: [u8; 33] =
         Secp256k1PublicKey::from_private(&StacksPrivateKey::from_seed(b"epoch-4-0-waterfall-agg"))
@@ -143,7 +106,6 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
             .try_into()
             .expect("compressed secp256k1 pubkey is 33 bytes");
 
-    // Spender that publishes the contract.
     let spender_sk = StacksPrivateKey::from_seed(b"epoch-4-0-waterfall-publisher");
     let spender_addr = to_addr(&spender_sk);
     let contract_name = "agg-pubkey-stub";
@@ -152,14 +114,17 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
         ContractName::try_from(contract_name.to_string()).expect("valid contract name"),
     );
 
-    // Install the signer-set override BEFORE constructing the test harness so
-    // any burnchain activity that triggers the PoX-5 path picks it up.
-    TEST_WATERFALL_SIGNER_SET_OVERRIDE.set(override_map_all_cycles(signer_pairs));
+    let mut initial_balances = vec![(spender_addr, 1_000_000)];
+    initial_balances.extend(pox5_staker_initial_balances(
+        num_signers,
+        seed,
+        per_staker_balance,
+    ));
 
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(spender_addr, 1_000_000)],
+            initial_balances,
             |_| {},
             |node_config| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
@@ -167,7 +132,7 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
                 enable_epoch_4_0(node_config);
             },
             None,
-            Some(signer_keys),
+            None,
             Some(function_name!()),
         );
     if signer_test.bootstrap_snapshot() {
@@ -180,7 +145,15 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
     let sbtc_recipient = make_sbtc_recipient_fixture(&agg_pubkey, conf.is_mainnet());
     let sbtc_script_pubkey = sbtc_recipient.clone().to_bitcoin_tx_out(0).script_pubkey;
 
-    signer_test.boot_to_epoch_4(&spender_sk, 0, contract_name, &agg_pubkey);
+    signer_test.boot_to_epoch_4_with_pox5_lockups(
+        &spender_sk,
+        0,
+        contract_name,
+        &agg_pubkey,
+        &stakers,
+        stake_amount,
+        lock_cycles,
+    );
     info!("------------------------- Reached Epoch 4.0 -------------------------");
 
     // Mine until we observe a block-commit whose first PoX output equals the
@@ -243,10 +216,18 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
             &signer_test.running_nodes.btc_regtest_controller,
             &blocks_processed,
         );
-        // Best-effort wait for a Stacks block in the (possibly new) tenure;
-        // tolerate timeouts caused by missed sortitions.
-        let _ = wait_for(30, || {
+        // Require Stacks tip advancement: miners emit waterfall-shaped
+        // commits even when signers reject every proposal, so without this
+        // the waterfall counter ticks while the chain is dead.
+        wait_for(30, || {
             Ok(get_chain_info(&conf).stacks_tip_height > last_stacks_tip)
+        })
+        .unwrap_or_else(|e| {
+            panic!(
+                "Stacks chain did not advance after bitcoin block (last_stacks_tip={last_stacks_tip}, \
+                 burn_height={}): {e}",
+                get_chain_info(&conf).burn_block_height,
+            )
         });
         last_stacks_tip = get_chain_info(&conf).stacks_tip_height;
         let Some(tx) =
