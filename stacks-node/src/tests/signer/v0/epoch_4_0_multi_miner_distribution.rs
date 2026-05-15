@@ -105,14 +105,20 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
 
     let publisher_sk = StacksPrivateKey::from_seed(b"epoch-4-0-multi-miner-publisher");
     let publisher_addr = to_addr(&publisher_sk);
-    let contract_name = "agg-pubkey-stub";
-    let contract_id = QualifiedContractIdentifier::new(
+    let token_contract_name = "sbtc-token-stub";
+    let registry_contract_name = "sbtc-registry-stub";
+    let token_contract_id = QualifiedContractIdentifier::new(
         publisher_addr.clone().into(),
-        ContractName::try_from(contract_name.to_string()).expect("valid contract name"),
+        ContractName::try_from(token_contract_name.to_string()).expect("valid contract name"),
+    );
+    let registry_contract_id = QualifiedContractIdentifier::new(
+        publisher_addr.clone().into(),
+        ContractName::try_from(registry_contract_name.to_string()).expect("valid contract name"),
     );
 
     let publisher_addr_str = publisher_addr.to_string();
-    let contract_id_modifier = contract_id.clone();
+    let token_contract_id_modifier = token_contract_id.clone();
+    let registry_contract_id_modifier = registry_contract_id.clone();
     let staker_balances_modifier = staker_balances.clone();
 
     let mut miners = MultipleMinerTest::new_with_config_modifications(
@@ -122,7 +128,9 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
         move |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.burnchain.burn_fee_cap = MINER_1_FEE;
-            node_config.node.pox_5_sbtc_contract = Some(contract_id_modifier.clone());
+            node_config.node.pox_5_sbtc_contract = Some(token_contract_id_modifier.clone());
+            node_config.node.pox_5_sbtc_registry_contract =
+                Some(registry_contract_id_modifier.clone());
             node_config.add_initial_balance(publisher_addr_str.clone(), 1_000_000);
             for (addr, balance) in staker_balances_modifier.iter() {
                 node_config.add_initial_balance(addr.to_string(), *balance);
@@ -150,7 +158,8 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
     miners.boot_to_epoch_4_with_pox5_lockups(
         &publisher_sk,
         0,
-        contract_name,
+        token_contract_name,
+        registry_contract_name,
         &agg_pubkey,
         &stakers,
         stake_amount,

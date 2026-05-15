@@ -135,7 +135,7 @@ use crate::tests::neon_integrations::{
     get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
-use crate::tests::signer::v0::agg_pubkey_sbtc_stub_source;
+use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
@@ -19524,19 +19524,24 @@ fn check_pox_5_stake_lifecycle() {
         100000,
     );
 
-    // sBTC stub — pox-5 boot needs the stub deployed before the epoch 4.0
-    // transition for static analysis to find the referenced contract.
+    // sBTC stubs - pox-5 boot needs both stubs deployed before the epoch 4.0
+    // transition for static analysis to find the referenced contracts.
     let sbtc_deployer_sk = Secp256k1PrivateKey::random();
     let sbtc_deployer_addr = tests::to_addr(&sbtc_deployer_sk);
     naka_conf.add_initial_balance(
         PrincipalData::from(sbtc_deployer_addr.clone()).to_string(),
-        deploy_fee,
+        2 * deploy_fee,
     );
     let sbtc_token_id = QualifiedContractIdentifier::new(
         sbtc_deployer_addr.clone().into(),
         clarity::vm::ContractName::try_from("sbtc-token").unwrap(),
     );
+    let sbtc_registry_id = QualifiedContractIdentifier::new(
+        sbtc_deployer_addr.clone().into(),
+        clarity::vm::ContractName::try_from("sbtc-registry").unwrap(),
+    );
     naka_conf.node.pox_5_sbtc_contract = Some(sbtc_token_id.clone());
+    naka_conf.node.pox_5_sbtc_registry_contract = Some(sbtc_registry_id.clone());
 
     let stacker_sk = setup_stacker(&mut naka_conf);
     let staker_sk = setup_stacker(&mut naka_conf);
@@ -19582,22 +19587,32 @@ fn check_pox_5_stake_lifecycle() {
         .to_bytes_compressed()
         .try_into()
         .expect("compressed secp256k1 pubkey should be 33 bytes");
-    let sbtc_token_contract = agg_pubkey_sbtc_stub_source(&pubkey_bytes);
+    let sbtc_token_contract = sbtc_token_stub_source();
     let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
-        &sbtc_token_contract,
+        sbtc_token_contract,
     );
     submit_tx(&http_origin, &sbtc_deploy_tx);
+    let sbtc_registry_contract = sbtc_registry_stub_source(&pubkey_bytes);
+    let sbtc_registry_deploy_tx = make_contract_publish(
+        &sbtc_deployer_sk,
+        1,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "sbtc-registry",
+        &sbtc_registry_contract,
+    );
+    submit_tx(&http_origin, &sbtc_registry_deploy_tx);
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
     wait_for(60, || {
-        Ok(get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce > 0)
+        Ok(get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce > 1)
     })
-    .expect("Timed out waiting for sbtc-token deploy");
+    .expect("Timed out waiting for sbtc-token and sbtc-registry deploys");
 
     // mine until epoch 4.0
     loop {
@@ -19926,19 +19941,24 @@ fn check_pox_5_register_for_bond_lifecycle() {
         100000,
     );
 
-    // sBTC stub — pox-5 boot needs the stub deployed before the epoch 4.0
-    // transition for static analysis to find the referenced contract.
+    // sBTC stubs - pox-5 boot needs both stubs deployed before the epoch 4.0
+    // transition for static analysis to find the referenced contracts.
     let sbtc_deployer_sk = Secp256k1PrivateKey::random();
     let sbtc_deployer_addr = tests::to_addr(&sbtc_deployer_sk);
     naka_conf.add_initial_balance(
         PrincipalData::from(sbtc_deployer_addr.clone()).to_string(),
-        deploy_fee,
+        2 * deploy_fee,
     );
     let sbtc_token_id = QualifiedContractIdentifier::new(
         sbtc_deployer_addr.clone().into(),
         clarity::vm::ContractName::try_from("sbtc-token").unwrap(),
     );
+    let sbtc_registry_id = QualifiedContractIdentifier::new(
+        sbtc_deployer_addr.clone().into(),
+        clarity::vm::ContractName::try_from("sbtc-registry").unwrap(),
+    );
     naka_conf.node.pox_5_sbtc_contract = Some(sbtc_token_id.clone());
+    naka_conf.node.pox_5_sbtc_registry_contract = Some(sbtc_registry_id.clone());
 
     // The pox-5 boot contract initializes its `bond-admin` data var to
     // `tx-sender`, which at boot deploy time is the unsignable boot
@@ -20000,22 +20020,32 @@ fn check_pox_5_register_for_bond_lifecycle() {
         .to_bytes_compressed()
         .try_into()
         .expect("compressed secp256k1 pubkey should be 33 bytes");
-    let sbtc_token_contract = agg_pubkey_sbtc_stub_source(&pubkey_bytes);
+    let sbtc_token_contract = sbtc_token_stub_source();
     let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
-        &sbtc_token_contract,
+        sbtc_token_contract,
     );
     submit_tx(&http_origin, &sbtc_deploy_tx);
+    let sbtc_registry_contract = sbtc_registry_stub_source(&pubkey_bytes);
+    let sbtc_registry_deploy_tx = make_contract_publish(
+        &sbtc_deployer_sk,
+        1,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "sbtc-registry",
+        &sbtc_registry_contract,
+    );
+    submit_tx(&http_origin, &sbtc_registry_deploy_tx);
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
     wait_for(60, || {
-        Ok(get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce > 0)
+        Ok(get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce > 1)
     })
-    .expect("Timed out waiting for sbtc-token deploy");
+    .expect("Timed out waiting for sbtc-token and sbtc-registry deploys");
 
     // mine until epoch 4.0
     loop {
@@ -20398,18 +20428,24 @@ fn check_with_stacking_allowances_stake() {
         100000,
     );
 
-    // Set the sBTC token contract, which we will deploy before epoch 4.0
+    // Set the sBTC token and registry contracts, which we will deploy before
+    // epoch 4.0
     let sbtc_deployer_sk = Secp256k1PrivateKey::random();
     let sbtc_deployer_addr = tests::to_addr(&sbtc_deployer_sk);
     naka_conf.add_initial_balance(
         PrincipalData::from(sbtc_deployer_addr.clone()).to_string(),
-        deploy_fee,
+        2 * deploy_fee,
     );
     let sbtc_token_id = QualifiedContractIdentifier::new(
         sbtc_deployer_addr.clone().into(),
         clarity::vm::ContractName::try_from("sbtc-token").unwrap(),
     );
+    let sbtc_registry_id = QualifiedContractIdentifier::new(
+        sbtc_deployer_addr.clone().into(),
+        clarity::vm::ContractName::try_from("sbtc-registry").unwrap(),
+    );
     naka_conf.node.pox_5_sbtc_contract = Some(sbtc_token_id.clone());
+    naka_conf.node.pox_5_sbtc_registry_contract = Some(sbtc_registry_id.clone());
 
     // Default stacker used for bootstrapping
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -20464,26 +20500,37 @@ fn check_with_stacking_allowances_stake() {
         .to_bytes_compressed()
         .try_into()
         .expect("compressed secp256k1 pubkey should be 33 bytes");
-    let sbtc_token_contract = agg_pubkey_sbtc_stub_source(&pubkey_bytes);
+    let sbtc_token_contract = sbtc_token_stub_source();
     let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
-        &sbtc_token_contract,
+        sbtc_token_contract,
     );
     let sbtc_deploy_txid = submit_tx(&http_origin, &sbtc_deploy_tx);
     info!("Submitted sbtc-token deploy txid: {sbtc_deploy_txid}");
+    let sbtc_registry_contract = sbtc_registry_stub_source(&pubkey_bytes);
+    let sbtc_registry_deploy_tx = make_contract_publish(
+        &sbtc_deployer_sk,
+        1,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "sbtc-registry",
+        &sbtc_registry_contract,
+    );
+    let sbtc_registry_deploy_txid = submit_tx(&http_origin, &sbtc_registry_deploy_tx);
+    info!("Submitted sbtc-registry deploy txid: {sbtc_registry_deploy_txid}");
 
-    // Wait for the sbtc-token deploy to be processed.
+    // Wait for the sbtc-token and sbtc-registry deploys to be processed.
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
     wait_for(60, || {
         let sbtc_deployer_nonce = get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce;
-        Ok(sbtc_deployer_nonce > 0)
+        Ok(sbtc_deployer_nonce > 1)
     })
-    .expect("Timed out waiting for sbtc-token contract deploy");
+    .expect("Timed out waiting for sbtc-token and sbtc-registry contract deploys");
 
     // mine until epoch 4.0 height
     loop {
@@ -20996,18 +21043,24 @@ fn check_with_stacking_allowances_register_for_bond() {
         100000,
     );
 
-    // Set the sBTC token contract, which we will deploy before epoch 4.0
+    // Set the sBTC token and registry contracts, which we will deploy before
+    // epoch 4.0
     let sbtc_deployer_sk = Secp256k1PrivateKey::random();
     let sbtc_deployer_addr = tests::to_addr(&sbtc_deployer_sk);
     naka_conf.add_initial_balance(
         PrincipalData::from(sbtc_deployer_addr.clone()).to_string(),
-        deploy_fee,
+        2 * deploy_fee,
     );
     let sbtc_token_id = QualifiedContractIdentifier::new(
         sbtc_deployer_addr.clone().into(),
         clarity::vm::ContractName::try_from("sbtc-token").unwrap(),
     );
+    let sbtc_registry_id = QualifiedContractIdentifier::new(
+        sbtc_deployer_addr.clone().into(),
+        clarity::vm::ContractName::try_from("sbtc-registry").unwrap(),
+    );
     naka_conf.node.pox_5_sbtc_contract = Some(sbtc_token_id.clone());
+    naka_conf.node.pox_5_sbtc_registry_contract = Some(sbtc_registry_id.clone());
 
     // The pox-5 boot contract initializes its `bond-admin` data var to
     // `tx-sender`, which at boot deploy time is the unsignable boot
@@ -21076,25 +21129,36 @@ fn check_with_stacking_allowances_register_for_bond() {
         .to_bytes_compressed()
         .try_into()
         .expect("compressed secp256k1 pubkey should be 33 bytes");
-    let sbtc_token_contract = agg_pubkey_sbtc_stub_source(&pubkey_bytes);
+    let sbtc_token_contract = sbtc_token_stub_source();
     let sbtc_deploy_tx = make_contract_publish(
         &sbtc_deployer_sk,
         0,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         "sbtc-token",
-        &sbtc_token_contract,
+        sbtc_token_contract,
     );
     let sbtc_deploy_txid = submit_tx(&http_origin, &sbtc_deploy_tx);
     info!("Submitted sbtc-token deploy txid: {sbtc_deploy_txid}");
+    let sbtc_registry_contract = sbtc_registry_stub_source(&pubkey_bytes);
+    let sbtc_registry_deploy_tx = make_contract_publish(
+        &sbtc_deployer_sk,
+        1,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "sbtc-registry",
+        &sbtc_registry_contract,
+    );
+    let sbtc_registry_deploy_txid = submit_tx(&http_origin, &sbtc_registry_deploy_tx);
+    info!("Submitted sbtc-registry deploy txid: {sbtc_registry_deploy_txid}");
 
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
     wait_for(60, || {
         let sbtc_deployer_nonce = get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce;
-        Ok(sbtc_deployer_nonce > 0)
+        Ok(sbtc_deployer_nonce > 1)
     })
-    .expect("Timed out waiting for sbtc-token contract deploy");
+    .expect("Timed out waiting for sbtc-token and sbtc-registry contract deploys");
 
     // mine until epoch 4.0 height
     loop {

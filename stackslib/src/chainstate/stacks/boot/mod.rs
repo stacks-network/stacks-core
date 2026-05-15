@@ -202,10 +202,10 @@ pub fn make_sip_031_body(is_mainnet: bool) -> String {
 
 /// Generate the contract body for the pox-5 contract.
 ///
-/// On mainnet the body is used verbatim, with the canonical sBTC contract
-/// literal and the mainnet `bond-admin` principal baked in. On non-mainnet
-/// networks, every occurrence of the canonical sBTC literal is rewritten to
-/// point at the configured sBTC token contract via
+/// On mainnet the body is used verbatim, with the canonical sBTC token
+/// contract literal and the mainnet `bond-admin` principal baked in. On
+/// non-mainnet networks, every occurrence of the canonical sBTC token literal
+/// is rewritten to point at the configured sBTC token contract via
 /// [`set_pox_5_sbtc_contract`] (typically configured from the node config
 /// file), falling back to a well-known testnet default when unset, and the
 /// `bond-admin` initializer is rewritten via [`pox_5_bond_admin`] to the
