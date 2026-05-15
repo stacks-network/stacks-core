@@ -158,6 +158,7 @@ fn test_store_and_fetch() {
             &headers,
             &canonical_block,
             StacksEpochId::Epoch21,
+            u64::MAX,
         )
         .unwrap();
     assert!(ops.is_empty());
@@ -203,6 +204,7 @@ fn test_store_and_fetch() {
             &headers,
             &non_canonical_block,
             StacksEpochId::Epoch21,
+            u64::MAX,
         )
         .unwrap();
     assert_eq!(ops.len(), expected_ops.len());
@@ -284,6 +286,7 @@ fn test_classify_stack_stx() {
             &headers,
             &canonical_block,
             StacksEpochId::Epoch21,
+            u64::MAX,
         )
         .unwrap();
     assert!(ops.is_empty());
@@ -458,7 +461,13 @@ fn test_classify_stack_stx() {
     });
 
     let processed_ops_0 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_0, StacksEpochId::Epoch21)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &block_0,
+            StacksEpochId::Epoch21,
+            u64::MAX,
+        )
         .unwrap();
 
     assert_eq!(
@@ -468,7 +477,13 @@ fn test_classify_stack_stx() {
     );
 
     let processed_ops_1 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_1, StacksEpochId::Epoch21)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &block_1,
+            StacksEpochId::Epoch21,
+            u64::MAX,
+        )
         .unwrap();
 
     assert_eq!(
@@ -798,6 +813,7 @@ fn test_classify_delegate_stx() {
             &headers,
             &canonical_block,
             StacksEpochId::Epoch21,
+            u64::MAX,
         )
         .unwrap();
     assert!(ops.is_empty());
@@ -988,7 +1004,13 @@ fn test_classify_delegate_stx() {
 
     test_debug!("store ops ({}) for block 0", ops_0_length);
     let processed_ops_0 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_0, StacksEpochId::Epoch21)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &block_0,
+            StacksEpochId::Epoch21,
+            u64::MAX,
+        )
         .unwrap();
 
     assert_eq!(
@@ -999,7 +1021,13 @@ fn test_classify_delegate_stx() {
 
     test_debug!("store ops ({}) for block 1", ops_1_length);
     let processed_ops_1 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_1, StacksEpochId::Epoch21)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &block_1,
+            StacksEpochId::Epoch21,
+            u64::MAX,
+        )
         .unwrap();
 
     assert_eq!(

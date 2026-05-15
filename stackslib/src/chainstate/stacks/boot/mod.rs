@@ -18,6 +18,7 @@ use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+use clarity::consts::MICROSTACKS_PER_STACKS;
 use clarity::types::Address;
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::clarity::{ClarityError, TransactionConnection};
@@ -32,7 +33,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::SymbolicExpression;
 use lazy_static::lazy_static;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -244,20 +245,23 @@ pub struct RawRewardSetEntry {
     pub signer: Option<[u8; SIGNERS_PK_LEN]>,
 }
 
-// This enum captures the names of the PoX contracts by version.
-// This should deprecate the const values `POX_version_NAME`, but
-// that is the kind of refactor that should be in its own PR.
-// Having an enum here is useful for a bunch of reasons, but chiefly:
-//   * we'll be able to add an Ord implementation, so that we can
-//     do much easier version checks
-//   * static enforcement of matches
-define_named_enum!(PoxVersions {
-    Pox1("pox"),
-    Pox2("pox-2"),
-    Pox3("pox-3"),
-    Pox4("pox-4"),
-    Pox5("pox-5"),
-});
+define_named_enum!(
+    /// This enum captures the names of the PoX contracts by version.
+    // This should deprecate the const values `POX_version_NAME`, but
+    // that is the kind of refactor that should be in its own PR.
+    // Having an enum here is useful for a bunch of reasons, but chiefly:
+    //   * we'll be able to add an Ord implementation, so that we can
+    //     do much easier version checks
+    //   * static enforcement of matches
+    #[derive(PartialOrd, Ord)]
+    PoxVersions {
+        Pox1("pox"),
+        Pox2("pox-2"),
+        Pox3("pox-3"),
+        Pox4("pox-4"),
+        Pox5("pox-5"),
+    }
+);
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PoxStartCycleInfo {
@@ -299,7 +303,7 @@ pub struct NakamotoSignerEntry {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RewardSet {
+pub struct RewardSetV0 {
     pub rewarded_addresses: Vec<PoxAddress>,
     pub start_cycle_state: PoxStartCycleInfo,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -307,6 +311,61 @@ pub struct RewardSet {
     pub signers: Option<Vec<NakamotoSignerEntry>>,
     #[serde(default)]
     pub pox_ustx_threshold: Option<u128>,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct WaterfallCycleSet {
+    pub sbtc_address: PoxAddress,
+    pub signers: Vec<NakamotoSignerEntry>,
+}
+
+/// Versioned reward set enum. Serializes with a `reward_set_version` field
+/// embedded in the JSON for backward-compatible deserialization.
+/// Existing data without the field is deserialized as V0 (default).
+#[derive(Debug, PartialEq, Clone)]
+pub enum RewardSet {
+    V0(RewardSetV0),
+    Waterfall(WaterfallCycleSet),
+}
+
+impl serde::Serialize for RewardSet {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Serialize as the inner variant's JSON with an added `reward_set_version` field
+        let mut value = match self {
+            RewardSet::V0(v0) => serde_json::to_value(v0).map_err(serde::ser::Error::custom)?,
+            RewardSet::Waterfall(wf) => {
+                serde_json::to_value(wf).map_err(serde::ser::Error::custom)?
+            }
+        };
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert(
+                "reward_set_version".to_string(),
+                serde_json::Value::Number(self.version().into()),
+            );
+        }
+        value.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RewardSet {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let version = value
+            .get("reward_set_version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        match version {
+            0 => serde_json::from_value::<RewardSetV0>(value)
+                .map(RewardSet::V0)
+                .map_err(serde::de::Error::custom),
+            1 => serde_json::from_value::<WaterfallCycleSet>(value)
+                .map(RewardSet::Waterfall)
+                .map_err(serde::de::Error::custom),
+            _ => Err(serde::de::Error::custom(format!(
+                "Unknown reward_set_version: {version}"
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -333,13 +392,21 @@ impl PoxStartCycleInfo {
 impl RewardSet {
     /// Create an empty reward set where no one gets an early unlock
     pub fn empty() -> RewardSet {
-        RewardSet {
+        RewardSet::V0(RewardSetV0 {
             rewarded_addresses: vec![],
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
             signers: None,
             pox_ustx_threshold: None,
+        })
+    }
+
+    /// Return the version discriminant for this reward set variant.
+    pub fn version(&self) -> u32 {
+        match self {
+            RewardSet::V0(_) => 0,
+            RewardSet::Waterfall(_) => 1,
         }
     }
 
@@ -356,16 +423,79 @@ impl RewardSet {
     /// Return the total `weight` of all signers in the reward set.
     /// If there are no reward set signers, a ChainstateError is returned.
     pub fn total_signing_weight(&self) -> Result<u32, String> {
-        let Some(ref reward_set_signers) = self.signers else {
+        let Some(signers) = self.signers() else {
             return Err("Unable to calculate total weight - No signers in reward set".to_string());
         };
-        Ok(reward_set_signers
-            .iter()
-            .map(|s| s.weight)
-            .fold(0, |s, acc| {
-                acc.checked_add(s)
-                    .expect("FATAL: Total signer weight > u32::MAX")
-            }))
+        Ok(signers.iter().map(|s| s.weight).fold(0, |s, acc| {
+            acc.checked_add(s)
+                .expect("FATAL: Total signer weight > u32::MAX")
+        }))
+    }
+
+    /// Return a reference to the signers list.
+    /// V0 returns `None` if the signers field is `None`;
+    /// Waterfall always has signers.
+    pub fn signers(&self) -> Option<&Vec<NakamotoSignerEntry>> {
+        match self {
+            RewardSet::V0(v0) => v0.signers.as_ref(),
+            RewardSet::Waterfall(wf) => Some(&wf.signers),
+        }
+    }
+
+    /// Return a reference to the inner `RewardSetV0`, if this is the V0 variant.
+    pub fn as_v0(&self) -> Option<&RewardSetV0> {
+        match self {
+            RewardSet::V0(v0) => Some(v0),
+            _ => None,
+        }
+    }
+
+    /// Return a mutable reference to the inner `RewardSetV0`, if this is the V0 variant.
+    pub fn as_v0_mut(&mut self) -> Option<&mut RewardSetV0> {
+        match self {
+            RewardSet::V0(v0) => Some(v0),
+            _ => None,
+        }
+    }
+
+    /// Return a reference to the inner `WaterfallCycleSet`, if this is the Waterfall variant.
+    pub fn as_waterfall(&self) -> Option<&WaterfallCycleSet> {
+        match self {
+            RewardSet::Waterfall(wf) => Some(wf),
+            _ => None,
+        }
+    }
+
+    /// Return the rewarded addresses (V0 only). Returns `None` for Waterfall.
+    pub fn rewarded_addresses(&self) -> Option<&Vec<PoxAddress>> {
+        match self {
+            RewardSet::V0(v0) => Some(&v0.rewarded_addresses),
+            _ => None,
+        }
+    }
+
+    /// Return the pox_ustx_threshold.
+    ///
+    /// Only calculated in V0, Returns `50_000 STX` for Waterfall.
+    pub fn pox_ustx_threshold(&self) -> Option<u128> {
+        match self {
+            RewardSet::V0(v0) => v0.pox_ustx_threshold,
+            _ => Some(50_000 * u128::from(MICROSTACKS_PER_STACKS)),
+        }
+    }
+
+    /// Length of the `pox_treatment` BitVec a miner should construct in blocks
+    /// during this reward set.
+    ///
+    /// * V0: one bit per reward-slot recipient.
+    /// * Waterfall: always 1 => there is a single sBTC output. This treatment vec
+    ///    is no longer used in consensus, but the miner includes it for deserialization
+    ///    compatibility
+    pub fn pox_treatment_bitvec_len(&self) -> u16 {
+        match self {
+            RewardSet::V0(v0) => v0.rewarded_addresses.len().try_into().unwrap_or(u16::MAX),
+            RewardSet::Waterfall(_) => 1,
+        }
     }
 }
 
@@ -966,14 +1096,14 @@ impl StacksChainState {
             missed_slots.clear();
         }
         info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
-        RewardSet {
+        RewardSet::V0(RewardSetV0 {
             rewarded_addresses: reward_set,
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: missed_slots,
             },
             signers: signer_set,
             pox_ustx_threshold: Some(threshold),
-        }
+        })
     }
 
     pub fn get_threshold_from_participation(
@@ -1621,7 +1751,8 @@ pub mod test {
         ];
         assert_eq!(
             StacksChainState::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05)
-                .rewarded_addresses
+                .rewarded_addresses()
+                .unwrap()
                 .len(),
             3
         );
