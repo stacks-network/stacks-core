@@ -47,6 +47,7 @@ use crate::chainstate::tests::consensus::{
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityError, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::clarity_vm::tests::test_utils::apply_transitions_for_epoch;
 use crate::util_lib::boot::boot_code_id;
 
 fn test_block_headers(n: u8) -> StacksBlockId {
@@ -88,60 +89,6 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
                 (token-credit! .tokens u4))";
-
-/// Run genesis plus the epoch transitions required to reach `target_epoch`,
-/// committing each one.  Returns the parent block id to use for the next
-/// block in the test.  Each transition block opens under the previous epoch
-fn setup_with_epoch_transitions(
-    clarity_instance: &mut ClarityInstance,
-    target_epoch: StacksEpochId,
-) -> StacksBlockId {
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
-        )
-        .commit_block();
-
-    let mut tip = StacksBlockId([0; 32]);
-
-    if target_epoch >= StacksEpochId::Epoch2_05 {
-        let burn_db = generate_test_burn_state_db(StacksEpochId::Epoch20);
-        let next = StacksBlockId([0xa1; 32]);
-        let mut conn = clarity_instance.begin_block(&tip, &next, &TEST_HEADER_DB, &burn_db);
-        conn.initialize_epoch_2_05().unwrap();
-        conn.commit_block();
-        tip = next;
-    }
-    if target_epoch >= StacksEpochId::Epoch21 {
-        let burn_db = generate_test_burn_state_db(StacksEpochId::Epoch2_05);
-        let next = StacksBlockId([0xa2; 32]);
-        let mut conn = clarity_instance.begin_block(&tip, &next, &TEST_HEADER_DB, &burn_db);
-        conn.initialize_epoch_2_1().unwrap();
-        conn.commit_block();
-        tip = next;
-    }
-    if target_epoch >= StacksEpochId::Epoch30 {
-        let burn_db = generate_test_burn_state_db(StacksEpochId::Epoch21);
-        let next = StacksBlockId([0xa3; 32]);
-        let mut conn = clarity_instance.begin_block(&tip, &next, &TEST_HEADER_DB, &burn_db);
-        conn.initialize_epoch_3_0().unwrap();
-        conn.commit_block();
-        tip = next;
-    }
-    if target_epoch >= StacksEpochId::Epoch33 {
-        let burn_db = generate_test_burn_state_db(StacksEpochId::Epoch30);
-        let next = StacksBlockId([0xa4; 32]);
-        let mut conn = clarity_instance.begin_block(&tip, &next, &TEST_HEADER_DB, &burn_db);
-        conn.initialize_epoch_3_3().unwrap();
-        conn.commit_block();
-        tip = next;
-    }
-
-    tip
-}
 
 /// Since setup_block is not called, we need to manually increment the tenure
 /// height each time a new block is made.
@@ -809,7 +756,7 @@ pub fn rollback_log_memory_test(
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-    let parent = setup_with_epoch_transitions(&mut clarity_instance, epoch_id);
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
@@ -868,7 +815,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-    let parent = setup_with_epoch_transitions(&mut clarity_instance, epoch_id);
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
@@ -935,7 +882,7 @@ pub fn argument_memory_test(
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
     let burn_db = &generate_test_burn_state_db(epoch_id);
-    let parent = setup_with_epoch_transitions(&mut clarity_instance, epoch_id);
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
@@ -1000,7 +947,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-    let parent = setup_with_epoch_transitions(&mut clarity_instance, epoch_id);
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
@@ -1103,7 +1050,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
     let burn_db = &generate_test_burn_state_db(epoch_id);
-    let parent = setup_with_epoch_transitions(&mut clarity_instance, epoch_id);
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
