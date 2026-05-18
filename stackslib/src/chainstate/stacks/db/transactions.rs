@@ -12161,7 +12161,7 @@ pub mod test {
         let balances = vec![(addr.clone(), 1_000_000_000)];
 
         let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+            instantiate_chainstate_with_all_costs_and_balances(function_name!(), balances);
 
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21, // or whichever Epoch ≥ 2.1 stub fits
