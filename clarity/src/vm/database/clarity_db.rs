@@ -2653,7 +2653,7 @@ fn epoch_cache_recovers_after_rollback() {
             db.get_clarity_epoch_version().unwrap_err(),
             VmExecutionError::Internal(VmInternalError::Expect(_))
         ),
-        "Expected error when getting clarity epoch version is accessed in a non-nested context"
+        "Expected error when accessing the clarity epoch version in a non-nested context"
     );
 
     // Outer nest — simulates a block-level transaction
