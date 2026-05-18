@@ -402,7 +402,8 @@ pub struct RPCReplayedBlockTransaction {
     pub cpu_instructions: Option<u64>,
     pub cpu_cycles: Option<u64>,
     pub cpu_ref_cycles: Option<u64>,
-    pub execution_time_millis: u64,
+    pub execution_time_secs: f64,
+    pub execution_time_nanos: u128,
 }
 
 impl RPCReplayedBlockTransaction {
@@ -447,7 +448,8 @@ impl RPCReplayedBlockTransaction {
             cpu_instructions: profiler_result.cpu_instructions,
             cpu_cycles: profiler_result.cpu_cycles,
             cpu_ref_cycles: profiler_result.cpu_ref_cycles,
-            execution_time_millis: execution_duration.as_millis() as u64,
+            execution_time_secs: execution_duration.as_secs_f64(),
+            execution_time_nanos: execution_duration.as_nanos(),
         }
     }
 }

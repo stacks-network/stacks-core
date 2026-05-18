@@ -40,9 +40,12 @@ properties:
   cpu_ref_cycles:
     type: [integer, "null"]
     description: number of reference cycles executed
-  execution_time_millis:
+execution_time_secs:
     type: integer
-    description: execution time in milliseconds
+    description: execution time in seconds
+execution_time_nanos:
+    type: integer
+    description: execution time in nanoseconds
 required:
   - data
   - events
@@ -54,4 +57,5 @@ required:
   - tx_index
   - txid
   - vm_error
-  - execution_time_millis
+  - execution_time_secs
+  - execution_time_nanos
