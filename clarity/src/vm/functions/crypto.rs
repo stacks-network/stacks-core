@@ -334,39 +334,24 @@ pub fn special_secp256r1_verify(
     Ok(Value::Bool(verify_result.is_ok()))
 }
 
-pub fn special_secp256k1_decompress(
-    args: &[SymbolicExpression],
-    exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-    context: &LocalContext,
-) -> Result<Value, VmExecutionError> {
-    // (secp256k1-decompress? public-key)
-    // public-key: (buff 33)
-    check_argument_count(1, args)?;
-
-    runtime_cost(ClarityCostFunction::Secp256k1decompress, exec_state, 0)?;
-
-    let arg0 = args
-        .first()
-        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(0, 1))?;
-    let pubkey_value = eval(arg0, exec_state, invoke_ctx, context)?;
-    let pubkey = match pubkey_value.as_ref() {
+pub fn native_secp256k1_decompress(public_key: Value) -> Result<Value, VmExecutionError> {
+    let public_key_bytes = match &public_key {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                pubkey_value.as_ref().to_error_string(),
+                public_key.to_error_string(),
             )
             .into());
         }
     };
 
-    let Ok(pubkey_uncompressed) = secp256k1_decompress(pubkey) else {
+    let Ok(public_key_uncompressed) = secp256k1_decompress(public_key_bytes) else {
         // We do not return the runtime error. Immediately map this to an error code.
         return Ok(Value::err_uint(1));
     };
-    let pubkey_buff = Value::buff_from(pubkey_uncompressed.to_vec())
+    let public_key_uncompressed_buff = Value::buff_from(public_key_uncompressed.to_vec())
         .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?;
-    Ok(Value::okay(pubkey_buff)
+    Ok(Value::okay(public_key_uncompressed_buff)
         .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?)
 }
