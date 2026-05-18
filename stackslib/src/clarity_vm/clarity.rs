@@ -39,9 +39,9 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     make_pox_5_body, make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2,
-    BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
+    BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COSTS_5,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-    COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
+    COSTS_3_NAME, COSTS_4_NAME, COSTS_5_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
     POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, POX_5_NAME,
     SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY,
     SIGNERS_VOTING_NAME, SIP_031_NAME,
@@ -919,6 +919,25 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         self.datastore.test_commit();
 
         self.cost_track.unwrap()
+    }
+
+    /// Set the epoch on this block connection, mirroring what a real
+    /// `initialize_epoch_X_Y` would do: updates the in-memory `epoch` field on
+    /// the block connection, persists the value to the Clarity DB, and updates
+    /// the transaction connection's `epoch` field so subsequent analyses route
+    /// through the correct epoch's type checker.
+    #[cfg(test)]
+    pub fn set_epoch_for_testing(&mut self, epoch: StacksEpochId) {
+        self.epoch = epoch;
+        self.as_transaction(|tx_conn| {
+            tx_conn
+                .with_clarity_db(|db| {
+                    db.set_clarity_epoch_version(epoch)?;
+                    Ok(())
+                })
+                .unwrap();
+            tx_conn.epoch = epoch;
+        });
     }
 
     pub fn precommit_to_block(self, final_bhh: StacksBlockId) -> PreCommitClarityBlock<'a> {
@@ -1997,7 +2016,43 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let boot_code_address = boot_code_addr(mainnet);
             let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
-            // pox-5 contract setup
+            /////////////////// .costs-5 ////////////////////////
+            let costs_5_contract_id = boot_code_id(COSTS_5_NAME, mainnet);
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_5_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(BOOT_CODE_COSTS_5)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
+
+            let costs_5_contract_tx =
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
+
+            let costs_5_initialization_receipt = self.as_transaction(|tx_conn| {
+                debug!("Instantiate {} contract", &costs_5_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &costs_5_contract_tx,
+                    &boot_code_account,
+                    None,
+                )
+                .expect("FATAL: Failed to process .costs-5 contract initialization");
+                receipt
+            });
+
+            if costs_5_initialization_receipt.result != Value::okay_true()
+                || costs_5_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing .costs-5 contract initialization: {:#?}",
+                    &costs_5_initialization_receipt
+                );
+            }
+
+            /////////////////// .pox-5 ////////////////////////
             let pox_5_contract_id = boot_code_id(POX_5_NAME, mainnet);
             let pox_5_code = make_pox_5_body(mainnet);
             let payload = TransactionPayload::SmartContract(
@@ -2050,13 +2105,19 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 || pox_5_initialization_receipt.post_condition_aborted
             {
                 panic!(
-                    "FATAL: Failure processing pox-5 contract initialization: {:#?}",
+                    "FATAL: Failure processing .pox-5 contract initialization: {:#?}",
                     &pox_5_initialization_receipt
                 );
             }
 
             info!("Epoch 4.0 initialized");
-            (old_cost_tracker, Ok(vec![pox_5_initialization_receipt]))
+            (
+                old_cost_tracker,
+                Ok(vec![
+                    costs_5_initialization_receipt,
+                    pox_5_initialization_receipt,
+                ]),
+            )
         })
     }
 

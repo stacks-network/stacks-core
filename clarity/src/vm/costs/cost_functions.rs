@@ -161,6 +161,8 @@ define_named_enum!(ClarityCostFunction {
     RestrictAssets("cost_restrict_assets"),
     AsContractSafe("cost_as_contract_safe"),
     Secp256r1verify("cost_secp256r1verify"),
+    VerifyMerkleProof("cost_verify_merkle_proof"),
+    GetBitcoinTxOutput("cost_get_bitcoin_tx_output"),
     Unimplemented("cost_unimplemented"),
 });
 
@@ -339,6 +341,8 @@ pub trait CostValues {
     fn cost_restrict_assets(n: u64) -> Result<ExecutionCost, VmExecutionError>;
     fn cost_as_contract_safe(n: u64) -> Result<ExecutionCost, VmExecutionError>;
     fn cost_secp256r1verify(n: u64) -> Result<ExecutionCost, VmExecutionError>;
+    fn cost_verify_merkle_proof(n: u64) -> Result<ExecutionCost, VmExecutionError>;
+    fn cost_get_bitcoin_tx_output(n: u64) -> Result<ExecutionCost, VmExecutionError>;
 }
 
 impl ClarityCostFunction {
@@ -496,6 +500,8 @@ impl ClarityCostFunction {
             ClarityCostFunction::RestrictAssets => C::cost_restrict_assets(n),
             ClarityCostFunction::AsContractSafe => C::cost_as_contract_safe(n),
             ClarityCostFunction::Secp256r1verify => C::cost_secp256r1verify(n),
+            ClarityCostFunction::VerifyMerkleProof => C::cost_verify_merkle_proof(n),
+            ClarityCostFunction::GetBitcoinTxOutput => C::cost_get_bitcoin_tx_output(n),
             ClarityCostFunction::Unimplemented => Err(RuntimeError::NotImplemented.into()),
         }
     }

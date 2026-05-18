@@ -1,8 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/consensus.rs
-assertion_line: 1873
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
@@ -64,7 +62,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "955872149548ff70376cf80e93133d80e37b2a16b4b6b8828872991b6e7c4237",
+    marf_hash: "571f50af69365203726ae69b3e82498b93de733116d853b02d9bffda834ad201",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
