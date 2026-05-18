@@ -1108,6 +1108,23 @@ pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), Com
     }
 }
 
+/// Check if the supplied arguments are exactly N in length, and if so, return
+///  a fixed array with pointers to the arguments. Otherwise, return an IncorrectArgumentCount
+pub fn get_arguments_exact<T, const N: usize>(args: &[T]) -> Result<&[T; N], CommonCheckErrorKind> {
+    args.try_into()
+        .map_err(|_| CommonCheckErrorKind::IncorrectArgumentCount(N, args.len()))
+}
+
+/// Check if the supplied arguments are at least N in length, and if so, return
+///  a fixed array of size N with pointers to the arguments and a slice with the excess.
+/// Otherwise, return an IncorrectArgumentCount
+pub fn get_arguments_at_least<T, const N: usize>(
+    args: &[T],
+) -> Result<(&[T; N], &[T]), CommonCheckErrorKind> {
+    args.split_first_chunk::<N>()
+        .ok_or_else(|| CommonCheckErrorKind::RequiresAtLeastArguments(N, args.len()))
+}
+
 fn formatted_expected_types(expected_types: &[TypeSignature]) -> String {
     let mut expected_types_joined = format!("'{}'", expected_types[0]);
 

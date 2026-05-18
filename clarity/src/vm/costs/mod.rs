@@ -22,6 +22,7 @@ use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
 use costs_3::Costs3;
 use costs_4::Costs4;
+use costs_5::Costs5;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
@@ -54,6 +55,7 @@ pub mod costs_2_testnet;
 pub mod costs_3;
 #[allow(unused_variables)]
 pub mod costs_4;
+pub mod costs_5;
 pub mod errors;
 pub mod execution_cost;
 
@@ -64,6 +66,7 @@ pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
 pub const COSTS_4_NAME: &str = "costs-4";
+pub const COSTS_5_NAME: &str = "costs-5";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = {
@@ -211,6 +214,7 @@ pub enum DefaultVersion {
     Costs2Testnet,
     Costs3,
     Costs4,
+    Costs5,
 }
 
 impl DefaultVersion {
@@ -229,6 +233,7 @@ impl DefaultVersion {
             DefaultVersion::Costs2Testnet => f.eval::<Costs2Testnet>(*n),
             DefaultVersion::Costs3 => f.eval::<Costs3>(*n),
             DefaultVersion::Costs4 => f.eval::<Costs4>(*n),
+            DefaultVersion::Costs5 => f.eval::<Costs5>(*n),
         };
         r.map_err(|e| {
             let e = match e {
@@ -265,6 +270,8 @@ impl DefaultVersion {
             Ok(Self::Costs3)
         } else if value.name.as_str() == COSTS_4_NAME {
             Ok(Self::Costs4)
+        } else if value.name.as_str() == COSTS_5_NAME {
+            Ok(Self::Costs5)
         } else {
             Err(format!("Unknown default contract {}", &value.name))
         }
@@ -868,9 +875,8 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 | StacksEpochId::Epoch40 => {
-                COSTS_4_NAME.to_string()
-            }
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => COSTS_4_NAME.to_string(),
+            StacksEpochId::Epoch40 => COSTS_5_NAME.to_string(),
         };
         Ok(result)
     }
