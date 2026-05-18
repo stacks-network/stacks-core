@@ -382,7 +382,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
-            | AllowanceAll => {
+            | AllowanceAll
+            | VerifyMerkleProof
+            | GetBitcoinTxOutput => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }

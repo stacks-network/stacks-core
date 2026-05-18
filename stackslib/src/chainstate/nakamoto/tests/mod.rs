@@ -593,7 +593,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
 pub fn test_load_store_update_nakamoto_blocks() {
     let test_name = function_name!();
     let path = test_path(test_name);
-    let pox_constants = PoxConstants::new(5, 3, 3, 25, 5, 0, 0, 0, 0, 0, 0);
+    let pox_constants = PoxConstants::new(5, 3, 3, 25, 5, 0, 0, 0, 0, 0, 0, 0);
     let epochs = StacksEpoch::unit_test_epoch_only(1, StacksEpochId::Epoch30);
     let _ = std::fs::remove_dir_all(&path);
     let burnchain_conf = get_burnchain(&path, Some(pox_constants.clone()));
@@ -3173,7 +3173,7 @@ pub mod nakamoto_block_signatures {
     /// Helper function make a reward set with (PrivateKey, weight) tuples
     fn make_reward_set(signers: &[(Secp256k1PrivateKey, u32)]) -> RewardSet {
         let mut reward_set = RewardSet::empty();
-        reward_set.signers = Some(
+        reward_set.as_v0_mut().expect("empty() is V0").signers = Some(
             signers
                 .iter()
                 .map(|(s, w)| {

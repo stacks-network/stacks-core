@@ -38,7 +38,9 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
-use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::nakamoto::signer_set::{
+    set_pox_5_bond_admin, set_pox_5_sbtc_contract, NakamotoSigners,
+};
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -563,6 +565,15 @@ impl Config {
                 burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
                 burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
             }
+
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch40) {
+                // Override pox_5_activation_height to the start_height of epoch4.0
+                debug!(
+                    "Override pox_5_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_5_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_5_activation_height = epoch.start_height as u32;
+            }
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
@@ -895,6 +906,22 @@ impl Config {
             return Err("Attempted to run mainnet node with `use_test_genesis_chainstate`".into());
         }
 
+        if is_mainnet && node.pox_5_sbtc_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_contract` set. \
+                 The pox-5 contract always references the canonical sBTC token on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_bond_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_bond_admin` set. \
+                 The pox-5 contract always uses its default bond-admin initializer on mainnet."
+                    .into(),
+            );
+        }
+
         if node.stacker || node.miner {
             node.add_miner_stackerdb(is_mainnet);
             node.add_signers_stackerdbs(is_mainnet);
@@ -1113,6 +1140,15 @@ impl Config {
 
     pub fn is_mainnet(&self) -> bool {
         matches!(self.burnchain.mode.as_str(), "mainnet")
+    }
+
+    /// Apply config-driven process-wide runtime state. Call once from a run
+    /// loop's lifecycle entry point, before chainstate is opened. This picks
+    /// up direct field mutations on `Config` (e.g., from integration tests)
+    /// in addition to values populated by [`Config::from_config_file`].
+    pub fn apply_runtime_state(&self) {
+        set_pox_5_sbtc_contract(self.node.pox_5_sbtc_contract.clone());
+        set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -2181,6 +2217,24 @@ pub struct NodeConfig {
     /// ---
     /// @default: `false`
     pub txindex: bool,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
+    /// references — pox-5 calls `get-balance` on it, and signer-set
+    /// computation reads `get-current-aggregate-pubkey` from it to derive the
+    /// per-cycle sBTC waterfall recipient. Devnet/test only — different
+    /// operators configuring different contracts will fork the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes
+    /// the `bond-admin` data var to. By default the contract source
+    /// initializes it to `tx-sender`, which at boot deploy time is the
+    /// unsignable boot principal — making `setup-bond` uncallable. Devnets
+    /// and integration tests can set this to a key they control. Devnet/test
+    /// only — different operators configuring different admins will fork
+    /// the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_bond_admin: Option<PrincipalData>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2443,6 +2497,8 @@ impl Default for NodeConfig {
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
             txindex: false,
+            pox_5_sbtc_contract: None,
+            pox_5_bond_admin: None,
         }
     }
 }
@@ -3861,6 +3917,16 @@ pub struct NodeConfigFile {
     pub fault_injection_block_push_fail_probability: Option<u8>,
     /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
     pub txindex: Option<bool>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC token contract that pox-5 references for `get-balance` and
+    /// from which signer-set computation reads `get-current-aggregate-pubkey`
+    /// to derive the per-cycle sBTC waterfall recipient.
+    pub pox_5_sbtc_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
+    /// pox-5 initializes the `bond-admin` data var to. Used to override the
+    /// default initializer (`tx-sender`, the unsignable boot principal) so
+    /// `setup-bond` is callable from a key controlled by the operator.
+    pub pox_5_bond_admin: Option<String>,
 }
 
 impl NodeConfigFile {
@@ -3954,6 +4020,18 @@ impl NodeConfigFile {
             },
 
             txindex: self.txindex.unwrap_or(default_node_config.txindex),
+            pox_5_sbtc_contract: self
+                .pox_5_sbtc_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_contract: {e}"))?,
+            pox_5_bond_admin: self
+                .pox_5_bond_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_bond_admin: {e}"))?,
         };
         Ok(node_config)
     }

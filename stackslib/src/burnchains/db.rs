@@ -944,6 +944,7 @@ impl BurnchainDB {
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
         epoch_id: StacksEpochId,
+        first_pox_waterfall_block: u64,
     ) -> Vec<BlockstackOperationType> {
         debug!(
             "Extract Blockstack transactions from block {} {} ({} txs)",
@@ -962,6 +963,7 @@ impl BurnchainDB {
                 self,
                 block_header,
                 epoch_id,
+                first_pox_waterfall_block,
                 tx,
                 &pre_stx_ops,
             );
@@ -1105,14 +1107,21 @@ impl BurnchainDB {
         indexer: &B,
         block: &BurnchainBlock,
         epoch_id: StacksEpochId,
+        first_pox_waterfall_block: u64,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
         debug!("Storing new burnchain block";
               "burn_block_hash" => %header.block_hash,
               "block_height" => header.block_height
         );
-        let mut blockstack_ops =
-            self.get_blockstack_transactions(burnchain, indexer, block, &header, epoch_id);
+        let mut blockstack_ops = self.get_blockstack_transactions(
+            burnchain,
+            indexer,
+            block,
+            &header,
+            epoch_id,
+            first_pox_waterfall_block,
+        );
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         // Extract watched outputs from the block

@@ -116,6 +116,7 @@ fn advance_to_2_1(
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     ));
     burnchain_config.pox_constants = pox_constants;
 
@@ -617,6 +618,7 @@ fn transition_fixes_bitcoin_rigidity() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants;
 
@@ -1057,6 +1059,7 @@ fn transition_adds_get_pox_addr_recipients() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
 
     let mut spender_sks = vec![];
@@ -1368,6 +1371,7 @@ fn transition_adds_mining_from_segwit() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
 
     let mut initial_balances = vec![];
@@ -1520,6 +1524,7 @@ fn transition_removes_pox_sunset() {
         sunset_start_rc * reward_cycle_len - 1,
         sunset_end_rc * reward_cycle_len,
         (epoch_21 as u32) + 1,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1780,6 +1785,7 @@ fn transition_empty_blocks() {
         u64::MAX - 2,
         u64::MAX - 1,
         (epoch_2_1 + 1) as u32,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -2126,6 +2132,7 @@ fn test_sortition_divergence_pre_21() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -2483,6 +2490,7 @@ fn trait_invocation_cross_epoch() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants;
 
@@ -2748,6 +2756,7 @@ fn test_v1_unlock_height_with_current_stackers() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants;
 
@@ -3004,6 +3013,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         u64::MAX - 2,
         u64::MAX - 1,
         v1_unlock_height as u32,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,

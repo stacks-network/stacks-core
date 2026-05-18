@@ -16,14 +16,30 @@
 
 use std::cmp;
 use std::collections::HashMap;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 
 use stacks_common::util::hash::Hash160;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 use stacks_common::util::uint::{BitArray, Uint256, Uint512};
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::monitoring;
+
+/// Test-only capture of the most recent `Vec<BurnSamplePoint>` produced by
+/// `make_min_median_distribution`. Tests reading this can assert deterministic
+/// properties of the windowing/chaining math (per-miner `burns`, `frequency`,
+/// etc.) without re-implementing the linker.
+///
+/// Each call to `make_min_median_distribution` overwrites this with the
+/// distribution it just produced; reads are best done immediately after a
+/// sortition has been processed.
+#[cfg(any(test, feature = "testing"))]
+pub static LATEST_BURN_DISTRIBUTION: LazyLock<TestFlag<Vec<BurnSamplePoint>>> =
+    LazyLock::new(TestFlag::default);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BurnSamplePoint {
@@ -168,7 +184,7 @@ impl BurnSamplePoint {
         mining_commitment_window: u8,
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
         mut missed_commits: Vec<Vec<MissedBlockCommit>>,
-        burn_blocks: Vec<bool>,
+        expects_single_commit: Vec<bool>,
     ) -> Vec<BurnSamplePoint> {
         // sanity check
         let window_size = block_commits.len() as u8;
@@ -178,7 +194,7 @@ impl BurnSamplePoint {
             &block_commits,
             &missed_commits,
         );
-        assert_eq!(burn_blocks.len(), block_commits.len());
+        assert_eq!(expects_single_commit.len(), block_commits.len());
 
         // first, let's link all of the current block commits to the priors
         let mut commits_with_priors: Vec<_> =
@@ -213,8 +229,8 @@ impl BurnSamplePoint {
 
             // find the UTXO index that each last linked_commit must have spent in order to be
             // chained to the block-commit (or missed-commit) at this relative block height
-            let commit_is_burn = burn_blocks[rel_block_height as usize];
-            let expected_index = LeaderBlockCommitOp::expected_chained_utxo(commit_is_burn);
+            let expect_single_commit = expects_single_commit[rel_block_height as usize];
+            let expected_index = LeaderBlockCommitOp::expected_chained_utxo(expect_single_commit);
 
             for linked_commit in commits_with_priors.iter_mut() {
                 let end = linked_commit.iter().rev().find_map(|o| o.as_ref()).unwrap(); // guaranteed to be at least 1 non-none entry
@@ -327,6 +343,10 @@ impl BurnSamplePoint {
 
         // calculate burn ranges
         BurnSamplePoint::make_sortition_ranges(&mut burn_sample);
+
+        #[cfg(any(test, feature = "testing"))]
+        LATEST_BURN_DISTRIBUTION.set(burn_sample.clone());
+
         burn_sample
     }
 

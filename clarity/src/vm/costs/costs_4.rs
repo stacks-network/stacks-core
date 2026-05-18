@@ -475,6 +475,14 @@ impl CostValues for Costs4 {
         Ok(ExecutionCost::runtime(51750))
     }
 
+    fn cost_verify_merkle_proof(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Err(RuntimeError::NotImplemented.into())
+    }
+
+    fn cost_get_bitcoin_tx_output(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Err(RuntimeError::NotImplemented.into())
+    }
+
     fn cost_secp256k1decompress(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Err(RuntimeError::NotImplemented.into())
     }

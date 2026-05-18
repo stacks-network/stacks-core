@@ -576,13 +576,14 @@ impl StacksChainState {
         fee: u64,
         payer_account: StacksAccount,
     ) -> Result<u64, Error> {
-        let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht, v3_unlock_ht) = clarity_tx
-            .with_clarity_db_readonly(|ref mut db| {
+        let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht, v3_unlock_ht, v4_unlock_ht) =
+            clarity_tx.with_clarity_db_readonly(|ref mut db| {
                 let res: Result<_, Error> = Ok((
                     db.get_current_burnchain_block_height()?,
                     db.get_v1_unlock_height(),
                     db.get_v2_unlock_height()?,
                     db.get_v3_unlock_height()?,
+                    db.get_v4_unlock_height()?,
                 ));
                 res
             })?;
@@ -594,6 +595,7 @@ impl StacksChainState {
                 v1_unlock_ht,
                 v2_unlock_ht,
                 v3_unlock_ht,
+                v4_unlock_ht,
             )?;
 
         if consolidated_balance < u128::from(fee) {
@@ -8625,7 +8627,7 @@ pub mod test {
         assert_eq!(
             StacksChainState::get_account(&mut conn, &addr.into())
                 .stx_balance
-                .get_available_balance_at_burn_block(0, 0, 0, 0)
+                .get_available_balance_at_burn_block(0, 0, 0, 0, 0)
                 .unwrap(),
             (1000000000 - fee) as u128
         );
@@ -9091,6 +9093,9 @@ pub mod test {
             fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }
+            fn get_pox_5_activation_height(&self) -> u32 {
+                u32::MAX
+            }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
                 Some(sortition_id.0[0] as u32)
             }
@@ -9319,6 +9324,9 @@ pub mod test {
                 u32::MAX
             }
             fn get_pox_4_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+            fn get_pox_5_activation_height(&self) -> u32 {
                 u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
