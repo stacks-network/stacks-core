@@ -979,6 +979,22 @@ impl StacksEpochId {
 
         &Self::ALL[idx..]
     }
+
+    /// Returns all [`StacksEpochId`] from `start` to `end`, both inclusive.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn between(start: StacksEpochId, end: StacksEpochId) -> &'static [StacksEpochId] {
+        let start_idx = Self::ALL
+            .iter()
+            .position(|&e| e == start)
+            .expect("start epoch not found in ALL");
+        let end_idx = Self::ALL
+            .iter()
+            .position(|&e| e == end)
+            .expect("end epoch not found in ALL");
+        assert!(start_idx <= end_idx, "start epoch must be <= end epoch");
+
+        &Self::ALL[start_idx..=end_idx]
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {

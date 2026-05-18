@@ -21,7 +21,7 @@ use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
-use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
+use clarity::vm::contexts::{AbortCallback, AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
@@ -117,6 +117,13 @@ pub struct ClarityBlockConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    /// Callback checked at every Clarity `eval` call. Used by the miner to
+    /// abort block assembly when a resource limit is exceeded (e.g. heap
+    /// memory). Propagated to each `ClarityTransactionConnection` and from
+    /// there into `GlobalContext`.
+    ///
+    /// `AbortCallback::None` is the no-op default.
+    abort_callback: AbortCallback,
 }
 
 ///
@@ -133,6 +140,7 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    abort_callback: AbortCallback,
 }
 
 /// Unified API common to all MARF stores
@@ -264,6 +272,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         mainnet: bool,
         chain_id: u32,
         epoch: StacksEpochId,
+        abort_callback: AbortCallback,
     ) -> ClarityTransactionConnection<'a, 'b> {
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
@@ -276,6 +285,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             mainnet,
             chain_id,
             epoch,
+            abort_callback,
         }
     }
 }
@@ -332,6 +342,7 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
             epoch,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -350,6 +361,11 @@ impl ClarityBlockConnection<'_, '_> {
             .expect("BUG: Clarity block connection lost cost tracker instance");
         self.cost_track.replace(tracker);
         old
+    }
+
+    /// Set an abort callback that will be checked at every Clarity `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.abort_callback = callback;
     }
 
     /// Get the current cost so far
@@ -453,6 +469,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -477,6 +494,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -503,6 +521,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         };
 
         let use_mainnet = self.mainnet;
@@ -599,6 +618,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         };
 
         let use_mainnet = self.mainnet;
@@ -711,6 +731,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -755,6 +776,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -1969,6 +1991,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             self.mainnet,
             self.chain_id,
             self.epoch,
+            self.abort_callback.clone(),
         )
     }
 
@@ -2115,6 +2138,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     cost_track,
                     self.epoch,
                 );
+                vm_env.set_abort_callback(self.abort_callback.clone());
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()

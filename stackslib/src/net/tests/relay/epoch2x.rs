@@ -20,6 +20,8 @@ use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
+use pinny::tag;
+use proptest::prelude::*;
 use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -3702,6 +3704,59 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
 
     peer.chain.sortdb = Some(sortdb);
     peer.chain.stacks_node = Some(node);
+}
+
+proptest! {
+    // Epoch34 removes the relay depth filter. The same over-limit contract
+    // must be rejected pre-Epoch34 but accepted in Epoch34. Depths 100+ avoid
+    // parser-version boundary ambiguity.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_relay_depth_filter_removed_at_epoch34(
+        depth in 100usize..300,
+        pre_epoch in prop::sample::select(
+            StacksEpochId::ALL
+                .iter()
+                .copied()
+                .filter(|e| *e >= StacksEpochId::Epoch20
+                    && *e < StacksEpochId::Epoch34)
+                .collect::<Vec<_>>()
+        )
+    ) {
+        let body = format!(
+            "{} 1 {}",
+            "(+ ".repeat(depth),
+            ")".repeat(depth)
+        );
+        let tx = make_contract_tx(
+            &StacksPrivateKey::random(),
+            0,
+            100,
+            "proptest-depth",
+            &body,
+        );
+
+        // Pre-Epoch34: rejected.
+        let result_pre = Relayer::static_check_problematic_relayed_tx(
+            false, pre_epoch, &tx,
+        );
+        prop_assert!(
+            result_pre.is_err(),
+            "{:?} should reject depth {} (limit {})",
+            pre_epoch, depth,
+            StackDepthLimits::for_epoch(pre_epoch).max_nesting_depth()
+        );
+
+        // Epoch34: accepted (filter removed).
+        let result_34 = Relayer::static_check_problematic_relayed_tx(
+            false, StacksEpochId::Epoch34, &tx,
+        );
+        prop_assert!(
+            result_34.is_ok(),
+            "Epoch34 should accept depth {}: {:?}",
+            depth, result_34.err()
+        );
+    }
 }
 
 // TODO: process bans
