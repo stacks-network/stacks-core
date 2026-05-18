@@ -473,8 +473,6 @@ impl RewardSet {
     }
 
     /// Return the pox_ustx_threshold.
-    ///
-    /// Only calculated in V0, Returns `50_000 STX` for Waterfall.
     pub fn pox_ustx_threshold(&self) -> Option<u128> {
         match self {
             RewardSet::V0(v0) => v0.pox_ustx_threshold,
