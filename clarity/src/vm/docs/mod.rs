@@ -1491,7 +1491,10 @@ const SECP256K1DECOMPRESS_API: SpecialAPI = SpecialAPI {
     snippet: "secp256k1-decompress? ${1:public-key})",
     output_type: "(response (buff 65) uint)",
     signature: "(secp256k1-decompress? public-key)",
-    description: "The `secp256k1-decompress?` function decompress the provided (compressed) public key.",
+    description: "The `secp256k1-decompress?` function decompresses the provided (compressed) public key.
+    Returns the uncompressed public key as a 65-byte buffer on success. This function may fail with the error code:
+    - `(err u1)` — invalid compressed public-key.
+    ",
     example: "(secp256k1-decompress? 0x0250863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b2352) 
     ;; Returns (ok 0x0450863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b23522cd470243453a299fa9e77237716103abc11a1df38855ed6f2ee187e9c582ba6)",
 };
