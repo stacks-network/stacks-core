@@ -59,6 +59,7 @@ use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, U
 use crate::net::atlas::AtlasConfig;
 use crate::net::connection::{
     ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
+    DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
@@ -1159,9 +1160,7 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: false,
-            max_execution_time: miner_config
-                .max_execution_time_secs
-                .map(Duration::from_secs),
+            max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
@@ -1210,9 +1209,7 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: true,
-            max_execution_time: miner_config
-                .max_execution_time_secs
-                .map(Duration::from_secs),
+            max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
@@ -3119,17 +3116,20 @@ pub struct MinerConfig {
     ///   "20" = 45
     ///   "30" = 0
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
-    /// Defines the maximum execution time (in seconds) allowed for a single contract call transaction.
+    /// Defines the maximum execution time (in seconds) allowed for a single contract call
+    /// transaction during mining.
     ///
-    /// When processing a transaction (contract call or smart contract deployment),
-    /// if this option is set, and the execution time exceeds this limit, the
-    /// transaction processing fails with an `ExecutionTimeout` error, and the
-    /// transaction is skipped. This prevents potentially long-running or
-    /// infinite-loop transactions from blocking block production.
+    /// When processing a transaction (contract call or smart contract deployment), if the
+    /// execution time exceeds this limit, the transaction processing fails with an
+    /// `ExecutionTimeout` error and the transaction is skipped. This prevents
+    /// long-running or infinite-loop transactions from blocking block production.
+    ///
+    /// Mining always enforces a limit; there is no way to disable it. To effectively
+    /// "turn it off," set this to a value larger than any tx is expected to take.
     /// ---
-    /// @default: Some([`DEFAULT_MAX_EXECUTION_TIME_SECS`])
+    /// @default: [`DEFAULT_MAX_EXECUTION_TIME_SECS`]
     /// @units: seconds
-    pub max_execution_time_secs: Option<u64>,
+    pub max_execution_time_secs: u64,
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
     /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
     pub replay_transactions: bool,
@@ -3211,7 +3211,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
-            max_execution_time_secs: Some(DEFAULT_MAX_EXECUTION_TIME_SECS),
+            max_execution_time_secs: DEFAULT_MAX_EXECUTION_TIME_SECS,
             replay_transactions: false,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
@@ -3723,6 +3723,18 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS`]
     /// @units: seconds
     pub block_proposal_validation_timeout_secs: Option<u64>,
+
+    /// Maximum time (in seconds) to spend executing a single transaction
+    /// during block proposal validation. This is a per-transaction cap that
+    /// is applied independently from the overall block validation timeout.
+    /// A transaction that exceeds this limit on its own is classified as
+    /// problematic; a transaction interrupted because the overall block
+    /// validation budget was exceeded is not.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS`]
+    /// @units: seconds
+    pub block_proposal_max_tx_execution_time_secs: Option<u64>,
+
     /// Maximum bytes a single transaction may allocate on the heap during
     /// block-proposal validation before it is rejected.
     /// `0` disables the limit.
@@ -3887,6 +3899,9 @@ impl ConnectionOptionsFile {
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
+            block_proposal_max_tx_execution_time_secs: self
+                .block_proposal_max_tx_execution_time_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS),
             block_proposal_max_tx_mem_bytes: self
                 .block_proposal_max_tx_mem_bytes
                 .unwrap_or(default.block_proposal_max_tx_mem_bytes),
@@ -4377,7 +4392,9 @@ impl MinerConfigFile {
                 }
             },
 
-            max_execution_time_secs: self.max_execution_time_secs,
+            max_execution_time_secs: self
+                .max_execution_time_secs
+                .unwrap_or(miner_default_config.max_execution_time_secs),
             replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
