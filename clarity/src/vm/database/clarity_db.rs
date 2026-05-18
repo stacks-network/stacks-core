@@ -817,9 +817,9 @@ impl<'a> ClarityDatabase<'a> {
 
     /// `LoadContract` cost size (`contract_size + data_size`).
     ///
-    /// When a cache is attached to this instance and the store isn't restargeted by e.g.
-    /// `at-block`, this method attempts to serve values via a passive cache lookup. Cache hits do
-    /// not update FIFO counters, and misses fall through to reading from the backing store.
+    /// When a cache is attached to this instance and the store isn't retargeted by e.g. `at-block`,
+    /// this method attempts to serve values via a passive cache lookup. Cache hits do not update
+    /// FIFO counters, and misses fall through to reading from the backing store.
     pub fn get_contract_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
