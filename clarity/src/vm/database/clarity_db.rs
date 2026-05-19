@@ -903,9 +903,10 @@ impl<'a> ClarityDatabase<'a> {
         Ok(contract_context.into())
     }
 
-    /// Check for any pending metadata writes to the metadata keys used by the contract cache,
-    /// signalling that the data we just read can still be subject to rollback and thus should
-    /// not be cached.
+    /// Check for any pending metadata writes to the metadata keys used for loading/materializing a
+    /// [`Contract`] from the backing store and calculating its `LoadContract` costs.
+    ///
+    /// This is used for defensive checks in e.g. [`Self::get_contract`].
     fn has_pending_metadata_for_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -946,7 +947,8 @@ impl<'a> ClarityDatabase<'a> {
 
         // Defensive check: this is not expected on the ordinary contract-call path, but we include
         // it conservatively as this is a lower-level DB API which can be reached while a rollback
-        // layer contains pending metadata.
+        // layer contains pending metadata (e.g., if the cache were ever reused across transaction
+        // boundaries).
         let is_pending = self.has_pending_metadata_for_contract(contract_identifier);
 
         // Only populate the cache on reads at tip and when there are no pending writes to relevant
