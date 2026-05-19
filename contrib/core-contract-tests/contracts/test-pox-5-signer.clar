@@ -15,7 +15,7 @@
     uint
 )
 
-(define-map staker-rewards-paid-per-token-for-cycle
+(define-map staker-rewards-per-token-settled-for-cycle
     {
         is-bond: bool,
         index: uint,
@@ -25,7 +25,7 @@
 )
 
 ;; Represents pending, but unclaimed rewards for a staker
-(define-map staker-pending-rewards-for-cycle
+(define-map staker-unclaimed-rewards-for-cycle
     {
         is-bond: bool,
         index: uint,
@@ -114,12 +114,12 @@
             (staker (get staker acc))
             (index (+ (get first-index acc) index-offset))
         )
-        (crystallize-staker-rewards staker (get is-bond acc) index)
+        (settle-staker-rewards staker (get is-bond acc) index)
         (ok acc)
     )
 )
 
-(define-private (crystallize-staker-rewards
+(define-private (settle-staker-rewards
         (staker principal)
         (is-bond bool)
         (index uint)
@@ -128,14 +128,14 @@
             (earned (get-earned-staker-rewards staker is-bond index))
             (rewards-per-token (get-rewards-per-token-for-cycle is-bond index))
         )
-        (map-set staker-pending-rewards-for-cycle {
+        (map-set staker-unclaimed-rewards-for-cycle {
             staker: staker,
             index: index,
             is-bond: is-bond,
         }
             earned
         )
-        (map-set staker-rewards-paid-per-token-for-cycle {
+        (map-set staker-rewards-per-token-settled-for-cycle {
             staker: staker,
             index: index,
             is-bond: is-bond,
@@ -179,8 +179,8 @@
                 is-bond index current-contract
             ))
             (rpt-current (get-rewards-per-token-for-cycle is-bond index))
-            (rpt-paid (get-staker-rewards-per-token-paid-for-cycle staker is-bond index))
-            (pending (get-staker-pending-rewards-for-cycle staker is-bond index))
+            (rpt-paid (get-staker-rewards-per-token-settled-for-cycle staker is-bond index))
+            (pending (get-staker-unclaimed-rewards-for-cycle staker is-bond index))
             (newly-earned (/ (* shares (- rpt-current rpt-paid)) PRECISION))
         )
         (+ pending newly-earned)
@@ -193,11 +193,11 @@
     )
     (let (
             (staker tx-sender)
-            (rewards-info (crystallize-staker-rewards staker is-bond index))
+            (rewards-info (settle-staker-rewards staker is-bond index))
             (earned (get earned rewards-info))
         )
         (asserts! (> earned u0) ERR_NO_CLAIMABLE_REWARDS)
-        (map-set staker-pending-rewards-for-cycle {
+        (map-set staker-unclaimed-rewards-for-cycle {
             staker: staker,
             is-bond: is-bond,
             index: index,
@@ -260,13 +260,13 @@
     )
 )
 
-(define-read-only (get-staker-rewards-per-token-paid-for-cycle
+(define-read-only (get-staker-rewards-per-token-settled-for-cycle
         (staker principal)
         (is-bond bool)
         (index uint)
     )
     (default-to u0
-        (map-get? staker-rewards-paid-per-token-for-cycle {
+        (map-get? staker-rewards-per-token-settled-for-cycle {
             staker: staker,
             index: index,
             is-bond: is-bond,
@@ -274,13 +274,13 @@
     )
 )
 
-(define-read-only (get-staker-pending-rewards-for-cycle
+(define-read-only (get-staker-unclaimed-rewards-for-cycle
         (staker principal)
         (is-bond bool)
         (index uint)
     )
     (default-to u0
-        (map-get? staker-pending-rewards-for-cycle {
+        (map-get? staker-unclaimed-rewards-for-cycle {
             staker: staker,
             index: index,
             is-bond: is-bond,

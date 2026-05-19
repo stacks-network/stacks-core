@@ -3933,33 +3933,6 @@ export const contracts = {
           bigint
         >
       >,
-      crystallizeRewards: {
-        name: 'crystallize-rewards',
-        access: 'private',
-        args: [
-          { name: 'signer', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: {
-          type: {
-            tuple: [
-              { name: 'earned', type: 'uint128' },
-              { name: 'rewards-per-token', type: 'uint128' },
-            ],
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          signer: TypedAbiArg<string, 'signer'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        {
-          earned: bigint;
-          rewardsPerToken: bigint;
-        }
-      >,
       getBitcoinTxOutput_q: {
         name: 'get-bitcoin-tx-output?',
         access: 'private',
@@ -4168,6 +4141,33 @@ export const contracts = {
       } as TypedAbiFunction<
         [input: TypedAbiArg<Uint8Array, 'input'>],
         Uint8Array
+      >,
+      settleRewards: {
+        name: 'settle-rewards',
+        access: 'private',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'is-bond', type: 'bool' },
+          { name: 'index', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            tuple: [
+              { name: 'earned', type: 'uint128' },
+              { name: 'rewards-per-token', type: 'uint128' },
+            ],
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          isBond: TypedAbiArg<boolean, 'isBond'>,
+          index: TypedAbiArg<number | bigint, 'index'>,
+        ],
+        {
+          earned: bigint;
+          rewardsPerToken: bigint;
+        }
       >,
       updateClaimableBondRewards: {
         name: 'update-claimable-bond-rewards',
@@ -5456,23 +5456,6 @@ export const contracts = {
         [signer: TypedAbiArg<string, 'signer'>],
         Uint8Array | null
       >,
-      getSignerPendingRewardsForCycle: {
-        name: 'get-signer-pending-rewards-for-cycle',
-        access: 'read_only',
-        args: [
-          { name: 'signer', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [
-          signer: TypedAbiArg<string, 'signer'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        bigint
-      >,
       getSignerPendingStakedUstxPerCycle: {
         name: 'get-signer-pending-staked-ustx-per-cycle',
         access: 'read_only',
@@ -5488,8 +5471,8 @@ export const contracts = {
         ],
         bigint
       >,
-      getSignerRewardsPerTokenPaidForCycle: {
-        name: 'get-signer-rewards-per-token-paid-for-cycle',
+      getSignerRewardsPerTokenSettledForCycle: {
+        name: 'get-signer-rewards-per-token-settled-for-cycle',
         access: 'read_only',
         args: [
           { name: 'signer', type: 'principal' },
@@ -5582,6 +5565,23 @@ export const contracts = {
       >,
       getSignerSharesStakedForCycle: {
         name: 'get-signer-shares-staked-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'is-bond', type: 'bool' },
+          { name: 'index', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          isBond: TypedAbiArg<boolean, 'isBond'>,
+          index: TypedAbiArg<number | bigint, 'index'>,
+        ],
+        bigint
+      >,
+      getSignerUnclaimedRewardsForCycle: {
+        name: 'get-signer-unclaimed-rewards-for-cycle',
         access: 'read_only',
         args: [
           { name: 'signer', type: 'principal' },
@@ -6108,24 +6108,6 @@ export const contracts = {
         },
         boolean
       >,
-      signerPendingRewardsForCycle: {
-        name: 'signer-pending-rewards-for-cycle',
-        key: {
-          tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
-            { name: 'signer', type: 'principal' },
-          ],
-        },
-        value: 'uint128',
-      } as TypedAbiMap<
-        {
-          index: number | bigint;
-          isBond: boolean;
-          signer: string;
-        },
-        bigint
-      >,
       signerPendingStakedUstxPerCycle: {
         name: 'signer-pending-staked-ustx-per-cycle',
         key: {
@@ -6142,8 +6124,8 @@ export const contracts = {
         },
         bigint
       >,
-      signerRewardsPerTokenPaidForCycle: {
-        name: 'signer-rewards-per-token-paid-for-cycle',
+      signerRewardsPerTokenSettledForCycle: {
+        name: 'signer-rewards-per-token-settled-for-cycle',
         key: {
           tuple: [
             { name: 'index', type: 'uint128' },
@@ -6196,6 +6178,24 @@ export const contracts = {
       } as TypedAbiMap<number | bigint, string>,
       signerSharesStakedForCycle: {
         name: 'signer-shares-staked-for-cycle',
+        key: {
+          tuple: [
+            { name: 'index', type: 'uint128' },
+            { name: 'is-bond', type: 'bool' },
+            { name: 'signer', type: 'principal' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          index: number | bigint;
+          isBond: boolean;
+          signer: string;
+        },
+        bigint
+      >,
+      signerUnclaimedRewardsForCycle: {
+        name: 'signer-unclaimed-rewards-for-cycle',
         key: {
           tuple: [
             { name: 'index', type: 'uint128' },
@@ -8886,8 +8886,8 @@ export const contracts = {
           bigint
         >
       >,
-      crystallizeStakerRewards: {
-        name: 'crystallize-staker-rewards',
+      settleStakerRewards: {
+        name: 'settle-staker-rewards',
         access: 'private',
         args: [
           { name: 'staker', type: 'principal' },
@@ -9258,8 +9258,8 @@ export const contracts = {
         ],
         bigint
       >,
-      getStakerPendingRewardsForCycle: {
-        name: 'get-staker-pending-rewards-for-cycle',
+      getStakerRewardsPerTokenPaidForCycle: {
+        name: 'get-staker-rewards-per-token-paid-for-cycle',
         access: 'read_only',
         args: [
           { name: 'staker', type: 'principal' },
@@ -9275,8 +9275,8 @@ export const contracts = {
         ],
         bigint
       >,
-      getStakerRewardsPerTokenPaidForCycle: {
-        name: 'get-staker-rewards-per-token-paid-for-cycle',
+      getStakerUnclaimedRewardsForCycle: {
+        name: 'get-staker-unclaimed-rewards-for-cycle',
         access: 'read_only',
         args: [
           { name: 'staker', type: 'principal' },
@@ -9357,8 +9357,8 @@ export const contracts = {
         },
         bigint
       >,
-      stakerPendingRewardsForCycle: {
-        name: 'staker-pending-rewards-for-cycle',
+      stakerRewardsPerTokenSettledForCycle: {
+        name: 'staker-rewards-per-token-settled-for-cycle',
         key: {
           tuple: [
             { name: 'index', type: 'uint128' },
@@ -9375,8 +9375,8 @@ export const contracts = {
         },
         bigint
       >,
-      stakerRewardsPaidPerTokenForCycle: {
-        name: 'staker-rewards-paid-per-token-for-cycle',
+      stakerUnclaimedRewardsForCycle: {
+        name: 'staker-unclaimed-rewards-for-cycle',
         key: {
           tuple: [
             { name: 'index', type: 'uint128' },
@@ -10571,8 +10571,8 @@ export const contracts = {
           bigint
         >
       >,
-      crystallizeStakerRewards: {
-        name: 'crystallize-staker-rewards',
+      settleStakerRewards: {
+        name: 'settle-staker-rewards',
         access: 'private',
         args: [
           { name: 'staker', type: 'principal' },
@@ -10846,8 +10846,8 @@ export const contracts = {
         ],
         bigint
       >,
-      getStakerPendingRewardsForCycle: {
-        name: 'get-staker-pending-rewards-for-cycle',
+      getStakerRewardsPerTokenSettledForCycle: {
+        name: 'get-staker-rewards-per-token-settled-for-cycle',
         access: 'read_only',
         args: [
           { name: 'staker', type: 'principal' },
@@ -10863,8 +10863,8 @@ export const contracts = {
         ],
         bigint
       >,
-      getStakerRewardsPerTokenPaidForCycle: {
-        name: 'get-staker-rewards-per-token-paid-for-cycle',
+      getStakerUnclaimedRewardsForCycle: {
+        name: 'get-staker-unclaimed-rewards-for-cycle',
         access: 'read_only',
         args: [
           { name: 'staker', type: 'principal' },
@@ -10898,8 +10898,8 @@ export const contracts = {
         },
         bigint
       >,
-      stakerPendingRewardsForCycle: {
-        name: 'staker-pending-rewards-for-cycle',
+      stakerRewardsPerTokenSettledForCycle: {
+        name: 'staker-rewards-per-token-settled-for-cycle',
         key: {
           tuple: [
             { name: 'index', type: 'uint128' },
@@ -10916,8 +10916,8 @@ export const contracts = {
         },
         bigint
       >,
-      stakerRewardsPaidPerTokenForCycle: {
-        name: 'staker-rewards-paid-per-token-for-cycle',
+      stakerUnclaimedRewardsForCycle: {
+        name: 'staker-unclaimed-rewards-for-cycle',
         key: {
           tuple: [
             { name: 'index', type: 'uint128' },

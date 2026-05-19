@@ -268,8 +268,8 @@
 )
 
 ;; Represents a snapshot of `rewards-per-token` at the last
-;; time of rewards calculation for this specific signer
-(define-map signer-rewards-per-token-paid-for-cycle
+;; time of rewards settlement for this specific signer
+(define-map signer-rewards-per-token-settled-for-cycle
     {
         is-bond: bool,
         index: uint,
@@ -279,7 +279,7 @@
 )
 
 ;; Represents pending, but unclaimed rewards for a signer
-(define-map signer-pending-rewards-for-cycle
+(define-map signer-unclaimed-rewards-for-cycle
     {
         is-bond: bool,
         index: uint,
@@ -580,7 +580,7 @@
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
         )
-        (crystallize-rewards signer true bond-index)
+        (settle-rewards signer true bond-index)
         (map-set total-shares-staked-for-cycle {
             index: bond-index,
             is-bond: true,
@@ -681,8 +681,8 @@
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        (crystallize-rewards current-signer true bond-index)
-        (crystallize-rewards signer true bond-index)
+        (settle-rewards current-signer true bond-index)
+        (settle-rewards signer true bond-index)
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender first-reward-cycle num-cycles false))
@@ -946,7 +946,7 @@
             err-val true
         )
 
-        (crystallize-rewards signer true bond-index)
+        (settle-rewards signer true bond-index)
 
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
@@ -1018,7 +1018,7 @@
         )
 
         ;; Take a snapshot of the signer's current rewards
-        (crystallize-rewards signer true bond-index)
+        (settle-rewards signer true bond-index)
 
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
@@ -1187,7 +1187,7 @@
             (is-in-signer-set (is-some (get-signer-set-item-for-cycle signer cycle)))
         )
         ;; Crystallize STX-only rewards before mutating anything
-        (crystallize-rewards signer false cycle)
+        (settle-rewards signer false cycle)
         (if is-in-signer-set
             (if (< new-delegated SIGNER_SET_MIN_USTX)
                 ;; They've crossed back below the threshold - remove from the signer set
@@ -1335,7 +1335,7 @@
             (new-delegated (+ cur-delegated-for-signer amount))
         )
         ;; Crystallize STX-only rewards before mutating anything
-        (crystallize-rewards signer false cycle)
+        (settle-rewards signer false cycle)
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
                 (map-set signer-shares-staked-for-cycle {
@@ -1707,8 +1707,8 @@
     (let (
             (shares (get-signer-shares-staked-for-cycle signer is-bond index))
             (rpt-current (get-rewards-per-token-for-cycle is-bond index))
-            (rpt-paid (get-signer-rewards-per-token-paid-for-cycle signer is-bond index))
-            (pending (get-signer-pending-rewards-for-cycle signer is-bond index))
+            (rpt-paid (get-signer-rewards-per-token-settled-for-cycle signer is-bond index))
+            (pending (get-signer-unclaimed-rewards-for-cycle signer is-bond index))
             (newly-earned (/ (* shares (- rpt-current rpt-paid)) PRECISION))
         )
         (+ pending newly-earned)
@@ -1770,10 +1770,10 @@
         (is-bond bool)
         (index uint)
     )
-    (let ((earned (crystallize-rewards signer is-bond index)))
+    (let ((earned (settle-rewards signer is-bond index)))
         ;; After crystallization, all earnings live in pending.
         ;; Zero out pending since we're about to pay it.
-        (map-set signer-pending-rewards-for-cycle {
+        (map-set signer-unclaimed-rewards-for-cycle {
             is-bond: is-bond,
             index: index,
             signer: signer,
@@ -1815,7 +1815,7 @@
 ;;
 ;; This MUST be called before any update to `signer-shares-staked-for-cycle`,
 ;; because changes to that state will effect rewards calculations.
-(define-private (crystallize-rewards
+(define-private (settle-rewards
         (signer principal)
         (is-bond bool)
         (index uint)
@@ -1824,14 +1824,14 @@
             (earned (get-earned signer is-bond index))
             (rewards-per-token (get-rewards-per-token-for-cycle is-bond index))
         )
-        (map-set signer-pending-rewards-for-cycle {
+        (map-set signer-unclaimed-rewards-for-cycle {
             is-bond: is-bond,
             index: index,
             signer: signer,
         }
             earned
         )
-        (map-set signer-rewards-per-token-paid-for-cycle {
+        (map-set signer-rewards-per-token-settled-for-cycle {
             is-bond: is-bond,
             index: index,
             signer: signer,
@@ -2282,13 +2282,13 @@
     )
 )
 
-(define-read-only (get-signer-rewards-per-token-paid-for-cycle
+(define-read-only (get-signer-rewards-per-token-settled-for-cycle
         (signer principal)
         (is-bond bool)
         (index uint)
     )
     (default-to u0
-        (map-get? signer-rewards-per-token-paid-for-cycle {
+        (map-get? signer-rewards-per-token-settled-for-cycle {
             signer: signer,
             is-bond: is-bond,
             index: index,
@@ -2296,13 +2296,13 @@
     )
 )
 
-(define-read-only (get-signer-pending-rewards-for-cycle
+(define-read-only (get-signer-unclaimed-rewards-for-cycle
         (signer principal)
         (is-bond bool)
         (index uint)
     )
     (default-to u0
-        (map-get? signer-pending-rewards-for-cycle {
+        (map-get? signer-unclaimed-rewards-for-cycle {
             signer: signer,
             is-bond: is-bond,
             index: index,
