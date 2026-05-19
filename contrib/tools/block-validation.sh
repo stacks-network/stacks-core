@@ -145,7 +145,7 @@ configure_chainstate() {
     else
         LOCAL_CHAINSTATE="${WORK_DIR}/chain"
         if [ -d "${LOCAL_CHAINSTATE}" ]; then
-            echo "Chainstate found will be reused: ${COLYELLOW}${LOCAL_CHAINSTATE}${COLRESET}"
+            echo "Chainstate found. It will be reused: ${COLYELLOW}${LOCAL_CHAINSTATE}${COLRESET}"
             return 0
         fi
 
@@ -183,18 +183,31 @@ configure_validation_slices() {
     local meta_file="${SCRATCH_DIR}/.scratch_meta"
     local expected_slices="${CORES}"
 
+    # Fingerprint the source chainstate so we detect in-place updates (same path,
+    # different content). mtime+size of the canonical index.sqlite is cheap and
+    # changes whenever the chainstate advances.
+    local chainstate_sentinel="${LOCAL_CHAINSTATE}/chainstate/vm/index.sqlite"
+    local chainstate_fp=""
+    if [ -f "${chainstate_sentinel}" ]; then
+        chainstate_fp=$(stat -c '%Y:%s' "${chainstate_sentinel}")
+    fi
+
     # Reuse the existing scratch dir if the previous run used the same chainstate
-    # and produced the same number of slices, and every expected slice still has
-    # a valid chainstate db. Saves several hours when re-running back-to-back.
+    # (path AND fingerprint) and produced the same number of slices, and every
+    # expected slice still has a valid chainstate db. 
     if [ -d "${SCRATCH_DIR}" ] && [ -f "${meta_file}" ]; then
-        local prev_chainstate="" prev_slices=""
+        local prev_chainstate="" prev_slices="" prev_chainstate_fp=""
         while IFS='=' read -r key value; do
             case "${key}" in
                 LOCAL_CHAINSTATE) prev_chainstate="${value}" ;;
                 SLICES)           prev_slices="${value}" ;;
+                CHAINSTATE_FP)    prev_chainstate_fp="${value}" ;;
             esac
         done < "${meta_file}"
-        if [ "${prev_chainstate}" == "${LOCAL_CHAINSTATE}" ] && [ "${prev_slices}" == "${expected_slices}" ]; then
+        if [ "${prev_chainstate}" == "${LOCAL_CHAINSTATE}" ] \
+            && [ "${prev_slices}" == "${expected_slices}" ] \
+            && [ "${prev_chainstate_fp}" == "${chainstate_fp}" ] \
+            && [ -n "${chainstate_fp}" ]; then
             local all_valid=1
             for ((i=0; i<expected_slices; i++)); do
                 if [ ! -f "${SLICE_DIR}${i}/chainstate/vm/index.sqlite" ]; then
@@ -208,10 +221,12 @@ configure_validation_slices() {
             fi
             echo "${COLYELLOW}Scratch dir metadata matched but slices are incomplete${COLRESET}, rebuilding"
         else
-            echo "Scratch dir was built with a different config (chainstate/slices), rebuilding"
+            echo "Scratch dir was built with a different config or chainstate content changed, rebuilding"
         fi
     fi
 
+    # If we got here, we need to build the slice dirs from the local chainstate. 
+    # First clean up any existing scratch dir contents since we're not reusing it.
     if [ -d "${SCRATCH_DIR}" ]; then
         echo "Deleting existing scratch dir contents: ${COLYELLOW}${SCRATCH_DIR}${COLRESET}"
         find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P "${expected_slices}" -n 500 rm -rf || {
@@ -280,6 +295,7 @@ configure_validation_slices() {
     {
         printf 'LOCAL_CHAINSTATE=%s\n' "${LOCAL_CHAINSTATE}"
         printf 'SLICES=%s\n' "${expected_slices}"
+        printf 'CHAINSTATE_FP=%s\n' "${chainstate_fp}"
     } > "${meta_file}"
 }
 
