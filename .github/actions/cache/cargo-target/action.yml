@@ -20,6 +20,12 @@ outputs:
 runs:
   using: "composite"
   steps:
+    # Initialize the cache key variable
+    - name: Set Cache Key
+      shell: bash
+      run: |
+        echo "CARGO_CACHE_KEY=${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
+  
     # Check if cache data exists
     - name: Check Cache
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -27,7 +33,7 @@ runs:
       with:
         lookup-only: true
         path: ./target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ env.CARGO_CACHE_KEY }}
 
     # Restore cache data
     - name: Restore Cache
@@ -37,7 +43,7 @@ runs:
       with:
         fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
         path: ./target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ env.CARGO_CACHE_KEY }}
 
     # Save cache data
     - name: Save Cache
@@ -46,4 +52,4 @@ runs:
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: ./target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ env.CARGO_CACHE_KEY }}
