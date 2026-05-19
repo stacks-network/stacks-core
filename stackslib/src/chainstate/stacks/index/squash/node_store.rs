@@ -273,7 +273,6 @@ pub(crate) struct NodeStore {
 impl NodeStore {
     pub(crate) fn new(dir: &str) -> Result<Self, Error> {
         let pid = std::process::id();
-        // Try up to 16 times with atomic create_new to avoid collision.
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
