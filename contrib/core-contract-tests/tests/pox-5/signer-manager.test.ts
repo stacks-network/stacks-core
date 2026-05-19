@@ -10,10 +10,13 @@ import {
 } from './pox-5-helpers';
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { hex } from '@scure/base';
-import { accounts } from '../clarigen-types';
+import { accounts, project } from '../clarigen-types';
 import { mineUntil, randomPoxAddress, stxToUStx } from '../test-helpers';
 import { Cl, serializeCV } from '@stacks/transactions';
-import { CoreNodeEventType } from '@clarigen/core';
+import { CoreNodeEventType, cvToValue, projectFactory } from '@clarigen/core';
+
+const contracts = projectFactory(project, 'simnet');
+const sbtcRegistry = contracts.sbtcRegistry;
 
 const REWARD_CYCLE_LENGTH = 100n;
 const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
@@ -63,6 +66,19 @@ function setupTwoStakers() {
   );
 }
 
+function setupStaker(staker: string, signerCalldata: Uint8Array | null = null) {
+  txOk(
+    pox5.stake({
+      signerManager: signerManager.identifier,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata,
+    }),
+    staker,
+  );
+}
+
 function calculateAndClaimSignerRewards(rewards: bigint, height: bigint) {
   txOk(
     sbtc.transfer({
@@ -78,15 +94,21 @@ function calculateAndClaimSignerRewards(rewards: bigint, height: bigint) {
   txOk(signerManager.claimRewards([], 1n), deployer);
 }
 
-function makePoxAddrCalldata() {
+function makePoxAddrCalldata(
+  { maxFee }: { maxFee: bigint } = { maxFee: 100n },
+) {
   const poxAddr = randomPoxAddress();
   return {
     poxAddr,
+    maxFee,
     calldata: hex.decode(
       serializeCV(
         Cl.tuple({
-          version: Cl.buffer(poxAddr.version),
-          hashbytes: Cl.buffer(poxAddr.hashbytes),
+          'pox-addr': Cl.tuple({
+            version: Cl.buffer(poxAddr.version),
+            hashbytes: Cl.buffer(poxAddr.hashbytes),
+          }),
+          'max-fee': Cl.uint(maxFee),
         }),
       ),
     ),
@@ -94,7 +116,7 @@ function makePoxAddrCalldata() {
 }
 
 test('signers have pox-addr saved from calldata when provided', () => {
-  const { poxAddr, calldata } = makePoxAddrCalldata();
+  const { poxAddr, calldata, maxFee } = makePoxAddrCalldata();
   txOk(
     pox5.stake({
       signerManager: signerManager.identifier,
@@ -105,7 +127,8 @@ test('signers have pox-addr saved from calldata when provided', () => {
     }),
     alice,
   );
-  expect(rov(signerManager.getPoxAddr(alice))).toEqual(poxAddr);
+  expect(rov(signerManager.getPoxAddr(alice))?.poxAddr).toEqual(poxAddr);
+  expect(rov(signerManager.getPoxAddr(alice))?.maxFee).toEqual(maxFee);
 });
 
 test('only admins can update fees and fees cannot exceed max bips', () => {
@@ -153,20 +176,139 @@ test('claiming staker rewards transfers net rewards after fees', () => {
   );
 
   const aliceBalance = sbtcBalance(alice);
-  const claim = txOk(signerManager.claimStakerRewards(1n, false), alice);
+  const claim = txOk(signerManager.claimStakerRewards(alice, 1n, false), alice);
   const [transfer] = filterEvents(
     claim.events,
     CoreNodeEventType.FtTransferEvent,
   );
+  const [printEvent] = filterEvents(
+    claim.events,
+    CoreNodeEventType.ContractEvent,
+  );
+  const printData = cvToValue<{
+    topic: string;
+    amountSats: bigint;
+    l1Withdrawal: null;
+    staker: string;
+    index: bigint;
+    isBond: boolean;
+  }>(printEvent.data.value);
 
   expect(transfer.data.sender).toBe(signerManager.identifier);
   expect(transfer.data.recipient).toBe(alice);
   expect(transfer.data.amount).toBe(netRewards.toString());
+  expect(printData).toEqual({
+    topic: 'claim-staker-rewards',
+    amountSats: netRewards,
+    l1Withdrawal: null,
+    staker: alice,
+    index: 1n,
+    isBond: false,
+  });
   expect(sbtcBalance(alice)).toBe(aliceBalance + netRewards);
   expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, false))).toEqual({
     earned: 0n,
     fees: 0n,
   });
+});
+
+test('claiming staker rewards with pox-addr initiates a withdrawal request', () => {
+  const rewards = 2000n;
+  const grossPerStaker = stxRewards(rewards) / 2n;
+  const maxFee = 100n;
+  const { poxAddr, calldata } = makePoxAddrCalldata({ maxFee });
+
+  setupStaker(alice, calldata);
+  setupStaker(bob);
+  calculateAndClaimSignerRewards(
+    rewards,
+    rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
+  );
+
+  const aliceBalance = sbtcBalance(alice);
+  const claim = txOk(signerManager.claimStakerRewards(alice, 1n, false), bob);
+  const transfers = filterEvents(
+    claim.events,
+    CoreNodeEventType.FtTransferEvent,
+  );
+  const printEvent = filterEvents(
+    claim.events,
+    CoreNodeEventType.ContractEvent,
+  ).at(1)!;
+  const printData = cvToValue<{
+    topic: string;
+    amountSats: bigint;
+    l1Withdrawal: {
+      poxAddr: { version: Uint8Array; hashbytes: Uint8Array };
+      amount: bigint;
+      maxFee: bigint;
+      withdrawalRequest: bigint;
+    };
+    staker: string;
+    index: bigint;
+    isBond: boolean;
+  }>(printEvent.data.value);
+
+  expect(transfers).toHaveLength(0);
+  expect(sbtcBalance(alice)).toBe(aliceBalance);
+  expect(printData).toEqual({
+    topic: 'claim-staker-rewards',
+    amountSats: grossPerStaker,
+    l1Withdrawal: {
+      poxAddr,
+      amount: grossPerStaker - maxFee,
+      maxFee,
+      withdrawalRequest: 1n,
+    },
+    staker: alice,
+    index: 1n,
+    isBond: false,
+  });
+  const withdrawalRequest = rov(sbtcRegistry.getWithdrawalRequest(1n))!;
+  expect(withdrawalRequest.amount).toBe(grossPerStaker - maxFee);
+  expect(withdrawalRequest.maxFee).toBe(maxFee);
+  expect(withdrawalRequest.recipient).toStrictEqual(poxAddr);
+  expect(withdrawalRequest.sender).toBe(signerManager.identifier);
+  expect(withdrawalRequest.status).toBe(null);
+  expect(rov(signerManager.getWithdrawalRequestStaker(1n))).toBe(alice);
+  expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, false))).toEqual({
+    earned: 0n,
+    fees: 0n,
+  });
+});
+
+test('claiming all rewards with pox-addr leaves room for withdrawal max-fee', () => {
+  const rewards = 2000n;
+  const earned = stxRewards(rewards);
+  const maxFee = 100n;
+  const { calldata } = makePoxAddrCalldata({ maxFee });
+
+  setupStaker(alice, calldata);
+  calculateAndClaimSignerRewards(
+    rewards,
+    rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
+  );
+
+  const claim = txOk(signerManager.claimStakerRewards(alice, 1n, false), bob);
+
+  expect(claim.value).toBe(earned);
+});
+
+test('claiming staker rewards with pox-addr errors when earned is less than max-fee', () => {
+  const rewards = 600n;
+  const earned = stxRewards(rewards);
+  const maxFee = earned + 1n;
+  const { calldata } = makePoxAddrCalldata({ maxFee });
+
+  setupStaker(alice, calldata);
+  calculateAndClaimSignerRewards(
+    rewards,
+    rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
+  );
+
+  expect(
+    txErr(signerManager.claimStakerRewards(alice, 1n, false), bob).value,
+  ).toBe(signerManagerErrors.ERR_NO_CLAIMABLE_REWARDS);
 });
 
 test('fee changes apply to all uncrystallized rewards', () => {
@@ -185,7 +327,10 @@ test('fee changes apply to all uncrystallized rewards', () => {
   });
 
   txOk(signerManager.updateFees(5000n), deployer);
-  calculateAndClaimSignerRewards(rewards, rov(pox5.rewardCycleToBurnHeight(2n)));
+  calculateAndClaimSignerRewards(
+    rewards,
+    rov(pox5.rewardCycleToBurnHeight(2n)),
+  );
 
   expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, false))).toEqual({
     earned: grossAfterTwoCalculations / 2n,
@@ -204,15 +349,18 @@ test('already claimed rewards are not affected by later fee changes', () => {
   );
 
   const aliceBalance = sbtcBalance(alice);
-  txOk(signerManager.claimStakerRewards(1n, false), alice);
+  txOk(signerManager.claimStakerRewards(alice, 1n, false), alice);
 
   txOk(signerManager.updateFees(5000n), deployer);
-  calculateAndClaimSignerRewards(rewards, rov(pox5.rewardCycleToBurnHeight(2n)));
+  calculateAndClaimSignerRewards(
+    rewards,
+    rov(pox5.rewardCycleToBurnHeight(2n)),
+  );
 
   expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, false))).toEqual({
     earned: 425n,
     fees: 425n,
   });
-  txOk(signerManager.claimStakerRewards(1n, false), alice);
+  txOk(signerManager.claimStakerRewards(alice, 1n, false), alice);
   expect(sbtcBalance(alice)).toBe(aliceBalance + 765n + 425n);
 });

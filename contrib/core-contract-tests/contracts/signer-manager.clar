@@ -81,12 +81,24 @@
     uint
 )
 
+;; When stakers provide L1 withdrawal info as calldata,
+;; that is stored here.
 (define-map pox-addrs
     principal
     {
-        version: (buff 1),
-        hashbytes: (buff 32),
+        pox-addr: {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        },
+        max-fee: uint,
     }
+)
+
+;; Mapping of a given withdrawal request ID to the staker
+;; whose rewards created that withdrawal.
+(define-map withdrawal-requests
+    uint
+    principal
 )
 
 ;; Callback function from a `stake` transaction.
@@ -112,8 +124,11 @@
         calldata
         (let ((pox-addr (unwrap!
                 (from-consensus-buff? {
-                    version: (buff 1),
-                    hashbytes: (buff 32),
+                    pox-addr: {
+                        version: (buff 1),
+                        hashbytes: (buff 32),
+                    },
+                    max-fee: uint,
                 }
                     calldata
                 )
@@ -268,12 +283,19 @@
     )
 )
 
+;; Trigger a claim of rewards for a given staker.
+;; Anyone can call this function, and it will transfer rewards to the
+;; staker.
+;;
+;; If the staker provided a `pox-addr` as calldata while staking, then
+;; rewards are withdrawn through sBTC to their L1 Bitcoin address. Otherwise,
+;; the staker receives sBTC.
 (define-public (claim-staker-rewards
+        (staker principal)
         (index uint)
         (is-bond bool)
     )
     (let (
-            (staker tx-sender)
             (rewards-info (crystallize-staker-rewards staker index is-bond))
             (earned (get earned rewards-info))
         )
@@ -289,10 +311,48 @@
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 "sbtc-token" earned
             ))
-            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                transfer earned tx-sender staker none
-            ))
-        ))
+            (match (get-pox-addr staker)
+                l1-info (let (
+                        (amount (try! (if (>= earned (get max-fee l1-info))
+                            (ok (- earned (get max-fee l1-info)))
+                            ERR_NO_CLAIMABLE_REWARDS
+                        )))
+                        (withdrawal-request (try! (contract-call?
+                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal
+                            initiate-withdrawal-request amount
+                            (get pox-addr l1-info) (get max-fee l1-info)
+                        )))
+                    )
+                    (print {
+                        topic: "claim-staker-rewards",
+                        amount-sats: earned,
+                        l1-withdrawal: (some (merge l1-info {
+                            withdrawal-request: withdrawal-request,
+                            amount: amount,
+                        })),
+                        staker: staker,
+                        index: index,
+                        is-bond: is-bond,
+                    })
+                    (map-set withdrawal-requests withdrawal-request staker)
+                    true
+                )
+                (begin
+                    (print {
+                        topic: "claim-staker-rewards",
+                        amount-sats: earned,
+                        l1-withdrawal: none,
+                        staker: staker,
+                        index: index,
+                        is-bond: is-bond,
+                    })
+                    (try! (contract-call?
+                        'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                        transfer earned tx-sender staker none
+                    ))
+                )
+            )))
+
         (ok earned)
     )
 )
@@ -434,6 +494,10 @@
 
 (define-read-only (get-pox-addr (staker principal))
     (map-get? pox-addrs staker)
+)
+
+(define-read-only (get-withdrawal-request-staker (withdrawal-request uint))
+    (map-get? withdrawal-requests withdrawal-request)
 )
 
 (define-read-only (check-pox-addr (pox-addr {

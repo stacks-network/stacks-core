@@ -9190,12 +9190,14 @@ export const contracts = {
         name: 'claim-staker-rewards',
         access: 'public',
         args: [
+          { name: 'staker', type: 'principal' },
           { name: 'index', type: 'uint128' },
           { name: 'is-bond', type: 'bool' },
         ],
         outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
       } as TypedAbiFunction<
         [
+          staker: TypedAbiArg<string, 'staker'>,
           index: TypedAbiArg<number | bigint, 'index'>,
           isBond: TypedAbiArg<boolean, 'isBond'>,
         ],
@@ -9352,8 +9354,16 @@ export const contracts = {
           type: {
             optional: {
               tuple: [
-                { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                { name: 'version', type: { buffer: { length: 1 } } },
+                { name: 'max-fee', type: 'uint128' },
+                {
+                  name: 'pox-addr',
+                  type: {
+                    tuple: [
+                      { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                      { name: 'version', type: { buffer: { length: 1 } } },
+                    ],
+                  },
+                },
               ],
             },
           },
@@ -9361,8 +9371,11 @@ export const contracts = {
       } as TypedAbiFunction<
         [staker: TypedAbiArg<string, 'staker'>],
         {
-          hashbytes: Uint8Array;
-          version: Uint8Array;
+          maxFee: bigint;
+          poxAddr: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          };
         } | null
       >,
       getRewardsPerTokenForCycle: {
@@ -9414,6 +9427,15 @@ export const contracts = {
         ],
         bigint
       >,
+      getWithdrawalRequestStaker: {
+        name: 'get-withdrawal-request-staker',
+        access: 'read_only',
+        args: [{ name: 'withdrawal-request', type: 'uint128' }],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [withdrawalRequest: TypedAbiArg<number | bigint, 'withdrawalRequest'>],
+        string | null
+      >,
       isAdmin: {
         name: 'is-admin',
         access: 'read_only',
@@ -9432,15 +9454,26 @@ export const contracts = {
         key: 'principal',
         value: {
           tuple: [
-            { name: 'hashbytes', type: { buffer: { length: 32 } } },
-            { name: 'version', type: { buffer: { length: 1 } } },
+            { name: 'max-fee', type: 'uint128' },
+            {
+              name: 'pox-addr',
+              type: {
+                tuple: [
+                  { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                  { name: 'version', type: { buffer: { length: 1 } } },
+                ],
+              },
+            },
           ],
         },
       } as TypedAbiMap<
         string,
         {
-          hashbytes: Uint8Array;
-          version: Uint8Array;
+          maxFee: bigint;
+          poxAddr: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          };
         }
       >,
       rewardsPerTokenForCycle: {
@@ -9495,6 +9528,11 @@ export const contracts = {
         },
         bigint
       >,
+      withdrawalRequests: {
+        name: 'withdrawal-requests',
+        key: 'uint128',
+        value: 'principal',
+      } as TypedAbiMap<number | bigint, string>,
     },
     variables: {
       ERR_INVALID_CALLDATA: {
