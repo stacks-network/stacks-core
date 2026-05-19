@@ -35,9 +35,6 @@
 ;; Maximum value of an address version that has a 20-byte hashbytes
 ;; (0x00, 0x01, 0x02, 0x03, and 0x04 have 20-byte hashbytes)
 (define-constant MAX_ADDRESS_VERSION_BUFF_20 u4)
-;; Maximum value of an address version that has a 32-byte hashbytes
-;; (0x05 and 0x06 have 32-byte hashbytes)
-(define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
 
 ;; default to allowing deployer to register as a pool
 (define-map admins

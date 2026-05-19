@@ -3,7 +3,6 @@
 (define-constant ERR_CANNOT_SETUP_BOND_TOO_LATE (err u3))
 (define-constant ERR_BOND_ALREADY_SETUP (err u4))
 (define-constant ERR_STAKER_ALREADY_ADDED (err u5))
-(define-constant ERR_L1_LOCKUP_NOT_FOUND (err u6))
 (define-constant ERR_BOND_NOT_FOUND (err u7))
 (define-constant ERR_INSUFFICIENT_STX (err u8))
 (define-constant ERR_ALREADY_REGISTERED (err u9))
@@ -12,17 +11,12 @@
 (define-constant ERR_SIGNER_KEY_GRANT_USED (err u12))
 (define-constant ERR_INVALID_SIGNATURE_RECOVER (err u13))
 (define-constant ERR_INVALID_SIGNATURE_PUBKEY (err u14))
-(define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH (err u15))
-(define-constant ERR_SIGNER_AUTH_USED (err u16))
 (define-constant ERR_SIGNER_KEY_GRANT_NOT_FOUND (err u17))
-(define-constant ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH (err u18))
 (define-constant ERR_ALREADY_STAKED (err u19))
 (define-constant ERR_INVALID_NUM_CYCLES (err u20))
-(define-constant ERR_INVALID_POX_ADDRESS (err u21))
 (define-constant ERR_UNAUTHORIZED_CALLER (err u22))
 (define-constant ERR_SIGNER_NOT_FOUND (err u23))
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u24))
-(define-constant ERR_NO_SBTC_BALANCE (err u25))
 (define-constant ERR_UNAUTHORIZED_SIGNER_REGISTRATION (err u26))
 (define-constant ERR_NOT_STAKING (err u27))
 (define-constant ERR_UNSTAKE_IN_PREPARE_PHASE (err u28))
@@ -78,16 +72,6 @@
     version: "1.0.0",
     chain-id: chain-id,
 })
-
-;; Keep these constants in lock-step with the address version buffs above
-;; Maximum value of an address version as a uint
-(define-constant MAX_ADDRESS_VERSION u6)
-;; Maximum value of an address version that has a 20-byte hashbytes
-;; (0x00, 0x01, 0x02, 0x03, and 0x04 have 20-byte hashbytes)
-(define-constant MAX_ADDRESS_VERSION_BUFF_20 u4)
-;; Maximum value of an address version that has a 32-byte hashbytes
-;; (0x05 and 0x06 have 32-byte hashbytes)
-(define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
 
 ;; Values for stacks address versions
 (define-constant STACKS_ADDR_VERSION_MAINNET 0x16)
@@ -237,25 +221,6 @@
     }
     ;; Optional expiration burn height
     (optional uint)
-)
-
-;; State for tracking used signer key authorizations. This prevents re-use
-;; of the same signature or pre-set authorization for multiple transactions.
-;; Refer to the `signer-key-authorizations` map for the documentation on these fields
-(define-map used-signer-key-authorizations
-    {
-        signer-key: (buff 33),
-        reward-cycle: uint,
-        period: uint,
-        topic: (string-ascii 14),
-        pox-addr: (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }),
-        auth-id: uint,
-        max-amount: uint,
-    }
-    bool ;; Whether the field has been used or not
 )
 
 ;; State to track the per-share rewards earned for bond periods
@@ -2406,6 +2371,10 @@
     (- (bond-period-to-burn-height (+ bond-index u6))
         (/ (var-get pox-reward-cycle-length) u2)
     )
+)
+
+(define-read-only (get-first-pox-5-reward-cycle)
+    (var-get first-pox-5-reward-cycle)
 )
 
 ;;; Contract caller allowances

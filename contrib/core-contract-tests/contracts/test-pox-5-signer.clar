@@ -7,9 +7,6 @@
 ;; during reward calculations
 (define-constant PRECISION u1000000000000000000) ;; 1e18
 
-;; default to allowing deployer to register as a pool
-(define-data-var allowed-caller principal tx-sender)
-
 (define-map rewards-per-token-for-cycle
     {
         index: uint,
@@ -55,10 +52,6 @@
         (signer-calldata (optional (buff 500)))
     )
     (ok true)
-)
-
-(define-public (update-allowed-caller (new-allowed-caller principal))
-    (ok (var-set allowed-caller new-allowed-caller))
 )
 
 (define-public (register-self

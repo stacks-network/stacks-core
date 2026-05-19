@@ -5283,6 +5283,12 @@ export const contracts = {
         ],
         bigint
       >,
+      getFirstPox5RewardCycle: {
+        name: 'get-first-pox-5-reward-cycle',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       getLastAccountedRewardsOnly: {
         name: 'get-last-accounted-rewards-only',
         access: 'read_only',
@@ -6291,45 +6297,6 @@ export const contracts = {
         },
         bigint
       >,
-      usedSignerKeyAuthorizations: {
-        name: 'used-signer-key-authorizations',
-        key: {
-          tuple: [
-            { name: 'auth-id', type: 'uint128' },
-            { name: 'max-amount', type: 'uint128' },
-            { name: 'period', type: 'uint128' },
-            {
-              name: 'pox-addr',
-              type: {
-                optional: {
-                  tuple: [
-                    { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                    { name: 'version', type: { buffer: { length: 1 } } },
-                  ],
-                },
-              },
-            },
-            { name: 'reward-cycle', type: 'uint128' },
-            { name: 'signer-key', type: { buffer: { length: 33 } } },
-            { name: 'topic', type: { 'string-ascii': { length: 14 } } },
-          ],
-        },
-        value: 'bool',
-      } as TypedAbiMap<
-        {
-          authId: number | bigint;
-          maxAmount: number | bigint;
-          period: number | bigint;
-          poxAddr: {
-            hashbytes: Uint8Array;
-            version: Uint8Array;
-          } | null;
-          rewardCycle: number | bigint;
-          signerKey: Uint8Array;
-          topic: string;
-        },
-        boolean
-      >,
       usedSignerKeyGrants: {
         name: 'used-signer-key-grants',
         key: {
@@ -6555,16 +6522,6 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_INVALID_POX_ADDRESS: {
-        name: 'ERR_INVALID_POX_ADDRESS',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_SIGNATURE_PUBKEY: {
         name: 'ERR_INVALID_SIGNATURE_PUBKEY',
         type: {
@@ -6597,16 +6554,6 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
         name: 'ERR_INVALID_UNSTAKE_SBTC_AMOUNT',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
-      eRR_L1_LOCKUP_NOT_FOUND: {
-        name: 'ERR_L1_LOCKUP_NOT_FOUND',
         type: {
           response: {
             ok: 'none',
@@ -6655,16 +6602,6 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_NO_SBTC_BALANCE: {
-        name: 'ERR_NO_SBTC_BALANCE',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_READ_TX_OUT_OF_BOUNDS: {
         name: 'ERR_READ_TX_OUT_OF_BOUNDS',
         type: {
@@ -6675,38 +6612,8 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH: {
-        name: 'ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_SIGNER_AUTH_USED: {
-        name: 'ERR_SIGNER_AUTH_USED',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_SIGNER_KEY_GRANT_NOT_FOUND: {
         name: 'ERR_SIGNER_KEY_GRANT_NOT_FOUND',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH: {
-        name: 'ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH',
         type: {
           response: {
             ok: 'none',
@@ -6805,21 +6712,6 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      MAX_ADDRESS_VERSION: {
-        name: 'MAX_ADDRESS_VERSION',
-        type: 'uint128',
-        access: 'constant',
-      } as TypedAbiVariable<bigint>,
-      mAX_ADDRESS_VERSION_BUFF_20: {
-        name: 'MAX_ADDRESS_VERSION_BUFF_20',
-        type: 'uint128',
-        access: 'constant',
-      } as TypedAbiVariable<bigint>,
-      mAX_ADDRESS_VERSION_BUFF_32: {
-        name: 'MAX_ADDRESS_VERSION_BUFF_32',
-        type: 'uint128',
-        access: 'constant',
-      } as TypedAbiVariable<bigint>,
       MAX_NUM_CYCLES: {
         name: 'MAX_NUM_CYCLES',
         type: 'uint128',
@@ -7034,10 +6926,6 @@ export const contracts = {
         isOk: false,
         value: 36n,
       },
-      ERR_INVALID_POX_ADDRESS: {
-        isOk: false,
-        value: 21n,
-      },
       ERR_INVALID_SIGNATURE_PUBKEY: {
         isOk: false,
         value: 14n,
@@ -7053,10 +6941,6 @@ export const contracts = {
       ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
         isOk: false,
         value: 37n,
-      },
-      eRR_L1_LOCKUP_NOT_FOUND: {
-        isOk: false,
-        value: 6n,
       },
       ERR_NOT_ALLOWLISTED: {
         isOk: false,
@@ -7074,29 +6958,13 @@ export const contracts = {
         isOk: false,
         value: 32n,
       },
-      ERR_NO_SBTC_BALANCE: {
-        isOk: false,
-        value: 25n,
-      },
       ERR_READ_TX_OUT_OF_BOUNDS: {
         isOk: false,
         value: 39n,
       },
-      ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH: {
-        isOk: false,
-        value: 15n,
-      },
-      ERR_SIGNER_AUTH_USED: {
-        isOk: false,
-        value: 16n,
-      },
       ERR_SIGNER_KEY_GRANT_NOT_FOUND: {
         isOk: false,
         value: 17n,
-      },
-      ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH: {
-        isOk: false,
-        value: 18n,
       },
       ERR_SIGNER_KEY_GRANT_USED: {
         isOk: false,
@@ -7134,9 +7002,6 @@ export const contracts = {
         isOk: false,
         value: 44n,
       },
-      MAX_ADDRESS_VERSION: 6n,
-      mAX_ADDRESS_VERSION_BUFF_20: 4n,
-      mAX_ADDRESS_VERSION_BUFF_32: 6n,
       MAX_NUM_CYCLES: 96n,
       pOX_5_SIGNER_DOMAIN: {
         chainId: 2_147_483_648n,
@@ -9595,11 +9460,6 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
-      mAX_ADDRESS_VERSION_BUFF_32: {
-        name: 'MAX_ADDRESS_VERSION_BUFF_32',
-        type: 'uint128',
-        access: 'constant',
-      } as TypedAbiVariable<bigint>,
       MAX_BIPS: {
         name: 'MAX_BIPS',
         type: 'uint128',
@@ -9644,7 +9504,6 @@ export const contracts = {
       },
       MAX_ADDRESS_VERSION: 6n,
       mAX_ADDRESS_VERSION_BUFF_20: 4n,
-      mAX_ADDRESS_VERSION_BUFF_32: 6n,
       MAX_BIPS: 10_000n,
       PRECISION: 1_000_000_000_000_000_000n,
       earnedFees: 0n,
@@ -10927,15 +10786,6 @@ export const contracts = {
           bigint
         >
       >,
-      updateAllowedCaller: {
-        name: 'update-allowed-caller',
-        access: 'public',
-        args: [{ name: 'new-allowed-caller', type: 'principal' }],
-        outputs: { type: { response: { ok: 'bool', error: 'none' } } },
-      } as TypedAbiFunction<
-        [newAllowedCaller: TypedAbiArg<string, 'newAllowedCaller'>],
-        Response<boolean, null>
-      >,
       validateStake_x: {
         name: 'validate-stake!',
         access: 'public',
@@ -11101,11 +10951,6 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
-      allowedCaller: {
-        name: 'allowed-caller',
-        type: 'principal',
-        access: 'variable',
-      } as TypedAbiVariable<string>,
     },
     constants: {
       ERR_NO_CLAIMABLE_REWARDS: {
@@ -11113,7 +10958,6 @@ export const contracts = {
         value: 1_001n,
       },
       PRECISION: 1_000_000_000_000_000_000n,
-      allowedCaller: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
     },
     non_fungible_tokens: [],
     fungible_tokens: [],

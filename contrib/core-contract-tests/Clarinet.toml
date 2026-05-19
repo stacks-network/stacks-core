@@ -76,8 +76,8 @@ clarity_version = 4
 epoch = 3.3
 
 [repl.analysis.lints]
-unused_const = "off"
-unused_data_var = "off"
+# unused_const = "off"
+# unused_data_var = "off"
 panic = "off"
 case_fn = "off"
-unused_map = "off"
+# unused_map = "off"
