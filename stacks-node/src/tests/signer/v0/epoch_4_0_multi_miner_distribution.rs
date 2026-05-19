@@ -24,32 +24,24 @@
 //!
 //! Three deterministic assertions, all per-tenure:
 //!
-//! * **Per-tenure burn distribution** => `LATEST_BURN_DISTRIBUTION` (test
-//!   hook in `make_min_median_distribution`) exposes the actual
+//! * Per-tenure burn distribution: `LATEST_BURN_DISTRIBUTION` (test hook in
+//!   `make_min_median_distribution`) exposes the actual
 //!   `Vec<BurnSamplePoint>` the chain computed for each sortition. We
 //!   assert two samples (one chain per miner) and that the sorted `burns`
 //!   values match `[MINER_1_FEE, MINER_2_FEE]`. Catches chaining failures
 //!   that drop enough entries to shift the median for either miner, or
 //!   that fail to construct one of the two chains entirely.
-//! * **Per-block commit count** => every post-boundary burn block that has
-//!   any commits has exactly two `pox_transactions` entries. Catches a
+//! * Per-block commit count: every post-boundary burn block that has any
+//!   commits has exactly two `pox_transactions` entries. Catches a
 //!   parse-side regression that silently drops one miner's commit.
-//! * **Total commit fee invariant** => sum of `reward_recipients` amounts
-//!   equals the configured fee total per block. Catches dropped commits or
-//!   a classification flip between burn-output and PoX-recipient paths.
+//! * Total commit fee invariant: sum of `reward_recipients` amounts equals
+//!   the configured fee total per block. Catches dropped commits or a
+//!   classification flip between burn-output and PoX-recipient paths.
 //!
-//! This uses one test override so that the integration test can run
-//! without the pox-5 contract being able to iterate its own signer set:
-//!
-//! * `TEST_WATERFALL_SIGNER_SET_OVERRIDE` short-circuits the read against the
-//!   (placeholder) PoX-5 contract body and supplies a hardcoded signer set.
-//!
-//! PoX-5 activation itself is wired through `PoxConstants::pox_5_activation_height`,
-//! which `Config::apply_test_settings` aligns to `epochs[Epoch40].start_height`.
-//!
-//! This override SHOULD BE REMOVED when PoX-5 initial versions land.
+//! Signer registration is driven through real pox-5 stake calls via
+//! `MultipleMinerTest::boot_to_epoch_4_with_pox5_lockups`; no test-only
+//! signer-set override is used.
 
-use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
@@ -57,7 +49,6 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use pinny::tag;
 use stacks::chainstate::burn::distribution::LATEST_BURN_DISTRIBUTION;
-use stacks::chainstate::nakamoto::signer_set::TEST_WATERFALL_SIGNER_SET_OVERRIDE;
 use stacks::chainstate::stacks::events::BurnBlockEvent;
 use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::StacksPrivateKey;
@@ -75,26 +66,6 @@ const MINER_2_FEE: u64 = 10_000;
 
 /// Number of post-Epoch-4.0 tenures to mine.
 const POST_BOUNDARY_TENURES: u64 = 15;
-
-fn signer_pairs_from_keys(keys: &[StacksPrivateKey]) -> Vec<([u8; 33], u128)> {
-    keys.iter()
-        .map(|sk| {
-            let signer_key: [u8; 33] = Secp256k1PublicKey::from_private(sk)
-                .to_bytes_compressed()
-                .try_into()
-                .expect("compressed secp256k1 pubkey is 33 bytes");
-            (signer_key, 100_000_000_000_u128)
-        })
-        .collect()
-}
-
-fn override_map_all_cycles(pairs: Vec<([u8; 33], u128)>) -> HashMap<u64, Vec<([u8; 33], u128)>> {
-    let mut map = HashMap::new();
-    for cycle in 0..1_000 {
-        map.insert(cycle, pairs.clone());
-    }
-    map
-}
 
 /// Filter burn-block events to those at or after the Epoch 4.0 start height.
 fn post_boundary_burn_blocks(epoch_40_start: u64) -> Vec<BurnBlockEvent> {
@@ -118,6 +89,8 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
     }
 
     let num_signers = 5;
+    let stake_amount: u128 = 100_000_000_000;
+    let lock_cycles: u128 = 12;
 
     let agg_pubkey: [u8; 33] = Secp256k1PublicKey::from_private(&StacksPrivateKey::from_seed(
         b"epoch-4-0-multi-miner-agg",
@@ -128,14 +101,20 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
 
     let publisher_sk = StacksPrivateKey::from_seed(b"epoch-4-0-multi-miner-publisher");
     let publisher_addr = to_addr(&publisher_sk);
-    let contract_name = "agg-pubkey-stub";
-    let contract_id = QualifiedContractIdentifier::new(
+    let token_contract_name = "sbtc-token-stub";
+    let registry_contract_name = "sbtc-registry-stub";
+    let token_contract_id = QualifiedContractIdentifier::new(
         publisher_addr.clone().into(),
-        ContractName::try_from(contract_name.to_string()).expect("valid contract name"),
+        ContractName::try_from(token_contract_name.to_string()).expect("valid contract name"),
+    );
+    let registry_contract_id = QualifiedContractIdentifier::new(
+        publisher_addr.clone().into(),
+        ContractName::try_from(registry_contract_name.to_string()).expect("valid contract name"),
     );
 
     let publisher_addr_str = publisher_addr.to_string();
-    let contract_id_modifier = contract_id.clone();
+    let token_contract_id_modifier = token_contract_id.clone();
+    let registry_contract_id_modifier = registry_contract_id.clone();
 
     let mut miners = MultipleMinerTest::new_with_config_modifications(
         num_signers,
@@ -144,7 +123,9 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
         move |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.burnchain.burn_fee_cap = MINER_1_FEE;
-            node_config.node.pox_5_sbtc_contract = Some(contract_id_modifier.clone());
+            node_config.node.pox_5_sbtc_contract = Some(token_contract_id_modifier.clone());
+            node_config.node.pox_5_sbtc_registry_contract =
+                Some(registry_contract_id_modifier.clone());
             node_config.add_initial_balance(publisher_addr_str.clone(), 1_000_000);
             enable_epoch_4_0(node_config);
         },
@@ -154,11 +135,6 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
             enable_epoch_4_0(node_config);
         },
     );
-
-    // Build the PoX-5 signer-set override from the *actual* signer keys
-    // SignerTest auto-generated
-    let signer_pairs = signer_pairs_from_keys(miners.signer_stacks_private_keys());
-    TEST_WATERFALL_SIGNER_SET_OVERRIDE.set(override_map_all_cycles(signer_pairs));
 
     let conf_1 = miners.get_node_configs().0;
 
@@ -171,13 +147,21 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
         .filter(|h| *h < STACKS_EPOCH_MAX)
         .expect("test requires Epoch 4.0 configured");
 
-    miners.boot_to_epoch_4(&publisher_sk, 0, contract_name, &agg_pubkey);
+    miners.boot_to_epoch_4_with_pox5_lockups(
+        &publisher_sk,
+        0,
+        token_contract_name,
+        registry_contract_name,
+        &agg_pubkey,
+        stake_amount,
+        lock_cycles,
+    );
     info!("------------------------- Reached Epoch 4.0 (multi-miner) -------------------------");
 
     // Mine N tenures past the boundary.
     //
     // Before each BTC block, wait for both miners to have committed
-    // pointing at the current tip
+    // pointing at the current tip.
     //
     // After each sortition is processed, read the captured
     // `LATEST_BURN_DISTRIBUTION` and assert per-tenure invariants on the
@@ -233,7 +217,7 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
 
         assert_eq!(
             commit_count, 2,
-            "burn_block_height={} had {} commits (expected 2 — one from each miner)",
+            "burn_block_height={} had {} commits (expected 2, one from each miner)",
             ev.burn_block_height, commit_count,
         );
 
