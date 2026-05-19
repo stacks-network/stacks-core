@@ -112,8 +112,7 @@ jobs:
     name: Check Tests
     needs:
       - generate-tests
-      - integration-tests-1
-      - integration-tests-2
+      - integration-tests
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
