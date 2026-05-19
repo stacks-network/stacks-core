@@ -296,7 +296,6 @@
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
-;; #[allow(unused_data_var)]
 (define-data-var pox-prepare-cycle-length uint (if is-in-mainnet
     u100
     u50
@@ -312,12 +311,6 @@
 (define-data-var first-pox-5-reward-cycle uint u0)
 ;; The first reward cycle where the first bond period occurs
 (define-data-var first-bond-period-cycle uint u0)
-
-;;;;  The last accounted balance (of sBTC held by this contract)
-;;;;  at a time of reward computation.
-;;;;  N.B. it is critical that this value is set to the contract's
-;;;;  sBTC balance after any transfer of sBTC out of this contract.
-;; (define-data-var last-accounted-balance uint u0)
 
 ;; The last accounted balance of rewards. Used to keep
 ;; track of which sBTC is just for rewards, vs from
@@ -570,7 +563,7 @@
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
-        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         (asserts! (is-none (get-bond-membership tx-sender))
@@ -786,7 +779,7 @@
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
-        ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
+        ;; the start-burn-ht must result in the next reward cycle, do not allow stakers
         ;;  to "post-date" their transaction
         (asserts! (is-eq first-reward-cycle specified-reward-cycle)
             ERR_INVALID_START_BURN_HEIGHT
@@ -795,16 +788,16 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
-        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         ;; Cannot be already staked
         (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
 
-        ;;;;  tx-sender principal must not be in a bond membership
+        ;;  tx-sender principal must not be in a bond membership
         (asserts! (is-none (get-bond-membership tx-sender)) ERR_ALREADY_STAKED)
 
-        ;;;;  the Stacker must have sufficient unlocked funds
+        ;;  the Staker must have sufficient unlocked funds
         (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
             ERR_INSUFFICIENT_STX
         )
@@ -872,7 +865,7 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
-        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         ;; Must have enough unlocked STX
@@ -1082,7 +1075,7 @@
         (asserts! (is-eq old-signer (get signer current-info))
             ERR_INVALID_OLD_SIGNER_MANAGER
         )
-        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         ;; do not allow during a prepare phase
@@ -1122,7 +1115,7 @@
     )
 )
 
-;;;;  Remove a staker from a signer for X cycles
+;;  Remove a staker from a signer for X cycles
 (define-private (remove-staker-from-cycles
         (staker principal)
         (first-reward-cycle uint)
@@ -2628,7 +2621,7 @@
     )
 )
 
-;;;; Clarity-Bitcoin helpers
+;;; Clarity-Bitcoin helpers
 
 ;; Parse a Bitcoin block header.
 ;; Returns a tuple structured as folowed on success:
