@@ -247,15 +247,16 @@ fn verify_blob_root_matches_marf<T: MarfTrieId>(
 
 /// Read blob headers in storage order for the later in-memory chain walk.
 ///
-/// Falls back to per-row reads through SQLite `blob_open` when the source
-/// MARF stores blobs inside the SQLite database.
+/// Caller must pre-sort `block_entries` by `(external_offset, block_id)`;
+/// `bulk_read_blob_headers_sorted` relies on that order for prefetch to be
+/// effective. Falls back to per-row reads through SQLite `blob_open` when
+/// the source MARF stores blobs inside the SQLite database.
 fn prefetch_blob_headers<T: MarfTrieId>(
     conn: &mut TrieStorageConnection<T>,
-    block_entries: &mut [(u32, T, u64)],
+    block_entries: &[(u32, T, u64)],
     label: &str,
 ) -> Result<HashMap<T, (T, TrieHash)>, Error> {
     let start = Instant::now();
-    block_entries.sort_unstable_by_key(|(block_id, _, off)| (*off, *block_id));
     info!(
         "[{label}] [2/8] Pre-reading {} blob headers (sorted by offset)...",
         block_entries.len()
