@@ -43,7 +43,7 @@ jobs:
   # Generate list of tests to run
   #  - split into batched matrices of size BATCH_SIZE defined in the env var above (via .github/scripts/bitcoin-tests.sh)
   generate-tests:
-    name: Generate balanced test matrix
+    name: Generate Batched Test Matrix
     needs: create-cache
     if: always() && !cancelled() && needs.create-cache.result != 'failure'
     runs-on: ubuntu-latest
