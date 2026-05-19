@@ -8,7 +8,7 @@ set -Eeuo pipefail
 #   - If using a filesystem which doesn't support reflink (e.g. ext4), ensure that the SCRATCH_DIR volume has multiple TBs of free space - each allocated CPU will require its own chainstate copy.
 #   - If using LOCAL_CHAINSTATE on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the SCRATCH_DIR.
 #   - Depending on how many CPU cores you have available, a full run will take several hours. More CPUs = faster execution time.
-#     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled paritition, full validation took ~14 hours.
+#     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled partition, full validation took ~14 hours.
 
 # ANSI color codes for terminal output
 COLRED=$'\033[31m'    # Red
@@ -24,7 +24,7 @@ set_default_config() {
     CORES=""                                          # cores to use for validation; resolved in apply_input_config
     LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
     NETWORK="mainnet"                                 # network to validate
-    TESTING=false                                     # only run a validation on a few thousand blocks
+    VALIDATE="full"                                   # what to validate: test|pre-nakamoto|nakamoto|full|<start>:<end>
     TERM_OUT=false                                    # terminal friendly output
 }
 
@@ -75,7 +75,12 @@ usage() {
     echo
     echo "Usage:"
     echo "    ${COLBOLD}${0}${COLRESET}"
-    echo "        ${COLYELLOW}--testing${COLRESET}: only check a small number of blocks"
+    echo "        ${COLYELLOW}-v|--validate <mode>${COLRESET}: what to validate (default: full)"
+    echo "            modes: ${COLCYAN}test${COLRESET} (both epochs, fixed test ranges)"
+    echo "                   ${COLCYAN}pre-nakamoto${COLRESET} (full Epoch 2)"
+    echo "                   ${COLCYAN}nakamoto${COLRESET} (full Epoch 3)"
+    echo "                   ${COLCYAN}full${COLRESET} (both epochs)"
+    echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch boundary)"
     echo "        ${COLYELLOW}-t|--terminal${COLRESET}: more terminal friendly output"
     echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
     echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${HOME}/scratch)"
@@ -310,125 +315,222 @@ setup_logs() {
     echo "${LOG_DIR}" > /tmp/block-validation.logdir
 }
 
-# Delete any existing tmux session and recreate
+# Delete any existing tmux session and recreate. Pre-creates one window per worker
+# core so validate_block_range can just send-keys into existing windows regardless
+# of which scenario (or order of scenarios) is run.
 setup_tmux() {
-    # If tmux session "$TMUX_SESSION" exists, kill it and start anew
     if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
         echo "Killing existing tmux session: ${TMUX_SESSION}"
         eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
     fi
-    local slice_counter=0
-
-    # Create tmux session named ${TMUX_SESSION} with a window named slice0
-    tmux new-session -d -s ${TMUX_SESSION} -n slice${slice_counter} || {
+    tmux new-session -d -s "${TMUX_SESSION}" -n "slice0" || {
         echo "${COLRED}Error${COLRESET} creating tmux session ${COLYELLOW}${TMUX_SESSION}${COLRESET}"
         exit 1
     }
+    local i
+    for ((i=1; i<CORES; i++)); do
+        tmux new-window -t "${TMUX_SESSION}" -d -n "slice${i}" || {
+            echo "${COLRED}Error${COLRESET} creating tmux window ${COLYELLOW}slice${i}${COLRESET}"
+            exit 1
+        }
+    done
     return 0
 }
 
-# Run the block validation
-start_validation() {
+# Query stacks-inspect for the total number of blocks in the given epoch.
+# Args: <mode>  (pre-nakamoto | nakamoto)
+# Prints the total to stdout; errors go to stderr.
+get_total_blocks() {
     local mode=$1
-    local total_blocks=0
-    local starting_block=0
-    local slice_counter=0
-    local range_command=""
-    local log_append=""
+    local range_command
+    case "$mode" in
+        nakamoto)     range_command="naka-index-range" ;;
+        pre-nakamoto) range_command="index-range" ;;
+        *)
+            echo "${COLRED}Error${COLRESET} get_total_blocks: invalid mode '${mode}'" >&2
+            exit 1
+            ;;
+    esac
+    local inspect_bin="${REPO_DIR}/target/release/stacks-inspect"
+    local inspect_config="${REPO_DIR}/stackslib/conf/${NETWORK}-follower-conf.toml"
+    local count_output
+    if ! count_output=$("${inspect_bin}" --config "${inspect_config}" validate-block "${SLICE_DIR}0" "${range_command}" 2>/dev/null); then
+        echo "${COLRED}Error${COLRESET} retrieving total ${mode} blocks from chainstate" >&2
+        exit 1
+    fi
+    local total
+    total=$(printf '%s\n' "${count_output}" | awk -F " " '{print $NF}')
+    if [ -z "${total}" ]; then
+        echo "${COLRED}Error${COLRESET} parsing block count for ${mode}" >&2
+        exit 1
+    fi
+    printf '%s' "${total}"
+}
+
+# Validate an inclusive global block range within a single epoch. Converts to the
+# half-open epoch-local indices stacks-inspect expects (start is inclusive, end is exclusive), 
+# then dispatches one slice per worker core, and waits for the batch to finish.
+# Args: <mode> <global_start> <global_end>   (start/end inclusive)
+validate_block_range() {
+    local mode=$1
+    local global_start=$2   # inclusive
+    local global_end=$3     # inclusive
+    local range_command log_append
+    case "$mode" in
+        nakamoto)     range_command="naka-index-range"; log_append="_nakamoto" ;;
+        pre-nakamoto) range_command="index-range";       log_append="" ;;
+        *)
+            echo "${COLRED}Error${COLRESET} validate_block_range: invalid mode '${mode}'"
+            exit 1
+            ;;
+    esac
+    # Convert the inclusive global block range to the half-open epoch-local index
+    # range that stacks-inspect expects (start is inclusive, end is exclusive — see
+    # contrib/stacks-inspect/src/lib.rs: SQL `LIMIT {start}, {end-start}`).
+    # Pre-naka indices coincide with the global space (epoch starts at 0); nakamoto
+    # indices are offset by the pre-naka total.
+    # Bounds-check against the epoch total to fail fast on invalid input ranges.
+    local starting_block total_blocks
+    case "$mode" in
+        nakamoto)
+            local pre_total=$(get_total_blocks pre-nakamoto)
+            local naka_total=$(get_total_blocks nakamoto)
+            local epoch_min=${pre_total}
+            local epoch_max=$((pre_total + naka_total - 1))
+            if [ "${global_start}" -lt "${epoch_min}" ] || [ "${global_end}" -gt "${epoch_max}" ]; then
+                echo "${COLRED}Error${COLRESET} nakamoto range ${global_start}-${global_end} is outside the available epoch (${epoch_min}-${epoch_max})"
+                exit 1
+            fi
+            starting_block=$((global_start - pre_total))
+            total_blocks=$((global_end - pre_total + 1))
+            ;;
+        pre-nakamoto)
+            local pre_total=$(get_total_blocks pre-nakamoto)
+            local epoch_max=$((pre_total - 1))
+            if [ "${global_start}" -lt 0 ] || [ "${global_end}" -gt "${epoch_max}" ]; then
+                echo "${COLRED}Error${COLRESET} pre-nakamoto range ${global_start}-${global_end} is outside the available epoch (0-${epoch_max})"
+                exit 1
+            fi
+            starting_block=${global_start}
+            total_blocks=$((global_end + 1))
+            ;;
+    esac
+    # global = local + global_offset (0 for pre-naka, pre_total for naka)
+    local global_offset=$((global_start - starting_block))
+
     local inspect_bin="${REPO_DIR}/target/release/stacks-inspect"
     local inspect_config="${REPO_DIR}/stackslib/conf/${NETWORK}-follower-conf.toml"
     local inspect_prefix="${inspect_bin} --config ${inspect_config} validate-block"
 
-    case "$mode" in
-        nakamoto)
-            # Epoch 3.X
-            echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
-            log_append="_${mode}"
-            range_command="naka-index-range"
-            # Use these values if `--testing` arg is provided (only validate 1_000 blocks)
-            ${TESTING} && total_blocks=301883
-            ${TESTING} && starting_block=300883
-            ;;
-        pre-nakamoto)
-            # Epoch 2.X
-            echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
-            log_append=""
-            range_command="index-range"
-            # Use these values if `--testing` arg is provided (only validate 100 blocks) Note: 2.5 epoch is at 153106
-            ${TESTING} && total_blocks=161300
-            ${TESTING} && starting_block=161200
-            # Testnet Epoch 3.0 starts at block 320. Hardcode to the first 300 blocks
-            if [ "${NETWORK}" == "testnet" ]; then
-                ${TESTING} && total_blocks=300
-                ${TESTING} && starting_block=1
-            fi
-            ;;
-        *)
-            echo "Invalid Mode: ${COLRED}${mode}${COLRESET}"
-            exit 1
-            ;;
-    esac
-    # Get the total number of blocks
-    if [ "${total_blocks}" -eq 0 ]; then
-        local count_output
-        local count_cmd="${inspect_prefix} ${SLICE_DIR}0 ${range_command}"
-        if ! count_output=$(${count_cmd} 2>/dev/null); then
-            echo "${COLRED}Error${COLRESET} retrieving total number of blocks from chainstate"
-            exit 1
-        fi
-        # Retrieve the total number of blocks from the stacks-inspect output as the last field
-        total_blocks=$(printf '%s\n' "${count_output}" | awk -F " " '{print $NF}')
-        echo "total_blocks: ${total_blocks}"
-        if [ -z "${total_blocks}" ]; then
-            echo "${COLRED}Error${COLRESET} parsing block count from stacks-inspect output"
-            exit 1
-        fi
+    local block_diff=$((global_end - global_start + 1))
+    local slices="${CORES}"
+    # If the range is smaller than the worker count, only spin up enough slices
+    # to cover it (avoids slice_blocks=0 → infinite loop / zero-width SQL ranges).
+    if [ "${slices}" -gt "${block_diff}" ]; then
+        slices=$block_diff
     fi
-    local block_diff=$((total_blocks - starting_block)) # How many blocks are being validated
-    local slices="${CORES}"                             # How many validation slices to use
-    local slice_blocks=$((block_diff / slices))         # How many blocks to validate per slice
-    ${TESTING} && echo "${COLRED}Testing: ${TESTING}${COLRESET}"
-    echo "Total blocks: ${COLYELLOW}${total_blocks}${COLRESET}"
-    echo "Starting Block: ${COLYELLOW}$starting_block${COLRESET}"
-    echo "Block diff: ${COLYELLOW}$block_diff${COLRESET}"
+    local slice_blocks=$((block_diff / slices))
+
     echo "************************************************************************"
-    echo "Total slices: ${COLYELLOW}${slices}${COLRESET}"
-    echo "Blocks per slice: ${COLYELLOW}${slice_blocks}${COLRESET}"
+    echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
+    echo "Block range: ${COLYELLOW}${global_start}-${global_end}${COLRESET} (${block_diff} blocks)"
+    echo "Slices: ${COLYELLOW}${slices}${COLRESET} | Blocks/slice: ${COLYELLOW}${slice_blocks}${COLRESET}"
+    echo "************************************************************************"
+
     local end_block_count=$starting_block
+    local slice_counter=0
     while [[ ${end_block_count} -lt ${total_blocks} ]]; do
         local start_block_count=$end_block_count
         end_block_count=$((end_block_count + slice_blocks))
-        if [[ "${end_block_count}" -gt "${total_blocks}"  ]] ||  [[ "${slice_counter}" -eq $((slices - 1))  ]]; then
+        if [[ "${end_block_count}" -gt "${total_blocks}" ]] || [[ "${slice_counter}" -eq $((slices - 1)) ]]; then
             end_block_count="${total_blocks}"
         fi
-        if [ "${mode}" != "nakamoto" ]; then # don't create the tmux windows if we're validating nakamoto blocks (they should already exist). TODO: check if it does exist in case the function call order changes
-            if [ "${slice_counter}" -gt 0 ];then
-                tmux new-window -t "${TMUX_SESSION}" -d -n "slice${slice_counter}" || {
-                    echo "${COLRED}Error${COLRESET} creating tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
-                    exit 1
-                }
-            fi
-        fi
+        # Local boundaries are half-open [start_block_count, end_block_count);
+        # convert back to inclusive globals for display.
+        local global_slice_start=$((start_block_count + global_offset))
+        local global_slice_end=$((end_block_count + global_offset - 1))
         local slice_path="${SLICE_DIR}${slice_counter}"
         local log_file="${LOG_DIR}/slice${slice_counter}${log_append}.log"
         local log=" | tee -a ${log_file}"
         local cmd="${inspect_prefix} ${slice_path} ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
-        echo "  Creating tmux window: ${COLGREEN}${TMUX_SESSION}:slice${slice_counter}${COLRESET} :: Blocks: ${COLYELLOW}${start_block_count}-${end_block_count}${COLRESET} :: Logging to: ${log_file}"
-        echo "Command: ${cmd}" > "${log_file}" ## log the command being run for the slice
-        echo "Validating indexed blocks: ${start_block_count}-${end_block_count} (out of ${total_blocks})" >> "${log_file}"
-        # Send `cmd` to the tmux window where the validation will run
+        echo "  ${COLGREEN}${TMUX_SESSION}:slice${slice_counter}${COLRESET} :: Blocks: ${COLYELLOW}${global_slice_start}-${global_slice_end}${COLRESET} :: Logging to: ${log_file}"
+        echo "Command: ${cmd}" > "${log_file}"
+        echo "Validating blocks: ${global_slice_start}-${global_slice_end} (out of ${global_end})" >> "${log_file}"
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "${cmd}${log}" Enter || {
             echo "${COLRED}Error${COLRESET} sending stacks-inspect command to tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
             exit 1
         }
-        # Log the return code as the last line in the logfile
-        tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "echo \${PIPESTATUS[0]} >> ${log_file}" Enter  || {
+        tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "echo \${PIPESTATUS[0]} >> ${log_file}" Enter || {
             echo "${COLRED}Error${COLRESET} sending return status command to tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
             exit 1
         }
         slice_counter=$((slice_counter + 1))
     done
     check_progress
+}
+
+# Translate the user-facing VALIDATE scenario into inclusive global block ranges,
+# then hand each range to validate_block_range. This function deals only in the
+# continuous global block space; 
+# Convention (mainnet example with pre_total=185630):
+#   pre-naka : globals 0..185629    (inclusive, pre_total blocks)
+#   naka     : globals 185630..N    (inclusive, naka_total blocks)
+run_validation() {
+    case "${VALIDATE}" in
+        test)
+            local pre_start pre_end
+            if [ "${NETWORK}" == "testnet" ]; then
+                pre_start=1
+                pre_end=299
+            else
+                pre_start=161200
+                pre_end=161299
+            fi
+            local naka_start=300883 naka_end=301882
+
+            echo "${COLBOLD}Validating in test mode${COLRESET}"
+            validate_block_range pre-nakamoto "${pre_start}" "${pre_end}"
+            validate_block_range nakamoto "${naka_start}" "${naka_end}"
+            ;;
+        pre-nakamoto)
+            local pre_total=$(get_total_blocks pre-nakamoto)
+            validate_block_range pre-nakamoto 0 $((pre_total - 1))
+            ;;
+        nakamoto)
+            local pre_total=$(get_total_blocks pre-nakamoto)
+            local naka_total=$(get_total_blocks nakamoto)
+            validate_block_range nakamoto "${pre_total}" $((pre_total + naka_total - 1))
+            ;;
+        full)
+            local pre_total=$(get_total_blocks pre-nakamoto)
+            local naka_total=$(get_total_blocks nakamoto)
+            validate_block_range pre-nakamoto 0 $((pre_total - 1))
+            validate_block_range nakamoto "${pre_total}" $((pre_total + naka_total - 1))
+            ;;
+        *)
+            if [[ "${VALIDATE}" =~ ^([0-9]+):([0-9]+)$ ]]; then
+                local start=${BASH_REMATCH[1]}
+                local end=${BASH_REMATCH[2]}
+                if [ "${start}" -gt "${end}" ]; then
+                    echo "${COLRED}Error${COLRESET} Invalid range: start (${start}) > end (${end})"
+                    exit 1
+                fi
+                local pre_total=$(get_total_blocks pre-nakamoto)
+                if [ "${end}" -lt "${pre_total}" ]; then
+                    validate_block_range pre-nakamoto "${start}" "${end}"
+                elif [ "${start}" -ge "${pre_total}" ]; then
+                    validate_block_range nakamoto "${start}" "${end}"
+                else
+                    echo "${COLYELLOW}Range straddles epoch boundary at block ${pre_total}; splitting into two runs${COLRESET}"
+                    validate_block_range pre-nakamoto "${start}" $((pre_total - 1))
+                    validate_block_range nakamoto "${pre_total}" "${end}"
+                fi
+            else
+                echo "${COLRED}Error${COLRESET} Invalid VALIDATE value: '${VALIDATE}'"
+                exit 1
+            fi
+            ;;
+    esac
 }
 
 # Pretty print the status output (simple spinner while pids are active)
@@ -578,9 +680,23 @@ check_dependencies() {
 parse_args() {
     while [ ${#} -gt 0 ]; do
         case ${1} in
-            --testing)
-                # Only validate a small subset blocks
-                TESTING=true
+            -v|--validate)
+                # What to validate; see usage for accepted values
+                if [ "${2:-}" == "" ]; then
+                    echo "Missing required value for ${1}"
+                    exit 1
+                fi
+                VALIDATE="${2}"
+                case "${VALIDATE}" in
+                    test|pre-nakamoto|nakamoto|full) ;;
+                    *)
+                        if ! [[ "${VALIDATE}" =~ ^[0-9]+:[0-9]+$ ]]; then
+                            echo "ERROR: --validate must be one of: test, pre-nakamoto, nakamoto, full, or <start>:<end>"
+                            exit 1
+                        fi
+                        ;;
+                esac
+                shift
                 ;;
             -s|--scratchdir)
                 # Filesystem location to store the chainstate slice data used by stacks-inspect
@@ -675,11 +791,10 @@ main() {
     configure_chainstate
     configure_validation_slices
     setup_logs                       # configure logdir
-    setup_tmux                       # configure tmux sessions
-    start_validation pre-nakamoto    # validate Epoch 2 blocks 
-    start_validation nakamoto        # validate Epoch 3 blocks
+    setup_tmux                       # configure tmux sessions (one window per worker)
+    run_validation                   # dispatch validation according to ${VALIDATE}
     store_results                    # store aggregated results of validation
-    echo "Validation finished: $(date)"
+    echo "Validation finished: ${COLYELLOW}$(date)${COLRESET}"
 }
 
 main "$@"
