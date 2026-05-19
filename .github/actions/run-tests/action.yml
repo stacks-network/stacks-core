@@ -35,8 +35,6 @@ runs:
       shell: bash
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
-        # Force nextest to run tests 1 at a time to prevent race conditions
-        export NEXTEST_PROFILE_DEFAULT_TEST_THREADS=1
         
         # Convert CSV string to Nextest exact-match Filterset format
         # e.g., "a, b" becomes "test(=a)|test(=b)"
@@ -46,6 +44,7 @@ runs:
         cargo nextest run \
           --archive-file ${{ inputs.archive-file }} \
           --retries ${{ inputs.retries }} \
+          --test-threads 1 \
           --run-ignored all \
           --fail-fast \
           --failure-output ${{ inputs.failure-output }} \
