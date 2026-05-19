@@ -5,6 +5,11 @@ description: |
 runs:
   using: "composite"
   steps:
+    # Check if cargo cache exists
+    - name: Check Cargo Cache
+      uses: ./.github/actions/cache/cargo
+      id: check_cargo_cache
+
     # Check if the nextest archive cache exists
     - name: Check Test Archive Cache
       uses: ./.github/actions/cache/test-archive
@@ -13,7 +18,7 @@ runs:
     # Setup rust toolchain
     - name: Setup Rust Toolchain
       if: |
-        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_cargo_cache.outputs.cache-hit != 'true' ||
         steps.check_test_archive_cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/setup-rust-toolchain
       with:
@@ -22,7 +27,7 @@ runs:
     # Restore cargo cache
     - name: Restore Cargo Cache
       if: |
-        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_cargo_cache.outputs.cache-hit != 'true' ||
         steps.check_test_archive_cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/cache/cargo
       with:
@@ -31,7 +36,7 @@ runs:
     #  Only install dependencies if cache miss (i.e. no existing data)
     - name: Install Dependencies
       if: |
-        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_cargo_cache.outputs.cache-hit != 'true' ||
         steps.check_test_archive_cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/install-tool
       with:
@@ -40,7 +45,7 @@ runs:
     # Build the nextest archive
     - name: Build and Archive Tests
       if: |
-        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_cargo_cache.outputs.cache-hit != 'true' ||
         steps.check_test_archive_cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
@@ -55,8 +60,17 @@ runs:
     # Save the nextest archive to cache
     - name: Cache Nextest Archive
       if: |
-        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_cargo_cache.outputs.cache-hit != 'true' ||
         steps.check_test_archive_cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/cache/test-archive
+      with:
+        action: save
+
+    # Save the target cache AFTER nextest archive because it removes local cargo files so that they're always rebuilt from current source code
+    - name: Cache Cargo
+      if: |
+        steps.check_cargo_cache.outputs.cache-hit != 'true' ||
+        steps.check_test_archive_cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/cache/cargo
       with:
         action: save
