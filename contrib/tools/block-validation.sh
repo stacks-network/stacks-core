@@ -21,7 +21,7 @@ COLRESET=$'\033[0m'   # reset color/formatting
 set_default_config() {
     WORK_DIR="${HOME}"                                # root folder used for block validation and related artifacts
     BRANCH="develop"                                  # default branch to build stacks-inspect from
-    RESERVED=8                                        # reserve this many CORES for other processes as default
+    CORES=""                                          # cores to use for validation; resolved in apply_input_config
     LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
     NETWORK="mainnet"                                 # network to validate
     TESTING=false                                     # only run a validation on a few thousand blocks
@@ -29,29 +29,42 @@ set_default_config() {
 }
 
 apply_input_config() {
-    TIMESTAMP=$(date +%Y-%m-%d-%s)                    # use a simple date format year-month-day-epoch
-
+    # Input based configurations
     if [ -z "${SCRATCH_DIR:-}" ]; then
         SCRATCH_DIR="${WORK_DIR}/scratch"             # root folder for the validation slices
     fi 
     if [ -z "${LOG_DIR:-}" ]; then
-        LOG_DIR="${WORK_DIR}/logs_${TIMESTAMP}"       # location of logfiles for the validation
+        local timestamp=$(date +%Y-%m-%d-%s)          # use a simple date format year-month-day-epoch
+        LOG_DIR="${WORK_DIR}/logs_${timestamp}"       # location of logfiles for the validation
     fi 
-   
+
+    # Resolve CORES: number of validation workers to run in parallel.
+    # Default: max(1, nproc/4) — leaves headroom for the system on large boxes.
+    # User-supplied values are warned about when aggressive, and capped to nproc.
+    local system_cores
+    system_cores=$(nproc)
+    if [ -z "${CORES}" ]; then
+        CORES=$(( system_cores / 4 ))
+        if [ "${CORES}" -lt 1 ]; then
+            CORES=1
+        fi
+    elif [ "${CORES}" -gt "${system_cores}" ]; then
+        echo "${COLYELLOW}Warning${COLRESET}: requested cores (${CORES}) exceeds detected cores (${system_cores}); capping to ${system_cores}"
+        CORES="${system_cores}"
+    elif [ "${CORES}" -eq "${system_cores}" ]; then
+        echo "${COLYELLOW}Warning${COLRESET}: using all ${system_cores} available cores; system may be unresponsive during validation"
+    fi
+    if [ "${CORES}" -lt 1 ]; then
+        echo "${COLRED}Error${COLRESET} cores (${CORES}) must be at least 1"
+        exit 1
+    fi
+
     # Internal configurations
     REPO_DIR="${WORK_DIR}/stacks-core"                # where to build the source
     SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
     REMOTE_REPO="stacks-network/stacks-core"          # remote git repo to build stacks-inspect from
     TMUX_SESSION="validation"                         # tmux session name to run the validation
-    CORES=$(nproc)                                    # retrieve total number of CORES on the system
     REFLINK=0                                         # assume reflink is not enabled by default
-
-    # Need at least 1 worker slice; also prevents division-by-zero on slice_blocks
-    # and an invalid `xargs -P` value when wiping the scratch dir.
-    if [ "${RESERVED}" -ge "${CORES}" ]; then
-        echo "${COLRED}Error${COLRESET} RESERVED (${RESERVED}) must be less than detected CORES (${CORES})"
-        exit 1
-    fi
 }
 
 # Show usage and exit
@@ -66,7 +79,7 @@ usage() {
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
     echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
     echo "        ${COLYELLOW}-l|--logdir${COLRESET}: set log directory (cleared if it already exists, default: ${WORK_DIR}/logs_TIMESTAMP)"
-    echo "        ${COLYELLOW}-r|--reserved${COLRESET}: how many cpu cores to reserve for system tasks"
+    echo "        ${COLYELLOW}-r|--cores${COLRESET}: how many cpu cores to use for validation (default: max(1, nproc/4), capped at nproc)"
     echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts"
     echo
     echo "    ex: ${COLCYAN}${0} -t -c /data/stacks/mainnet ${COLRESET}"
@@ -165,7 +178,7 @@ configure_chainstate() {
 # Create the slice dirs from a chainstate (1 per CPU)
 configure_validation_slices() {
     local meta_file="${SCRATCH_DIR}/.scratch_meta"
-    local expected_slices=$(( CORES - RESERVED ))
+    local expected_slices="${CORES}"
 
     # Reuse the existing scratch dir if the previous run used the same chainstate
     # and produced the same number of slices, and every expected slice still has
@@ -241,13 +254,13 @@ configure_validation_slices() {
         exit 1
     fi
 
-    # Create a copy of the linked db with <number of CORES><number of RESERVED CORES>
-    #   - Decrement by 1 since we already have ${SLICE_DIR}0
+    # Create one slice copy per worker core.
+    # note: decrement by 1 since we already have ${SLICE_DIR}0
     local cp_args=(-r)
     if [[ ${REFLINK} -eq 1 ]]; then
         cp_args+=(--reflink=always)
     fi
-    for ((i=1;i<=$(( CORES - RESERVED - 1));i++)); do
+    for ((i=1;i<=$(( CORES - 1 ));i++)); do
         echo "Copying ${SLICE_DIR}0 -> ${COLYELLOW}${SLICE_DIR}${i}${COLRESET}"
         cp "${cp_args[@]}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
             echo "${COLRED}Error${COLRESET} copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
@@ -353,7 +366,7 @@ start_validation() {
         fi
     fi
     local block_diff=$((total_blocks - starting_block)) # How many blocks are being validated
-    local slices=$((CORES - RESERVED))                  # How many validation slices to use
+    local slices="${CORES}"                             # How many validation slices to use
     local slice_blocks=$((block_diff / slices))         # How many blocks to validate per slice
     ${TESTING} && echo "${COLRED}Testing: ${TESTING}${COLRESET}"
     echo "Total blocks: ${COLYELLOW}${total_blocks}${COLRESET}"
@@ -598,8 +611,8 @@ parse_args() {
                 LOG_DIR="${2}"
                 shift
                 ;;
-            -r|--reserved)
-                # Reserve this many cpus for the system
+            -r|--cores)
+                # Cores to use for validation (clamped to nproc, warns if aggressive)
                 if [ "${2:-}" == "" ]; then
                     echo "Missing required value for ${1}"
                     exit 1
@@ -608,7 +621,7 @@ parse_args() {
                     echo "ERROR: arg ($2) is not a number." >&2
                     exit 1
                 fi
-                RESERVED=${2}
+                CORES=${2}
                 shift
                 ;;
             -w|--workdir)
