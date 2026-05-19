@@ -33,10 +33,13 @@ apply_input_config() {
     if [ -z "${SCRATCH_DIR:-}" ]; then
         SCRATCH_DIR="${WORK_DIR}/scratch"             # root folder for the validation slices
     fi 
-    if [ -z "${LOG_DIR:-}" ]; then
-        local timestamp=$(date +%Y-%m-%d-%s)          # use a simple date format year-month-day-epoch
-        LOG_DIR="${WORK_DIR}/logs_${timestamp}"       # location of logfiles for the validation
-    fi 
+    # LOG_ROOT is the persistent parent that collects every run; LOG_DIR is this
+    # run's timestamped subdir inside it (created fresh, never deleted afterwards).
+    if [ -z "${LOG_ROOT:-}" ]; then
+        LOG_ROOT="${WORK_DIR}/logs"
+    fi
+    local timestamp=$(date +%Y-%m-%d-%s)              # year-month-day-epoch
+    LOG_DIR="${LOG_ROOT}/${timestamp}"
 
     # Resolve CORES: number of validation workers to run in parallel.
     # Default: max(1, nproc/4) — leaves headroom for the system on large boxes.
@@ -78,7 +81,7 @@ usage() {
     echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${HOME}/scratch)"
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
     echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
-    echo "        ${COLYELLOW}-l|--logdir${COLRESET}: set log directory (cleared if it already exists, default: ${WORK_DIR}/logs_TIMESTAMP)"
+    echo "        ${COLYELLOW}-l|--logdir${COLRESET}: parent folder for run logs; a TIMESTAMP subdir is created per run (default: ${WORK_DIR}/logs)"
     echo "        ${COLYELLOW}-r|--cores${COLRESET}: how many cpu cores to use for validation (default: max(1, nproc/4), capped at nproc)"
     echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts"
     echo
@@ -275,19 +278,15 @@ configure_validation_slices() {
     } > "${meta_file}"
 }
 
-# Setup the tmux sessions and create the logdir for storing output
+# Create this run's logdir under LOG_ROOT. LOG_ROOT is persistent; the per-run
+# timestamped subdir is fresh each invocation.
 setup_logs() {
-    # If there is an existing folder, rm it
-    if [ -d "${LOG_DIR}" ]; then
-        echo "Removing logdir ${LOG_DIR}"
-        rm -rf "${LOG_DIR}"
-    fi
-    # Create LOG_DIR to store output files
-    if  [ ! -d "${LOG_DIR}" ]; then
-        echo "Creating logdir ${LOG_DIR}"
-        mkdir -p "${LOG_DIR}"
-        echo "${LOG_DIR}" > /tmp/block-validation.logdir
-    fi
+    echo "Creating logdir ${LOG_DIR}"
+    mkdir -p "${LOG_DIR}" || {
+        echo "${COLRED}Error${COLRESET} creating logdir ${LOG_DIR}"
+        exit 1
+    }
+    echo "${LOG_DIR}" > /tmp/block-validation.logdir
 }
 
 # Delete any existing tmux session and recreate
@@ -334,9 +333,8 @@ start_validation() {
             echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
             log_append=""
             range_command="index-range"
-            # Use these values if `--testing` arg is provided (only validate 1_000 blocks) Note:  2.5 epoch is at 153106
-            # TODO: leftover to restore total_blocks=162200
-            ${TESTING} && total_blocks=161220
+            # Use these values if `--testing` arg is provided (only validate 100 blocks) Note: 2.5 epoch is at 153106
+            ${TESTING} && total_blocks=161300
             ${TESTING} && starting_block=161200
             # Testnet Epoch 3.0 starts at block 320. Hardcode to the first 300 blocks
             if [ "${NETWORK}" == "testnet" ]; then
@@ -603,12 +601,12 @@ parse_args() {
                 shift
                 ;;
             -l|--logdir)
-                # Use a specified logdir
+                # Parent folder that collects every run's logs (timestamped subdir per run)
                 if [ "${2:-}" == "" ]; then
                     echo "Missing required value for ${1}"
                     exit 1
                 fi
-                LOG_DIR="${2}"
+                LOG_ROOT="${2}"
                 shift
                 ;;
             -r|--cores)
