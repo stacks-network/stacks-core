@@ -260,6 +260,9 @@ pub(crate) struct NodeStore {
     scratch: Vec<u8>,
     /// End offset of the last pushed node.
     total_bytes: u64,
+    /// Set once `overwrite_node` has been called. While the store is sealed
+    /// no further `push` is allowed.
+    sealed: bool,
     /// Path to the temp file (for re-opening as reader).
     pub(crate) path: std::path::PathBuf,
     /// Byte offset in the temp file for each node.
@@ -286,6 +289,7 @@ impl NodeStore {
             // Node256 (the largest) has a size of 3.7KiB.
             scratch: vec![0; 4 * 1024],
             total_bytes: 0,
+            sealed: false,
             path,
             file_offsets: Vec::new(),
             hashes: Vec::new(),
@@ -298,12 +302,20 @@ impl NodeStore {
     }
 
     /// Append a node. Returns the node's index.
+    ///
+    /// Errors once `overwrite_node` has been called: the writer is no
+    /// longer at end-of-file, so an append would corrupt an earlier node.
     pub(crate) fn push(
         &mut self,
         node: &TrieNodeType,
         hash: TrieHash,
         block_id: u32,
     ) -> Result<usize, Error> {
+        if self.sealed {
+            return Err(Error::CorruptionError(
+                "NodeStore::push: store is sealed; cannot push after overwrite_node".to_string(),
+            ));
+        }
         let idx = self.file_offsets.len();
 
         self.file_offsets.push(self.writer.position());
@@ -319,11 +331,17 @@ impl NodeStore {
     ///
     /// Call only after `flush` and only when the new serialization
     /// length matches the original.
+    /// Seals the store before writing.
     pub(crate) fn overwrite_node(&mut self, idx: usize, node: &TrieNodeType) -> Result<(), Error> {
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
             Error::CorruptionError(format!("overwrite_node: index {idx} out of bounds"))
         })?;
         let next_offset = self.file_offsets.get(idx + 1);
+
+        // Seal before touching the writer so a partial or mismatched
+        // overwrite still locks out subsequent pushes.
+        self.sealed = true;
+
         if self.writer.position() != offset {
             self.writer
                 .seek(SeekFrom::Start(offset))
