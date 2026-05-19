@@ -25,7 +25,15 @@ export const pox5 = contracts.pox5;
 export const errorCodes = projectErrors(project).pox5;
 export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
+export const signerManager = contracts.signerManager;
+export const signerManagerErrors = extractErrors(signerManager);
 export const sbtc = contracts.sbtcToken;
+
+export const REWARD_CYCLE_LENGTH = 100n;
+export const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
+export const BASIS_POINTS = 10000n;
+
+export const deployer = accounts.deployer.address;
 
 export function toWitnessOutput(script: Uint8Array) {
   return BTC.OutScript.encode(
@@ -188,7 +196,7 @@ export function signPerTransactionAuth({
 
 // /** Register the test signer with a valid signer key grant. Returns the signer key and pox address. */
 export function registerSigner(
-  { caller }: { caller: string } = { caller: accounts.deployer.address },
+  { caller }: { caller: string } = { caller: deployer },
 ) {
   const signerSk = secp256k1.utils.randomSecretKey();
   const signerKey = secp256k1.getPublicKey(signerSk, true);
@@ -208,6 +216,24 @@ export function registerSigner(
     caller,
   );
   return { signerKey, signer: testSigner.identifier };
+}
+
+export function registerSignerManager() {
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signature = signSignerKeyGrant({
+    signerManager: signerManager.identifier,
+    authId: 1n,
+    signerSk,
+  });
+  txOk(
+    signerManager.registerSelf({
+      signerKey: secp256k1.getPublicKey(signerSk, true),
+      signerManager: signerManager.identifier,
+      authId: 1n,
+      signerSig: signature,
+    }),
+    deployer,
+  );
 }
 
 /**
@@ -285,4 +311,19 @@ export function expectAllSignersHaveKeys() {
     const signerKey = rov(pox5.getSignerInfo(staker));
     expect(signerKey).not.toBeNull();
   }
+}
+
+export function initPox5() {
+  const INITIAL_BOND_ADMIN = 'SP000000000000000000002Q6VF78';
+
+  txOk(
+    pox5.setBurnchainParameters({
+      firstBurnHeight: 0n,
+      prepareCycleLength: 10n,
+      rewardCycleLength: REWARD_CYCLE_LENGTH,
+      beginPox5RewardCycle: 1n,
+    }),
+    deployer,
+  );
+  txOk(pox5.setBondAdmin(deployer), INITIAL_BOND_ADMIN);
 }
