@@ -227,7 +227,12 @@ configure_validation_slices() {
 
     # Check if reflink is enabled for the filesystem by copying a test file
     touch "${SCRATCH_DIR}/reflink_test"
-    cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null && REFLINK=1 || echo "${COLYELLOW}Warning${COLRESET}: reflink is not enabled for this filesystem, chainstate copy will be slower"
+    if cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null; then
+        REFLINK=1
+        echo "${COLGREEN}Reflink is supported${COLRESET}: chainstate slice copies will be fast and space-efficient"
+    else
+        echo "${COLYELLOW}Warning${COLRESET}: reflink is not enabled for this filesystem, chainstate copy will be slower"
+    fi
     # Remove the test files, silently failing if the file(s) don't exist
     rm "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy"  2>/dev/null
     
@@ -247,7 +252,7 @@ configure_validation_slices() {
             exit 1
         }
     else 
-        echo "Copying (reflink) local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
+        echo "Copying local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
         cp -r --reflink=always "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0" 2>/dev/null
     fi 
 
