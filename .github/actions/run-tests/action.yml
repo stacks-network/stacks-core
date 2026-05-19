@@ -1,10 +1,10 @@
 name: Run Tests
 description: |
-    Run tests with cargo nextest
+    Run tests sequentially with cargo nextest using a regex batch pattern
 
 inputs:
-  test-name:
-    description: "Test name to run"
+  test-names:
+    description: "Comma-separated list of literal test names to run"
     required: true
   archive-file:
     description: "Archive file to use for tests"
@@ -30,11 +30,19 @@ inputs:
 runs:
   using: "composite"
   steps:
-    # Run a provided test
+    # Run a provided batch of tests sequentially
     - name: Run Tests
       shell: bash
       run: |
-        export LLVM_PROFILE_FILE="test-results-%p-%m.profraw" && \
+        export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
+        # Force nextest to run tests 1 at a time to prevent race conditions
+        export NEXTEST_PROFILE_DEFAULT_TEST_THREADS=1
+        
+        # Convert CSV string to Nextest exact-match Filterset format
+        # e.g., "a, b" becomes "test(=a)|test(=b)"
+        FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
+        FILTERSET="test(=${FILTERSET})"
+
         cargo nextest run \
           --archive-file ${{ inputs.archive-file }} \
           --retries ${{ inputs.retries }} \
@@ -43,4 +51,4 @@ runs:
           --failure-output ${{ inputs.failure-output }} \
           --success-output ${{ inputs.success-output }} \
           --status-level ${{ inputs.status-level }} \
-          -E "test(=${{ inputs.test-name }})"
+          -E "$FILTERSET"

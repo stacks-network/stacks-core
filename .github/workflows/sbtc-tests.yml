@@ -70,7 +70,7 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
-          test-name: ${{ matrix.test-name }}
+          test-names: ${{ matrix.test-name }}
 
       # Create and upload code coverage file
       - name: Code Coverage

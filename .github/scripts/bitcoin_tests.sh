@@ -2,17 +2,15 @@
 # Generate a balanced test matrix for the Bitcoin integration test workflow.
 #
 # Discovers all ignored tests in the stacks-node binary via cargo nextest,
-# removes a hardcoded exclude list, then splits the remaining tests into
-# MATRIX balanced partitions.
+# removes a hardcoded exclude list, then chunks them into batches.
 #
 # Optional env vars:
-#   MATRIX           - Number of partitions to split tests into (default: 2)
-#   MAX_PER_MATRIX   - Maximum tests allowed per partition (default: 256)
+#   BATCH_SIZE       - Number of tests grouped into a single runner batch (default: 50)
 #   NEXTEST_ARCHIVE  - Nextest archive to use (default: ~/test_archive.tar.zst)
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
 #
 # Outputs:
-#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
+#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner)
 set -euo pipefail
 
 # Load logging functions from logging.sh for color and standardized output
@@ -20,19 +18,12 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 
 ## --- Configuration ----------------------------------------------------------
-# Set number of matrices to use for tests. default is 2
-matrix="${MATRIX:-2}"
-# Set number of tests per matrix. default is 256
-max_per_matrix="${MAX_PER_MATRIX:-256}"
+# Set batch size for test grouping. default is 50
+batch_size="${BATCH_SIZE:-50}"
 # Set the nextest archive to use
 nextest_archive="${NEXTEST_ARCHIVE:-${HOME}/test_archive.tar.zst}"
 # Exclude tests tagged with a skip tag
 ci_skip_tag="${TEST_TAG_CI_SKIP:-ci_skip}"
-
-if ! [[ "$matrix" =~ ^[1-9][0-9]*$ ]]; then
-    error "MATRIX must be a positive integer, got: ${matrix}"
-    exit 1
-fi
 
 ## ── Require bash 5+ (mapfile with -t flag behaviour) ────────────────────────
 if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
@@ -134,38 +125,40 @@ jq -e 'type == "array"' ignored_tests.json > /dev/null
 jq -e 'type == "array"' exclude.json > /dev/null
 
 jq -r '.[]' ignored_tests.json | sort > ignored_sorted.txt
-jq -r '.[]' exclude.json       | sort > exclude_sorted.txt
+jq -r '.[]' exclude.json        | sort > exclude_sorted.txt
 
 comm -23 ignored_sorted.txt exclude_sorted.txt > filtered.txt
 
 total=$(wc -l < filtered.txt)
 info "Final test count: $(hl ${total})"
 
-## --- Validate capacity ------------------------------------------------------
-max_total=$(( matrix * max_per_matrix ))
-if (( total > max_total )); then
-    error "${total} tests exceed the limit of ${max_total} (${matrix} partitions × ${max_per_matrix} tests each)"
-    error "Increase MATRIX or MAX_PER_MATRIX to accommodate."
-    exit 1
-fi
-
-## ── Split into $matrix balanced partitions ----------------------------------
-info "Splitting $(hl ${total}) tests into $(hl ${matrix}) active partitions..."
+## ── Chunk all tests into batches ──────────────────────────────────────────
+info "Grouping $(hl ${total}) tests into batches of size $(hl ${batch_size})...."
 mapfile -t tests < filtered.txt
 
-base=$(( total / matrix ))
-remainder=$(( total % matrix ))
-offset=0
+batches_json="[]"
+idx=1
 
-for (( i = 1; i <= matrix; i++ )); do
-    # Distribute remainder one test at a time across the first partitions
-    size=$(( base + ( i <= remainder ? 1 : 0 ) ))
-    partition=$(printf '%s\n' "${tests[@]:$offset:$size}" | jq -R . | jq -s -c .)
-    info "matrix${i}: $(hl ${size}) tests"
-    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-        echo "matrix${i}=${partition}" >> "${GITHUB_OUTPUT}"
-    else
-        echo "matrix${i}=${partition}"
-    fi
-    offset=$(( offset + size ))
+for (( j = 0; j < total; j += batch_size )); do
+    chunk=("${tests[@]:j:batch_size}")
+    
+    # Safely join array elements using a comma character
+    old_ifs="$IFS"
+    IFS=','
+    csv_chunk="${chunk[*]}"
+    IFS="$old_ifs"
+    
+    # Append an object containing both the index and the raw CSV string to the master JSON array
+    batches_json=$(echo "$batches_json" | jq --argjson idx "$idx" --arg csv "$csv_chunk" '. += [{"index": $idx, "csv": $csv}]')
+    
+    ((idx++))
 done
+
+info "Generated $(hl $(jq 'length' <<< "$batches_json")) dynamic matrix batches."
+
+# Export to GitHub Actions or stdout
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    echo "batches=$(jq -c . <<< "$batches_json")" >> "${GITHUB_OUTPUT}"
+else
+    jq -c . <<< "$batches_json"
+fi
