@@ -164,9 +164,41 @@ configure_chainstate() {
 
 # Create the slice dirs from a chainstate (1 per CPU)
 configure_validation_slices() {
+    local meta_file="${SCRATCH_DIR}/.scratch_meta"
+    local expected_slices=$(( CORES - RESERVED ))
+
+    # Reuse the existing scratch dir if the previous run used the same chainstate
+    # and produced the same number of slices, and every expected slice still has
+    # a valid chainstate db. Saves several hours when re-running back-to-back.
+    if [ -d "${SCRATCH_DIR}" ] && [ -f "${meta_file}" ]; then
+        local prev_chainstate="" prev_slices=""
+        while IFS='=' read -r key value; do
+            case "${key}" in
+                LOCAL_CHAINSTATE) prev_chainstate="${value}" ;;
+                SLICES)           prev_slices="${value}" ;;
+            esac
+        done < "${meta_file}"
+        if [ "${prev_chainstate}" == "${LOCAL_CHAINSTATE}" ] && [ "${prev_slices}" == "${expected_slices}" ]; then
+            local all_valid=1
+            for ((i=0; i<expected_slices; i++)); do
+                if [ ! -f "${SLICE_DIR}${i}/chainstate/vm/index.sqlite" ]; then
+                    all_valid=0
+                    break
+                fi
+            done
+            if [ "${all_valid}" -eq 1 ]; then
+                echo "Reusing existing scratch dir: ${COLYELLOW}${SCRATCH_DIR}${COLRESET} (${expected_slices} slices, chainstate: ${LOCAL_CHAINSTATE})"
+                return 0
+            fi
+            echo "${COLYELLOW}Scratch dir metadata matched but slices are incomplete${COLRESET}, rebuilding"
+        else
+            echo "Scratch dir was built with a different config (chainstate/slices), rebuilding"
+        fi
+    fi
+
     if [ -d "${SCRATCH_DIR}" ]; then
         echo "Deleting existing scratch dir contents: ${COLYELLOW}${SCRATCH_DIR}${COLRESET}"
-        find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P $(( CORES - RESERVED )) -n 500 rm -rf || {
+        find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P "${expected_slices}" -n 500 rm -rf || {
             echo "${COLRED}Error${COLRESET} deleting dir contents: ${SCRATCH_DIR}"
             exit 1
         }
@@ -222,6 +254,12 @@ configure_validation_slices() {
             exit 1
         }
     done
+
+    # Record what we built so a future run can reuse this scratch dir as-is.
+    {
+        printf 'LOCAL_CHAINSTATE=%s\n' "${LOCAL_CHAINSTATE}"
+        printf 'SLICES=%s\n' "${expected_slices}"
+    } > "${meta_file}"
 }
 
 # Setup the tmux sessions and create the logdir for storing output
