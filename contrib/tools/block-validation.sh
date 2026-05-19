@@ -2,6 +2,30 @@
 set -Eeuo pipefail
 
 #
+# block-validation.sh — parallel re-validation of a stacks-core chainstate.
+#
+# Builds stacks-inspect from a configurable branch, prepares one chainstate copy
+# per worker core (reflink when supported, otherwise a full copy), 
+# runs validate-block across all workers in parallel via
+# tmux windows, and aggregates per-slice results into a dedicate log file.
+#
+# See usage() for flags descriptions
+#
+# ** Default folder layout (when only -w/--workdir is set)
+#   ${WORK_DIR}/stacks-core/                   built repo (checkout of develop by default)
+#   ${WORK_DIR}/chain/                         chainstate used as the source of slices
+#   ${WORK_DIR}/downloads/                     downloaded Hiro snapshot archive
+#   ${WORK_DIR}/scratch/                       slice copies + .scratch_meta
+#   ${WORK_DIR}/logs/<timestamp>/              per-run logs (slices + results)
+#
+# ** Caching (each step skips work when a prior artifact is reusable)
+#   - stacks-core/     : reused if present (git fetch + checkout + reset --hard)
+#   - downloads/       : Hiro snapshot archive reused if already on disk (no redownload)
+#   - chain/           : reused if already extracted (no re-extract). 
+#   - scratch/         : slices reused when .scratch_meta matches the current LOCAL_CHAINSTATE
+#                        path + slice count + chainstate fingerprint. Otherwise wiped and rebuilt.
+#   - logs/            : never wiped; each run gets a fresh timestamped subdir.
+#
 # ** Recommendations
 #   - Run this script in screen or tmux
 #   - Use an existing chainstate on a disk formatted using XFS, Btrfs, ZFS or APFS (for XFS, reflink support must be enabled at fs-creation time; this is the default in recent OS versions)
@@ -18,16 +42,19 @@ COLCYAN=$'\033[36m'   # Cyan
 COLBOLD=$'\033[1m'    # Bold Text
 COLRESET=$'\033[0m'   # reset color/formatting
 
+# Initialize user-overridable defaults. Anything the
+# user can set via a CLI flag has its default here.
 set_default_config() {
     WORK_DIR="${HOME}"                                # root folder used for block validation and related artifacts
     BRANCH="develop"                                  # default branch to build stacks-inspect from
     CORES=""                                          # cores to use for validation; resolved in apply_input_config
     LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
     NETWORK="mainnet"                                 # network to validate
-    VALIDATE="full"                                   # what to validate: test|pre-nakamoto|nakamoto|full|<start>:<end>
+    VALIDATE="full"                                   # what to validate: scenario or block range
     TERM_OUT=false                                    # terminal friendly output
 }
 
+# Derive configurations and resolved values from the user-supplied config
 apply_input_config() {
     # Input based configurations
     if [ -z "${SCRATCH_DIR:-}" ]; then
@@ -90,7 +117,8 @@ usage() {
     echo "        ${COLYELLOW}-r|--cores${COLRESET}: how many cpu cores to use for validation (default: max(1, nproc/4), capped at nproc)"
     echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts"
     echo
-    echo "    ex: ${COLCYAN}${0} -t -c /data/stacks/mainnet ${COLRESET}"
+    echo "    ex: Full validation (Epoch 2 + 3) with chainstate automatically downloaded"
+    echo "        ${COLCYAN}${0} -t -w /data/workdir ${COLRESET}"
     echo
     exit 0
 }
@@ -139,7 +167,8 @@ build_stacks_inspect() {
     echo "Done building. continuing"
 }
 
-# Configure LOCAL_CHAINSTATE
+# Resolve LOCAL_CHAINSTATE: use the user-provided path if set, otherwise reuse
+# ${WORK_DIR}/chain if present, or download+extract the Hiro snapshot for ${NETWORK}.
 configure_chainstate() {
     if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
         if [ ! -d "${LOCAL_CHAINSTATE}" ]; then
@@ -183,7 +212,10 @@ configure_chainstate() {
     fi
 }
 
-# Create the slice dirs from a chainstate (1 per CPU)
+# Prepare ${CORES} chainstate slice copies under ${SCRATCH_DIR}. Reuses an
+# existing scratch dir if its .scratch_meta matches the current chainstate fingerprint
+# and slice count; otherwise wipes and rebuilds, using reflink when the filesystem
+# supports it (falls back to a single full copy plus marf.sqlite.blobs symlinks).
 configure_validation_slices() {
     local meta_file="${SCRATCH_DIR}/.scratch_meta"
     local expected_slices="${CORES}"
@@ -560,7 +592,8 @@ check_progress() {
     echo "************************************************************************"
 }
 
-# Store the results in an aggregated logfile and an html file
+# Aggregate per-slice return codes and "Failed processing block" lines into
+# ${LOG_DIR}/results.log, prefixed with a single "Failures: N" header.
 store_results() {
     # Text file to store results
     local results="${LOG_DIR}/results.log"
@@ -628,12 +661,12 @@ store_results() {
 
 # Check and install missing dependencies
 check_dependencies() {
-    HAS_APT=1
-    HAS_SUDO=1
+    local has_apt=1
+    local has_sudo=1
+    local cmd rp package
     for cmd in apt-get sudo curl tmux git aria2 tar gzip grep cargo pgrep tput find; do
         # In Alpine, `find` might be linked to `busybox` and won't work
         if [ "${cmd}" == "find" ] && [ -L "${cmd}" ]; then
-            rp=
             rp="$(readlink "$(command -v "${cmd}" || echo "NOTLINK")")"
             if [ "${rp}" == "/bin/busybox" ]; then
             echo "${COLRED}ERROR${COLRESET} Busybox 'find' is not supported. Please install 'findutils' or similar."
@@ -645,12 +678,12 @@ check_dependencies() {
             case "${cmd}" in
                 "apt-get")
                     echo "${COLYELLOW}WARN${COLRESET} 'apt-get' not found; automatic package installation will fail"
-                    HAS_APT=0
+                    has_apt=0
                     continue
                     ;;
                 "sudo")
                     echo "${COLYELLOW}WARN${COLRESET} 'sudo' not found; automatic package installation will fail"
-                    HAS_SUDO=0
+                    has_sudo=0
                     continue
                     ;;
                 "cargo")
@@ -664,7 +697,7 @@ check_dependencies() {
                     ;;
             esac
 
-            if [[ ${HAS_APT} = 0 ]] || [[ ${HAS_SUDO} = 0 ]]; then
+            if [[ ${has_apt} = 0 ]] || [[ ${has_sudo} = 0 ]]; then
             echo "${COLRED}Error${COLRESET} Missing command '${cmd}'"
             exit 1
             fi
@@ -676,7 +709,7 @@ check_dependencies() {
     done
 }
 
-# Parse cmd-line args
+# Parse CLI flags into the config globals. See usage() for the supported flags.
 parse_args() {
     while [ ${#} -gt 0 ]; do
         case ${1} in
@@ -777,24 +810,25 @@ parse_args() {
     done
 }
 
+# Entry point
 main() {
     # Env preparation
-    check_dependencies
     set_default_config
     parse_args "$@"
     apply_input_config
+    check_dependencies
 
-    # Clear display before starting
+    # Validation execution
     tput reset || true
     local start_epoch=$(date +%s)
     echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
     build_stacks_inspect
     configure_chainstate
     configure_validation_slices
-    setup_logs                       # configure logdir
-    setup_tmux                       # configure tmux sessions (one window per worker)
-    run_validation                   # dispatch validation according to ${VALIDATE}
-    store_results                    # store aggregated results of validation
+    setup_logs
+    setup_tmux
+    run_validation
+    store_results
     local end_epoch=$(date +%s)
     local elapsed=$((end_epoch - start_epoch))
     local duration=$(printf '%02d:%02d:%02d' $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60)))
@@ -802,4 +836,3 @@ main() {
 }
 
 main "$@"
-exit $?
