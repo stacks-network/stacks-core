@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[cfg(test)]
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -31,7 +29,7 @@ use crate::chainstate::stacks::index::bits::{
     write_nodetype_bytes, write_nodetype_bytes_compressed,
 };
 use crate::chainstate::stacks::index::cache::*;
-use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
+use crate::chainstate::stacks::index::file::{BlobAccessAdvice, TrieFile, TrieFileNodeHashReader};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::node::{
     is_backptr, set_backptr, TrieCowPtr, TrieNode, TrieNodeID, TrieNodePatch, TrieNodeType, TriePtr,
@@ -2504,15 +2502,53 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         &self.db
     }
 
-    /// Warm the file-backed blob offset cache.
+    /// Warm the file-backed blob offset cache from rows already loaded by the caller.
     ///
     /// No-op for SQLite-internal storage.
-    pub fn warm_trie_offsets(&mut self) -> Result<(), Error> {
-        let db: &Connection = &self.db;
+    pub(crate) fn warm_trie_offsets_from_entries(&mut self, block_entries: &[(u32, T, u64)]) {
         if let Some(trie_file) = self.blobs.as_deref_mut() {
-            trie_file.warm_trie_offsets(db)?;
+            for (block_id, _, offset) in block_entries {
+                trie_file.cache_trie_offset(*block_id, *offset);
+            }
         }
-        Ok(())
+    }
+
+    /// Forwards to [`TrieFile::advise_blob_access`].
+    /// No-op for SQLite-internal storage.
+    pub(crate) fn advise_blob_access(&self, advice: BlobAccessAdvice) {
+        if let Some(trie_file) = self.blobs.as_deref() {
+            trie_file.advise_blob_access(advice);
+        }
+    }
+
+    /// Forwards to [`TrieFile::prefetch_node`].
+    /// No-op for SQLite-internal storage.
+    pub(crate) fn prefetch_node(&self, block_id: u32, in_block_ptr: u64) {
+        if let Some(trie_file) = self.blobs.as_deref() {
+            trie_file.prefetch_node(block_id, in_block_ptr);
+        }
+    }
+
+    /// Bulk-read `(parent_hash, root_hash)` for many blocks. Entries must
+    /// be sorted by `external_offset` ascending for the prefetch path to
+    /// be effective. Only disk-backed `TrieFile`s use the prefetch path;
+    /// RAM-backed `TrieFile`s and SQLite-internal storage fall back to
+    /// per-block reads.
+    pub(crate) fn bulk_read_blob_headers_sorted(
+        &mut self,
+        sorted_entries: &[(u32, T, u64)],
+    ) -> Result<HashMap<T, (T, TrieHash)>, Error> {
+        if let Some(trie_file @ TrieFile::Disk(_)) = self.blobs.as_deref() {
+            return trie_file.bulk_read_blob_headers_sorted(sorted_entries);
+        }
+        // No flat file to stream from (RAM-backed or SQLite-internal blobs):
+        // fall back to per-row reads.
+        let mut headers = HashMap::with_capacity(sorted_entries.len());
+        for (block_id, block_hash, _offset) in sorted_entries {
+            let (parent, root) = self.read_parent_and_root_hash(*block_id)?;
+            headers.insert(block_hash.clone(), (parent, root));
+        }
+        Ok(headers)
     }
 
     /// Read `(parent_hash, root_hash)` for a block.
