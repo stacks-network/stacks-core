@@ -186,7 +186,7 @@
             (staker (get staker acc))
             (index (+ (get first-index acc) index-offset))
         )
-        (crystallize-staker-rewards staker index (get is-bond acc))
+        (crystallize-staker-rewards staker (get is-bond acc) index)
         (ok acc)
     )
 )
@@ -195,12 +195,12 @@
 ;; as well as account for any newly earned fees by the contract.
 (define-private (crystallize-staker-rewards
         (staker principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (let (
-            (earned-info (get-earned-staker-rewards staker index is-bond))
-            (rewards-per-token (get-rewards-per-token-for-cycle index is-bond))
+            (earned-info (get-earned-staker-rewards staker is-bond index))
+            (rewards-per-token (get-rewards-per-token-for-cycle is-bond index))
             (prev-fees (var-get earned-fees))
         )
         (map-set staker-pending-rewards-for-cycle {
@@ -259,16 +259,16 @@
 ;; previously pending rewards.
 (define-read-only (get-earned-staker-rewards
         (staker principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (let (
             (shares (contract-call? .pox-5 get-staker-shares-staked-for-cycle staker
-                index is-bond current-contract
+                is-bond index current-contract
             ))
-            (rpt-current (get-rewards-per-token-for-cycle index is-bond))
-            (rpt-paid (get-staker-rewards-per-token-paid-for-cycle staker index is-bond))
-            (pending (get-staker-pending-rewards-for-cycle staker index is-bond))
+            (rpt-current (get-rewards-per-token-for-cycle is-bond index))
+            (rpt-paid (get-staker-rewards-per-token-paid-for-cycle staker is-bond index))
+            (pending (get-staker-pending-rewards-for-cycle staker is-bond index))
             (newly-earned-before-fees (/ (* shares (- rpt-current rpt-paid)) PRECISION))
             (fees (/ (* newly-earned-before-fees (var-get fees-bips)) MAX_BIPS))
             (newly-earned (- newly-earned-before-fees fees))
@@ -289,11 +289,11 @@
 ;; the staker receives sBTC.
 (define-public (claim-staker-rewards
         (staker principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (let (
-            (rewards-info (crystallize-staker-rewards staker index is-bond))
+            (rewards-info (crystallize-staker-rewards staker is-bond index))
             (earned (get earned rewards-info))
         )
         (asserts! (> earned u0) ERR_NO_CLAIMABLE_REWARDS)
@@ -450,8 +450,8 @@
 )
 
 (define-read-only (get-rewards-per-token-for-cycle
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (default-to u0
         (map-get? rewards-per-token-for-cycle {
@@ -463,8 +463,8 @@
 
 (define-read-only (get-staker-rewards-per-token-paid-for-cycle
         (staker principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (default-to u0
         (map-get? staker-rewards-paid-per-token-for-cycle {
@@ -477,8 +477,8 @@
 
 (define-read-only (get-staker-pending-rewards-for-cycle
         (staker principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (default-to u0
         (map-get? staker-pending-rewards-for-cycle {
