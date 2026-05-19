@@ -11,10 +11,6 @@ inputs:
     description: "Fail workflow if cache is not restorable"
     required: false
     default: "true"
-  cache-key:
-    description: "Cache Key name"
-    required: false
-    default: ${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}-cargo
 
 outputs:
   cache-hit:
@@ -35,7 +31,7 @@ runs:
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
-        key: ${{ inputs.cache-key }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     # Restore cache data
     - name: Restore Cache
@@ -50,7 +46,7 @@ runs:
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
-        key: ${{ inputs.cache-key }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     # Save cache data
     - name: Save Cache
@@ -64,4 +60,4 @@ runs:
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
-        key: ${{ inputs.cache-key }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}

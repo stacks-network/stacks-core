@@ -11,10 +11,6 @@ inputs:
     description: "Fail workflow if cache is not restorable"
     required: false
     default: "true"
-  cache-key:
-    description: "Cache Key name"
-    required: false
-    default: ${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}-cargo
 
 outputs:
   cache-hit:
@@ -31,7 +27,7 @@ runs:
       with:
         lookup-only: true
         path: ./target
-        key: ${{ inputs.cache-key }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     # Restore cache data
     - name: Restore Cache
@@ -41,7 +37,7 @@ runs:
       with:
         fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
         path: ./target
-        key: ${{ inputs.cache-key }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     # Save cache data
     - name: Save Cache
@@ -50,4 +46,4 @@ runs:
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: ./target
-        key: ${{ inputs.cache-key }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
