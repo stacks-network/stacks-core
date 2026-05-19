@@ -237,7 +237,7 @@ impl ProfileStats {
 
     /// Estimated idle time (wall − CPU). See [`platform`] for resolution caveats.
     pub fn wait_time(&self) -> Duration {
-        Duration::from_nanos(self.wall_time_ns.saturating_sub(self.cpu_time_ns))
+        Duration::from_nanos(self.wait_time_ns())
     }
 
     /// Cumulative wall-clock time as a [`Duration`].
