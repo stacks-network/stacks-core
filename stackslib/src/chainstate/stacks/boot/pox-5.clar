@@ -255,8 +255,9 @@
 )
 
 ;; Amount of shares staked for a given signer in a given cycle.
-;; This is strictly for reward calculations - ie the STX
-;; from Bitcoin staking are not accounted for here.
+;; This is strictly for reward calculations -
+;; i.e. when is-bond is false, only the STX from STX-only staking
+;; is accounted for here, not the STX from bonds.
 (define-map signer-shares-staked-for-cycle
     {
         is-bond: bool,
