@@ -59,6 +59,16 @@ function claimableRewards({
   return (shares * rewardsPerShare) / pox5.constants.PRECISION;
 }
 
+function bondTargetYieldPerCalculation({
+  sats,
+  targetRate,
+}: {
+  sats: bigint;
+  targetRate: bigint;
+}) {
+  return ((sats * targetRate) / BASIS_POINTS) / 50n;
+}
+
 beforeEach(() => {
   initPox5();
 });
@@ -646,20 +656,21 @@ test('stx-only rewards split across signers by staked ustx', () => {
 
 /**
  * Distributes one bond period's rewards across two signer managers by their
- * bonded sats share, with no residual rewards for reserve or STX-only stakers.
+ * bonded sats share, with residual rewards flowing through the STX waterfall.
  */
 test('bond rewards split across signers by staked sats', () => {
   const signer1 = testSigner.identifier;
   const signer2 = deployTestSigner('bond-reward-signer-2').identifier;
   const aliceSbtc = 100000n;
   const bobSbtc = 300000n;
+  const targetRate = 1200n;
 
   registerSigner();
 
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
-      targetRate: 1200n,
+      targetRate,
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
@@ -706,9 +717,28 @@ test('bond rewards split across signers by staked sats', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getEarned(signer1, true, 0n))).toBe(250n);
-  expect(rov(pox5.getEarned(signer2, true, 0n))).toBe(750n);
-  expect(rov(pox5.getReserveBalance())).toBe(0n);
+  const totalBondRewards = bondTargetYieldPerCalculation({
+    sats: aliceSbtc + bobSbtc,
+    targetRate,
+  });
+  expect(totalBondRewards).toBe(960n);
+  expect(rov(pox5.getEarned(signer1, true, 0n))).toBe(
+    claimableRewards({
+      rewards: totalBondRewards,
+      shares: aliceSbtc,
+      totalShares: aliceSbtc + bobSbtc,
+    }),
+  );
+  expect(rov(pox5.getEarned(signer2, true, 0n))).toBe(
+    claimableRewards({
+      rewards: totalBondRewards,
+      shares: bobSbtc,
+      totalShares: aliceSbtc + bobSbtc,
+    }),
+  );
+  expect(rov(pox5.getReserveBalance())).toBe(
+    reserveRewards(1000n - totalBondRewards),
+  );
 });
 
 /**
@@ -856,8 +886,14 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n, 1n]), deployer);
 
-  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(1000n);
-  expect(rov(pox5.getEarned(signer, true, 1n))).toBe(500n);
+  const firstBondRewards = bondTargetYieldPerCalculation({
+    sats: aliceSbtc,
+    targetRate,
+  });
+  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(firstBondRewards);
+  expect(rov(pox5.getEarned(signer, true, 1n))).toBe(
+    1500n - firstBondRewards,
+  );
   expect(rov(pox5.getEarned(signer, false, 3n))).toBe(0n);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
 });
@@ -959,25 +995,36 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n, 1n]), deployer);
 
-  const stxRewardAmount = stxRewards(1000n);
+  const firstBondRewards = bondTargetYieldPerCalculation({
+    sats: aliceSbtc,
+    targetRate,
+  });
+  const secondBondRewards = bondTargetYieldPerCalculation({
+    sats: bobSbtc,
+    targetRate,
+  });
+  const remainingRewards = 2000n - firstBondRewards - secondBondRewards;
+  const stxRewardAmount = stxRewards(remainingRewards);
   const signerStxRewards = claimableRewards({
     rewards: stxRewardAmount,
     shares: stxStake,
     totalShares: stxStake * 2n,
   });
 
-  expect(rov(pox5.getReserveBalance())).toBe(reserveRewards(1000n));
-  expect(rov(pox5.getEarned(signer1, true, 0n))).toBe(250n);
-  expect(rov(pox5.getEarned(signer2, true, 1n))).toBe(750n);
+  expect(rov(pox5.getReserveBalance())).toBe(
+    reserveRewards(remainingRewards),
+  );
+  expect(rov(pox5.getEarned(signer1, true, 0n))).toBe(firstBondRewards);
+  expect(rov(pox5.getEarned(signer2, true, 1n))).toBe(secondBondRewards);
   expect(rov(pox5.getEarned(signer1, false, 3n))).toBe(signerStxRewards);
   expect(rov(pox5.getEarned(signer2, false, 3n))).toBe(signerStxRewards);
 
   expect(
     txOk(testSigner.claimRewards([0n], 3n), deployer).value.totalRewards,
-  ).toBe(250n + signerStxRewards);
+  ).toBe(firstBondRewards + signerStxRewards);
   expect(
     txOk(signer2Contract.claimRewards([1n], 3n), deployer).value.totalRewards,
-  ).toBe(750n + signerStxRewards);
+  ).toBe(secondBondRewards + signerStxRewards);
   expect(rov(pox5.getEarned(signer1, true, 0n))).toBe(0n);
   expect(rov(pox5.getEarned(signer1, false, 3n))).toBe(0n);
   expect(rov(pox5.getEarned(signer2, true, 1n))).toBe(0n);
@@ -1069,13 +1116,14 @@ test('bond participants claim rewards after signer claims', () => {
   const signer = testSigner.identifier;
   const aliceSbtc = 100000n;
   const bobSbtc = 300000n;
+  const targetRate = 1200n;
 
   registerSigner();
 
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
-      targetRate: 1200n,
+      targetRate,
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
@@ -1121,8 +1169,27 @@ test('bond participants claim rewards after signer claims', () => {
   txOk(pox5.calculateRewards([0n]), deployer);
   txOk(testSigner.claimRewards([0n], 1n), deployer);
 
-  expect(rov(testSigner.getEarnedStakerRewards(alice, true, 0n))).toBe(250n);
-  expect(rov(testSigner.getEarnedStakerRewards(bob, true, 0n))).toBe(750n);
+  const totalBondRewards = bondTargetYieldPerCalculation({
+    sats: aliceSbtc + bobSbtc,
+    targetRate,
+  });
+  const aliceRewards = claimableRewards({
+    rewards: totalBondRewards,
+    shares: aliceSbtc,
+    totalShares: aliceSbtc + bobSbtc,
+  });
+  const bobRewards = claimableRewards({
+    rewards: totalBondRewards,
+    shares: bobSbtc,
+    totalShares: aliceSbtc + bobSbtc,
+  });
+
+  expect(rov(testSigner.getEarnedStakerRewards(alice, true, 0n))).toBe(
+    aliceRewards,
+  );
+  expect(rov(testSigner.getEarnedStakerRewards(bob, true, 0n))).toBe(
+    bobRewards,
+  );
 
   const aliceBalance = sbtcBalance(alice);
   const bobBalance = sbtcBalance(bob);
@@ -1130,8 +1197,8 @@ test('bond participants claim rewards after signer claims', () => {
   txOk(testSigner.claimStakerRewards(true, 0n), alice);
   txOk(testSigner.claimStakerRewards(true, 0n), bob);
 
-  expect(sbtcBalance(alice)).toBe(aliceBalance + 250n);
-  expect(sbtcBalance(bob)).toBe(bobBalance + 750n);
+  expect(sbtcBalance(alice)).toBe(aliceBalance + aliceRewards);
+  expect(sbtcBalance(bob)).toBe(bobBalance + bobRewards);
   expect(rov(testSigner.getEarnedStakerRewards(alice, true, 0n))).toBe(0n);
   expect(rov(testSigner.getEarnedStakerRewards(bob, true, 0n))).toBe(0n);
 });
@@ -1140,13 +1207,14 @@ test('bond participant keeps already claimed-to-signer rewards after changing si
   const signer1 = testSigner.identifier;
   const signer2 = deployTestSigner('bond-staker-pending-signer-2').identifier;
   const aliceSbtc = 400000n;
+  const targetRate = 1200n;
 
   registerSigner();
 
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
-      targetRate: 1200n,
+      targetRate,
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
@@ -1179,7 +1247,13 @@ test('bond participant keeps already claimed-to-signer rewards after changing si
   txOk(pox5.calculateRewards([0n]), deployer);
   txOk(testSigner.claimRewards([0n], 1n), deployer);
 
-  expect(rov(testSigner.getEarnedStakerRewards(alice, true, 0n))).toBe(1000n);
+  const expectedRewards = bondTargetYieldPerCalculation({
+    sats: aliceSbtc,
+    targetRate,
+  });
+  expect(rov(testSigner.getEarnedStakerRewards(alice, true, 0n))).toBe(
+    expectedRewards,
+  );
 
   txOk(
     pox5.updateBondRegistration({
@@ -1190,7 +1264,9 @@ test('bond participant keeps already claimed-to-signer rewards after changing si
     alice,
   );
 
-  expect(rov(testSigner.getEarnedStakerRewards(alice, true, 0n))).toBe(1000n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, true, 0n))).toBe(
+    expectedRewards,
+  );
 });
 
 test('only early unlock admin can announce l1 early exit', () => {
@@ -1359,13 +1435,14 @@ test('l1 early exit prevents future bond rewards but leaves stx delegated', () =
 test('l1 early exit does not erase already accrued bond rewards', () => {
   const signer = testSigner.identifier;
   const aliceSats = 480000n;
+  const targetRate = 1200n;
 
   registerSigner();
 
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
-      targetRate: 1200n,
+      targetRate,
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
@@ -1412,23 +1489,28 @@ test('l1 early exit does not erase already accrued bond rewards', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(1200n);
+  const expectedRewards = bondTargetYieldPerCalculation({
+    sats: aliceSats,
+    targetRate,
+  });
+  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(expectedRewards);
   txOk(pox5.announceL1EarlyExit(alice, signer), deployer);
 
-  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(1200n);
+  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(expectedRewards);
 });
 
 test('sbtc bond participant can partially unstake and only earns on remaining sats', () => {
   const signer = testSigner.identifier;
   const aliceSbtc = 480000n;
   const unstakedSbtc = 120000n;
+  const targetRate = 1600n;
 
   registerSigner();
 
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
-      targetRate: 1200n,
+      targetRate,
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
@@ -1479,7 +1561,9 @@ test('sbtc bond participant can partially unstake and only earns on remaining sa
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(900n);
+  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(
+    bondTargetYieldPerCalculation({ sats: remainingSbtc, targetRate }),
+  );
 });
 
 test('sbtc unstake preserves already accrued rewards', () => {
@@ -1492,7 +1576,7 @@ test('sbtc unstake preserves already accrued rewards', () => {
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
-      targetRate: 1200n,
+      targetRate: 1500n,
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
@@ -1546,7 +1630,7 @@ test('sbtc unstake preserves already accrued rewards', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(1800n);
+  expect(rov(pox5.getEarned(signer, true, 0n))).toBe(1920n);
 });
 
 test('sbtc bond participant can fully unstake and stops earning bond rewards', () => {
@@ -1905,7 +1989,7 @@ test('bond participant rewards follow updated signer', () => {
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
-      targetRate: 1200n,
+      targetRate: 1500n,
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
@@ -1959,7 +2043,7 @@ test('bond signer update preserves old signer rewards and sends future rewards t
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
-      targetRate: 1200n,
+      targetRate: 1500n,
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockSigners: new Uint8Array(),
@@ -2168,14 +2252,9 @@ test('scenario - waterfall distributions', () => {
   const bobSbtc = 100000n;
 
   const totalSbtcPeriod1 = aliceSbtc + bobSbtc;
-  const expectedYieldPeriod1 = (totalSbtcPeriod1 * targetRate) / 10000n;
-  const perCycleYieldPeriod1 = expectedYieldPeriod1 / 24n; // 24 reward cycles per year
-  const perRewardCalcYieldPeriod1 = perCycleYieldPeriod1 / 2n; // 2 calculations per cycle
-  console.log('test params', {
-    totalSbtcPeriod1,
-    expectedYieldPeriod1,
-    perCycleYieldPeriod1,
-    perRewardCalcYieldPeriod1,
+  const perRewardCalcYieldPeriod1 = bondTargetYieldPerCalculation({
+    sats: totalSbtcPeriod1,
+    targetRate,
   });
 
   txOk(

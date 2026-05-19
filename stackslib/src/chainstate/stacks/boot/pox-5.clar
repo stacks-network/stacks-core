@@ -1625,8 +1625,8 @@
             (total-sats (get-total-shares-staked-for-cycle true bond-index))
             (available-rewards (get available-rewards accumulator))
             ;; How much sBTC the bond is supposed to earn per calculation,
-            ;; which is (totalSats * apy) / 48
-            (target-yield (/ (/ (* total-sats (get target-rate bond)) u10000) u48))
+            ;; which is (totalSats * apy) / 50
+            (target-yield (/ (/ (* total-sats (get target-rate bond)) u10000) u50))
             ;; If there is enough to cover the target yield, use that. Otherwise,
             ;; this bond gets the remaining rewards.
             (earned (if (>= available-rewards target-yield)
