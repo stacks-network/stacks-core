@@ -336,7 +336,16 @@ impl NodeStore {
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
             Error::CorruptionError(format!("overwrite_node: index {idx} out of bounds"))
         })?;
-        let next_offset = self.file_offsets.get(idx + 1);
+        let slot_end = self
+            .file_offsets
+            .get(idx + 1)
+            .copied()
+            .unwrap_or(self.total_bytes);
+        let slot_len = slot_end.checked_sub(offset).ok_or_else(|| {
+            Error::CorruptionError(format!(
+                "overwrite_node: slot_end {slot_end} < offset {offset} for idx {idx}"
+            ))
+        })?;
 
         // Seal before touching the writer so a partial or mismatched
         // overwrite still locks out subsequent pushes.
@@ -348,13 +357,17 @@ impl NodeStore {
                 .map_err(Error::IOError)?;
         }
         serialize_node(&mut self.writer, node)?;
-        if let Some(expected_end) = next_offset {
-            debug_assert_eq!(
-                self.writer.position(),
-                *expected_end,
-                "overwrite_node: re-serialized node {idx} changed length"
-            );
+
+        let written = self.writer.position().checked_sub(offset).ok_or_else(|| {
+            Error::CorruptionError("overwrite_node: writer position regressed".to_string())
+        })?;
+        if written != slot_len {
+            return Err(Error::CorruptionError(format!(
+                "overwrite_node: re-serialized node {idx} changed length \
+                 from {slot_len} to {written} bytes"
+            )));
         }
+
         Ok(())
     }
 
