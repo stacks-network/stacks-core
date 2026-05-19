@@ -59,7 +59,9 @@ fn request_handler() { /* ... */ }
 fn execute_tx() { /* ... */ }
 ```
 
-**Note:** `#[profile]` currently does not support `async fn`.
+**Note:** `#[profile]` currently does not support `async fn`. A function-wide
+async span would hold the thread-local guard across `.await`, so instrument
+synchronous regions between await points with `span!` or `measure!` instead.
 
 **Tip:** Power-of-two rates (e.g., 2, 4, 8, 16, 32, 64, 128) use a bitmask
 instead of modulo on the hot path (more efficient), so prefer them when the exact ratio doesn't

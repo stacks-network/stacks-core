@@ -58,6 +58,10 @@
 //! #[profile]
 //! async fn async_not_supported() {}
 //! ```
+//!
+//! `#[profile]` rejects `async fn` because a function-wide async span would hold the thread-local
+//! guard across `.await`. Use [`span!`](span) or [`measure!`](measure) around synchronous regions
+//! between await points instead.
 
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;

@@ -182,10 +182,14 @@ fn build_guard_creation(sample_rate: Option<usize>, mode: UnsampledBehavior) -> 
 /// fn execute_tx() { /* ... */ }       // preserve hierarchy + counts when unsampled
 /// ```
 ///
-/// `sample_rate` and `unsampled` have the same semantics as `rate:` / `suppress` / `count_only`
-/// on `span!`. Does not support tags — use `span!` directly if you need them.
+/// `sample_rate` and `unsampled` have the same semantics as `rate:` / `suppress` / `count_only` on
+/// `span!`. Does not support tags — use `span!` directly if you need them.
 ///
-/// `#[profile]` is not supported on `async fn`.
+/// `#[profile]` rejects `async fn` because a function-wide guard would be held across `.await`
+/// points, causing the thread-local span stack to be corrupted when the executor runs other tasks
+/// on the same thread, or when the future resumes on a different thread. Instead, use the
+/// `span!`/`measure!` macros directly, and keep their guards within synchronous regions that don't
+/// cross `.await`.
 #[proc_macro_attribute]
 pub fn profile(args: TokenStream, input: TokenStream) -> TokenStream {
     let attr_args = parse_macro_input!(args with Punctuated::<Meta, Comma>::parse_terminated);
@@ -200,7 +204,7 @@ pub fn profile(args: TokenStream, input: TokenStream) -> TokenStream {
     if let Some(async_token) = &input_fn.sig.asyncness {
         return syn::Error::new_spanned(
             async_token,
-            "#[profile] does not support async fn; use span!/measure! inside the function body",
+            "#[profile] does not support async fn; use span!/measure! around synchronous work that does not cross .await",
         )
         .to_compile_error()
         .into();
