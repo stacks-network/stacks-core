@@ -57,13 +57,6 @@ runs:
       with:
         action: restore
 
-    # Restore cargo target cache data
-    - name: Restore Cargo Target Cache
-      id: restore_target_cache
-      uses: ./.github/actions/cache/cargo-target
-      with:
-        action: restore
-
     # Install dependencies
     #   grcov is used in the code coverage workflow in tests, so it's installed here
     - name: Install Dependencies
