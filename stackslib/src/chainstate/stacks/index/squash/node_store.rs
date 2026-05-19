@@ -16,7 +16,7 @@
 use std::fs::File;
 use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 
-use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 use crate::chainstate::stacks::index::file::read_exact_at;
 use crate::chainstate::stacks::index::node::{
@@ -58,35 +58,44 @@ fn read_trie_ptr<R: Read>(r: &mut R) -> Result<TriePtr, Error> {
 }
 
 /// Serialize a `TrieNodeType` to the writer in a compact binary format.
-/// Format: [tag: u8] [path_len: u32] [path bytes] [variant data]
+/// Format: [tag: u8] [path_len: u8] [path bytes] [variant data]
 pub(crate) fn serialize_node<W: Write>(w: &mut W, node: &TrieNodeType) -> Result<(), Error> {
+    fn write_path<W: Write>(w: &mut W, path: &[u8]) -> Result<(), Error> {
+        if path.len() > TRIEHASH_ENCODED_SIZE {
+            return Err(Error::CorruptionError(format!(
+                "serialize_node: path length {} exceeds {TRIEHASH_ENCODED_SIZE}",
+                path.len()
+            )));
+        }
+        // `path.len() <= 32` so this never widens.
+        let len = path.len() as u8;
+        w.write_all(&[len])?;
+        w.write_all(path)?;
+        Ok(())
+    }
     match node {
         TrieNodeType::Leaf(leaf) => {
             w.write_all(&[TAG_LEAF])?;
-            w.write_all(&(leaf.path.len() as u32).to_le_bytes())?;
-            w.write_all(&leaf.path)?;
+            write_path(w, &leaf.path)?;
             w.write_all(&leaf.data.0)?;
         }
         TrieNodeType::Node4(n) => {
             w.write_all(&[TAG_NODE4])?;
-            w.write_all(&(n.path.len() as u32).to_le_bytes())?;
-            w.write_all(&n.path)?;
+            write_path(w, &n.path)?;
             for p in &n.ptrs {
                 write_trie_ptr(w, p)?;
             }
         }
         TrieNodeType::Node16(n) => {
             w.write_all(&[TAG_NODE16])?;
-            w.write_all(&(n.path.len() as u32).to_le_bytes())?;
-            w.write_all(&n.path)?;
+            write_path(w, &n.path)?;
             for p in &n.ptrs {
                 write_trie_ptr(w, p)?;
             }
         }
         TrieNodeType::Node48(n) => {
             w.write_all(&[TAG_NODE48])?;
-            w.write_all(&(n.path.len() as u32).to_le_bytes())?;
-            w.write_all(&n.path)?;
+            write_path(w, &n.path)?;
             let indexes = n.indexes.map(|idx| idx as u8);
             w.write_all(&indexes)?;
             for p in &n.ptrs {
@@ -95,8 +104,7 @@ pub(crate) fn serialize_node<W: Write>(w: &mut W, node: &TrieNodeType) -> Result
         }
         TrieNodeType::Node256(n) => {
             w.write_all(&[TAG_NODE256])?;
-            w.write_all(&(n.path.len() as u32).to_le_bytes())?;
-            w.write_all(&n.path)?;
+            write_path(w, &n.path)?;
             for p in &n.ptrs {
                 write_trie_ptr(w, p)?;
             }
@@ -109,9 +117,14 @@ pub(crate) fn serialize_node<W: Write>(w: &mut W, node: &TrieNodeType) -> Result
 pub(crate) fn deserialize_node<R: Read>(r: &mut R) -> Result<TrieNodeType, Error> {
     let mut tag = [0u8; 1];
     r.read_exact(&mut tag)?;
-    let mut path_len_buf = [0u8; 4];
+    let mut path_len_buf = [0u8; 1];
     r.read_exact(&mut path_len_buf)?;
-    let path_len = u32::from_le_bytes(path_len_buf) as usize;
+    let path_len = path_len_buf[0] as usize;
+    if path_len > TRIEHASH_ENCODED_SIZE {
+        return Err(Error::CorruptionError(format!(
+            "deserialize_node: path length {path_len} exceeds {TRIEHASH_ENCODED_SIZE}"
+        )));
+    }
     let mut path = vec![0u8; path_len];
     if path_len > 0 {
         r.read_exact(&mut path)?;
