@@ -39,10 +39,10 @@ runs:
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw" && \
         cargo nextest run \
+          --archive-file ${{ inputs.archive-file }} \
           --retries ${{ inputs.retries }} \
           --fail-fast \
           --failure-output ${{ inputs.failure-output }} \
           --success-output ${{ inputs.success-output }} \
           --status-level ${{ inputs.status-level }} \
-          --archive-file ${{ inputs.archive-file }} \
           --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }}
