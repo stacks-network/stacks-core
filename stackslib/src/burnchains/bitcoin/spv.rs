@@ -51,6 +51,11 @@ pub const BITCOIN_GENESIS_BLOCK_HASH_TESTNET: &str =
 pub const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &str =
     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
 
+pub const BITCOIN_GENESIS_BLOCK_HASH_TESTNET4: &str =
+    "00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043";
+pub const BITCOIN_GENESIS_BLOCK_MERKLE_ROOT_TESTNET4: &str =
+    "7aa0a7ae1e223414cb807e40cd57e667b718e42aaf9306db9102fe28912b7b4e";
+
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
 const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in seconds
 
@@ -766,35 +771,52 @@ impl SpvClient {
     /// Optionally sip migration for testing.
     fn init_block_headers(&mut self, migrate: bool) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
-        let (genesis_block, genesis_block_hash_str) = match self.network_id {
+        let (genesis_header, genesis_block_hash_str) = match self.network_id {
             BitcoinNetworkType::Mainnet => (
-                genesis_block(Network::Bitcoin),
+                genesis_block(Network::Bitcoin).header,
                 BITCOIN_GENESIS_BLOCK_HASH_MAINNET,
             ),
             BitcoinNetworkType::Testnet => (
-                genesis_block(Network::Testnet),
+                genesis_block(Network::Testnet).header,
                 BITCOIN_GENESIS_BLOCK_HASH_TESTNET,
             ),
             BitcoinNetworkType::Regtest => (
-                genesis_block(Network::Regtest),
+                genesis_block(Network::Regtest).header,
                 BITCOIN_GENESIS_BLOCK_HASH_REGTEST,
+            ),
+            // The vendored `bitcoin::Network` enum has no Testnet4 variant, so the genesis
+            // header fields are hardcoded here from the BIP-94 testnet4 genesis block.
+            BitcoinNetworkType::Testnet4 => (
+                BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0000000000000000000000000000000000000000000000000000000000000000",
+                    )
+                    .map_err(btc_error::HashError)?,
+                    merkle_root: Sha256dHash::from_hex(BITCOIN_GENESIS_BLOCK_MERKLE_ROOT_TESTNET4)
+                        .map_err(btc_error::HashError)?,
+                    time: 1714777860,
+                    bits: 0x1d00ffff,
+                    nonce: 393743547,
+                },
+                BITCOIN_GENESIS_BLOCK_HASH_TESTNET4,
             ),
         };
 
         // sanity check
         let genesis_block_hash =
             Sha256dHash::from_hex(genesis_block_hash_str).map_err(btc_error::HashError)?;
-        if genesis_block.header.bitcoin_hash() != genesis_block_hash {
+        if genesis_header.bitcoin_hash() != genesis_block_hash {
             error!(
                 "Failed passing genesis block sanity check ({} != {})",
-                genesis_block.header.bitcoin_hash(),
+                genesis_header.bitcoin_hash(),
                 genesis_block_hash
             );
             panic!();
         }
 
         let mut tx = self.tx_begin()?;
-        SpvClient::insert_block_header(&mut tx, genesis_block.header, 0)?;
+        SpvClient::insert_block_header(&mut tx, genesis_header, 0)?;
         tx.commit().map_err(db_error::SqliteError)?;
 
         debug!("Initialized block headers at {}", self.headers_path);
@@ -1116,7 +1138,10 @@ impl SpvClient {
         };
 
         if current_header_height % BLOCK_DIFFICULTY_CHUNK_SIZE != 0
-            && self.network_id == BitcoinNetworkType::Testnet
+            && matches!(
+                self.network_id,
+                BitcoinNetworkType::Testnet | BitcoinNetworkType::Testnet4
+            )
         {
             // In Testnet mode, if the new block's timestamp is more than 2 * 60 * 10 minutes
             // then allow mining of a min-difficulty block.

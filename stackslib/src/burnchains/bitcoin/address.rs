@@ -99,10 +99,12 @@ pub fn legacy_address_type_to_version_byte(
             ADDRESS_VERSION_MAINNET_MULTISIG
         }
         (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Testnet)
+        | (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Testnet4)
         | (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Regtest) => {
             ADDRESS_VERSION_TESTNET_SINGLESIG
         }
         (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Testnet)
+        | (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Testnet4)
         | (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Regtest) => {
             ADDRESS_VERSION_TESTNET_MULTISIG
         }
@@ -279,7 +281,7 @@ impl SegwitBitcoinAddress {
     pub fn hrp(&self) -> &'static str {
         match self.network() {
             BitcoinNetworkType::Mainnet => SEGWIT_MAINNET_HRP,
-            BitcoinNetworkType::Testnet => SEGWIT_TESTNET_HRP,
+            BitcoinNetworkType::Testnet | BitcoinNetworkType::Testnet4 => SEGWIT_TESTNET_HRP,
             BitcoinNetworkType::Regtest => SEGWIT_REGTEST_HRP,
         }
     }

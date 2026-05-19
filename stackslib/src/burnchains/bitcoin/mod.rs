@@ -151,6 +151,7 @@ pub enum BitcoinNetworkType {
     Mainnet,
     Testnet,
     Regtest,
+    Testnet4,
 }
 
 impl BitcoinNetworkType {

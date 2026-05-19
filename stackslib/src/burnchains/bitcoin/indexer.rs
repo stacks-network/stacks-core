@@ -56,10 +56,12 @@ pub const USER_AGENT: &str = "Stacks/2.1";
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
 pub const BITCOIN_REGTEST: u32 = 0xDAB5BFFA;
+pub const BITCOIN_TESTNET4: u32 = 0x283F161C;
 
 pub const BITCOIN_MAINNET_NAME: &str = "mainnet";
 pub const BITCOIN_TESTNET_NAME: &str = "testnet";
 pub const BITCOIN_REGTEST_NAME: &str = "regtest";
+pub const BITCOIN_TESTNET4_NAME: &str = "testnet4";
 
 // batch size for searching for a reorg
 // kept small since sometimes bitcoin will just send us one header at a time
@@ -73,6 +75,7 @@ pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
         BitcoinNetworkType::Mainnet => BITCOIN_MAINNET,
         BitcoinNetworkType::Testnet => BITCOIN_TESTNET,
         BitcoinNetworkType::Regtest => BITCOIN_REGTEST,
+        BitcoinNetworkType::Testnet4 => BITCOIN_TESTNET4,
     }
 }
 
@@ -84,6 +87,7 @@ impl TryFrom<u32> for BitcoinNetworkType {
             BITCOIN_MAINNET => Ok(BitcoinNetworkType::Mainnet),
             BITCOIN_TESTNET => Ok(BitcoinNetworkType::Testnet),
             BITCOIN_REGTEST => Ok(BitcoinNetworkType::Regtest),
+            BITCOIN_TESTNET4 => Ok(BitcoinNetworkType::Testnet4),
             _ => Err("Invalid network type"),
         }
     }
@@ -95,7 +99,9 @@ impl TryFrom<u32> for BitcoinNetworkType {
 pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> EpochList {
     match network_id {
         BitcoinNetworkType::Mainnet => (*STACKS_EPOCHS_MAINNET).clone(),
-        BitcoinNetworkType::Testnet => (*STACKS_EPOCHS_TESTNET).clone(),
+        BitcoinNetworkType::Testnet | BitcoinNetworkType::Testnet4 => {
+            (*STACKS_EPOCHS_TESTNET).clone()
+        }
         BitcoinNetworkType::Regtest => (*STACKS_EPOCHS_REGTEST).clone(),
     }
 }
@@ -170,6 +176,23 @@ impl BitcoinIndexerConfig {
             peer_host: "127.0.0.1".to_string(),
             peer_port: 18444,
             rpc_port: 18443,
+            rpc_ssl: false,
+            username: Some("blockstack".to_string()),
+            password: Some("blockstacksystem".to_string()),
+            timeout: 300,
+            socket_timeout: 30,
+            spv_headers_path,
+            first_block: 0,
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
+            epochs: None,
+        }
+    }
+
+    pub fn default_testnet4(spv_headers_path: String) -> BitcoinIndexerConfig {
+        BitcoinIndexerConfig {
+            peer_host: "127.0.0.1".to_string(),
+            peer_port: 48333,
+            rpc_port: 48332,
             rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),

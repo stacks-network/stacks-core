@@ -307,7 +307,9 @@ impl Node {
             .collect();
         let pox_constants = match config.burnchain.get_bitcoin_network() {
             (_, BitcoinNetworkType::Mainnet) => PoxConstants::mainnet_default(),
-            (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
+            (_, BitcoinNetworkType::Testnet) | (_, BitcoinNetworkType::Testnet4) => {
+                PoxConstants::testnet_default()
+            }
             (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
         };
 

@@ -701,7 +701,9 @@ impl Config {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())
             }
-            BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.clone().to_vec()),
+            BitcoinNetworkType::Testnet | BitcoinNetworkType::Testnet4 => {
+                Ok(STACKS_EPOCHS_TESTNET.clone().to_vec())
+            }
             BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.clone().to_vec()),
         }?;
         let mut matched_epochs = vec![];
@@ -865,6 +867,7 @@ impl Config {
             "argon",
             "krypton",
             "xenon",
+            "testnet4",
             "mainnet",
             "nakamoto-neon",
         ];
@@ -1696,6 +1699,7 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
+            "testnet4" => ("testnet".to_string(), BitcoinNetworkType::Testnet4),
             "helium" | "neon" | "argon" | "krypton" | "mocknet" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }

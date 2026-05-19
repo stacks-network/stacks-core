@@ -1,0 +1,1 @@
+Added `testnet4` as a supported `burnchain.mode`, allowing a Stacks node to follow Bitcoin testnet4 (BIP-94).
