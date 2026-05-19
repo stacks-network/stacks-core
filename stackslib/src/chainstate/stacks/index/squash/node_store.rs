@@ -371,7 +371,7 @@ impl NodeStore {
         Ok(())
     }
 
-    /// Flush buffered writes so subsequent reads see them.
+    /// Flush buffered writes so subsequent `read_node` calls see them.
     pub(crate) fn flush(&mut self) -> Result<(), Error> {
         self.writer.flush().map_err(Error::IOError)?;
         Ok(())
@@ -379,8 +379,10 @@ impl NodeStore {
 
     /// Read the node at `idx`.
     ///
-    /// Reads see only flushed writes; re-reading an overwritten node requires
-    /// a preceding `flush`.
+    /// `read_node` uses an independent file handle and cannot observe
+    /// writes still sitting in the `BufWriter`. After a remap pass
+    /// that called `overwrite_node`, a `flush` is required before the
+    /// next read pass.
     pub(crate) fn read_node(&mut self, idx: usize) -> Result<TrieNodeType, Error> {
         let size = self.node_size(idx)?;
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
