@@ -565,6 +565,71 @@ fn test_same_function_name(#[case] version: ClarityVersion, #[case] epoch: Stack
     .unwrap();
 }
 
+#[apply(test_clarity_versions)]
+fn test_contract_call_with_constant_variants_type_check(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let run_case = |contract_name: &str, contract_source: &str| -> Result<(), StaticCheckError> {
+        let contract_a_id = QualifiedContractIdentifier::local("contract-a").unwrap();
+        let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
+        let contract_id = QualifiedContractIdentifier::local(contract_name).unwrap();
+
+        let mut contract_a = parse(
+            &contract_a_id,
+            "(define-public (foo) (ok true))",
+            version,
+            epoch,
+        )
+        .unwrap();
+        let mut contract = parse(&contract_id, contract_source, version, epoch).unwrap();
+
+        let mut marf = MemoryBackingStore::new();
+        let mut db = marf.as_analysis_db();
+
+        db.execute(|db| {
+            type_check_version(&contract_a_id, &mut contract_a, db, true, epoch, version)?;
+            type_check_version(&contract_id, &mut contract, db, false, epoch, version)?;
+            Ok(())
+        })
+    };
+
+    let test_cases = [
+        (
+            "constant-call-direct",
+            "(define-constant MY_CONTRACT .contract-a)
+         (define-public (call-foo)
+            (contract-call? MY_CONTRACT foo))",
+        ),
+        (
+            "constant-to-trait",
+            "(define-constant MY_CONTRACT .contract-a)
+         (define-trait my-trait (
+            (foo () (response bool bool))
+         ))
+         (define-private (inner-call-foo (contract <my-trait>))
+            (contract-call? contract foo))
+         (define-public (call-foo)
+            (inner-call-foo MY_CONTRACT))",
+        ),
+    ];
+
+    for (name, contract_source) in test_cases {
+        let result = run_case(name, contract_source);
+        if version.supports_callables() {
+            assert!(
+                result.is_ok(),
+                "expected type-check success for {epoch}/{version} in case `{name}`: {result:?}",
+            );
+        } else {
+            assert!(
+                result.is_err(),
+                "expected type-check failure for {epoch}/{version} in case `{name}`: {result:?}",
+            );
+        }
+    }
+}
+
 #[test]
 fn test_expects() {
     let okay = "(define-map tokens { id: int } { balance: int })
@@ -2576,6 +2641,38 @@ fn clarity_trait_experiments_downcast_literal_3(
     assert!(err.starts_with("TraitReferenceUnknown(\"p\")"));
 }
 
+/// A constant defined as `(if cond .contract-a .contract-b)` — both branches
+/// are literal contract principals, so the set of possible targets is
+/// statically known. The type checker currently rejects this because the `if`
+/// expression types to `PrincipalType` rather than `CallableType`.
+/// Future work: accept this case, since all branches are known at analysis time.
+#[apply(test_clarity_versions)]
+fn clarity_trait_experiments_downcast_literal_4(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "impl-math-trait", version, epoch)?;
+            load_versioned(db, "downcast-literal-4", version, epoch)
+        })
+        .unwrap_err();
+    match version {
+        ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TraitReferenceUnknown(\"target\")"));
+        }
+        _ => {
+            // TODO: future type checker enhancement should accept this case,
+            // since both if-branches are statically-known contract principals.
+            assert!(err.starts_with("ExpectedCallableType(PrincipalType)"));
+        }
+    }
+}
+
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_trait_2(
     #[case] version: ClarityVersion,
@@ -3470,8 +3567,8 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::TupleType(
                     vec![
-                        (ClarityName::from("a"), TypeSignature::IntType),
-                        (ClarityName::from("b"), TypeSignature::UIntType),
+                        (ClarityName::from_literal("a"), TypeSignature::IntType),
+                        (ClarityName::from_literal("b"), TypeSignature::UIntType),
                     ]
                     .try_into()
                     .unwrap(),

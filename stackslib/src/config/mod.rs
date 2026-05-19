@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -59,6 +59,7 @@ use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, U
 use crate::net::atlas::AtlasConfig;
 use crate::net::connection::{
     ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
+    DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
@@ -139,6 +140,11 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+/// Default maximum memory allocation during miner block assembly
+const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
+/// Default maximum memory allocation during block proposal evaluation. Defaults higher than miner default
+///  to avoid miner/signer environment skews.
+pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -629,7 +635,12 @@ impl Config {
         let (network_name, _) = self.burnchain.get_bitcoin_network();
         let mut burnchain = {
             let working_dir = self.get_burn_db_path();
-            match Burnchain::new(&working_dir, &self.burnchain.chain, &network_name) {
+            match Burnchain::new(
+                &working_dir,
+                &self.burnchain.chain,
+                &network_name,
+                Some(self.node.get_marf_opts()),
+            ) {
                 Ok(burnchain) => burnchain,
                 Err(e) => {
                     error!("Failed to instantiate burnchain: {e}");
@@ -1149,10 +1160,10 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: false,
-            max_execution_time: miner_config
-                .max_execution_time_secs
-                .map(Duration::from_secs),
+            max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
+            temporarily_excluded_txids: HashSet::new(),
+            max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
         }
     }
 
@@ -1198,10 +1209,10 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: true,
-            max_execution_time: miner_config
-                .max_execution_time_secs
-                .map(Duration::from_secs),
+            max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
+            temporarily_excluded_txids: HashSet::new(),
+            max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
         }
     }
 
@@ -2109,6 +2120,18 @@ pub struct NodeConfig {
     /// ---
     /// @default: `true`
     pub marf_defer_hashing: bool,
+    /// Enables on-disk compression for MARF data structures to reduce disk space usage
+    /// for chainstate storage.
+    ///
+    /// When set to `true`, MARF trie nodes may be compressed
+    /// before being written to disk, trading slightly increased CPU overhead during
+    /// reads and writes for reduced storage requirements.
+    /// ---
+    /// @default: `true`
+    /// @notes:
+    ///   - Compression affects only the on-disk MARF representation; in-memory behavior
+    ///     remains unchanged.
+    pub marf_compress: bool,
     /// Sampling interval in seconds for the PoX synchronization watchdog thread
     /// (pre-Nakamoto). Determines how often the watchdog checked PoX state
     /// consistency in the Neon run loop.
@@ -2149,6 +2172,30 @@ pub struct NodeConfig {
     /// @default: `300` (5 minutes)
     /// @units: seconds
     pub chain_liveness_poll_time_secs: u64,
+    /// By default, HTTP requests to event observers block the operation of the node
+    /// until a successful response is received from the observer. This creates a
+    /// predictable order of operations, but it also means that an event observer that
+    /// is slow to respond might stall the node. This can be prevented by changing this
+    /// setting to `false`, in which case those requests are enqueued to be delivered
+    /// on a background thread. Only if the queue is full will new requests cause
+    /// blocking again. The size of that queue can be controlled with the
+    /// `event_dispatcher_queue_size` setting.
+    ///
+    /// Pending requests are persisted across restarts of the node. On restart, the
+    /// node will deliver all remaining event payloads before resuming normal operations.
+    /// ---
+    /// @default: `true`
+    pub event_dispatcher_blocking: bool,
+    /// This setting does nothing if the `event_dispatcher_blocking` has its default
+    /// value of `true`. But if the event dispatcher is set to be non-blocking, this
+    /// queue size controls how many events can be in-flight (not yet delivered) before
+    /// the event dispatcher becomes blocking again until space becomes available.
+    ///
+    /// Setting this value to `0` is equivalent to setting `event_dispatcher_blocking`
+    /// to `true`, as no in-flight requests are allowed.
+    /// ---
+    /// @default: `1_000`
+    pub event_dispatcher_queue_size: usize,
     /// A list of specific StackerDB contracts (identified by their qualified contract
     /// identifiers, e.g., "SP000000000000000000002Q6VF78.pox-3") that this node
     /// should actively replicate.
@@ -2428,11 +2475,14 @@ impl Default for NodeConfig {
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
+            marf_compress: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            event_dispatcher_blocking: true,
+            event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
             txindex: false,
         }
@@ -2593,6 +2643,15 @@ impl NodeConfig {
             self.marf_cache_strategy.as_deref().unwrap_or("noop"),
             false,
         )
+        .with_compression(self.marf_compress)
+    }
+
+    pub fn effective_event_dispatcher_queue_size(&self) -> usize {
+        if self.event_dispatcher_blocking {
+            0
+        } else {
+            self.event_dispatcher_queue_size
+        }
     }
 }
 
@@ -3057,17 +3116,20 @@ pub struct MinerConfig {
     ///   "20" = 45
     ///   "30" = 0
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
-    /// Defines the maximum execution time (in seconds) allowed for a single contract call transaction.
+    /// Defines the maximum execution time (in seconds) allowed for a single contract call
+    /// transaction during mining.
     ///
-    /// When processing a transaction (contract call or smart contract deployment),
-    /// if this option is set, and the execution time exceeds this limit, the
-    /// transaction processing fails with an `ExecutionTimeout` error, and the
-    /// transaction is skipped. This prevents potentially long-running or
-    /// infinite-loop transactions from blocking block production.
+    /// When processing a transaction (contract call or smart contract deployment), if the
+    /// execution time exceeds this limit, the transaction processing fails with an
+    /// `ExecutionTimeout` error and the transaction is skipped. This prevents
+    /// long-running or infinite-loop transactions from blocking block production.
+    ///
+    /// Mining always enforces a limit; there is no way to disable it. To effectively
+    /// "turn it off," set this to a value larger than any tx is expected to take.
     /// ---
-    /// @default: Some([`DEFAULT_MAX_EXECUTION_TIME_SECS`])
+    /// @default: [`DEFAULT_MAX_EXECUTION_TIME_SECS`]
     /// @units: seconds
-    pub max_execution_time_secs: Option<u64>,
+    pub max_execution_time_secs: u64,
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
     /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
     pub replay_transactions: bool,
@@ -3088,6 +3150,14 @@ pub struct MinerConfig {
     /// @notes:
     ///   - Primarily intended for testing purposes.
     pub log_skipped_transactions: bool,
+    /// Maximum number of bytes the miner thread may allocate during block
+    /// assembly before aborting. Tracked via `TrackingAllocator`
+    ///
+    /// A value of `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES`]
+    /// @units: bytes
+    pub max_assembly_mem_bytes: u64,
 }
 
 impl Default for MinerConfig {
@@ -3141,11 +3211,12 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
-            max_execution_time_secs: Some(DEFAULT_MAX_EXECUTION_TIME_SECS),
+            max_execution_time_secs: DEFAULT_MAX_EXECUTION_TIME_SECS,
             replay_transactions: false,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             log_skipped_transactions: false,
+            max_assembly_mem_bytes: DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES,
         }
     }
 }
@@ -3652,6 +3723,25 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS`]
     /// @units: seconds
     pub block_proposal_validation_timeout_secs: Option<u64>,
+
+    /// Maximum time (in seconds) to spend executing a single transaction
+    /// during block proposal validation. This is a per-transaction cap that
+    /// is applied independently from the overall block validation timeout.
+    /// A transaction that exceeds this limit on its own is classified as
+    /// problematic; a transaction interrupted because the overall block
+    /// validation budget was exceeded is not.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS`]
+    /// @units: seconds
+    pub block_proposal_max_tx_execution_time_secs: Option<u64>,
+
+    /// Maximum bytes a single transaction may allocate on the heap during
+    /// block-proposal validation before it is rejected.
+    /// `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_PROPOSAL_MEMORY_BYTES`]
+    /// @units: bytes
+    pub block_proposal_max_tx_mem_bytes: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3809,6 +3899,12 @@ impl ConnectionOptionsFile {
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
+            block_proposal_max_tx_execution_time_secs: self
+                .block_proposal_max_tx_execution_time_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS),
+            block_proposal_max_tx_mem_bytes: self
+                .block_proposal_max_tx_mem_bytes
+                .unwrap_or(default.block_proposal_max_tx_mem_bytes),
             ..default
         })
     }
@@ -3840,11 +3936,15 @@ pub struct NodeConfigFile {
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
+    pub marf_compress: Option<bool>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    pub event_dispatcher_blocking: Option<bool>,
+    /// Only relevant if `event_dispatcher_blocking` is false
+    pub event_dispatcher_queue_size: Option<usize>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
     /// fault injection: fail to push blocks with this probability (0-100)
@@ -3915,6 +4015,9 @@ impl NodeConfigFile {
             marf_defer_hashing: self
                 .marf_defer_hashing
                 .unwrap_or(default_node_config.marf_defer_hashing),
+            marf_compress: self
+                .marf_compress
+                .unwrap_or(default_node_config.marf_compress),
             pox_sync_sample_secs: self
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
@@ -3925,6 +4028,12 @@ impl NodeConfigFile {
             chain_liveness_poll_time_secs: self
                 .chain_liveness_poll_time_secs
                 .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+            event_dispatcher_blocking: self
+                .event_dispatcher_blocking
+                .unwrap_or(default_node_config.event_dispatcher_blocking),
+            event_dispatcher_queue_size: self
+                .event_dispatcher_queue_size
+                .unwrap_or(default_node_config.event_dispatcher_queue_size),
             stacker_dbs: self
                 .stacker_dbs
                 .unwrap_or_default()
@@ -4093,6 +4202,7 @@ pub struct MinerConfigFile {
     pub stackerdb_timeout_secs: Option<u64>,
     pub max_tenure_bytes: Option<u64>,
     pub log_skipped_transactions: Option<bool>,
+    pub max_assembly_mem_bytes: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -4282,12 +4392,15 @@ impl MinerConfigFile {
                 }
             },
 
-            max_execution_time_secs: self.max_execution_time_secs,
+            max_execution_time_secs: self
+                .max_execution_time_secs
+                .unwrap_or(miner_default_config.max_execution_time_secs),
             replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
             log_skipped_transactions: self.log_skipped_transactions.unwrap_or(miner_default_config.log_skipped_transactions),
             read_count_extend_cost_threshold: miner_default_config.read_count_extend_cost_threshold,
+            max_assembly_mem_bytes: self.max_assembly_mem_bytes.unwrap_or(miner_default_config.max_assembly_mem_bytes),
         })
     }
 }
@@ -4568,6 +4681,15 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+
+    mod utils {
+        use super::*;
+
+        /// Creates a [`Config`] from a valid configuration string. Panics otherwise.
+        pub fn config_from_valid_string(valid_config: &str) -> Config {
+            Config::from_config_file(ConfigFile::from_str(valid_config).unwrap(), false).unwrap()
+        }
+    }
 
     #[test]
     fn test_config_file() {
@@ -4904,5 +5026,80 @@ mod tests {
                 .expect("Should not panic");
             assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
         }
+    }
+
+    #[test]
+    fn test_load_node_marf_config() {
+        // Check MARF defaults
+        let config = utils::config_from_valid_string(
+            r#"
+                [node]
+                "#,
+        );
+
+        assert_eq!(None, config.node.marf_cache_strategy, "default cache");
+        assert_eq!(
+            true, config.node.marf_defer_hashing,
+            "default defer hashing"
+        );
+        assert_eq!(true, config.node.marf_compress, "default compress");
+
+        let cfg_opts = config.node.get_marf_opts();
+        assert_eq!("noop", cfg_opts.cache_strategy, "default cache opt");
+        assert_eq!(
+            TrieHashCalculationMode::Deferred,
+            cfg_opts.hash_calculation_mode,
+            "default defer hashing opt"
+        );
+        assert_eq!(true, cfg_opts.compress, "default compress opt");
+        assert_eq!(
+            false, cfg_opts.external_blobs,
+            "internal default blob setting"
+        );
+        assert_eq!(
+            false, cfg_opts.force_db_migrate,
+            "internal default migrate setting"
+        );
+
+        // Check MARF full config
+        let config = utils::config_from_valid_string(
+            r#"
+                [node]
+                marf_cache_strategy = "everything"
+                marf_defer_hashing = false
+                marf_compress = false
+                "#,
+        );
+
+        assert_eq!(
+            Some("everything".to_string()),
+            config.node.marf_cache_strategy,
+            "configured cache"
+        );
+        assert_eq!(
+            false, config.node.marf_defer_hashing,
+            "configured defer hashing"
+        );
+        assert_eq!(false, config.node.marf_compress, "configured compress");
+
+        let cfg_opts = config.node.get_marf_opts();
+        assert_eq!(
+            "everything", cfg_opts.cache_strategy,
+            "configured cache opt"
+        );
+        assert_eq!(
+            TrieHashCalculationMode::Immediate,
+            cfg_opts.hash_calculation_mode,
+            "configured hash opt"
+        );
+        assert_eq!(false, cfg_opts.compress, "configured compress opt");
+        assert_eq!(
+            false, cfg_opts.external_blobs,
+            "internal default blob setting"
+        );
+        assert_eq!(
+            false, cfg_opts.force_db_migrate,
+            "internal default migrate setting"
+        );
     }
 }

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,14 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::contexts::GlobalContext;
+use clarity::vm::contexts::{ExecutionState, GlobalContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
 use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{Environment, Value};
+use clarity::vm::Value;
 use stacks_common::{debug, error};
 
 use crate::events::synthesize_pox_event_info;
@@ -370,8 +370,10 @@ pub fn handle_contract_call(
             if let Some(event_info) = event_info_opt {
                 let event_response =
                     Value::okay(event_info).expect("FATAL: failed to construct (ok event-info)");
-                let tx_event =
-                    Environment::construct_print_transaction_event(contract_id, &event_response);
+                let tx_event = ExecutionState::construct_print_transaction_event(
+                    contract_id.clone(),
+                    event_response,
+                );
                 Some(tx_event)
             } else {
                 None
@@ -438,7 +440,7 @@ mod tests {
     use clarity::vm::database::MemoryBackingStore;
     use clarity::vm::errors::{RuntimeError, VmExecutionError};
     use clarity::vm::types::{StandardPrincipalData, TupleData};
-    use clarity::vm::Value;
+    use clarity::vm::{ClarityName, Value};
 
     use crate::pox_4::{handle_contract_call, POX_4_NAME};
 
@@ -490,9 +492,18 @@ mod tests {
         // (stacker, lock-amount, unlock-height) tuple
         let stack_stx_response = Value::okay(Value::Tuple(
             TupleData::from_data(vec![
-                ("stacker".into(), Value::Principal(stacker.clone())),
-                ("lock-amount".into(), Value::UInt(100_000_000)), // trying to lock 100 more STX
-                ("unlock-burn-height".into(), Value::UInt(15_000)),
+                (
+                    ClarityName::from_literal("stacker"),
+                    Value::Principal(stacker.clone()),
+                ),
+                (
+                    ClarityName::from_literal("lock-amount"),
+                    Value::UInt(100_000_000),
+                ), // trying to lock 100 more STX
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(15_000),
+                ),
             ])
             .unwrap(),
         ))

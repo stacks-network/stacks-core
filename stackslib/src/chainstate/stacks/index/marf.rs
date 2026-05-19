@@ -16,24 +16,26 @@
 use std::ops::DerefMut;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
+use std::time::Instant;
 
 #[cfg(any(test, feature = "testing"))]
 use clarity::util::tests::TestFlag;
 use rusqlite::{Connection, Transaction};
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::storage::ReopenedTrieStorageConnection;
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, node_copy_update_ptrs, set_backptr, CursorError, TrieCowPtr, TrieCursor,
-    TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
+    clear_backptr, is_backptr, node_copy_update_ptrs, set_backptr, CursorError, TrieCowPtr,
+    TrieCursor, TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
+    SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
+    TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
-use crate::types::chainstate::TrieHash;
-use crate::util::hash::Sha512Trunc256Sum;
 use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -100,7 +102,7 @@ pub struct MARF<T: MarfTrieId> {
 }
 
 pub struct MarfTransaction<'a, T: MarfTrieId> {
-    storage: TrieStorageTransaction<'a, T>,
+    pub(crate) storage: TrieStorageTransaction<'a, T>,
     open_chain_tip: &'a mut Option<WriteChainTip<T>>,
 }
 
@@ -111,7 +113,7 @@ struct WriteChainTip<T> {
 }
 
 /// Options for opening a MARF
-#[derive(Clone, Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct MARFOpenOpts {
     /// Hash calculation mode for calculating a trie root hash
     pub hash_calculation_mode: TrieHashCalculationMode,
@@ -153,24 +155,6 @@ impl MARFOpenOpts {
     pub fn with_compression(mut self, compression: bool) -> Self {
         self.compress = compression;
         self
-    }
-
-    #[cfg(test)]
-    pub fn all() -> Vec<MARFOpenOpts> {
-        vec![
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false)
-                .with_compression(true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false)
-                .with_compression(true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true)
-                .with_compression(true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true)
-                .with_compression(true),
-        ]
     }
 }
 
@@ -424,6 +408,28 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
     pub fn sqlite_tx_mut(&mut self) -> &mut Transaction<'a> {
         self.storage.sqlite_tx_mut()
+    }
+
+    /// Commit the SQL transaction without flushing TrieRAM to disk.
+    ///
+    /// Used by `squash_to_path` which writes the blob directly, bypassing
+    /// the normal TrieRAM flush path.
+    pub(crate) fn commit_squash(mut self) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        self.open_chain_tip.take();
+        self.storage.drop_extending_trie();
+        self.storage.commit_tx();
+        Ok(())
+    }
+
+    /// Set squash metadata on the underlying storage connection.
+    ///
+    /// Called during `squash_to_path` so the ancestor-hash computation can
+    /// use stored root hashes instead of opening pruned historical blocks.
+    pub(crate) fn set_squash_info(&mut self, info: Option<SquashInfo>) {
+        self.storage.set_squash_info(info);
     }
 
     /// Reopen this MARF transaction with readonly storage.
@@ -763,16 +769,17 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
+    /// Copy a node forward from an ancestor trie by converting its inline children into
+    /// back-pointers. Returns the node hash (leaf hash for leaves, empty hash for internal
+    /// nodes whose hash will be computed at commit time).
     fn node_copy_update(node: &mut TrieNodeType, child_block_id: u32) -> TrieHash {
-        let hash = match node {
+        match node {
             TrieNodeType::Leaf(leaf) => get_leaf_hash(leaf),
             _ => {
                 node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
-                TrieHash::from_data(&[])
+                TrieHash::EMPTY
             }
-        };
-
-        hash
+        }
     }
 
     /// Given a node, and the chr of one of its children, go find the last instance of that child in
@@ -807,9 +814,9 @@ impl<T: MarfTrieId> MARF<T> {
 
         // store it in this trie
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
-        let child_disk_ptr = storage.last_ptr()?;
-        let child_ptr = TriePtr::new(child_ptr.id(), chr, child_disk_ptr);
-        storage.write_nodetype(child_disk_ptr, &child_node, child_hash)?;
+        let child_array_ptr = storage.last_ptr()?;
+        let child_ptr = TriePtr::new(child_ptr.id(), chr, child_array_ptr.into());
+        storage.write_nodetype(child_array_ptr, &child_node, child_hash)?;
 
         trace!(
             "Copied child 0x{:02x} to {:?}: ptr={:?} child={:?}",
@@ -847,7 +854,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
 
-        let root_ptr = storage.root_ptr();
+        let root_ptr = u32::try_from(storage.root_ptr()).map_err(|_| Error::OverflowError)?;
         storage.write_nodetype(root_ptr, &prev_root, new_root_hash)?;
         Ok(())
     }
@@ -870,7 +877,7 @@ impl<T: MarfTrieId> MARF<T> {
             storage.extend_to_block(new_bhh)?;
             let node = TrieNode256::new(&[]);
             let hash = get_node_hash(&node, &[], storage.deref_mut());
-            let root_ptr = storage.root_ptr();
+            let root_ptr = u32::try_from(storage.root_ptr()).map_err(|_| Error::OverflowError)?;
             storage.write_nodetype(root_ptr, &TrieNodeType::Node256(Box::new(node)), hash)?;
             Ok(())
         } else {
@@ -1114,7 +1121,7 @@ impl<T: MarfTrieId> MARF<T> {
         storage.extend_to_block(first_block_hash)?;
         let node = TrieNode256::new(&[]);
         let hash = get_node_hash(&node, &[], storage.deref_mut());
-        let root_ptr = storage.root_ptr();
+        let root_ptr = u32::try_from(storage.root_ptr()).map_err(|_| Error::OverflowError)?;
         let node_type = TrieNodeType::Node256(Box::new(node));
         storage.write_nodetype(root_ptr, &node_type, hash)
     }
@@ -1740,5 +1747,172 @@ impl<T: MarfTrieId> MARF<T> {
     /// Get the underlying storage DB path
     pub fn get_db_path(&self) -> &str {
         &self.storage.db_path
+    }
+}
+
+// Leaf traversal
+
+impl<T: MarfTrieId> MARF<T> {
+    /// Walk all leaves in the trie at `block_hash`, yielding full paths and values.
+    ///
+    /// Follows backpointers to resolve nodes living in earlier blocks, so the
+    /// returned set represents the complete state visible at `block_hash`.
+    pub(crate) fn for_each_leaf<F>(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        mut handle_leaf: F,
+    ) -> Result<u64, Error>
+    where
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
+    {
+        let (original_block_hash, original_block_id) = storage.get_cur_block_and_id();
+        let result = Self::for_each_leaf_inner(storage, block_hash, &mut handle_leaf);
+
+        storage
+            .open_block_maybe_id(&original_block_hash, original_block_id)
+            .inspect_err(|e| {
+                warn!("Failed to re-open {original_block_hash} {original_block_id:?}: {e:?}");
+            })?;
+
+        let (restored_block_hash, _) = storage.get_cur_block_and_id();
+        assert_eq!(
+            restored_block_hash, original_block_hash,
+            "for_each_leaf: open block changed after traversal"
+        );
+
+        result
+    }
+
+    fn for_each_leaf_inner<F>(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        handle_leaf: &mut F,
+    ) -> Result<u64, Error>
+    where
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
+    {
+        storage.open_block(block_hash)?;
+        let (root_node, _root_hash) = Trie::read_root(storage)?;
+
+        let mut leaf_count = 0u64;
+        let mut stack: Vec<(TriePtr, Vec<u8>, T, Option<u32>)> = Vec::new();
+
+        let (cur_block, cur_id) = storage.get_cur_block_and_id();
+        if Self::process_leaf_walk_node(
+            root_node,
+            vec![],
+            cur_block,
+            cur_id,
+            &mut stack,
+            handle_leaf,
+        )? {
+            leaf_count += 1;
+        }
+
+        let walk_start = Instant::now();
+        let mut last_walk_log = Instant::now();
+        let mut nodes_visited: u64 = 0;
+
+        while let Some((ptr, prefix, return_block, return_block_id)) = stack.pop() {
+            nodes_visited += 1;
+            if last_walk_log.elapsed().as_secs() >= 30 {
+                info!(
+                    "for_each_leaf: {nodes_visited} nodes visited, {leaf_count} leaves found, stack {}, {:?} elapsed",
+                    stack.len(),
+                    walk_start.elapsed()
+                );
+                last_walk_log = Instant::now();
+            }
+
+            let (cur_block_hash, _) = storage.get_cur_block_and_id();
+            if cur_block_hash != return_block {
+                storage.open_block_maybe_id(&return_block, return_block_id)?;
+            }
+
+            let (node, node_block_hash, node_block_id) = Self::read_node_for_ptr(storage, &ptr)?;
+            if Self::process_leaf_walk_node(
+                node,
+                prefix,
+                node_block_hash,
+                node_block_id,
+                &mut stack,
+                handle_leaf,
+            )? {
+                leaf_count += 1;
+            }
+        }
+
+        Ok(leaf_count)
+    }
+
+    /// Process one node during the leaf-walk DFS.
+    ///
+    /// Returns:
+    ///  - `true` if `node` was a leaf and was emitted via `handle_leaf`.
+    ///  - `false` if `node` was internal and its children were queued.
+    ///
+    /// `prefix` is the path accumulated before this node.
+    ///
+    /// `block_hash` and `block_id` identify the block where queued child pointers
+    /// should be resolved. Inline children stay in the currently-open block, while
+    /// children of a node reached through a backpointer use the backpointer target
+    /// returned by `read_node_for_ptr`.
+    fn process_leaf_walk_node<F>(
+        node: TrieNodeType,
+        prefix: Vec<u8>,
+        block_hash: T,
+        block_id: Option<u32>,
+        stack: &mut Vec<(TriePtr, Vec<u8>, T, Option<u32>)>,
+        handle_leaf: &mut F,
+    ) -> Result<bool, Error>
+    where
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
+    {
+        let mut full_prefix = prefix;
+        full_prefix.extend_from_slice(node.path_bytes());
+
+        match node {
+            TrieNodeType::Leaf(leaf) => {
+                if full_prefix.len() != TRIEHASH_ENCODED_SIZE {
+                    return Err(Error::CorruptionError(
+                        "Leaf path length invalid".to_string(),
+                    ));
+                }
+                let path = TrieHash::from_bytes(&full_prefix).ok_or_else(|| {
+                    Error::CorruptionError("Failed to decode leaf path".to_string())
+                })?;
+                handle_leaf(path, leaf.data)?;
+                Ok(true)
+            }
+            _ => {
+                for ptr in node.ptrs().iter() {
+                    if ptr.id() != TrieNodeID::Empty as u8 {
+                        let mut child_prefix = full_prefix.clone();
+                        child_prefix.push(ptr.chr());
+                        stack.push((*ptr, child_prefix, block_hash.clone(), block_id));
+                    }
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    /// Read a node referenced by `ptr`, following backpointers when necessary.
+    fn read_node_for_ptr(
+        storage: &mut TrieStorageConnection<T>,
+        ptr: &TriePtr,
+    ) -> Result<(TrieNodeType, T, Option<u32>), Error> {
+        if is_backptr(ptr.id()) {
+            let back_block_id = ptr.back_block();
+            let back_block_hash = storage.get_block_from_local_id(back_block_id)?.clone();
+            storage.open_block_known_id(&back_block_hash, back_block_id)?;
+            let backptr = ptr.from_backptr();
+            let (node, _node_hash) = storage.read_nodetype(&backptr)?;
+            Ok((node, back_block_hash, Some(back_block_id)))
+        } else {
+            let (node, _node_hash) = storage.read_nodetype(ptr)?;
+            let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+            Ok((node, cur_block_hash, cur_block_id))
+        }
     }
 }

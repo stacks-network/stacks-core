@@ -2384,6 +2384,7 @@ impl StacksChainState {
                 Some(ref mut sort_tx) => {
                     sort_tx.set_stacks_block_accepted(
                         consensus_hash,
+                        consensus_hash,
                         &block.anchored_block_hash,
                         block.height,
                     )?;

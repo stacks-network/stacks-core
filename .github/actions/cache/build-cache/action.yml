@@ -1,0 +1,76 @@
+name: Build Test Archive Caches
+description: |
+    Builds nextest test archive cache
+
+runs:
+  using: "composite"
+  steps:
+    # Check if the target  cache exists
+    - name: Check Cargo Target Cache
+      uses: ./.github/actions/cache/cargo-target
+      id: check_target_cache
+
+    # Check if the nextest archive cache exists
+    - name: Check Test Archive Cache
+      uses: ./.github/actions/cache/test-archive
+      id: check_test_archive_cache
+
+    # Setup rust toolchain
+    - name: Setup Rust Toolchain
+      if: |
+        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_test_archive_cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/setup-rust-toolchain
+      with:
+        components: llvm-tools-preview
+
+    # Restore cargo cache
+    - name: Restore Cargo Cache
+      if: |
+        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_test_archive_cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/cache/cargo
+      with:
+        action: restore
+
+    #  Only install dependencies if cache miss (i.e. no existing data)
+    - name: Install Dependencies
+      if: |
+        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_test_archive_cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/install-tool
+      with:
+        tool: nextest
+
+    # Build the nextest archive
+    - name: Build and Archive Tests
+      if: |
+        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_test_archive_cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        export RUSTFLAGS="-C instrument-coverage" && \
+        cargo nextest archive \
+          --workspace \
+          --tests \
+          --locked \
+          --features monitoring_prom \
+          --archive-file ~/test_archive.tar.zst
+
+    # Save the nextest archive to cache
+    - name: Cache Nextest Archive
+      if: |
+        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_test_archive_cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/cache/test-archive
+      with:
+        action: save
+
+    # Save the target cache
+    - name: Cache Cargo Target
+      if: |
+        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_test_archive_cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/cache/cargo-target
+      with:
+        action: save

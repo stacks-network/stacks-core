@@ -78,4 +78,7 @@ lcov.info
 coverage.lcov
 
 .idea
-.vite
+
+# proptest regression files
+proptest-regressions/
+*.proptest-regressions

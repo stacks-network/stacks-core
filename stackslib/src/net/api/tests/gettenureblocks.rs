@@ -13,17 +13,57 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use stacks_common::types::chainstate::ConsensusHash;
 
+use crate::chainstate::burn::BlockSnapshot;
 use crate::net::api::gettenureblocks;
 use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
 use crate::net::test::TestEventObserver;
 use crate::net::ProtocolFamily;
+
+// A helper function to find two tenures with empty sortitions in between
+pub fn find_sortitions_with_empty_sortitions_between(
+    rpc_test: &mut TestRPC,
+) -> (BlockSnapshot, BlockSnapshot, Vec<BlockSnapshot>) {
+    // Find two tenures with empty sortitions in bewteen
+    let snapshots = rpc_test.peer_1.sortdb().get_all_snapshots().unwrap();
+
+    let mut first_sortition: Option<&_> = None;
+    let mut sortitions_between = vec![];
+
+    let mut result: Option<(&_, &_)> = None;
+
+    for s in snapshots.iter() {
+        if s.sortition {
+            match first_sortition {
+                None => {
+                    first_sortition = Some(s);
+                }
+                Some(prev) => {
+                    if !sortitions_between.is_empty() {
+                        // Found: sortition -> non-sortition(s) -> sortition
+                        result = Some((prev, s));
+                        break;
+                    } else {
+                        // restart window
+                        first_sortition = Some(s);
+                        sortitions_between.clear();
+                    }
+                }
+            }
+        } else if first_sortition.is_some() {
+            sortitions_between.push(s.clone());
+        }
+    }
+
+    let (first, second) = result
+        .expect("Did not find sortition, non-sortition(s), sortition pattern required for test");
+    (first.clone(), second.clone(), sortitions_between)
+}
 
 #[test]
 fn test_try_parse_request() {
@@ -60,7 +100,7 @@ fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let test_observer = TestEventObserver::new();
-    let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
     let nakamoto_consensus_hash = rpc_test.consensus_hash.clone();
 
@@ -89,6 +129,26 @@ fn test_try_make_response() {
         StacksHttpRequest::new_get_tenure_blocks(addr.clone().into(), &ConsensusHash([0x01; 20]));
     requests.push(request);
 
+    // query tenure with empty sortitions in between
+    let (first, second, consensus_hashes_between) =
+        find_sortitions_with_empty_sortitions_between(&mut rpc_test);
+    assert!(
+        !consensus_hashes_between.is_empty(),
+        "Test requires at least one empty sortition between tenures"
+    );
+    let request =
+        StacksHttpRequest::new_get_tenure_blocks(addr.clone().into(), &second.consensus_hash);
+    requests.push(request);
+
+    // Query an empty tenure directly
+    let empty_tenure_ch = consensus_hashes_between
+        .first()
+        .unwrap()
+        .consensus_hash
+        .clone();
+    let request = StacksHttpRequest::new_get_tenure_blocks(addr.into(), &empty_tenure_ch);
+    requests.push(request);
+
     let mut responses = rpc_test.run(requests);
 
     // got the Nakamoto tip
@@ -97,9 +157,13 @@ fn test_try_make_response() {
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
-
     let resp = response.decode_tenure_blocks().unwrap();
     assert_eq!(resp.consensus_hash, nakamoto_consensus_hash);
+    assert_ne!(
+        resp.last_sortition_ch, genesis_consensus_hash,
+        "Nakamoto tenure's last_sortition_ch should point to the previous winning sortition"
+    );
+
     let mut blocks_index = 0;
     for block in test_observer.get_blocks().iter().rev() {
         if block.metadata.consensus_hash != nakamoto_consensus_hash {
@@ -133,6 +197,12 @@ fn test_try_make_response() {
     let resp = response.decode_tenure_blocks().unwrap();
     assert_eq!(resp.consensus_hash, genesis_consensus_hash);
 
+    // genesis/Epoch2 tenure has no parent tenure. Should return an empty consensus hash.
+    assert_eq!(
+        resp.last_sortition_ch,
+        ConsensusHash::from_bytes(&[0u8; 20]).unwrap(),
+    );
+
     let blocks = test_observer.get_blocks();
 
     let block = blocks.first().unwrap();
@@ -153,6 +223,28 @@ fn test_try_make_response() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let (preamble, body) = response.destruct();
+    let (preamble, _body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+
+    // got tenure with empty sortitions in between
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_tenure_blocks().unwrap();
+    assert_eq!(resp.consensus_hash, second.consensus_hash);
+    assert_eq!(resp.last_sortition_ch, first.consensus_hash);
+
+    // got a tenure with no blocks (empty sortition)
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+    let resp = response.decode_tenure_blocks().unwrap();
+    assert_eq!(resp.consensus_hash, empty_tenure_ch);
+    assert_eq!(resp.last_sortition_ch, first.consensus_hash);
+    assert!(resp.stacks_blocks.is_empty());
 }

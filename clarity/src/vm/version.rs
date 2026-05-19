@@ -40,7 +40,7 @@ impl fmt::Display for ClarityVersion {
 
 impl ClarityVersion {
     pub const fn latest() -> ClarityVersion {
-        ClarityVersion::Clarity4
+        ClarityVersion::Clarity5
     }
 
     pub const ALL: &'static [ClarityVersion] = &[
@@ -50,6 +50,28 @@ impl ClarityVersion {
         ClarityVersion::Clarity4,
         ClarityVersion::Clarity5,
     ];
+
+    /// Returns all [`ClarityVersion`] starting from the given `version` (inclusive)
+    #[cfg(any(test, feature = "testing"))]
+    pub fn since(version: ClarityVersion) -> &'static [ClarityVersion] {
+        let idx = Self::ALL
+            .iter()
+            .position(|&v| v == version)
+            .expect("version not found in ALL");
+
+        &Self::ALL[idx..]
+    }
+
+    /// Returns all [`ClarityVersion`] up to the given `version` (inclusive)
+    #[cfg(any(test, feature = "testing"))]
+    pub fn up_to(version: ClarityVersion) -> &'static [ClarityVersion] {
+        let idx = Self::ALL
+            .iter()
+            .position(|&v| v == version)
+            .expect("version not found in ALL");
+
+        &Self::ALL[..=idx]
+    }
 
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
@@ -71,6 +93,16 @@ impl ClarityVersion {
             StacksEpochId::Epoch32 => ClarityVersion::Clarity3,
             StacksEpochId::Epoch33 => ClarityVersion::Clarity4,
             StacksEpochId::Epoch34 => ClarityVersion::Clarity5,
+        }
+    }
+
+    pub fn supports_callables(&self) -> bool {
+        match self {
+            ClarityVersion::Clarity1 => false,
+            ClarityVersion::Clarity2
+            | ClarityVersion::Clarity3
+            | ClarityVersion::Clarity4
+            | ClarityVersion::Clarity5 => true,
         }
     }
 

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "stackslib",
     "stacks-common",
+    "stacks-codec",
     "pox-locking",
     "clarity-types",
     "clarity",
@@ -29,6 +30,8 @@ stacks-profiler-macros = { path = "stacks-profiler-macros" }
 ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
 lazy_static = "1.4.0"
+madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", rev = "f83f8ea649182c40b9dbd1b90f8de86261b91fe7" } #v0.2.1
+pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
 rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"
@@ -37,8 +40,8 @@ serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "unbounded_depth"] }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
-tikv-jemallocator = "0.5.4"
 thiserror = "1.0.65"
+tikv-jemallocator = "0.5.4"
 toml = "0.5.6"
 
 # Other dependencies

@@ -316,7 +316,7 @@ pub fn make_new_attachment_payload(
 
 #[allow(clippy::too_many_arguments)]
 pub fn make_new_block_processed_payload(
-    filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
+    filtered_events: Vec<(usize, &(Txid, &StacksTransactionEvent))>,
     block: &StacksBlockEventData,
     metadata: &StacksHeaderInfo,
     receipts: &[StacksTransactionReceipt],
@@ -337,10 +337,10 @@ pub fn make_new_block_processed_payload(
     // Serialize events to JSON
     let serialized_events: Vec<serde_json::Value> = filtered_events
         .iter()
-        .map(|(event_index, (committed, txid, event))| {
-            event
-                .json_serialize(*event_index, txid, *committed)
-                .unwrap()
+        .map(|(event_index, (txid, event))| {
+            // Since we no longer send events for post condition aborted transactions,
+            // all events we serialize here are committed events, so we can set the `committed` field to `true`.
+            event.json_serialize(*event_index, txid, true).unwrap()
         })
         .collect();
 

@@ -138,20 +138,20 @@ impl<T: ClarityMarfTrieId> PartialEq for TrieMerkleProofType<T> {
 
 pub fn hashes_fmt(hashes: &[TrieHash]) -> String {
     let mut strs = vec![];
-    let zero = TrieHash([0; 32]);
+    let zero = &TrieHash::ZERO;
     if hashes.len() < 48 {
         for i in 0..hashes.len() {
-            strs.push(format!("{:?}", hashes.get(i).unwrap_or(&zero)));
+            strs.push(format!("{:?}", hashes.get(i).unwrap_or(zero)));
         }
         strs.join(",")
     } else {
         for i in 0..hashes.len() / 4 {
             strs.push(format!(
                 "{:?},{:?},{:?},{:?}",
-                hashes.get(4 * i).unwrap_or(&zero),
-                hashes.get(4 * i + 1).unwrap_or(&zero),
-                hashes.get(4 * i + 2).unwrap_or(&zero),
-                hashes.get(4 * i + 3).unwrap_or(&zero),
+                hashes.get(4 * i).unwrap_or(zero),
+                hashes.get(4 * i + 1).unwrap_or(zero),
+                hashes.get(4 * i + 2).unwrap_or(zero),
+                hashes.get(4 * i + 3).unwrap_or(zero),
             ));
         }
         format!("\n{}", strs.join("\n"))
@@ -316,17 +316,17 @@ impl<T: MarfTrieId> StacksMessageCodec for TrieMerkleProofType<T> {
 
         let codec = match type_byte {
             TrieMerkleProofTypeIndicator::Node4 => {
-                TrieMerkleProofType::Node4(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 3]))
+                TrieMerkleProofType::Node4(deserialize_id_hash_node!(fd, [TrieHash::ZERO; 3]))
             }
             TrieMerkleProofTypeIndicator::Node16 => {
-                TrieMerkleProofType::Node16(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 15]))
+                TrieMerkleProofType::Node16(deserialize_id_hash_node!(fd, [TrieHash::ZERO; 15]))
             }
             TrieMerkleProofTypeIndicator::Node48 => {
-                TrieMerkleProofType::Node48(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 47]))
+                TrieMerkleProofType::Node48(deserialize_id_hash_node!(fd, [TrieHash::ZERO; 47]))
             }
-            TrieMerkleProofTypeIndicator::Node256 => TrieMerkleProofType::Node256(
-                deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 255]),
-            ),
+            TrieMerkleProofTypeIndicator::Node256 => {
+                TrieMerkleProofType::Node256(deserialize_id_hash_node!(fd, [TrieHash::ZERO; 255]))
+            }
             TrieMerkleProofTypeIndicator::Leaf => {
                 let id = read_next(fd)?;
                 let leaf_node = read_next(fd)?;
@@ -372,7 +372,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
         for (i, ptr) in node.ptrs().iter().enumerate() {
             if ptr.id() == TrieNodeID::Empty as u8 {
-                hashes.push(TrieHash::from_data(&[]));
+                hashes.push(TrieHash::EMPTY);
             } else if ptr.chr() != chr {
                 let hash = all_hashes.get(i).ok_or_else(|| {
                     Error::CorruptionError("Hash array smaller than node ptrs".into())
@@ -418,7 +418,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let proof_node = match node {
             TrieNodeType::Leaf(ref data) => TrieMerkleProofType::Leaf((prev_chr, data.clone())),
             TrieNodeType::Node4(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 3];
+                let mut hash_slice = [TrieHash::EMPTY; 3];
                 let copy_data = hashes
                     .get(..3)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
@@ -431,7 +431,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node16(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 15];
+                let mut hash_slice = [TrieHash::EMPTY; 15];
                 let copy_data = hashes
                     .get(..15)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
@@ -444,7 +444,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node48(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 47];
+                let mut hash_slice = [TrieHash::EMPTY; 47];
                 let copy_data = hashes
                     .get(..47)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
@@ -457,7 +457,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node256(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 255];
+                let mut hash_slice = [TrieHash::EMPTY; 255];
                 let copy_data = hashes
                     .get(..255)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;

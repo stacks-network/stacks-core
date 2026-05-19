@@ -5,9 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.4.0.0.2.0]
 
-### Added 
+### Added
+
+* Signers now include a `failed_txid` field in block rejection messages, reporting which transaction caused block validation to fail. This allows miners to skip problematic transactions in subsequent proposals rather than repeatedly proposing blocks that will be rejected.
+
+### Fixed
+
+* Fix duplicated binary name when running `stacks-signer --version` cli command
+* Fixed an issue in the signer where it would return early if it detected a message from an unrecognized signer.
+* Fixed flakiness in `check_capitulate_miner_view` test.
+* When checking tenure change blocks, ensure there are no locally accepted blocks in the tenure, not just globally accepted blocks.
+
+## [3.4.0.0.0.0]
+
+### Fixed
+- Fixed signer database migration 19 that could leave the database in corrupted, unrecoverable state.
+
+## [3.3.0.0.6.0]
+
+### Added
 
 - Add support for tracking pending block responses for up to 3 unique untracked blocks per signer address. This improves handling of late block proposals by allowing the signer to process previously seen responses for blocks that were not being tracked.
 - Added `approved_time` column to the `blocks` database table
@@ -35,6 +53,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Avoid sending duplicate block acceptance messages when additional pre-commits arrive
+- Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 2.
+- Set `GLOBAL_SIGNER_STATE_ACTIVATION_VERSION` to 2, activating global signer state agreement block processing.
 
 ## [3.3.0.0.2.0]
 

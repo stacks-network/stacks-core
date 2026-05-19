@@ -23,6 +23,7 @@ use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
@@ -519,6 +520,11 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.cost_so_far()
     }
 
+    /// Set an abort callback that will be checked at every Clarity `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.block.set_abort_callback(callback);
+    }
+
     pub fn get_epoch(&self) -> StacksEpochId {
         self.block.get_epoch()
     }
@@ -1005,8 +1011,9 @@ impl StacksChainState {
         chain_id: u32,
         marf_path: &str,
         migrate: bool,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<MARF<StacksBlockId>, Error> {
-        let mut marf = StacksChainState::open_index(marf_path)?;
+        let mut marf = StacksChainState::open_index(marf_path, marf_opts)?;
         let mut dbtx = StacksDBTx::new(&mut marf, ());
 
         {
@@ -1041,7 +1048,7 @@ impl StacksChainState {
             .ok_or_else(|| db_error::ParseError)?
             .to_string();
 
-        let marf = StacksChainState::open_index(&index_path)?;
+        let marf = StacksChainState::open_index(&index_path, None)?;
         StacksChainState::load_db_config(marf.sqlite_conn())
     }
 
@@ -1204,14 +1211,15 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         index_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<MARF<StacksBlockId>, Error> {
         let create_flag = fs::metadata(index_path).is_err();
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path, true)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path, true, marf_opts.clone())
         } else {
-            let mut marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path, marf_opts)?;
             if !Self::need_schema_migrations(marf.sqlite_conn(), mainnet, chain_id)? {
                 return Ok(marf);
             }
@@ -1235,9 +1243,9 @@ impl StacksChainState {
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path, false)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path, false, None)
         } else {
-            let mut marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path, None)?;
 
             // do we need to apply a schema change?
             let db_config = StacksChainState::load_db_config(marf.sqlite_conn())
@@ -1250,9 +1258,24 @@ impl StacksChainState {
         }
     }
 
-    pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
+    /// Open or create the chainstate MARF index database and its associated blobs file.
+    ///
+    /// This function opens the SQLite-based MARF index at `marf_path`. If the index
+    /// database or its corresponding blobs file does not exist, they will be created.
+    ///
+    /// # Arguments
+    /// * `marf_path` - Path to the MARF SQLite index database.
+    /// * `marf_opts` - Configuration options for opening the MARF.
+    ///
+    /// # Behavior
+    /// Given a `marf_path` such as `chainstate/vm/clarity/index.sqlite`,
+    /// the related blobs file will be `chainstate/vm/clarity/index.sqlite.blobs`.
+    pub fn open_index(
+        marf_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MARF<StacksBlockId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
-        let mut open_opts = MARFOpenOpts::default();
+        let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         open_opts.external_blobs = true;
         test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(marf_path, open_opts).map_err(db_error::IndexError)?;
@@ -1443,8 +1466,14 @@ impl StacksChainState {
                             StacksChainState::parse_genesis_address(&schedule.address, mainnet);
                         let value = Value::Tuple(
                             TupleData::from_data(vec![
-                                ("recipient".into(), Value::Principal(stx_address)),
-                                ("amount".into(), Value::UInt(schedule.amount.into())),
+                                (
+                                    ClarityName::from_literal("recipient"),
+                                    Value::Principal(stx_address),
+                                ),
+                                (
+                                    ClarityName::from_literal("amount"),
+                                    Value::UInt(schedule.amount.into()),
+                                ),
                             ])
                             .unwrap(),
                         );
@@ -1523,25 +1552,40 @@ impl StacksChainState {
 
                                     TupleData::from_data(vec![
                                         (
-                                            "buckets".into(),
+                                            ClarityName::from_literal("buckets"),
                                             Value::cons_list(buckets, &epoch).unwrap(),
                                         ),
-                                        ("base".into(), base),
-                                        ("coeff".into(), coeff),
-                                        ("nonalpha-discount".into(), nonalpha_discount),
-                                        ("no-vowel-discount".into(), no_vowel_discount),
+                                        (ClarityName::from_literal("base"), base),
+                                        (ClarityName::from_literal("coeff"), coeff),
+                                        (
+                                            ClarityName::from_literal("nonalpha-discount"),
+                                            nonalpha_discount,
+                                        ),
+                                        (
+                                            ClarityName::from_literal("no-vowel-discount"),
+                                            no_vowel_discount,
+                                        ),
                                     ])
                                     .unwrap()
                                 };
 
                                 let namespace_props = Value::Tuple(
                                     TupleData::from_data(vec![
-                                        ("revealed-at".into(), revealed_at),
-                                        ("launched-at".into(), Value::some(launched_at).unwrap()),
-                                        ("lifetime".into(), lifetime),
-                                        ("namespace-import".into(), importer),
-                                        ("can-update-price-function".into(), Value::Bool(true)),
-                                        ("price-function".into(), Value::Tuple(price_function)),
+                                        (ClarityName::from_literal("revealed-at"), revealed_at),
+                                        (
+                                            ClarityName::from_literal("launched-at"),
+                                            Value::some(launched_at).unwrap(),
+                                        ),
+                                        (ClarityName::from_literal("lifetime"), lifetime),
+                                        (ClarityName::from_literal("namespace-import"), importer),
+                                        (
+                                            ClarityName::from_literal("can-update-price-function"),
+                                            Value::Bool(true),
+                                        ),
+                                        (
+                                            ClarityName::from_literal("price-function"),
+                                            Value::Tuple(price_function),
+                                        ),
                                     ])
                                     .unwrap(),
                                 );
@@ -1591,8 +1635,8 @@ impl StacksChainState {
 
                                 let fqn = Value::Tuple(
                                     TupleData::from_data(vec![
-                                        ("namespace".into(), namespace),
-                                        ("name".into(), name),
+                                        (ClarityName::from_literal("namespace"), namespace),
+                                        (ClarityName::from_literal("name"), name),
                                     ])
                                     .unwrap(),
                                 );
@@ -1625,12 +1669,12 @@ impl StacksChainState {
                                 let name_props = Value::Tuple(
                                     TupleData::from_data(vec![
                                         (
-                                            "registered-at".into(),
+                                            ClarityName::from_literal("registered-at"),
                                             Value::some(registered_at).unwrap(),
                                         ),
-                                        ("imported-at".into(), Value::none()),
-                                        ("revoked-at".into(), Value::none()),
-                                        ("zonefile-hash".into(), zonefile_hash),
+                                        (ClarityName::from_literal("imported-at"), Value::none()),
+                                        (ClarityName::from_literal("revoked-at"), Value::none()),
+                                        (ClarityName::from_literal("zonefile-hash"), zonefile_hash),
                                     ])
                                     .unwrap(),
                                 );
@@ -1810,8 +1854,12 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let state_index =
-            StacksChainState::open_db(self.mainnet, self.chain_id, &header_index_root)?;
+        let state_index = StacksChainState::open_db(
+            self.mainnet,
+            self.chain_id,
+            &header_index_root,
+            self.marf_opts.clone(),
+        )?;
         Ok(state_index.into_sqlite_conn())
     }
 
@@ -1897,7 +1945,8 @@ impl StacksChainState {
 
         let init_required = fs::metadata(&clarity_state_index_marf).is_err();
 
-        let state_index = StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
+        let state_index =
+            StacksChainState::open_db(mainnet, chain_id, &header_index_root, marf_opts.clone())?;
 
         let vm_state = MarfedKV::open(
             &clarity_state_index_root,
@@ -2047,14 +2096,15 @@ impl StacksChainState {
             contract.clone().into(),
             None,
             LimitedCostTracker::Free,
-            |env| {
-                env.execute_contract(
-                    contract, function, &args,
-                    // read-only is set to `false` so that non-read-only functions
-                    //  can be executed. any transformation is rolled back.
-                    false,
-                )
-                .map_err(ClarityEvalError::from)
+            |exec_state, invoke_ctx| {
+                exec_state
+                    .execute_contract(
+                        invoke_ctx, contract, function, &args,
+                        // read-only is set to `false` so that non-read-only functions
+                        //  can be executed. any transformation is rolled back.
+                        false,
+                    )
+                    .map_err(ClarityEvalError::from)
             },
         )?;
 

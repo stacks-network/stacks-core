@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::ClarityVersion;
+use clarity::vm::{ClarityVersion, ContractName};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -387,7 +387,7 @@ pub fn make_token_transfer(
 /// Make contract publish
 pub fn make_contract(
     chainstate: &mut StacksChainState,
-    name: &str,
+    name: ContractName,
     code: &str,
     private_key: &StacksPrivateKey,
     version: ClarityVersion,
@@ -399,7 +399,7 @@ pub fn make_contract(
         TransactionAuth::from_p2pkh(private_key).unwrap(),
         TransactionPayload::SmartContract(
             TransactionSmartContract {
-                name: name.into(),
+                name,
                 code_body: StacksString::from_str(code).unwrap(),
             },
             Some(version),
@@ -1043,15 +1043,15 @@ fn block_info_tests(use_primary_testnet: bool) {
 
     let clar1_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar1_contract_name.into(),
+        name: ContractName::from_literal(clar1_contract_name),
     };
     let clar3_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar3_contract_name.into(),
+        name: ContractName::from_literal(clar3_contract_name),
     };
     let clar4_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
-        name: clar4_contract_name.into(),
+        name: ContractName::from_literal(clar4_contract_name),
     };
 
     let get_tip_info = |peer: &mut TestPeer| {
@@ -1107,7 +1107,7 @@ fn block_info_tests(use_primary_testnet: bool) {
         let account = get_account(chainstate, sortdb, &addr);
         let tx_0 = make_contract(
             chainstate,
-            clar1_contract_name,
+            clar1_contract_name.try_into().unwrap(),
             clar1_contract,
             &private_key,
             ClarityVersion::Clarity1,
@@ -1116,7 +1116,7 @@ fn block_info_tests(use_primary_testnet: bool) {
         );
         let tx_1 = make_contract(
             chainstate,
-            clar3_contract_name,
+            clar3_contract_name.try_into().unwrap(),
             clar3_contract,
             &private_key,
             ClarityVersion::Clarity3,
@@ -2033,11 +2033,16 @@ fn test_nakamoto_chainstate_getters() {
         );
 
         let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
-        let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sort_tx.sqlite()).unwrap();
+        let (cur_stacks_ch, cur_stacks_burn_view_ch, cur_stacks_bhh, cur_stacks_height) =
+            SortitionDB::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(
+                sort_tx.sqlite(),
+                &cur_burn_tip,
+            )
+            .unwrap()
+            .unwrap();
         sort_tx
             .test_update_canonical_stacks_tip(
-                &cur_burn_tip.sortition_id,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 0,
@@ -2068,8 +2073,8 @@ fn test_nakamoto_chainstate_getters() {
         // restore
         sort_tx
             .test_update_canonical_stacks_tip(
-                &cur_burn_tip.sortition_id,
                 &cur_stacks_ch,
+                &cur_stacks_burn_view_ch,
                 &cur_stacks_bhh,
                 cur_stacks_height,
             )
@@ -2232,11 +2237,16 @@ fn test_nakamoto_chainstate_getters() {
         .is_some());
 
         let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
-        let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sort_tx.sqlite()).unwrap();
+        let (cur_stacks_ch, cur_stacks_burn_view_ch, cur_stacks_bhh, cur_stacks_height) =
+            SortitionDB::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(
+                sort_tx.sqlite(),
+                &cur_burn_tip,
+            )
+            .unwrap()
+            .unwrap();
         sort_tx
             .test_update_canonical_stacks_tip(
-                &cur_burn_tip.sortition_id,
+                &blocks[9].header.consensus_hash,
                 &blocks[9].header.consensus_hash,
                 &blocks[9].header.block_hash(),
                 blocks[9].header.chain_length,
@@ -2279,8 +2289,8 @@ fn test_nakamoto_chainstate_getters() {
         // restore
         sort_tx
             .test_update_canonical_stacks_tip(
-                &cur_burn_tip.sortition_id,
                 &cur_stacks_ch,
+                &cur_stacks_burn_view_ch,
                 &cur_stacks_bhh,
                 cur_stacks_height,
             )
@@ -3384,13 +3394,14 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
                     debug!("\n\nProduce block {}\n\n", blocks_so_far.len());
 
                     let account = get_account(chainstate, sortdb, &addr);
+                    let name = format!("test-{contract_count}");
 
                     let contract = make_contract(
                         chainstate,
-                        &format!("test-{contract_count}"),
+                        ContractName::try_from(name).unwrap(),
                         smart_contract,
                         &private_key,
-                        ClarityVersion::latest(),
+                        ClarityVersion::Clarity4,
                         account.nonce,
                         u64::try_from(smart_contract.len() * 2).unwrap(),
                     );

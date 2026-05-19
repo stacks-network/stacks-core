@@ -42,7 +42,7 @@ fn marf_insert_random_1048576_4096_file_storage() {
 
     let mut block_header = BlockHeaderHash::sentinel();
 
-    let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+    let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
     let mut start_time = get_epoch_time_ms();
     let mut end_time = 0;
     let mut block_start_time = start_time;
@@ -117,7 +117,7 @@ fn marf_insert_random_1048576_4096_file_storage() {
     }
 
     i = 1;
-    seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+    seed = TrieHash::EMPTY.as_bytes().to_vec();
 
     while i <= num_iterations {
         let mut keys = vec![];
@@ -185,7 +185,7 @@ fn marf_read_random_1048576_4096_file_storage() {
         .unwrap();
         f.open_block(&block_header).unwrap();
 
-        let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+        let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
         let mut start_time = 0;
 
         start_time = get_epoch_time_ms();

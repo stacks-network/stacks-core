@@ -19,24 +19,33 @@ on:
       - reopened
       - synchronize
 
+# Set default permissions
+permissions:
+  contents: read
+
+# Configure concurrency
 concurrency:
   group: nix-${{ github.head_ref || github.ref || github.run_id }}
-  ## Always cancel duplicate jobs
+  # Always cancel duplicate jobs
   cancel-in-progress: true
 
 run-name: ${{ github.ref_name }}
-
-permissions: {}
 
 jobs:
   build-pkg:
     name: Check Nix package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: DeterminateSystems/determinate-nix-action@d4b23d0b9eeeaeba3648c24d43bcb623dcf75336 # v3.7.0
-      - uses: DeterminateSystems/magic-nix-cache-action@e1c1dae8e170ed20fd2e6aaf9979ca2d3905d636  # v12
+      # Checkout the code
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: DeterminateSystems/determinate-nix-action@92ffb5400c3776307a27a1727d7e2ac3dcd9f844 # v3.18.1
+
+      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39  # v13
         with:
           use-flakehub: false  # Remove error when trying to authenticate without credentials
           use-gha-cache: false # Disable uploading cache to gha cache
+
       - run: nix flake check ./contrib/nix

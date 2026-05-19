@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -41,6 +57,7 @@ use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::config::chain_data::MinerStats;
 pub use stacks::config::{Config, ConfigFile};
+use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocator};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -57,7 +74,13 @@ use crate::run_loop::boot_nakamoto;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator { inner: Jemalloc };
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_arch = "arm"))]
+#[global_allocator]
+static GLOBAL: TrackingAllocator<std::alloc::System> = TrackingAllocator {
+    inner: std::alloc::System,
+};
 
 /// Implmentation of `pick_best_tip` CLI option
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
@@ -79,7 +102,13 @@ fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCan
         Some(config.node.get_marf_opts()),
     )
     .unwrap();
-    let mut sortdb = SortitionDB::open(&burn_db_path, false, burnchain.pox_constants).unwrap();
+    let mut sortdb = SortitionDB::open(
+        &burn_db_path,
+        false,
+        burnchain.pox_constants,
+        Some(config.node.get_marf_opts()),
+    )
+    .unwrap();
 
     let max_depth = config.miner.max_reorg_depth;
 
@@ -120,8 +149,13 @@ fn cli_get_miner_spend(
         Some(config.node.get_marf_opts()),
     )
     .unwrap();
-    let mut sortdb =
-        SortitionDB::open(&burn_db_path, true, burnchain.pox_constants.clone()).unwrap();
+    let mut sortdb = SortitionDB::open(
+        &burn_db_path,
+        true,
+        burnchain.pox_constants.clone(),
+        Some(config.node.get_marf_opts()),
+    )
+    .unwrap();
     let tip = if let Some(at_burnchain_height) = at_burnchain_height {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let ih = sortdb.index_handle(&tip.sortition_id);
@@ -157,8 +191,13 @@ fn cli_get_miner_spend(
         mine_start.unwrap_or(tip.block_height),
         at_burnchain_height,
         |burn_block_height| {
-            let sortdb =
-                SortitionDB::open(&burn_db_path, true, burnchain.pox_constants.clone()).unwrap();
+            let sortdb = SortitionDB::open(
+                &burn_db_path,
+                true,
+                burnchain.pox_constants.clone(),
+                Some(config.node.get_marf_opts()),
+            )
+            .unwrap();
             let Some(miner_stats) = config.get_miner_stats() else {
                 return 0.0;
             };
@@ -247,6 +286,20 @@ fn cli_get_miner_spend(
         |_burn_block_height, _win_prob| {},
     );
     spend_amount
+}
+
+/// If the previous session was terminated before all the pending events had been sent,
+/// the DB will still contain them. Work through that before doing anything new.
+/// Pending events for observers that are no longer registered will be discarded.
+fn send_pending_event_payloads(conf: &Config) {
+    // This dispatcher gets a queue size of 0 to ensure that it blocks. Technically
+    // process_pending_payloads() always blocks; this is just an additional safeguard.
+    let mut event_dispatcher =
+        EventDispatcher::new_with_custom_queue_size(conf.get_working_dir(), 0);
+    for observer in &conf.events_observers {
+        event_dispatcher.register_observer(observer);
+    }
+    event_dispatcher.process_pending_payloads();
 }
 
 fn main() {
@@ -411,6 +464,8 @@ fn main() {
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
 
+    send_pending_event_payloads(&conf);
+
     let num_round: u64 = 0; // Infinite number of rounds
 
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
@@ -424,6 +479,13 @@ fn main() {
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
+        if conf.miner.max_assembly_mem_bytes > 0
+            || conf.connection_options.block_proposal_max_tx_mem_bytes > 0
+        {
+            if !tracking_allocator_installed() {
+                panic!("Tracking allocator must be installed to set a memory limit");
+            }
+        }
         let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);
     } else {

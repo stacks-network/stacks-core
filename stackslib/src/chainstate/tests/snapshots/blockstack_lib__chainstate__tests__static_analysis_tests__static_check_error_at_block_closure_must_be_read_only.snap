@@ -1,10 +1,11 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
+snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "dfe63494e41a728bb312b67505cf3e630fa0d8c56f6a6653e979de854e75044b",
+    marf_hash: "65f68ed40b24a4f8663861d31f781057a04911fb73f91a15fc39e87e17773224",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +35,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2e049a4b1768177abbc1c07666ef5c95cfbb1a57d792513f19c28e989aed3e17",
+    marf_hash: "b6f34fba1197bb3d043b171153a1aa0d70a16f366ec7f7bea196b9e29eefcc19",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +65,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "def986371d12dab1abd72cf648c74e5bb9e543005a629289d69282c188353e94",
+    marf_hash: "f3a1e7654bac982518200a50219f4185d26974afe8569706cec6884580cfb05c",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +95,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "77abee8f88c8661a041465269b184208ab433a283a5c22c1abd3396138f90180",
+    marf_hash: "700417ae0d86690924b3d7b30fec3a3571b8bc9847c5a9359b332d37264c494b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +125,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9a92c4353e530f8c301276cee0e8cdd1eb06816d480b035449e8a88f62077adf",
+    marf_hash: "937c3ce184e52f9eed40d0575a0e6b06891509e909f554c7be80a4ddde8e228f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +155,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "119f746e608ca0328e44bdb64fa89d8d319f69090bbef078b6ead2a6acf513cc",
+    marf_hash: "78f0e31fc8fd35b8bbf544fe4ccd5d538129927f7ff5a8a7d9636f8c736456f2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +185,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "81ea1683555283c37a99e8499e1ef98b6816eec067aeffa3d45e0d18a93db866",
+    marf_hash: "5fef75da10d06575e5c2389ac4d928464dd56cd60c4bb22cfa484ba1a2d1fa88",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,41 +215,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "af8c414f958de7ff0c04f254e00a28813e07c14ad6ebb21ccb9f457b2369ce34",
+    marf_hash: "16ffad1cd83fdd06ec003aca3b3075de041f7d60dfbaad2baf4724a8fec9630e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: closure-must-be-ro-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 3966,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 3966,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8ad444a23ba5024ba933d2c3f2e539d940b14f0294cc1245ebb9a8856557dace",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: closure-must-be-ro-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
         vm_error: "Some(:0:0: (at-block ...) closures expect read-only statements, but detected a writing operation) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

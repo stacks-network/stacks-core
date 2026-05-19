@@ -53,6 +53,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 #[cfg(any(test, feature = "testing"))]
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET};
@@ -470,6 +471,7 @@ impl Burnchain {
         working_dir: &str,
         chain_name: &str,
         network_name: &str,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<Burnchain, burnchain_error> {
         let (params, pox_constants, peer_version) = match (chain_name, network_name) {
             ("bitcoin", "mainnet") => (
@@ -505,6 +507,7 @@ impl Burnchain {
             first_block_hash: params.first_block_hash,
             first_block_timestamp: params.first_block_timestamp,
             pox_constants,
+            marf_opts,
         })
     }
 
@@ -645,7 +648,7 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret = Burnchain::new(working_dir, "bitcoin", "regtest").unwrap();
+        let ret = Burnchain::new(working_dir, "bitcoin", "regtest", None).unwrap();
         ret
     }
 
@@ -659,7 +662,7 @@ impl Burnchain {
         rng.fill_bytes(&mut byte_tail);
 
         let tmp_path = format!("/tmp/stacks-node-tests/unit-tests-{}", &to_hex(&byte_tail));
-        let mut ret = Burnchain::new(&tmp_path, "bitcoin", "mainnet").unwrap();
+        let mut ret = Burnchain::new(&tmp_path, "bitcoin", "mainnet", None).unwrap();
         ret.first_block_height = first_block_height;
         ret.initial_reward_start_block = first_block_height;
         ret.first_block_hash = first_block_hash.clone();
@@ -762,6 +765,7 @@ impl Burnchain {
             self.pox_constants.clone(),
             None,
             readwrite,
+            self.marf_opts.clone(),
         )?;
         let burnchaindb = BurnchainDB::connect(&burnchain_db_path, self, readwrite)?;
 
@@ -800,7 +804,12 @@ impl Burnchain {
             return Err(burnchain_error::DBError(db_error::NoDBError));
         }
         test_debug!("Open sortition DB at {} (rw? {})", &sort_db_path, readwrite);
-        let sortition_db = SortitionDB::open(&sort_db_path, readwrite, self.pox_constants.clone())?;
+        let sortition_db = SortitionDB::open(
+            &sort_db_path,
+            readwrite,
+            self.pox_constants.clone(),
+            self.marf_opts.clone(),
+        )?;
         Ok(sortition_db)
     }
 
@@ -1806,7 +1815,7 @@ mod tests {
 
     #[test]
     fn test_creation_by_new_for_bitcoin_mainnet() {
-        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "mainnet");
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "mainnet", None);
         assert!(burn_chain.is_ok());
 
         let burn_chain = burn_chain.unwrap();
@@ -1836,7 +1845,7 @@ mod tests {
 
     #[test]
     fn test_creation_by_new_for_bitcoin_testnet() {
-        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "testnet");
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "testnet", None);
         assert!(burn_chain.is_ok());
 
         let burn_chain = burn_chain.unwrap();
@@ -1863,7 +1872,7 @@ mod tests {
 
     #[test]
     fn test_creation_by_new_for_bitcoin_regtest() {
-        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "regtest");
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "regtest", None);
         assert!(burn_chain.is_ok());
 
         let burn_chain = burn_chain.unwrap();
@@ -1894,7 +1903,7 @@ mod tests {
     #[test]
     fn test_creation_by_new_failure() {
         //case: wrong chain name
-        let burn_chain = Burnchain::new("workdir/path", "wrong_chain_name", "regtest");
+        let burn_chain = Burnchain::new("workdir/path", "wrong_chain_name", "regtest", None);
         assert!(burn_chain.is_err());
         assert!(matches!(
             burn_chain.unwrap_err(),
@@ -1902,7 +1911,7 @@ mod tests {
         ));
 
         //case: wrong network name
-        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "wrong_net_name");
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "wrong_net_name", None);
         assert!(burn_chain.is_err());
         assert!(matches!(
             burn_chain.unwrap_err(),
@@ -1910,7 +1919,7 @@ mod tests {
         ));
 
         //case: wrong chain name + wrong network name
-        let burn_chain = Burnchain::new("workdir/path", "wrong_chain_name", "wrong_net_name");
+        let burn_chain = Burnchain::new("workdir/path", "wrong_chain_name", "wrong_net_name", None);
         assert!(burn_chain.is_err());
         assert!(matches!(
             burn_chain.unwrap_err(),

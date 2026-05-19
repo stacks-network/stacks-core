@@ -19,7 +19,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::errors::VmInternalError;
 use crate::vm::ClarityVersion;
-use crate::vm::contexts::{Environment, LocalContext};
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{RuntimeError, VmExecutionError};
@@ -50,27 +50,34 @@ pub fn is_reserved_name(name: &str, version: &ClarityVersion) -> bool {
 
 pub fn lookup_reserved_variable(
     name: &str,
-    _context: &LocalContext,
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
 ) -> Result<Option<Value>, VmExecutionError> {
-    if let Some(variable) =
-        NativeVariables::lookup_by_name_at_version(name, env.contract_context.get_clarity_version())
-    {
+    if let Some(variable) = NativeVariables::lookup_by_name_at_version(
+        name,
+        invoke_ctx.contract_context.get_clarity_version(),
+    ) {
         match variable {
             NativeVariables::TxSender => {
                 // This `NoSenderInContext` is **unreachable** in standard Clarity VM execution.
                 // - Every function call (public, private, or trait) is executed with a valid caller context.
-                let sender = env.sender.clone().ok_or(RuntimeError::NoSenderInContext)?;
+                let sender = invoke_ctx
+                    .sender
+                    .clone()
+                    .ok_or(RuntimeError::NoSenderInContext)?;
                 Ok(Some(Value::Principal(sender)))
             }
             NativeVariables::ContractCaller => {
                 // This `NoCallerInContext` is **unreachable** in standard Clarity VM execution.
                 // -  Every on-chain transaction and contract-call has a well-defined sender.
-                let caller = env.caller.clone().ok_or(RuntimeError::NoCallerInContext)?;
+                let caller = invoke_ctx
+                    .caller
+                    .clone()
+                    .ok_or(RuntimeError::NoCallerInContext)?;
                 Ok(Some(Value::Principal(caller)))
             }
             NativeVariables::TxSponsor => {
-                let sponsor = match env.sponsor.clone() {
+                let sponsor = match invoke_ctx.sponsor.clone() {
                     None => Value::none(),
                     Some(p) => Value::some(Value::Principal(p)).map_err(|_| {
                         VmInternalError::Expect(
@@ -81,24 +88,27 @@ pub fn lookup_reserved_variable(
                 Ok(Some(sponsor))
             }
             NativeVariables::BlockHeight => {
-                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
+                runtime_cost(ClarityCostFunction::FetchVar, exec_state, 1)?;
                 // In epoch 2.x, the `block-height` keyword returns the Stacks block height.
                 // For Clarity 1 and Clarity 2 contracts executing in epoch 3, `block-height`
                 // is equal to the tenure height instead of the Stacks block height. This change
                 // is made to maintain a similar pace at which this value increments (e.g. for use
                 // as an expiration). In Clarity 3, `block-height` is removed to avoid confusion.
                 // It is replaced with two new keywords: `stacks-block-height` and `tenure-height`.
-                if env.global_context.epoch_id < StacksEpochId::Epoch30 {
-                    let block_height = env.global_context.database.get_current_block_height();
+                if exec_state.global_context.epoch_id < StacksEpochId::Epoch30 {
+                    let block_height = exec_state
+                        .global_context
+                        .database
+                        .get_current_block_height();
                     Ok(Some(Value::UInt(block_height as u128)))
                 } else {
-                    let tenure_height = env.global_context.database.get_tenure_height()?;
+                    let tenure_height = exec_state.global_context.database.get_tenure_height()?;
                     Ok(Some(Value::UInt(tenure_height as u128)))
                 }
             }
             NativeVariables::BurnBlockHeight => {
-                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let burn_block_height = env
+                runtime_cost(ClarityCostFunction::FetchVar, exec_state, 1)?;
+                let burn_block_height = exec_state
                     .global_context
                     .database
                     .get_current_burnchain_block_height()?;
@@ -108,39 +118,45 @@ pub fn lookup_reserved_variable(
             NativeVariables::NativeTrue => Ok(Some(Value::Bool(true))),
             NativeVariables::NativeFalse => Ok(Some(Value::Bool(false))),
             NativeVariables::TotalLiquidMicroSTX => {
-                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let liq = env.global_context.database.get_total_liquid_ustx()?;
+                runtime_cost(ClarityCostFunction::FetchVar, exec_state, 1)?;
+                let liq = exec_state.global_context.database.get_total_liquid_ustx()?;
                 Ok(Some(Value::UInt(liq)))
             }
             NativeVariables::Regtest => {
-                let reg = env.global_context.database.is_in_regtest();
+                let reg = exec_state.global_context.database.is_in_regtest();
                 Ok(Some(Value::Bool(reg)))
             }
             NativeVariables::Mainnet => {
-                let mainnet = env.global_context.mainnet;
+                let mainnet = exec_state.global_context.mainnet;
                 Ok(Some(Value::Bool(mainnet)))
             }
             NativeVariables::ChainId => {
-                let chain_id = env.global_context.chain_id;
+                let chain_id = exec_state.global_context.chain_id;
                 Ok(Some(Value::UInt(chain_id.into())))
             }
             NativeVariables::StacksBlockHeight => {
-                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let block_height = env.global_context.database.get_current_block_height();
+                runtime_cost(ClarityCostFunction::FetchVar, exec_state, 1)?;
+                let block_height = exec_state
+                    .global_context
+                    .database
+                    .get_current_block_height();
                 Ok(Some(Value::UInt(block_height as u128)))
             }
             NativeVariables::TenureHeight => {
-                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let tenure_height = env.global_context.database.get_tenure_height()?;
+                runtime_cost(ClarityCostFunction::FetchVar, exec_state, 1)?;
+                let tenure_height = exec_state.global_context.database.get_tenure_height()?;
                 Ok(Some(Value::UInt(tenure_height as u128)))
             }
             NativeVariables::CurrentContract => {
-                let contract = env.contract_context.contract_identifier.clone();
+                let contract = invoke_ctx.contract_context.contract_identifier.clone();
                 Ok(Some(Value::Principal(PrincipalData::Contract(contract))))
             }
             NativeVariables::StacksBlockTime => {
-                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let block_time = env.global_context.database.get_current_block_time()?;
+                runtime_cost(ClarityCostFunction::FetchVar, exec_state, 1)?;
+                let block_time = exec_state
+                    .global_context
+                    .database
+                    .get_current_block_time()?;
                 Ok(Some(Value::UInt(u128::from(block_time))))
             }
         }
@@ -173,17 +189,18 @@ mod test {
             LimitedCostTracker::new_free(),
             StacksEpochId::Epoch2_05,
         );
-        let mut env = Environment {
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
             contract_context: &contract_context,
             sender: Some(PrincipalData::Standard(contract.issuer.clone())),
             caller: None, // <- intentionally missing
             sponsor: None,
-            global_context: &mut global_context,
-            call_stack: &mut call_stack,
         };
-        let ctx = LocalContext::default();
 
-        let res = lookup_reserved_variable("contract-caller", &ctx, &mut env);
+        let res = lookup_reserved_variable("contract-caller", &mut exec_state, &invoke_ctx);
         assert!(matches!(
             res,
             Err(VmExecutionError::Runtime(
@@ -206,17 +223,17 @@ mod test {
             LimitedCostTracker::new_free(),
             StacksEpochId::Epoch2_05,
         );
-        let mut env = Environment {
-            contract_context: &contract_context,
-            caller: Some(PrincipalData::Standard(contract.issuer.clone())),
-            sender: None, // <- intentionally missing
-            sponsor: None,
+        let mut exec_state = ExecutionState {
             global_context: &mut global_context,
             call_stack: &mut call_stack,
         };
-        let ctx = LocalContext::default();
-
-        let res = lookup_reserved_variable("tx-sender", &ctx, &mut env);
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None, // <- intentionally missing
+            caller: Some(PrincipalData::Standard(contract.issuer.clone())),
+            sponsor: None,
+        };
+        let res = lookup_reserved_variable("tx-sender", &mut exec_state, &invoke_ctx);
         assert!(matches!(
             res,
             Err(VmExecutionError::Runtime(

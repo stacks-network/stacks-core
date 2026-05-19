@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
@@ -26,7 +27,7 @@ use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{MinerSlotID, SignerMessage};
 use libsigner::StackerDBSession;
 use rand::{thread_rng, Rng};
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
@@ -47,6 +48,7 @@ use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::types::chainstate::BlockHeaderHash;
+use stacks::types::{MinerDiagnosticData, MiningReason};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 #[cfg(test)]
@@ -101,6 +103,10 @@ pub static TEST_P2P_BROADCAST_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(Te
 #[cfg(test)]
 // Test flag to skip pushing blocks to the signers
 pub static TEST_BLOCK_PUSH_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+#[cfg(test)]
+// Test flag to indicate the block that the miner most recently tried to broadcast
+pub static TEST_MINER_BROADCASTING_BLOCK: LazyLock<TestFlag<NakamotoBlock>> =
+    LazyLock::new(TestFlag::default);
 
 #[cfg(test)]
 /// Set the `TEST_MINE_STALL` flag to `Pending` and block until the miner is stalled.
@@ -235,6 +241,16 @@ impl std::fmt::Display for MinerReason {
     }
 }
 
+impl Into<MiningReason> for MinerReason {
+    fn into(self) -> MiningReason {
+        match self {
+            Self::BlockFound { .. } => MiningReason::BlockFound,
+            Self::Extended { .. } => MiningReason::Extended,
+            Self::ReadCountExtend { .. } => MiningReason::ReadCountExtend,
+        }
+    }
+}
+
 pub struct BlockMinerThread {
     /// node config struct
     config: Config,
@@ -285,6 +301,12 @@ pub struct BlockMinerThread {
     reset_mempool_caches: bool,
     /// Storage for persisting non-confidential miner information
     miner_db: MinerDB,
+    /// Transaction IDs to exclude from the next block proposal only.
+    /// Replaced (not accumulated) on each signer rejection.
+    temporarily_excluded_txids: HashSet<Txid>,
+    /// Transaction IDs to permanently ban from the mempool.
+    /// Drained and blacklisted from the mempool in mine_block().
+    permanently_excluded_txids: HashSet<Txid>,
 }
 
 /// Trait for the coordinator's read count extend timestamp check.
@@ -334,6 +356,8 @@ impl BlockMinerThread {
             tenure_budget: ExecutionCost::ZERO,
             reset_mempool_caches: true,
             miner_db: MinerDB::open_with_config(&rt.config)?,
+            temporarily_excluded_txids: HashSet::new(),
+            permanently_excluded_txids: HashSet::new(),
         })
     }
 
@@ -513,6 +537,7 @@ impl BlockMinerThread {
             &self.config.get_burn_db_file_path(),
             true,
             self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("FATAL: could not open sortition DB");
 
@@ -554,7 +579,7 @@ impl BlockMinerThread {
         &self,
         new_block: &NakamotoBlock,
         last_block_rejected: &mut bool,
-        e: NakamotoNodeError,
+        e: &NakamotoNodeError,
     ) {
         // Sleep for a bit to allow signers to catch up
         let pause_ms = if *last_block_rejected {
@@ -666,9 +691,13 @@ impl BlockMinerThread {
         chain_state: &mut StacksChainState,
     ) -> Result<bool, NakamotoNodeError> {
         let burn_db_path = self.config.get_burn_db_file_path();
-        let mut burn_db =
-            SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
-                .expect("FATAL: could not open sortition DB");
+        let mut burn_db = SortitionDB::open(
+            &burn_db_path,
+            true,
+            self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
+        )
+        .expect("FATAL: could not open sortition DB");
         self.check_burn_tip_changed(&burn_db)?;
         match self.load_block_parent_info(&mut burn_db, chain_state) {
             Ok(..) => Ok(true),
@@ -736,6 +765,7 @@ impl BlockMinerThread {
                         &self.config.get_burn_db_file_path(),
                         false,
                         self.burnchain.pox_constants.clone(),
+                        Some(self.config.node.get_marf_opts()),
                     ) else {
                         error!("Failed to open sortition DB. Will try mining again.");
                         return Ok(None);
@@ -815,11 +845,26 @@ impl BlockMinerThread {
                         );
                         return Err(e);
                     }
-                    self.pause_and_retry(&new_block, last_block_rejected, e);
+                    self.pause_and_retry(&new_block, last_block_rejected, &e);
+                    return Ok(false);
+                }
+                NakamotoNodeError::SignersRejected {
+                    ref temporarily_excluded_txids,
+                    ref permanently_excluded_txids,
+                } => {
+                    // Replace (not extend) temporarily_excluded_txids so the ban
+                    // only applies to the next block proposal — transient failures
+                    // may resolve after one block.
+                    self.temporarily_excluded_txids = temporarily_excluded_txids.clone();
+                    // Permanently excluded txids will be blacklisted from the
+                    // mempool when mine_block opens the mempool connection.
+                    self.permanently_excluded_txids
+                        .extend(permanently_excluded_txids.iter().cloned());
+                    self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
                 _ => {
-                    self.pause_and_retry(&new_block, last_block_rejected, e);
+                    self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
             },
@@ -842,6 +887,8 @@ impl BlockMinerThread {
 
             // We successfully mined, so the mempool caches are valid.
             self.reset_mempool_caches = false;
+            // Block was accepted — clear any single-block exclusions
+            self.temporarily_excluded_txids.clear();
         }
 
         // update mined-block counters and mined-tenure counters
@@ -919,6 +966,7 @@ impl BlockMinerThread {
                 &self.config.get_burn_db_file_path(),
                 false,
                 self.burnchain.pox_constants.clone(),
+                Some(self.config.node.get_marf_opts()),
             ) else {
                 error!("Failed to open sortition DB. Will try mining again.");
                 return Ok(());
@@ -947,6 +995,22 @@ impl BlockMinerThread {
                     "Failed to open chainstate DB. Cannot mine! {e:?}"
                 ))
             })?;
+
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
+        let diagnostics = MinerDiagnosticData {
+            burnchain_tip_height: burn_tip.block_height,
+            burnchain_tip_consensus_hash: burn_tip.consensus_hash,
+            burnchain_tip_header_hash: burn_tip.burn_header_hash,
+            tenure_extend_time_stamp: coordinator.get_tenure_extend_timestamp(),
+            read_count_extend_timestamp: coordinator.get_read_count_extend_timestamp(),
+            mining_reason: self.reason.clone().into(),
+        };
+
         coordinator.propose_block(
             new_block,
             &self.burnchain,
@@ -956,6 +1020,7 @@ impl BlockMinerThread {
             &self.globals.counters,
             &self.burn_election_block,
             &self.miner_db,
+            diagnostics,
         )
     }
 
@@ -971,6 +1036,7 @@ impl BlockMinerThread {
             &self.config.get_burn_db_file_path(),
             true,
             self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .map_err(|e| {
             NakamotoNodeError::SigningCoordinatorFailure(format!(
@@ -1057,6 +1123,9 @@ impl BlockMinerThread {
             );
             return Ok(());
         }
+        #[cfg(test)]
+        TEST_MINER_BROADCASTING_BLOCK.set(block.clone());
+
         Self::fault_injection_block_broadcast_stall(block);
 
         let parent_block_info =
@@ -1126,6 +1195,7 @@ impl BlockMinerThread {
             &self.config.get_burn_db_file_path(),
             true,
             self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("FATAL: could not open sortition DB");
 
@@ -1464,9 +1534,13 @@ impl BlockMinerThread {
 
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
-        let mut burn_db =
-            SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
-                .expect("FATAL: could not open sortition DB");
+        let mut burn_db = SortitionDB::open(
+            &burn_db_path,
+            true,
+            self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
+        )
+        .expect("FATAL: could not open sortition DB");
 
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
@@ -1481,6 +1555,17 @@ impl BlockMinerThread {
             .config
             .connect_mempool_db()
             .expect("Database failure opening mempool");
+
+        // Blacklist permanently excluded transactions reported by signers
+        if !self.permanently_excluded_txids.is_empty() {
+            let txids: Vec<Txid> = self.permanently_excluded_txids.drain().collect();
+            info!("Miner: blacklisting permanently excluded transaction(s) from mempool";
+                "count" => txids.len(),
+            );
+            if let Err(e) = mem_pool.drop_and_blacklist_txs(&txids) {
+                warn!("Miner: failed to blacklist permanently excluded transactions: {e:?}");
+            }
+        }
 
         let target_epoch_id =
             SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)
@@ -1588,8 +1673,18 @@ impl BlockMinerThread {
             &self.burn_election_block.consensus_hash,
             self.burn_block.total_burn,
             tenure_start_info,
-            self.config
-                .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
+            {
+                let mut settings = self
+                    .config
+                    .make_nakamoto_block_builder_settings(self.globals.get_miner_status());
+                if !self.temporarily_excluded_txids.is_empty() {
+                    info!("Miner: excluding signer-rejected transaction(s) from block building";
+                        "count" => self.temporarily_excluded_txids.len(),
+                    );
+                    settings.temporarily_excluded_txids = self.temporarily_excluded_txids.clone();
+                }
+                settings
+            },
             // we'll invoke the event dispatcher ourselves so that it calculates the
             //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
@@ -2108,6 +2203,8 @@ fn should_read_count_extend_units() {
         abort_flag: Arc::new(AtomicBool::new(false)),
         reset_mempool_caches: false,
         miner_db: MinerDB::open("/tmp/should_read_count_extend_units.db").unwrap(),
+        temporarily_excluded_txids: HashSet::new(),
+        permanently_excluded_txids: HashSet::new(),
     };
     miner.config.miner.read_count_extend_cost_threshold = 20;
 

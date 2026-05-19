@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::thread::JoinHandle;
@@ -188,7 +204,12 @@ fn spawn_peer(
         };
 
         loop {
-            let sortdb = match SortitionDB::open(&burn_db_path, false, pox_consts.clone()) {
+            let sortdb = match SortitionDB::open(
+                &burn_db_path,
+                false,
+                pox_consts.clone(),
+                Some(config.node.get_marf_opts()),
+            ) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Error while connecting burnchain db in peer loop: {e}");
@@ -338,12 +359,14 @@ impl Node {
         )
         .expect("FATAL: failed to initiate mempool");
 
-        let mut event_dispatcher = EventDispatcher::new(config.get_working_dir());
+        let mut event_dispatcher = EventDispatcher::new_with_custom_queue_size(
+            config.get_working_dir(),
+            config.node.effective_event_dispatcher_queue_size(),
+        );
 
         for observer in &config.events_observers {
             event_dispatcher.register_observer(observer);
         }
-        event_dispatcher.process_pending_payloads();
 
         let burnchain_config = config.get_burnchain();
 
@@ -400,6 +423,7 @@ impl Node {
             &self.config.get_burn_db_file_path(),
             true,
             burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("Error while instantiating burnchain db");
 
@@ -543,6 +567,7 @@ impl Node {
             &self.config.get_burn_db_file_path(),
             true,
             burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("Error while opening sortition db");
 
@@ -653,6 +678,7 @@ impl Node {
             &self.config.get_burn_db_file_path(),
             true,
             burnchain.pox_constants,
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("Error while opening sortition db");
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -755,6 +781,7 @@ impl Node {
                 &self.config.get_burn_db_file_path(),
                 true,
                 burnchain.pox_constants,
+                Some(self.config.node.get_marf_opts()),
             )
             .expect("Error while opening sortition db");
 

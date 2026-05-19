@@ -18,6 +18,7 @@ use std::cmp;
 
 use integer_sqrt::IntegerSquareRoot;
 
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
@@ -28,7 +29,7 @@ use crate::vm::types::{
     ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
 use crate::vm::version::ClarityVersion;
-use crate::vm::{Environment, LocalContext, eval};
+use crate::vm::{LocalContext, eval};
 
 struct U128Ops();
 struct I128Ops();
@@ -78,7 +79,7 @@ macro_rules! type_force_binary_arithmetic {
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
             (x, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(x),
+                x.to_error_string(),
             )
             .into()),
         }
@@ -87,13 +88,13 @@ macro_rules! type_force_binary_arithmetic {
 
 // The originally supported comparable types in Clarity1 were Int and UInt.
 macro_rules! type_force_binary_comparison_v1 {
-    ($function: ident, $x: expr, $y: expr) => {{
-        match ($x, $y) {
+    ($function: ident, $x: expr, $y: expr, $e: expr) => {{
+        match ($x.as_ref(), $y.as_ref()) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (x, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
+            (_, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(x),
+                $x.as_ref().to_error_string(),
             )
             .into()),
         }
@@ -103,8 +104,8 @@ macro_rules! type_force_binary_comparison_v1 {
 // Clarity2 adds supported comparable types ASCII, UTF8 and Buffer. These are only
 // accessed if the ClarityVersion, as read by the SpecialFunction, is >= 2.
 macro_rules! type_force_binary_comparison_v2 {
-    ($function: ident, $x: expr, $y: expr) => {{
-        match ($x, $y) {
+    ($function: ident, $x: expr, $y: expr, $e: expr) => {{
+        match ($x.as_ref(), $y.as_ref()) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
             (
@@ -119,7 +120,7 @@ macro_rules! type_force_binary_comparison_v2 {
                 Value::Sequence(SequenceData::Buffer(BuffData { data: x })),
                 Value::Sequence(SequenceData::Buffer(BuffData { data: y })),
             ) => BuffOps::$function(x, y),
-            (x, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
+            (_, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![
                     TypeSignature::IntType,
                     TypeSignature::UIntType,
@@ -127,7 +128,7 @@ macro_rules! type_force_binary_comparison_v2 {
                     TypeSignature::STRING_UTF8_MAX,
                     TypeSignature::BUFFER_MAX,
                 ],
-                Box::new(x),
+                $x.as_ref().to_error_string(),
             )
             .into()),
         }
@@ -141,7 +142,7 @@ macro_rules! type_force_unary_arithmetic {
             Value::UInt(x) => U128Ops::$function(x),
             x => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(x),
+                x.to_error_string(),
             )
             .into()),
         }
@@ -167,7 +168,7 @@ macro_rules! type_force_variadic_arithmetic {
                         Value::Int(value) => Ok(value),
                         _ => Err(RuntimeCheckErrorKind::TypeValueError(
                             Box::new(TypeSignature::IntType),
-                            Box::new(x.clone()),
+                            x.to_error_string(),
                         )),
                     })
                     .collect();
@@ -181,7 +182,7 @@ macro_rules! type_force_variadic_arithmetic {
                         Value::UInt(value) => Ok(value),
                         _ => Err(RuntimeCheckErrorKind::TypeValueError(
                             Box::new(TypeSignature::UIntType),
-                            Box::new(x.clone()),
+                            x.to_error_string(),
                         )),
                     })
                     .collect();
@@ -190,7 +191,7 @@ macro_rules! type_force_variadic_arithmetic {
             }
             _ => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(first.clone()),
+                first.to_error_string(),
             )
             .into()),
         }
@@ -202,16 +203,16 @@ macro_rules! type_force_variadic_arithmetic {
 macro_rules! make_comparison_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
-            fn greater(x: $type, y: $type) -> Result<Value, VmExecutionError> {
+            fn greater(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
                 Ok(Value::Bool(x > y))
             }
-            fn less(x: $type, y: $type) -> Result<Value, VmExecutionError> {
+            fn less(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
                 Ok(Value::Bool(x < y))
             }
-            fn leq(x: $type, y: $type) -> Result<Value, VmExecutionError> {
+            fn leq(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
                 Ok(Value::Bool(x <= y))
             }
-            fn geq(x: $type, y: $type) -> Result<Value, VmExecutionError> {
+            fn geq(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
                 Ok(Value::Bool(x >= y))
             }
         }
@@ -388,45 +389,48 @@ pub fn native_bitwise_not(a: Value) -> Result<Value, VmExecutionError> {
 // the clarity version.
 fn special_geq_v1(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Geq, env, args.len())?;
-    type_force_binary_comparison_v1!(geq, a, b)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(ClarityCostFunction::Geq, exec_state, args.len())?;
+    type_force_binary_comparison_v1!(geq, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 fn special_geq_v2(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
     runtime_cost(
         ClarityCostFunction::Geq,
-        env,
-        cmp::min(a.size()?, b.size()?),
+        exec_state,
+        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
     )?;
-    type_force_binary_comparison_v2!(geq, a, b)
+    type_force_binary_comparison_v2!(geq, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 pub fn special_geq(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        special_geq_v2(args, env, context)
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_geq_v2(args, exec_state, invoke_ctx, context)
     } else {
-        special_geq_v1(args, env, context)
+        special_geq_v1(args, exec_state, invoke_ctx, context)
     }
 }
 
@@ -435,45 +439,48 @@ pub fn special_geq(
 // 2.05 and earlier
 fn special_leq_v1(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Leq, env, args.len())?;
-    type_force_binary_comparison_v1!(leq, a, b)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(ClarityCostFunction::Leq, exec_state, args.len())?;
+    type_force_binary_comparison_v1!(leq, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 fn special_leq_v2(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
     runtime_cost(
         ClarityCostFunction::Leq,
-        env,
-        cmp::min(a.size()?, b.size()?),
+        exec_state,
+        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
     )?;
-    type_force_binary_comparison_v2!(leq, a, b)
+    type_force_binary_comparison_v2!(leq, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 pub fn special_leq(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        special_leq_v2(args, env, context)
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_leq_v2(args, exec_state, invoke_ctx, context)
     } else {
-        special_leq_v1(args, env, context)
+        special_leq_v1(args, exec_state, invoke_ctx, context)
     }
 }
 
@@ -481,41 +488,48 @@ pub fn special_leq(
 // the clarity version.
 fn special_greater_v1(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Ge, env, args.len())?;
-    type_force_binary_comparison_v1!(greater, a, b)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(ClarityCostFunction::Ge, exec_state, args.len())?;
+    type_force_binary_comparison_v1!(greater, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 fn special_greater_v2(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Ge, env, cmp::min(a.size()?, b.size()?))?;
-    type_force_binary_comparison_v2!(greater, a, b)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(
+        ClarityCostFunction::Ge,
+        exec_state,
+        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
+    )?;
+    type_force_binary_comparison_v2!(greater, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 pub fn special_greater(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        special_greater_v2(args, env, context)
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_greater_v2(args, exec_state, invoke_ctx, context)
     } else {
-        special_greater_v1(args, env, context)
+        special_greater_v1(args, exec_state, invoke_ctx, context)
     }
 }
 
@@ -523,41 +537,48 @@ pub fn special_greater(
 // the clarity version.
 fn special_less_v1(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Le, env, args.len())?;
-    type_force_binary_comparison_v1!(less, a, b)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(ClarityCostFunction::Le, exec_state, args.len())?;
+    type_force_binary_comparison_v1!(less, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 fn special_less_v2(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Le, env, cmp::min(a.size()?, b.size()?))?;
-    type_force_binary_comparison_v2!(less, a, b)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(
+        ClarityCostFunction::Le,
+        exec_state,
+        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
+    )?;
+    type_force_binary_comparison_v2!(less, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 pub fn special_less(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        special_less_v2(args, env, context)
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_less_v2(args, exec_state, invoke_ctx, context)
     } else {
-        special_less_v1(args, env, context)
+        special_less_v1(args, exec_state, invoke_ctx, context)
     }
 }
 
@@ -608,10 +629,11 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> Result<Value, VmEx
             .into()),
         }
     } else {
-        Err(
-            RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(pos))
-                .into(),
+        Err(RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            pos.to_error_string(),
         )
+        .into())
     }
 }
 
@@ -637,10 +659,11 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> Result<Value, VmE
             .into()),
         }
     } else {
-        Err(
-            RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(pos))
-                .into(),
+        Err(RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            pos.to_error_string(),
         )
+        .into())
     }
 }
 
@@ -651,7 +674,7 @@ pub fn native_to_uint(input: Value) -> Result<Value, VmExecutionError> {
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::IntType),
-            Box::new(input),
+            input.to_error_string(),
         )
         .into())
     }
@@ -664,7 +687,7 @@ pub fn native_to_int(input: Value) -> Result<Value, VmExecutionError> {
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(input),
+            input.to_error_string(),
         )
         .into())
     }

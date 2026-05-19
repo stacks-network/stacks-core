@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
-use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
+use clarity::vm::contexts::{AbortCallback, AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
@@ -117,6 +117,13 @@ pub struct ClarityBlockConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    /// Callback checked at every Clarity `eval` call. Used by the miner to
+    /// abort block assembly when a resource limit is exceeded (e.g. heap
+    /// memory). Propagated to each `ClarityTransactionConnection` and from
+    /// there into `GlobalContext`.
+    ///
+    /// `AbortCallback::None` is the no-op default.
+    abort_callback: AbortCallback,
 }
 
 ///
@@ -133,6 +140,7 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    abort_callback: AbortCallback,
 }
 
 /// Unified API common to all MARF stores
@@ -250,6 +258,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         mainnet: bool,
         chain_id: u32,
         epoch: StacksEpochId,
+        abort_callback: AbortCallback,
     ) -> ClarityTransactionConnection<'a, 'b> {
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
@@ -262,6 +271,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             mainnet,
             chain_id,
             epoch,
+            abort_callback,
         }
     }
 }
@@ -318,6 +328,7 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
             epoch,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -336,6 +347,11 @@ impl ClarityBlockConnection<'_, '_> {
             .expect("BUG: Clarity block connection lost cost tracker instance");
         self.cost_track.replace(tracker);
         old
+    }
+
+    /// Set an abort callback that will be checked at every Clarity `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.abort_callback = callback;
     }
 
     /// Get the current cost so far
@@ -444,6 +460,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -468,6 +485,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -494,6 +512,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         };
 
         let use_mainnet = self.mainnet;
@@ -590,6 +609,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         };
 
         let use_mainnet = self.mainnet;
@@ -698,6 +718,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -738,6 +759,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -1943,7 +1965,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch34;
             });
 
-            debug!("Epoch 3.4 initialized");
+            info!("Epoch 3.4 initialized");
             (old_cost_tracker, Ok(vec![]))
         })
     }
@@ -1957,6 +1979,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             self.mainnet,
             self.chain_id,
             self.epoch,
+            self.abort_callback.clone(),
         )
     }
 
@@ -2101,6 +2124,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     cost_track,
                     self.epoch,
                 );
+                vm_env.set_abort_callback(self.abort_callback.clone());
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()
@@ -2198,10 +2222,11 @@ impl ClarityTransactionConnection<'_, '_> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_in_env(sender.clone(), None, None, |env| {
-                        env.run_as_transaction(|env| {
+                    .execute_in_env(sender.clone(), None, None, |exec_state, invoke_ctx| {
+                        exec_state.run_as_transaction(invoke_ctx, |exec_state, invoke_ctx| {
                             StacksChainState::handle_poison_microblock(
-                                env,
+                                exec_state,
+                                invoke_ctx,
                                 mblock_header_1,
                                 mblock_header_2,
                             )
@@ -2312,6 +2337,7 @@ mod tests {
     use clarity::vm::database::{ClarityBackingStore, STXBalance, SqliteConnection};
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
     use clarity::vm::types::{StandardPrincipalData, TupleData, Value};
+    use clarity::vm::ClarityName;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
     use stacks_common::types::sqlite::NO_PARAMS;
@@ -3055,7 +3081,7 @@ mod tests {
             TransactionAuth::Standard(spending_cond.clone()),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: "hello-world".into(),
+                    name: ContractName::from_literal("hello-world"),
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
@@ -3067,7 +3093,7 @@ mod tests {
             TransactionAuth::Standard(spending_cond.clone()),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: "hello-world".into(),
+                    name: ContractName::from_literal("hello-world"),
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
@@ -3085,8 +3111,8 @@ mod tests {
             TransactionAuth::Standard(spending_cond),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: sender.clone(),
-                contract_name: "hello-world".into(),
-                function_name: "foo".into(),
+                contract_name: ContractName::from_literal("hello-world"),
+                function_name: ClarityName::from_literal("foo"),
                 function_args: vec![],
             }),
         );

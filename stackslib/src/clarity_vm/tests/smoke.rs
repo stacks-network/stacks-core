@@ -24,12 +24,12 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use crate::clarity_vm::database::marf::MarfedKV;
 
-pub fn with_marfed_environment<F>(f: F, top_level: bool)
+pub fn with_marfed_environment<F>(f: F, top_level: bool, epoch: Option<StacksEpochId>)
 where
     F: FnOnce(&mut OwnedEnvironment),
 {
     let mut marf_kv = MarfedKV::temporary();
-
+    let epoch = epoch.unwrap_or(StacksEpochId::latest());
     {
         let mut store = marf_kv.begin(
             &StacksBlockId::sentinel(),
@@ -50,7 +50,7 @@ where
 
         let mut owned_env = OwnedEnvironment::new(
             store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
-            StacksEpochId::latest(),
+            epoch,
         );
         // start an initial transaction.
         if !top_level {
@@ -84,5 +84,5 @@ fn test_at_unknown_block() {
         }
     }
 
-    with_marfed_environment(test, true);
+    with_marfed_environment(test, true, Some(StacksEpochId::Epoch33));
 }
