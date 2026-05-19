@@ -786,6 +786,7 @@ main() {
 
     # Clear display before starting
     tput reset || true
+    local start_epoch=$(date +%s)
     echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
     build_stacks_inspect
     configure_chainstate
@@ -794,7 +795,10 @@ main() {
     setup_tmux                       # configure tmux sessions (one window per worker)
     run_validation                   # dispatch validation according to ${VALIDATE}
     store_results                    # store aggregated results of validation
-    echo "Validation finished: ${COLYELLOW}$(date)${COLRESET}"
+    local end_epoch=$(date +%s)
+    local elapsed=$((end_epoch - start_epoch))
+    local duration=$(printf '%02d:%02d:%02d' $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60)))
+    echo "Validation finished: ${COLYELLOW}$(date)${COLRESET} (duration: ${COLYELLOW}${duration}${COLRESET})"
 }
 
 main "$@"
