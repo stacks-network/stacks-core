@@ -299,10 +299,10 @@ jobs:
     uses: ./.github/workflows/epoch-tests.yml
 
   ## Merge and upload code coverage report files once all tests are done
-  ##
-  ## Runs when:
-  ##   - always (unless workflow is cancelled OR either blockchain or core tests are skipped)
-  trigger-code-coverage-report:
+ ##
+ ## Runs when:
+ ##   - always (unless workflow is cancelled OR either blockchain or core tests are skipped)
+ trigger-code-coverage-report:
     if: always() && !cancelled() && !contains(needs.stacks-core-tests.result, 'skipped') && !contains(needs.bitcoin-tests.result, 'skipped')
     name: Merge & Upload Code Coverage Report
     runs-on: ubuntu-latest
@@ -314,7 +314,7 @@ jobs:
     env:
       REPORT_FILES_DIR: "code_coverage_files"
       REPORT_FILES_EXT: "info"
-      REPORT_MERGE_CHUNK_SIZE: 80
+      REPORT_MERGE_NUM_THREADS: 4
     steps:
       # Checkout the code (Coveralls requires source code to be available when action is called)
       - name: Checkout the latest code
@@ -350,7 +350,6 @@ jobs:
         run: |
           EXT="${{ env.REPORT_FILES_EXT }}"
           DIR="${{ env.REPORT_FILES_DIR }}"
-          CHUNK_SIZE=${{ env.REPORT_MERGE_CHUNK_SIZE }}
           INTERMEDIATE_FILES=()
     
           cd "$DIR" || exit 1
@@ -358,8 +357,17 @@ jobs:
           # 1. Collect all files into an array
           mapfile -d '' ALL_FILES < <(find . -type f -name "*.$EXT" -print0)
     
-          # 2. Process in chunks
+          # 2. Process in chunks (Dynamically calculated for 4 threads)
           TOTAL_FILES=${#ALL_FILES[@]}
+          CHUNK_SIZE=$(( (TOTAL_FILES + 3) / $REPORT_MERGE_NUM_THREADS ))
+
+          # Guardrail: Ensure CHUNK_SIZE is at least 1 to prevent infinite loops
+          if [ "$CHUNK_SIZE" -le 0 ]; then
+              CHUNK_SIZE=1
+          fi
+
+          echo "Total files to process: $TOTAL_FILES. Calculated chunk size for $REPORT_MERGE_NUM_THREADS threads: $CHUNK_SIZE"
+
           for (( i=0; i<TOTAL_FILES; i+=CHUNK_SIZE )); do
               # Slice the array for the current chunk
               CHUNK=("${ALL_FILES[@]:i:CHUNK_SIZE}")
