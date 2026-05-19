@@ -1,5 +1,5 @@
 #!/bin/bash
-set -o pipefail
+set -Eeuo pipefail
 
 #
 # ** Recommendations
@@ -10,22 +10,6 @@ set -o pipefail
 #   - Depending on how many CPU cores you have available, a full run will take several hours. More CPUs = faster execution time.
 #     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled paritition, full validation took ~14 hours.
 
-NETWORK="mainnet"                                 # network to validate
-REPO_DIR="$HOME/stacks-core"                      # where to build the source
-REMOTE_REPO="stacks-network/stacks-core"          # remote git repo to build stacks-inspect from
-SCRATCH_DIR="${HOME}/scratch"                     # root folder for the validation slices
-TIMESTAMP=$(date +%Y-%m-%d-%s)                    # use a simple date format year-month-day-epoch
-LOG_DIR="${HOME}/block-validation_${TIMESTAMP}"   # location of logfiles for the validation
-SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
-TMUX_SESSION="validation"                         # tmux session name to run the validation
-TERM_OUT=false                                    # terminal friendly output
-TESTING=false                                     # only run a validation on a few thousand blocks
-BRANCH="develop"                                  # default branch to build stacks-inspect from
-CORES=$(nproc)                                    # retrieve total number of CORES on the system
-RESERVED=8                                        # reserve this many CORES for other processes as default
-LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
-REFLINK=0                                         # assume reflink is not enabled by default
-
 # ANSI color codes for terminal output
 COLRED=$'\033[31m'    # Red
 COLGREEN=$'\033[32m'  # Green
@@ -34,18 +18,74 @@ COLCYAN=$'\033[36m'   # Cyan
 COLBOLD=$'\033[1m'    # Bold Text
 COLRESET=$'\033[0m'   # reset color/formatting
 
+set_default_config() {
+    WORK_DIR="${HOME}"                                # root folder used for block validation and related artifacts
+    BRANCH="develop"                                  # default branch to build stacks-inspect from
+    RESERVED=8                                        # reserve this many CORES for other processes as default
+    LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
+    NETWORK="mainnet"                                 # network to validate
+    TESTING=false                                     # only run a validation on a few thousand blocks
+    TERM_OUT=false                                    # terminal friendly output
+}
+
+apply_input_config() {
+    TIMESTAMP=$(date +%Y-%m-%d-%s)                    # use a simple date format year-month-day-epoch
+
+    if [ -z "${SCRATCH_DIR:-}" ]; then
+        SCRATCH_DIR="${WORK_DIR}/scratch"             # root folder for the validation slices
+    fi 
+    if [ -z "${LOG_DIR:-}" ]; then
+        LOG_DIR="${WORK_DIR}/logs_${TIMESTAMP}"       # location of logfiles for the validation
+    fi 
+   
+    # Internal configurations
+    REPO_DIR="${WORK_DIR}/stacks-core"                # where to build the source
+    SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
+    REMOTE_REPO="stacks-network/stacks-core"          # remote git repo to build stacks-inspect from
+    TMUX_SESSION="validation"                         # tmux session name to run the validation
+    CORES=$(nproc)                                    # retrieve total number of CORES on the system
+    REFLINK=0                                         # assume reflink is not enabled by default
+
+    # Need at least 1 worker slice; also prevents division-by-zero on slice_blocks
+    # and an invalid `xargs -P` value when wiping the scratch dir.
+    if [ "${RESERVED}" -ge "${CORES}" ]; then
+        echo "${COLRED}Error${COLRESET} RESERVED (${RESERVED}) must be less than detected CORES (${CORES})"
+        exit 1
+    fi
+}
+
+# Show usage and exit
+usage() {
+    echo
+    echo "Usage:"
+    echo "    ${COLBOLD}${0}${COLRESET}"
+    echo "        ${COLYELLOW}--testing${COLRESET}: only check a small number of blocks"
+    echo "        ${COLYELLOW}-t|--terminal${COLRESET}: more terminal friendly output"
+    echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
+    echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${HOME}/scratch)"
+    echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
+    echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
+    echo "        ${COLYELLOW}-l|--logdir${COLRESET}: set log directory (cleared if it already exists, default: ${WORK_DIR}/logs_TIMESTAMP)"
+    echo "        ${COLYELLOW}-r|--reserved${COLRESET}: how many cpu cores to reserve for system tasks"
+    echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts"
+    echo
+    echo "    ex: ${COLCYAN}${0} -t -c /data/stacks/mainnet ${COLRESET}"
+    echo
+    exit 0
+}
+
 # Verify that cargo is installed in the expected path, not only $PATH
 install_cargo() {
-    command -v "$HOME/.cargo/bin/cargo" >/dev/null 2>&1 || {
+    command -v "${HOME}/.cargo/bin/cargo" >/dev/null 2>&1 || {
         echo "Installing Rust via rustup"
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || {
             echo "${COLRED}Error${COLRESET} installing Rust"
             exit 1
         }
     }
-    echo "Exporting $HOME/.cargo/env"
+    echo "Exporting ${HOME}/.cargo/env"
     # shellcheck source=/dev/null
-    source "$HOME/.cargo/env"
+    source "${HOME}/.cargo/env"
     return 0
 }
 
@@ -56,7 +96,7 @@ build_stacks_inspect() {
         cd "${REPO_DIR}" && git fetch
         echo "Checking out ${BRANCH} and resetting to HEAD"
         # Git stash any local changes to prevent checking out $BRANCH
-        git stash
+        git stash --include-untracked
         (git checkout "${BRANCH}" && git reset --hard HEAD) || {
             echo "${COLRED}Error${COLRESET} checking out ${BRANCH}"
             exit 1
@@ -71,25 +111,59 @@ build_stacks_inspect() {
     git pull
     # Build stacks-inspect to: ${REPO_DIR}/target/release/stacks-inspect
     echo "Building stacks-inspect binary"
-    cd contrib/stacks-inspect && cargo build --bin=stacks-inspect --release || {
+    cd "${REPO_DIR}/contrib/stacks-inspect" && cargo build --bin=stacks-inspect --release || {
         echo "${COLRED}Error${COLRESET} building stacks-inspect binary"
         exit 1
     }
     echo "Done building. continuing"
 }
 
-# Create the slice dirs from an chainstate archive (symlinking marf.sqlite.blobs), 1 dir per CPU
-configure_validation_slices() {
-    # LOCAL_CHAINSTATE is defined, check if the disk for the chainstate folder has reflink enabled
+# Configure LOCAL_CHAINSTATE
+configure_chainstate() {
     if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
-        local LOCAL_CHAINSTATE_ROOT
-        LOCAL_CHAINSTATE_ROOT=$(dirname "$LOCAL_CHAINSTATE")
-        echo "${COLYELLOW}Using local chainstate. Overriding scratch dir to: ${LOCAL_CHAINSTATE_ROOT}/scratch${COLRESET}"
-        # reset SCRATCH_DIR and SLICE_DIR global variables
-        SCRATCH_DIR="${LOCAL_CHAINSTATE_ROOT}/scratch"
-        SLICE_DIR="${SCRATCH_DIR}/slice"
-    fi
+        if [ ! -d "${LOCAL_CHAINSTATE}" ]; then
+            echo "${COLRED}Error${COLRESET} Chainstate not found: ${LOCAL_CHAINSTATE}"
+            exit 1
+        fi
+        echo "${COLYELLOW}Using local chainstate: ${LOCAL_CHAINSTATE}"
+    else
+        LOCAL_CHAINSTATE="${WORK_DIR}/chain"
+        if [ -d "${LOCAL_CHAINSTATE}" ]; then
+            echo "Chainstate found will be reused: ${COLYELLOW}${LOCAL_CHAINSTATE}${COLRESET}"
+            return 0
+        fi
 
+        local download_dir="${WORK_DIR}/downloads"
+        local archive_path="${download_dir}/${NETWORK}-stacks-blockchain-latest.tar.zst"
+        
+        if [ -f "${archive_path}" ]; then
+            echo "Chainstate archive found will be reused: ${COLYELLOW}${archive_path}${COLRESET}"    
+        else     
+            mkdir -p "${download_dir}"
+            echo "Downloading latest ${NETWORK} chainstate archive ${COLYELLOW}https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst${COLRESET}"
+            local url="https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst"
+            aria2c -x 16 -s 16 -k 1M --summary-interval=0 -d "${download_dir}" "${url}"  || {
+            echo "${COLRED}Error${COLRESET} downloading latest ${NETWORK} chainstate archive"
+            exit 1
+            }
+        fi
+
+        # Extract downloaded archive
+        mkdir -p "${LOCAL_CHAINSTATE}"
+        echo "Extracting downloaded archive: ${COLYELLOW}${archive_path}${COLRESET}"
+        if [ ! -f "${archive_path}" ]; then
+            echo "${COLRED}Error${COLRESET} ${archive_path} not found"
+            exit 1
+        fi
+        tar --strip-components=1 --zstd -xvf "${archive_path}" -C "${LOCAL_CHAINSTATE}" || {
+            echo "${COLRED}Error${COLRESET} extracting ${NETWORK} chainstate archive"
+            exit 1
+        }
+    fi
+}
+
+# Create the slice dirs from a chainstate (1 per CPU)
+configure_validation_slices() {
     if [ -d "${SCRATCH_DIR}" ]; then
         echo "Deleting existing scratch dir contents: ${COLYELLOW}${SCRATCH_DIR}${COLRESET}"
         find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P $(( CORES - RESERVED )) -n 500 rm -rf || {
@@ -102,43 +176,21 @@ configure_validation_slices() {
         echo "${COLRED}Error${COLRESET} creating dir ${SLICE_DIR}0"
         exit 1
     }
-    if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
-        if [ ! -d "$LOCAL_CHAINSTATE" ]; then
-            echo "${COLRED}Error${COLRESET} Chainstate not found at ${LOCAL_CHAINSTATE}"
-            exit 1
-        fi
-        echo "Copying local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
-        cp -r --reflink=always "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0" 2>/dev/null && REFLINK=1 || cp -r "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0"
-    else
-       echo "Downloading latest ${NETWORK} chainstate archive ${COLYELLOW}https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst${COLRESET}"
-       ## curl had some random issues retrying the download when network issues arose. wget has resumed more consistently, so we'll use that for now, and leave the curl option commented
-       # curl -L --proto '=https' --tlsv1.2 https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst -o ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst || {
-       wget -O  "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst"  || {
-           echo "${COLRED}Error${COLRESET} downloading latest ${NETWORK} chainstate archive"
-           exit 1
-       }
-       # Extract downloaded archive
-       echo "Extracting downloaded archive: ${COLYELLOW}${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst${COLRESET}"
-       if [ ! -f "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" ]; then
-           echo "${COLRED}Error${COLRESET} ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst not found"
-           exit 1
-       fi
-       tar --strip-components=1 --zstd -xvf "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" -C "${SLICE_DIR}0" || {
-           echo "${COLRED}Error${COLRESET} extracting ${NETWORK} chainstate archive"
-           exit 1
-       }
-    fi
+
     # Check if reflink is enabled for the filesystem by copying a test file
     touch "${SCRATCH_DIR}/reflink_test"
     cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null && REFLINK=1 || echo "${COLYELLOW}Warning${COLRESET}: reflink is not enabled for this filesystem, chainstate copy will be slower"
     # Remove the test files, silently failing if the file(s) don't exist
     rm "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy"  2>/dev/null
-
+    
     # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
     if [[ ${REFLINK} -ne "1" ]]; then
+        echo "Copying local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
+        cp -r "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0"
+
         echo "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> ${COLYELLOW}${SCRATCH_DIR}/marf.sqlite.blobs${COLRESET}"
         mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/ || {
-            echo "${COLRED}Error${COLRESET} moving marg database"
+            echo "${COLRED}Error${COLRESET} moving marf database"
             exit 1
         }
         echo "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${COLYELLOW}${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs${COLRESET}"
@@ -146,7 +198,10 @@ configure_validation_slices() {
             echo "${COLRED}Error${COLRESET} creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
             exit 1
         }
-    fi
+    else 
+        echo "Copying (reflink) local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
+        cp -r --reflink=always "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0" 2>/dev/null
+    fi 
 
     # Sanity check that the chainstate db exists in slice0 before copying
     if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
@@ -156,12 +211,13 @@ configure_validation_slices() {
 
     # Create a copy of the linked db with <number of CORES><number of RESERVED CORES>
     #   - Decrement by 1 since we already have ${SLICE_DIR}0
+    local cp_args=(-r)
+    if [[ ${REFLINK} -eq 1 ]]; then
+        cp_args+=(--reflink=always)
+    fi
     for ((i=1;i<=$(( CORES - RESERVED - 1));i++)); do
         echo "Copying ${SLICE_DIR}0 -> ${COLYELLOW}${SLICE_DIR}${i}${COLRESET}"
-        if [[ ${REFLINK} -eq "1" ]]; then
-            local cp_arg="--reflink=always"
-        fi
-        cp -r "${cp_arg}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
+        cp "${cp_args[@]}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
             echo "${COLRED}Error${COLRESET} copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
             exit 1
         }
@@ -222,19 +278,24 @@ start_validation() {
             ${TESTING} && total_blocks=301883
             ${TESTING} && starting_block=300883
             ;;
-        *)
+        pre-nakamoto)
             # Epoch 2.X
-            echo "Mode: ${COLYELLOW}pre-nakamoto${COLRESET}"
+            echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
             log_append=""
             range_command="index-range"
             # Use these values if `--testing` arg is provided (only validate 1_000 blocks) Note:  2.5 epoch is at 153106
-            ${TESTING} && total_blocks=162200
+            # TODO: leftover to restore total_blocks=162200
+            ${TESTING} && total_blocks=161220
             ${TESTING} && starting_block=161200
             # Testnet Epoch 3.0 starts at block 320. Hardcode to the first 300 blocks
             if [ "${NETWORK}" == "testnet" ]; then
                 ${TESTING} && total_blocks=300
                 ${TESTING} && starting_block=1
             fi
+            ;;
+        *)
+            echo "Invalid Mode: ${COLRED}${mode}${COLRESET}"
+            exit 1
             ;;
     esac
     # Get the total number of blocks
@@ -314,9 +375,9 @@ check_progress() {
     done
     echo "************************************************************************"
     echo "Checking Block Validation status"
-    echo -e ' '
+    echo ' '
     while true; do
-        count=$(pgrep  -c "stacks-inspect")
+        count=$(pgrep -c "stacks-inspect" || true)
         if [ "${count}" -gt 0 ]; then
             ${TERM_OUT} && printf "Block validation processes are currently active [ %s%s%s%s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "${COLYELLOW}" "${COLBOLD}" "${count}" "${COLRESET}"
         else
@@ -326,7 +387,6 @@ check_progress() {
     done
     echo "************************************************************************"
 }
-
 
 # Store the results in an aggregated logfile and an html file
 store_results() {
@@ -355,7 +415,7 @@ store_results() {
             1)
                 # Block validation had some block failures
                 block_failure=1
-                ((count_one=count_one+1))
+                count_one=$((count_one + 1))
                 echo "$file return code: $return_code" >> "${results}" # ok to continue if this write fails
                 ;;
             *)
@@ -374,9 +434,11 @@ store_results() {
     # Use the $failed var here in case there is a panic, then $failure_count may show zero, but the validation was not successful
     if [ ${block_failure} != "0" ];then
         ## retrieve the count of all lines with `Failed processing block`
-        failure_count=$(grep -rc "Failed processing block" slice*.log | awk -F: '$NF >= 0 {x+=$NF; $NF=""} END{print x}')
-        output=$(grep -r -h "Failed processing block" slice*.log)
-        IFS=$'\n'
+        # grep exits 1 when no lines match; swallow it so pipefail+set -e
+        # don't abort before the no-match fallback below runs.
+        failure_count=$(grep -rc "Failed processing block" slice*.log | awk -F: '$NF >= 0 {x+=$NF; $NF=""} END{print x}' || true)
+        output=$(grep -r -h "Failed processing block" slice*.log || true)
+        local IFS=$'\n'
         if [ "${failure_count}" -gt 0 ]; then
             for line in ${output}; do
                 echo "${line}" >> "${results}" || {
@@ -392,158 +454,163 @@ store_results() {
     sed  -i "1i Failures: ${failure_count}" "${results}"
 }
 
-# Show usage and exit
-usage() {
-    echo
-    echo "Usage:"
-    echo "    ${COLBOLD}${0}${COLRESET}"
-    echo "        ${COLYELLOW}--testing${COLRESET}: only check a small number of blocks"
-    echo "        ${COLYELLOW}-t|--terminal${COLRESET}: more terminal friendly output"
-    echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
-    echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${HOME}/scratch)"
-    echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
-    echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
-    echo "        ${COLYELLOW}-l|--logdir${COLRESET}: use existing log directory"
-    echo "        ${COLYELLOW}-r|--reserved${COLRESET}: how many cpu cores to reserve for system tasks"
-    echo
-    echo "    ex: ${COLCYAN}${0} -t -c /data/stacks/mainnet ${COLRESET}"
-    echo
-    exit 0
+# Check and install missing dependencies
+check_dependencies() {
+    HAS_APT=1
+    HAS_SUDO=1
+    for cmd in apt-get sudo curl tmux git aria2 tar gzip grep cargo pgrep tput find; do
+        # In Alpine, `find` might be linked to `busybox` and won't work
+        if [ "${cmd}" == "find" ] && [ -L "${cmd}" ]; then
+            rp=
+            rp="$(readlink "$(command -v "${cmd}" || echo "NOTLINK")")"
+            if [ "${rp}" == "/bin/busybox" ]; then
+            echo "${COLRED}ERROR${COLRESET} Busybox 'find' is not supported. Please install 'findutils' or similar."
+            exit 1
+            fi
+        fi
+
+        command -v "${cmd}" >/dev/null 2>&1 || {
+            case "${cmd}" in
+                "apt-get")
+                    echo "${COLYELLOW}WARN${COLRESET} 'apt-get' not found; automatic package installation will fail"
+                    HAS_APT=0
+                    continue
+                    ;;
+                "sudo")
+                    echo "${COLYELLOW}WARN${COLRESET} 'sudo' not found; automatic package installation will fail"
+                    HAS_SUDO=0
+                    continue
+                    ;;
+                "cargo")
+                    install_cargo
+                    ;;
+                "pgrep")
+                    package="procps"
+                    ;;
+                *)
+                    package="${cmd}"
+                    ;;
+            esac
+
+            if [[ ${HAS_APT} = 0 ]] || [[ ${HAS_SUDO} = 0 ]]; then
+            echo "${COLRED}Error${COLRESET} Missing command '${cmd}'"
+            exit 1
+            fi
+            (sudo apt-get update && sudo apt-get install -y "${package}") || {
+                echo "${COLRED}Error${COLRESET} installing $package"
+                exit 1
+            }
+        }
+    done
 }
 
-
-# Install missing dependencies
-HAS_APT=1
-HAS_SUDO=1
-for cmd in apt-get sudo curl tmux git wget tar gzip grep cargo pgrep tput find; do
-    # In Alpine, `find` might be linked to `busybox` and won't work
-    if [ "${cmd}" == "find" ] && [ -L "${cmd}" ]; then
-        rp=
-        rp="$(readlink "$(command -v "${cmd}" || echo "NOTLINK")")"
-        if [ "${rp}" == "/bin/busybox" ]; then
-           echo "${COLRED}ERROR${COLRESET} Busybox 'find' is not supported. Please install 'findutils' or similar."
-           exit 1
-        fi
-    fi
-
-    command -v "${cmd}" >/dev/null 2>&1 || {
-        case "${cmd}" in
-            "apt-get")
-                echo "${COLYELLOW}WARN${COLRESET} 'apt-get' not found; automatic package installation will fail"
-                HAS_APT=0
-                continue
+# Parse cmd-line args
+parse_args() {
+    while [ ${#} -gt 0 ]; do
+        case ${1} in
+            --testing)
+                # Only validate a small subset blocks
+                TESTING=true
                 ;;
-            "sudo")
-                echo "${COLYELLOW}WARN${COLRESET} 'sudo' not found; automatic package installation will fail"
-                HAS_SUDO=0
-                continue
+            -s|--scratchdir)
+                # Filesystem location to store the chainstate slice data used by stacks-inspect
+                if [ "${2:-}" == "" ]; then
+                    echo "Missing required value for ${1}"
+                    exit 1
+                fi
+                SCRATCH_DIR="${2}"
                 ;;
-            "cargo")
-                install_cargo
+            -t|--terminal)
+                # Update terminal with progress (it's just printf to show in real-time that the validations are running)
+                TERM_OUT=true
                 ;;
-            "pgrep")
-                package="procps"
+            -n|--network)
+                # Required if not mainnet
+                if [ "${2:-}" == "" ]; then
+                    echo "Missing required value for ${1}"
+                    exit 1
+                fi
+                NETWORK=${2}
+                shift
                 ;;
-            *)
-                package="${cmd}"
+            -b|--branch)
+                # Build from a specific branch
+                if [ "${2:-}" == "" ]; then
+                    echo "Missing required value for ${1}"
+                    exit 1
+                fi
+                BRANCH=${2}
+                shift
+                ;;
+            -c|--chainstate)
+                # Use a local chainstate
+                if [ "${2:-}" == "" ]; then
+                    echo "Missing required value for ${1}"
+                    exit 1
+                fi
+                LOCAL_CHAINSTATE="${2}"
+                shift
+                ;;
+            -l|--logdir)
+                # Use a specified logdir
+                if [ "${2:-}" == "" ]; then
+                    echo "Missing required value for ${1}"
+                    exit 1
+                fi
+                LOG_DIR="${2}"
+                shift
+                ;;
+            -r|--reserved)
+                # Reserve this many cpus for the system
+                if [ "${2:-}" == "" ]; then
+                    echo "Missing required value for ${1}"
+                    exit 1
+                fi
+                if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                    echo "ERROR: arg ($2) is not a number." >&2
+                    exit 1
+                fi
+                RESERVED=${2}
+                shift
+                ;;
+            -w|--workdir)
+                # Use a specified workdir
+                if [ "${2:-}" == "" ]; then
+                    echo "Missing required value for ${1}"
+                    exit 1
+                fi
+                WORK_DIR="${2}"
+                shift
+                ;;
+            -h|--help|--usage)
+                # show usage/options and exit
+                usage
                 ;;
         esac
+        shift
+    done
+}
 
-        if [[ ${HAS_APT} = 0 ]] || [[ ${HAS_SUDO} = 0 ]]; then
-           echo "${COLRED}Error${COLRESET} Missing command '${cmd}'"
-           exit 1
-        fi
-        (sudo apt-get update && sudo apt-get install "${package}") || {
-            echo "${COLRED}Error${COLRESET} installing $package"
-            exit 1
-        }
-    }
-done
+main() {
+    # Env preparation
+    check_dependencies
+    set_default_config
+    parse_args "$@"
+    apply_input_config
 
+    # Clear display before starting
+    tput reset || true
+    echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
+    build_stacks_inspect
+    configure_chainstate
+    configure_validation_slices
+    setup_logs                       # configure logdir
+    setup_tmux                       # configure tmux sessions
+    start_validation pre-nakamoto    # validate Epoch 2 blocks 
+    start_validation nakamoto        # validate Epoch 3 blocks
+    store_results                    # store aggregated results of validation
+    echo "Validation finished: $(date)"
+}
 
-# Parse cmd-line args
-while [ ${#} -gt 0 ]; do
-    case ${1} in
-        --testing)
-            # Only validate a small subset blocks
-            TESTING=true
-            ;;
-        -s|--scratchdir)
-            # Filesytem location to store the chainstate slice data used by stacks-inspect
-            SCRATCH_DIR="${2}"
-            SLICE_DIR="${SCRATCH_DIR}/slice"
-            ;;
-        -t|--terminal)
-            # Update terminal with progress (it's just printf to show in real-time that the validations are running)
-            TERM_OUT=true
-            ;;
-        -n|--network)
-            # Required if not mainnet
-            if [ "${2}" == "" ]; then
-                echo "Missing required value for ${1}"
-                exit 1
-            fi
-            NETWORK=${2}
-            shift
-            ;;
-        -b|--branch)
-            # Build from aspecific branch
-            if [ "${2}" == "" ]; then
-                echo "Missing required value for ${1}"
-                exit 1
-            fi
-            BRANCH=${2}
-            shift
-            ;;
-        -c|--chainstate)
-            # uUse a local chainstate
-            if [ "${2}" == "" ]; then
-                echo "Missing required value for ${1}"
-                exit 1
-            fi
-            LOCAL_CHAINSTATE="${2}"
-            shift
-            ;;
-        -l|--logdir)
-            # Use a specified logdir
-            if [ "${2}" == "" ]; then
-                echo "Missing required value for ${1}"
-                exit 1
-            fi
-            LOG_DIR="${2}"
-            shift
-            ;;
-        -r|--reserved)
-            # Reserve this many cpus for the system
-            if [ "${2}" == "" ]; then
-                echo "Missing required value for ${1}"
-                exit 1
-            fi
-            if ! [[ "$2" =~ ^[0-9]+$ ]]; then
-                echo "ERROR: arg ($2) is not a number." >&2
-                exit 1
-            fi
-            RESERVED=${2}
-            shift
-            ;;
-        -h|--help|--usage)
-            # show usage/options and exit
-            usage
-            ;;
-    esac
-    shift
-done
-
-
-# Clear display before starting
-tput reset
-echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
-build_stacks_inspect        # comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
-configure_validation_slices # comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
-setup_logs                  # configure logdir
-setup_tmux                  # configure tmux sessions
-start_validation            # validate Epoch 2 blocks 
-start_validation nakamoto   # validate Epoch 3 blocks
-store_results               # store aggregated results of validation
-echo "Validation finished: $(date)"
-exit 0
+main "$@"
+exit $?
