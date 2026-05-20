@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 #
-# block-validation.sh — parallel re-validation of a stacks-core chainstate.
+# block-validation.sh — parallelizable block validation using stacks-inspect.
 #
 # Builds stacks-inspect from a configurable branch, prepares one chainstate copy
 # per worker core (reflink when supported, otherwise a full copy), 
@@ -53,7 +53,6 @@ set_default_config() {
     TRACK_BRANCH=1                             # 1: BRANCH tracking enabled; 0: use REPO_DIR as-is if set by flag.
     CORES=""                                   # cores to use for validation; resolved in apply_input_config
     VALIDATE="full"                            # what to validate: scenario or block range
-    TERM_OUT=false                             # terminal friendly output
 }
 
 # Derive configurations and resolved values from the user-supplied config
@@ -99,6 +98,14 @@ apply_input_config() {
     SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
     REMOTE_REPO="stacks-network/stacks-core"          # remote git repo to build stacks-inspect from
     TMUX_SESSION="validation"                         # tmux session name to run the validation
+
+    # Detect once whether stdout is attached to a terminal. Drives in-place
+    # progress output and the initial tput reset.
+    if [[ -t 1 ]]; then
+        IS_TTY=true
+    else
+        IS_TTY=false
+    fi
 }
 
 # Show usage and exit
@@ -107,23 +114,22 @@ usage() {
     echo "Usage:"
     echo "    ${COLBOLD}${0}${COLRESET}"
     echo "        ${COLYELLOW}-v|--validate <mode>${COLRESET}: what to validate (default: full)"
-    echo "            modes: ${COLCYAN}test${COLRESET} (both epochs, fixed test ranges)"
-    echo "                   ${COLCYAN}pre-nakamoto${COLRESET} (full Epoch 2)"
-    echo "                   ${COLCYAN}nakamoto${COLRESET} (full Epoch 3)"
-    echo "                   ${COLCYAN}full${COLRESET} (both epochs)"
-    echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch boundary)"
-    echo "        ${COLYELLOW}-t|--terminal${COLRESET}: more terminal friendly output"
+    echo "            modes: ${COLCYAN}test${COLRESET} (fixed test block ranges for pre-nakamoto and nakamoto)"
+    echo "                   ${COLCYAN}pre-nakamoto${COLRESET} (full Epoch 2 blocks)"
+    echo "                   ${COLCYAN}nakamoto${COLRESET} (full Epoch 3+ blocks)"
+    echo "                   ${COLCYAN}full${COLRESET} (pre-nakamoto + nakamoto blocks)"
+    echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch2/3 boundary)"
     echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
     echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${WORK_DIR}/scratch)"
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
-    echo "        ${COLYELLOW}-r|--repodir${COLRESET}: use an existing stacks-core checkout as-is (must exist; --branch is ignored). Default: ${WORK_DIR}/stacks-core (automatic checkout)"
-    echo "        ${COLYELLOW}-c|--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
+    echo "        ${COLYELLOW}-r|--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; branch flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
+    echo "        ${COLYELLOW}-c|--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
     echo "        ${COLYELLOW}-l|--logdir${COLRESET}: parent folder for run logs; a TIMESTAMP subdir is created per run (default: ${WORK_DIR}/logs)"
-    echo "        ${COLYELLOW}-p|--proc${COLRESET}: how many cpu cores to use for validation (default: max(1, nproc/4), capped at nproc)"
-    echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts"
+    echo "        ${COLYELLOW}-p|--proc${COLRESET}: how many cpu cores to use for validation cappet at nproc (default: max(1, nproc/4))"
+    echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME})"
     echo
-    echo "    ex: Full validation (Epoch 2 + 3) with chainstate automatically downloaded"
-    echo "        ${COLCYAN}${0} -t -w /data/workdir ${COLRESET}"
+    echo "    ex: Full block validation with chainstate automatically downloaded"
+    echo "        ${COLCYAN}${0} -w /data/workdir ${COLRESET}"
     echo
 }
 
@@ -586,7 +592,7 @@ check_progress() {
     local sp="/-\|"
     local count
     while [ $sleep_duration -gt 0 ]; do
-        ${TERM_OUT} && printf "Sleeping ...  \b [ %s%s%s ] \033[0K\r" "${COLYELLOW}" "${sleep_duration}" "${COLRESET}"
+        ${IS_TTY} && printf "Sleeping ...  \b [ %s%s%s ] \033[0K\r" "${COLYELLOW}" "${sleep_duration}" "${COLRESET}"
         sleep_duration=$((sleep_duration-1))
         sleep 1
     done
@@ -596,9 +602,9 @@ check_progress() {
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
         if [ "${count}" -gt 0 ]; then
-            ${TERM_OUT} && printf "Block validation processes are currently active [ %s%s%s%s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "${COLYELLOW}" "${COLBOLD}" "${count}" "${COLRESET}"
+            ${IS_TTY} && printf "Block validation processes are currently active [ %s%s%s%s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "${COLYELLOW}" "${COLBOLD}" "${count}" "${COLRESET}"
         else
-            ${TERM_OUT} && printf "\r\n"
+            ${IS_TTY} && printf "\r\n"
             break
         fi
         sleep 1
@@ -753,10 +759,6 @@ parse_args() {
                 fi
                 SCRATCH_DIR="${2}"
                 ;;
-            -t|--terminal)
-                # Update terminal with progress (it's just printf to show in real-time that the validations are running)
-                TERM_OUT=true
-                ;;
             -n|--network)
                 # Required if not mainnet
                 if [ "${2:-}" == "" ]; then
@@ -850,7 +852,7 @@ main() {
     check_dependencies
 
     # Validation execution
-    tput reset || true
+    ${IS_TTY} && tput reset
     local start_epoch=$(date +%s)
     echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
     build_stacks_inspect
