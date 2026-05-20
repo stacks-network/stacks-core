@@ -69,7 +69,7 @@ jobs:
     name: Bitcoin Binary
     needs: check-caches
     runs-on: ubuntu-latest
-    if: needs.check-caches.outputs.bitcoin-cache-hit == 'false'
+    if: needs.check-caches.outputs.bitcoin-cache-hit != 'true'
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -96,9 +96,9 @@ jobs:
     #   - If the cargo target cache (or the test-archive cache) is missing, then we'll need to rebuild the test archive and cache both the archive and cargo (required for code coverage).
     if: >-
       !cancelled() &&
-      (needs.check-caches.outputs.test-archive-cache-hit == 'false' || 
-       needs.check-caches.outputs.cargo-cache-hit == 'false' || 
-       needs.check-caches.outputs.cargo-no-local-cache-hit == 'false')
+      (needs.check-caches.outputs.test-archive-cache-hit != 'true' || 
+       needs.check-caches.outputs.cargo-cache-hit != 'true' || 
+       needs.check-caches.outputs.cargo-no-local-cache-hit != 'true')
     steps:
       # Checkout the code
       - name: Checkout the latest code

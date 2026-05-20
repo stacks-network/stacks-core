@@ -27,9 +27,9 @@ runs:
     # Setup rust toolchain
     - name: Setup Rust Toolchain
       if: |
-        steps.check-cargo-cache.outputs.cache-hit == 'false' ||
-        steps.check-cargo-no-local-cache.outputs.cache-hit == 'false' ||
-        steps.check-test-archive-cache.outputs.cache-hit == 'false'
+        steps.check-cargo-cache.outputs.cache-hit != 'true' ||
+        steps.check-cargo-no-local-cache.outputs.cache-hit != 'true' ||
+        steps.check-test-archive-cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/setup-rust-toolchain
       with:
         components: llvm-tools-preview
@@ -37,9 +37,9 @@ runs:
     #  Only install dependencies if cache miss (i.e. no existing data)
     - name: Install Dependencies
       if: |
-        steps.check-cargo-cache.outputs.cache-hit == 'false' ||
-        steps.check-cargo-no-local-cache.outputs.cache-hit == 'false' ||
-        steps.check-test-archive-cache.outputs.cache-hit == 'false'
+        steps.check-cargo-cache.outputs.cache-hit != 'true' ||
+        steps.check-cargo-no-local-cache.outputs.cache-hit != 'true' ||
+        steps.check-test-archive-cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/install-tool
       with:
         tool: nextest
@@ -47,9 +47,9 @@ runs:
     # Build the nextest archive (which also builds our cargo file structure for caching)
     - name: Build and Archive Tests
       if: |
-        steps.check-cargo-cache.outputs.cache-hit == 'false' ||
-        steps.check-cargo-no-local-cache.outputs.cache-hit == 'false' ||
-        steps.check-test-archive-cache.outputs.cache-hit == 'false'
+        steps.check-cargo-cache.outputs.cache-hit != 'true' ||
+        steps.check-cargo-no-local-cache.outputs.cache-hit != 'true' ||
+        steps.check-test-archive-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         export RUSTFLAGS="-C instrument-coverage" && \
@@ -63,9 +63,9 @@ runs:
     # Save the nextest archive to cache
     - name: Cache Test Archive
       if: |
-        steps.check-cargo-cache.outputs.cache-hit == 'false' ||
-        steps.check-cargo-no-local-cache.outputs.cache-hit == 'false' ||
-        steps.check-test-archive-cache.outputs.cache-hit == 'false'
+        steps.check-cargo-cache.outputs.cache-hit != 'true' ||
+        steps.check-cargo-no-local-cache.outputs.cache-hit != 'true' ||
+        steps.check-test-archive-cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/cache/test-archive
       with:
         action: save
@@ -73,9 +73,9 @@ runs:
     # Save the cargo cache (with local crates)
     - name: Cache Cargo (With Local Crates)
       if: |
-        steps.check-cargo-cache.outputs.cache-hit == 'false' ||
-        steps.check-cargo-no-local-cache.outputs.cache-hit == 'false' ||
-        steps.check-test-archive-cache.outputs.cache-hit == 'false'
+        steps.check-cargo-cache.outputs.cache-hit != 'true' ||
+        steps.check-cargo-no-local-cache.outputs.cache-hit != 'true' ||
+        steps.check-test-archive-cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/cache/cargo
       with:
         action: save
@@ -84,9 +84,9 @@ runs:
     # It's important that this happens last because local crate files are cleaned (deleted) during save
     - name: Cache Cargo (Without Local Crates)
       if: |
-        steps.check-cargo-cache.outputs.cache-hit == 'false' ||
-        steps.check-cargo-no-local-cache.outputs.cache-hit == 'false' ||
-        steps.check-test-archive-cache.outputs.cache-hit == 'false'
+        steps.check-cargo-cache.outputs.cache-hit != 'true' ||
+        steps.check-cargo-no-local-cache.outputs.cache-hit != 'true' ||
+        steps.check-test-archive-cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/cache/cargo-no-local
       with:
         action: save
