@@ -1153,4 +1153,62 @@ proptest! {
 
         prop_assert_eq!(Value::Bool(true), result);
     }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_ed25519_verify_rejects_malleable_scalar_overflow_signatures(
+        seed in any::<[u8; 32]>(),
+        message_bytes in vec(any::<u8>(), 0..MAX_VALUE_SIZE as usize)
+    ) {
+        let privk = Ed25519PrivateKey::from_seed(&seed);
+        let pubk = Ed25519PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes();
+
+        // 1. Generate a valid signature (64 bytes total: [0..32] is R, [32..64] is S)
+        let signature = privk.sign(&message_bytes).expect("ed25519 signing should succeed");
+        let mut tampered_signature_bytes = signature.to_bytes();
+
+        // 2. Extract the canonical scalar S value
+        let mut s_bytes = [0u8; 32];
+        s_bytes.copy_from_slice(&tampered_signature_bytes[32..64]);
+
+        // 3. Define the Ed25519 Curve Group Order L in Little-Endian format
+        let curve_order_l = [
+            0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+            0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+        ];
+
+        // 4. Compute S' = S + L.
+        // We use modular/overflowing math because if S + L >= 2^256, it wraps around.
+        // However, it will still yield a value greater than or equal to L, ensuring an overflow condition.
+        let mut carry = 0u16;
+        for i in 0..32 {
+            let sum = s_bytes[i] as u16 + curve_order_l[i] as u16 + carry;
+            s_bytes[i] = (sum & 0xFF) as u8;
+            carry = sum >> 8;
+        }
+
+        // 5. Inject the mutated, non-canonical S' scalar back into the signature byte array
+        tampered_signature_bytes[32..64].copy_from_slice(&s_bytes);
+
+        let program = format!(
+            "(ed25519-verify {} {} {})",
+            buff_literal(&message_bytes),
+            buff_literal(&tampered_signature_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
 }
