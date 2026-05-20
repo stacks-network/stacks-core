@@ -592,11 +592,10 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 ClarityCostFunction::GetBitcoinTxOutput,
                 &bitcoin::cost_input_get_bitcoin_tx_output,
             ),
-            Secp256k1Decompress => NativeFunction205(
+            Secp256k1Decompress => NativeFunction(
                 "native_secp256k1-decompress",
                 NativeHandle::SingleArg(&crypto::native_secp256k1_decompress),
                 ClarityCostFunction::Secp256k1decompress,
-                &|_| Ok(1035),
             ),
         };
         Some(callable)

@@ -684,6 +684,5 @@
 (define-read-only (cost_get_bitcoin_tx_output (n uint))
     (runtime (linear (bit-shift-right n u10) u125 u291)))
 
-
 (define-read-only (cost_secp256k1decompress (n uint))
     (runtime u1035))
