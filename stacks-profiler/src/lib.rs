@@ -24,8 +24,8 @@
 //! - **[`SpanId`]** — a static, callsite-unique identifier (name + source location).
 //! - **[`Tag`]** — an optional value that further distinguishes spans with the same `SpanId` (e.g.,
 //!   a transaction index).
-//! - **[`ProfileGuard`]** — an RAII guard returned by [`Profiler::begin_span`]. Dropping the guard
-//!   ends the span and records elapsed wall and CPU time.
+//! - **[`ProfileGuard`]** — an RAII guard returned by [`Profiler::begin_timed_span`]. Dropping the
+//!   guard ends the span and records elapsed wall and CPU time.
 //! - **[`ProfileStats`]** — the collected metrics tree, retrieved via [`Profiler::take_results`].
 //!
 //! ## Threading model
@@ -298,8 +298,8 @@ impl Profiler {
     /// Begin a **timed** span.  Wall and CPU clocks are read on entry; elapsed time is accumulated
     /// when the returned guard is dropped.
     #[doc(hidden)]
-    #[inline(always)]
-    pub fn begin_span(id: &'static SpanId, tag: Option<Tag>) -> ProfileGuard {
+    #[inline]
+    pub fn begin_timed_span(id: &'static SpanId, tag: Option<Tag>) -> ProfileGuard {
         let start_wall = Instant::now();
         let start_cpu_ns = crate::platform::thread_cpu_nanos();
 
@@ -316,7 +316,7 @@ impl Profiler {
         });
 
         ProfileGuard {
-            kind: GuardKind::Span,
+            kind: GuardKind::TimedSpan,
             _not_send: PhantomData,
         }
     }
@@ -324,8 +324,8 @@ impl Profiler {
     /// Begin a **count-only** span — preserves hierarchy and increments [`Node::entered_count`],
     /// but does **not** read clocks.
     #[doc(hidden)]
-    #[inline(always)]
-    pub fn begin_span_count_only(id: &'static SpanId, tag: Option<Tag>) -> ProfileGuard {
+    #[inline]
+    pub fn begin_count_only_span(id: &'static SpanId, tag: Option<Tag>) -> ProfileGuard {
         STATE.with(|cell| {
             let mut st = cell.borrow_mut();
             let node = st.resolve_node(id, tag);
@@ -336,7 +336,7 @@ impl Profiler {
         });
 
         ProfileGuard {
-            kind: GuardKind::Span,
+            kind: GuardKind::CountOnlySpan,
             _not_send: PhantomData,
         }
     }
@@ -354,37 +354,84 @@ impl Profiler {
         }
     }
 
+    /// Ends a timed span, updating the node's cumulative wall and CPU time with the elapsed
+    /// duration.
+    ///
+    /// ## Design Notes
+    ///
+    /// * Clock-probe placement is intentionally asymmetric with `begin_timed_span`: begin reads
+    ///   clocks before entering the TLS borrow, while end reads them inside the borrow. This causes
+    ///   each child span to absorb more of its own begin/end bookkeeping overhead instead of
+    ///   shifting that overhead into the parent's derived self-time, where it would scale with the
+    ///   number of child spans.
+    /// * Tracking exclusive self-time directly inside the profiler would remove this trade-off, but
+    ///   it would require additional clock probes or bookkeeping on every span. This implementation
+    ///   keeps the hot path smaller and leaves self-time derivation to downstream tooling.
+    /// * Duration arithmetic is done online when the span ends. Because entries for the same
+    ///   `(SpanId, Tag)` at the same call-tree path aggregate into one node, storing raw timings
+    ///   would require per-sampled-entry storage, making memory usage (and allocator work) scale
+    ///   with sampled entries rather than unique profile nodes.
     #[inline]
     #[doc(hidden)]
-    pub fn end_span() {
+    pub fn end_timed_span() {
         STATE.with(|cell| {
             let mut st = cell.borrow_mut();
             let Some(frame) = st.stack.pop() else {
                 return;
             };
 
+            let ActiveKind::Timed {
+                start_wall,
+                start_cpu_ns,
+            } = frame.kind
+            else {
+                // Timed frames carry the start clocks needed to finish timing. A mismatch means
+                // guards were dropped out of LIFO order or mixed incorrectly.
+                //
+                // * Debug-only: panic to catch instrumentation bugs early.
+                // * Release fallback: do nothing because non-timed frames do not carry the start
+                //   clocks needed to record elapsed time.
+                debug_assert!(false, "timed guard ended an incompatible span");
+                return;
+            };
+
+            // Intentionally resolved prior to reading end clocks so that the cost is captured in
+            // this span's wall_ns instead of leaking into the parent's derived self-time.
             let node = st.node_mut(frame.node);
 
-            match frame.kind {
-                ActiveKind::Timed {
-                    start_wall,
-                    start_cpu_ns,
-                } => {
-                    let end_wall = Instant::now();
-                    let end_cpu_ns = crate::platform::thread_cpu_nanos();
+            let end_wall = Instant::now();
+            let end_cpu_ns = crate::platform::thread_cpu_nanos();
 
-                    let wall_ns = end_wall.duration_since(start_wall).as_nanos() as u64;
-                    let cpu_ns = end_cpu_ns.saturating_sub(start_cpu_ns);
+            let wall_ns = end_wall.duration_since(start_wall).as_nanos() as u64;
+            let cpu_ns = end_cpu_ns.saturating_sub(start_cpu_ns);
 
-                    node.wall_time_ns += wall_ns;
-                    node.cpu_time_ns += cpu_ns;
-                    node.entered_count += 1;
-                    node.sampled_count += 1;
-                }
-                ActiveKind::CountOnly => {
-                    node.entered_count += 1;
-                }
-            }
+            node.wall_time_ns += wall_ns;
+            node.cpu_time_ns += cpu_ns;
+            node.entered_count += 1;
+            node.sampled_count += 1;
+        });
+    }
+
+    /// Ends a count-only span, incrementing its entered count without reading clocks.
+    #[inline]
+    #[doc(hidden)]
+    pub fn end_count_only_span() {
+        STATE.with(|cell| {
+            let mut st = cell.borrow_mut();
+            let Some(frame) = st.stack.pop() else {
+                return;
+            };
+
+            // Count-only frames do not carry clocks, but for symmetry with `end_timed_span` we
+            // still require them to be ended by a matching guard. On mismatch, debug builds panic
+            // and release builds return without mutating the wrong node.
+            let ActiveKind::CountOnly = frame.kind else {
+                debug_assert!(false, "count-only guard ended an incompatible span");
+                return;
+            };
+
+            let node = st.node_mut(frame.node);
+            node.entered_count += 1;
         });
     }
 
@@ -487,10 +534,12 @@ impl Profiler {
     }
 }
 
-/// Discriminates the two kinds of RAII guard for [`Drop`] dispatch.
+/// Discriminates the RAII guard variants for [`Drop`] dispatch.
 enum GuardKind {
-    /// Timed or count-only — calls [`Profiler::end_span()`] on drop.
-    Span,
+    /// Timed span — ends timing and records elapsed wall/CPU time.
+    TimedSpan,
+    /// Count-only span — updates counts without reading clocks.
+    CountOnlySpan,
     /// Suppression region — calls [`Profiler::end_suppression()`] on drop.
     Suppression,
 }
@@ -517,7 +566,8 @@ impl Drop for ProfileGuard {
     #[inline]
     fn drop(&mut self) {
         match self.kind {
-            GuardKind::Span => Profiler::end_span(),
+            GuardKind::TimedSpan => Profiler::end_timed_span(),
+            GuardKind::CountOnlySpan => Profiler::end_count_only_span(),
             GuardKind::Suppression => Profiler::end_suppression(),
         }
     }

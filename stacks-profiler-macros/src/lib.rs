@@ -108,7 +108,7 @@ fn unsampled_guard_expr(mode: UnsampledBehavior) -> TokenStream2 {
             quote! { Some(stacks_profiler::Profiler::begin_suppression()) }
         }
         UnsampledBehavior::CountOnly => {
-            quote! { Some(stacks_profiler::Profiler::begin_span_count_only(__profiler_span_id, None)) }
+            quote! { Some(stacks_profiler::Profiler::begin_count_only_span(__profiler_span_id, None)) }
         }
     }
 }
@@ -120,7 +120,7 @@ fn build_guard_creation(sample_rate: Option<usize>, mode: UnsampledBehavior) -> 
             if stacks_profiler::Profiler::is_suppressed() {
                 None
             } else {
-                Some(stacks_profiler::Profiler::begin_span(__profiler_span_id, None))
+                Some(stacks_profiler::Profiler::begin_timed_span(__profiler_span_id, None))
             };
     };
 
@@ -155,7 +155,7 @@ fn build_guard_creation(sample_rate: Option<usize>, mode: UnsampledBehavior) -> 
                 let __should_sample = #should_sample;
 
                 if __should_sample {
-                    Some(stacks_profiler::Profiler::begin_span(__profiler_span_id, None))
+                    Some(stacks_profiler::Profiler::begin_timed_span(__profiler_span_id, None))
                 } else {
                     #unsampled
                 }

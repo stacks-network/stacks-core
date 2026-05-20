@@ -37,19 +37,19 @@ impl From<i64> for RecordValue {
     }
 }
 impl From<&str> for RecordValue {
-    #[inline(always)]
+    #[inline]
     fn from(v: &str) -> Self {
         RecordValue::Str(v.into())
     }
 }
 impl From<String> for RecordValue {
-    #[inline(always)]
+    #[inline]
     fn from(v: String) -> Self {
         RecordValue::Str(v.into_boxed_str())
     }
 }
 impl From<&[u8]> for RecordValue {
-    #[inline(always)]
+    #[inline]
     fn from(v: &[u8]) -> Self {
         RecordValue::Bytes(v.into())
     }
@@ -141,7 +141,7 @@ impl From<&'static str> for Tag {
 }
 
 impl From<String> for Tag {
-    #[inline(always)]
+    #[inline]
     fn from(v: String) -> Self {
         Tag::Str(crate::intern_tag_str(v))
     }

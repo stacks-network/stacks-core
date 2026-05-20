@@ -95,7 +95,7 @@ impl ThreadState {
     }
 
     /// Append a fresh zero-initialised node to the arena and return its id.
-    #[inline(always)]
+    #[inline]
     pub fn alloc_node(&mut self, id: &'static SpanId, tag: Option<Tag>) -> NodeId {
         let idx = self.nodes.len();
         self.nodes.push(Node {
@@ -184,7 +184,7 @@ impl ThreadState {
 
     /// Resolve (find-or-create) the node for a span, either as a root or as a child of the current
     /// parent.
-    #[inline(always)]
+    #[inline]
     pub fn resolve_node(&mut self, id: &'static SpanId, tag: Option<Tag>) -> NodeId {
         match self.current_parent() {
             None => self.find_or_create_root(id, tag),

@@ -155,7 +155,7 @@ macro_rules! span {
     }};
 
     (@begin $id:expr, $tag_opt:expr) => {{
-        Some($crate::Profiler::begin_span($id, $tag_opt))
+        Some($crate::Profiler::begin_timed_span($id, $tag_opt))
     }};
 
     (@should_sample $counter:ident, $rate:literal) => {{
@@ -190,7 +190,7 @@ macro_rules! span {
             if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
                 $crate::span!(@begin __id, Some(__tag))
             } else {
-                Some($crate::Profiler::begin_span_count_only(__id, Some(__tag)))
+                Some($crate::Profiler::begin_count_only_span(__id, Some(__tag)))
             }
         }
     }};
@@ -209,7 +209,7 @@ macro_rules! span {
             if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
                 $crate::span!(@begin __id, None)
             } else {
-                Some($crate::Profiler::begin_span_count_only(__id, None))
+                Some($crate::Profiler::begin_count_only_span(__id, None))
             }
         }
     }};

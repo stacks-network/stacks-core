@@ -41,12 +41,12 @@ fn bench_overhead(c: &mut Criterion) {
 
         // Warm up OnceLock / TLS by doing one span outside measurement
         {
-            let _guard = Profiler::begin_span(id, None);
+            let _guard = Profiler::begin_timed_span(id, None);
             black_box(());
         }
 
         b.iter(|| {
-            let _guard = Profiler::begin_span(id, None);
+            let _guard = Profiler::begin_timed_span(id, None);
             black_box(());
         });
         Profiler::clear();
@@ -59,12 +59,12 @@ fn bench_overhead(c: &mut Criterion) {
 
         // Warm up OnceLock / TLS by doing one span outside measurement
         {
-            let _guard = Profiler::begin_span(id, None);
+            let _guard = Profiler::begin_timed_span(id, None);
             black_box(());
         }
 
         b.iter(|| {
-            let _guard = Profiler::begin_span(id, Some(12345u64.into()));
+            let _guard = Profiler::begin_timed_span(id, Some(12345u64.into()));
             black_box(());
         });
         Profiler::clear();
@@ -85,12 +85,12 @@ fn bench_overhead(c: &mut Criterion) {
 
         // Pre-intern once (warm hit for tag)
         let tag = "contract::call::foo".to_string();
-        let _warm = Profiler::begin_span(id, Some(tag.clone().into()));
+        let _warm = Profiler::begin_timed_span(id, Some(tag.clone().into()));
         drop(_warm);
 
         b.iter(|| {
             // Same string content each time -> interner hit
-            let _guard = Profiler::begin_span(id, Some(tag.clone().into()));
+            let _guard = Profiler::begin_timed_span(id, Some(tag.clone().into()));
             black_box(());
         });
         Profiler::clear();
@@ -105,7 +105,7 @@ fn bench_overhead(c: &mut Criterion) {
             counter += 1;
             // Unique content each time -> interner miss
             let tag = make_unique_tag(counter);
-            let _guard = Profiler::begin_span(id, Some(tag.into()));
+            let _guard = Profiler::begin_timed_span(id, Some(tag.into()));
             black_box(());
         });
         Profiler::clear();
