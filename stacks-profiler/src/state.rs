@@ -98,6 +98,8 @@ impl ThreadState {
     #[inline]
     pub fn alloc_node(&mut self, id: &'static SpanId, tag: Option<Tag>) -> NodeId {
         let idx = self.nodes.len();
+        let node_id =
+            NodeId::try_from(idx).expect("profile node arena exceeded NodeId address space");
         self.nodes.push(Node {
             id,
             tag,
@@ -110,7 +112,7 @@ impl ThreadState {
             records: Vec::with_capacity(4),
             counters: Vec::with_capacity(4),
         });
-        idx as NodeId
+        node_id
     }
 
     /// Shared reference to a node by arena index.
