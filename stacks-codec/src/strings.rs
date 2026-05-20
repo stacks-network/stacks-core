@@ -142,3 +142,56 @@ impl StacksString {
         String::from_utf8(self.0.clone()).unwrap()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Roundtrip + truncation check for the printable-ASCII string codec.
+    /// Duplicated locally so the strings tests don't depend on
+    /// `stacks-codec::transaction::tests`.
+    fn check_codec_and_corruption<T: StacksMessageCodec + std::fmt::Debug + Clone + PartialEq>(
+        obj: &T,
+        bytes: &[u8],
+    ) {
+        let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
+        obj.consensus_serialize(&mut write_buf).unwrap();
+        assert_eq!(write_buf, *bytes);
+        let decoded = T::consensus_deserialize(&mut &write_buf[..]).unwrap();
+        assert_eq!(decoded, *obj);
+    }
+
+    #[test]
+    fn stacks_strings_codec() {
+        let s = "hello-world";
+        let stacks_str = StacksString::from_str(s).unwrap();
+        let clarity_str = ClarityName::try_from(s).unwrap();
+        let contract_str = ContractName::try_from(s).unwrap();
+
+        assert_eq!(&stacks_str[..], s.as_bytes());
+        assert_eq!(stacks_str.to_string(), s);
+
+        // stacks strings have a 4-byte BE length prefix
+        let mut bytes = vec![0x00, 0x00, 0x00, s.len() as u8];
+        bytes.extend_from_slice(s.as_bytes());
+        check_codec_and_corruption::<StacksString>(&stacks_str, &bytes);
+
+        // clarity names and contract names have a 1-byte length prefix
+        let mut clarity_bytes = vec![s.len() as u8];
+        clarity_bytes.extend_from_slice(clarity_str.as_bytes());
+        check_codec_and_corruption::<ClarityName>(&clarity_str, &clarity_bytes);
+
+        let mut contract_bytes = vec![s.len() as u8];
+        contract_bytes.extend_from_slice(contract_str.as_bytes());
+        check_codec_and_corruption::<ContractName>(&contract_str, &contract_bytes);
+    }
+
+    #[test]
+    fn stacks_string_rejects_non_printable() {
+        assert!(StacksString::from_str("hello\rworld").is_none());
+        assert!(StacksString::from_str("hello\x01world").is_none());
+        assert!(StacksString::from_str("hello\x7fworld").is_none());
+        assert!(StacksString::from_str("héllo").is_none()); // non-ASCII
+    }
+
+}

@@ -3304,3 +3304,798 @@ impl StacksTransaction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use rstest::rstest;
+    use stacks_common::codec::{read_next, write_next};
+    use stacks_common::types::chainstate::BlockHeaderHash;
+    use stacks_common::util::hash::hex_bytes;
+
+    use super::*;
+
+    // `BlockHeaderHash::sentinel()` would work too, but using a const named after
+    // its semantic purpose makes the test vectors easier to read.
+    const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
+
+    // -- Test-only helpers -------------------------------------------------
+
+    /// Codec helper for `ClarityVersion`. `ClarityVersion` does not implement
+    /// `StacksMessageCodec` directly (it has multiple wire forms depending on
+    /// where it is embedded), so the tests roll their own.
+    #[allow(non_snake_case)]
+    fn ClarityVersion_consensus_serialize<W: Write>(
+        version: &ClarityVersion,
+        fd: &mut W,
+    ) -> Result<(), codec_error> {
+        match *version {
+            ClarityVersion::Clarity1 => write_next(fd, &1u8)?,
+            ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
+            ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
+            ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
+            ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
+        }
+        Ok(())
+    }
+
+    #[allow(non_snake_case)]
+    fn ClarityVersion_consensus_deserialize<R: Read>(
+        fd: &mut R,
+    ) -> Result<ClarityVersion, codec_error> {
+        let version_byte: u8 = read_next(fd)?;
+        match version_byte {
+            1u8 => Ok(ClarityVersion::Clarity1),
+            2u8 => Ok(ClarityVersion::Clarity2),
+            3u8 => Ok(ClarityVersion::Clarity3),
+            4u8 => Ok(ClarityVersion::Clarity4),
+            5u8 => Ok(ClarityVersion::Clarity5),
+            _ => Err(codec_error::DeserializeError(format!(
+                "Unrecognized ClarityVersion byte {}",
+                &version_byte
+            ))),
+        }
+    }
+
+    /// Roundtrip + truncation check. Local copy of
+    /// `stackslib::net::codec::test::check_codec_and_corruption` so this crate's
+    /// tests don't reach back into `stackslib`.
+    fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
+        obj: &T,
+        bytes: &[u8],
+    ) {
+        let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
+        obj.consensus_serialize(&mut write_buf).unwrap();
+        assert_eq!(write_buf, *bytes);
+
+        let read_buf: Vec<u8> = write_buf.clone();
+        match T::consensus_deserialize(&mut &read_buf[..]) {
+            Ok(out) => assert_eq!(out, *obj),
+            Err(e) => panic!("Failed to parse {obj:?} from {bytes:?}: {e:?}"),
+        }
+
+        if !write_buf.is_empty() {
+            let mut short_buf = write_buf.clone();
+            let short_len = short_buf.len() - 1;
+            short_buf.truncate(short_len);
+
+            match T::consensus_deserialize(&mut &short_buf[..]) {
+                Ok(_) => {
+                    // Some encodings legitimately admit shorter forms; not a failure.
+                }
+                Err(codec_error::ReadError(io_error)) => {
+                    assert_eq!(io_error.kind(), std::io::ErrorKind::UnexpectedEof);
+                }
+                Err(_) => {
+                    // Other deserialize errors are also acceptable for truncated input.
+                }
+            }
+        }
+    }
+
+    // -- Constructors used by multiple tests -------------------------------
+
+    fn create_token_transfer_bytes(
+        addr: &PrincipalData,
+        amount: u64,
+        memo: &TokenTransferMemo,
+    ) -> Vec<u8> {
+        let mut bytes = vec![TransactionPayloadID::TokenTransfer as u8];
+        addr.consensus_serialize(&mut bytes).unwrap();
+        bytes.extend_from_slice(&amount.to_be_bytes());
+        bytes.extend_from_slice(&memo.0);
+        bytes
+    }
+
+    fn sample_contract_call() -> TransactionContractCall {
+        TransactionContractCall {
+            address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
+            contract_name: ContractName::try_from("hello-contract-name").unwrap(),
+            function_name: ClarityName::try_from("hello-function-name").unwrap(),
+            function_args: vec![Value::Int(0)],
+        }
+    }
+
+    fn sample_smart_contract() -> TransactionSmartContract {
+        TransactionSmartContract {
+            name: ContractName::try_from("hello-contract-name").unwrap(),
+            code_body: StacksString::from_str("hello contract code body").unwrap(),
+        }
+    }
+
+    fn serialize_contract_call(contract_call: &TransactionContractCall) -> Vec<u8> {
+        let mut bytes = vec![];
+        contract_call
+            .address
+            .consensus_serialize(&mut bytes)
+            .unwrap();
+        contract_call
+            .contract_name
+            .consensus_serialize(&mut bytes)
+            .unwrap();
+        contract_call
+            .function_name
+            .consensus_serialize(&mut bytes)
+            .unwrap();
+        contract_call
+            .function_args
+            .consensus_serialize(&mut bytes)
+            .unwrap();
+        bytes
+    }
+
+    fn serialize_smart_contract(smart_contract: &TransactionSmartContract) -> Vec<u8> {
+        let mut bytes = vec![];
+        smart_contract.name.consensus_serialize(&mut bytes).unwrap();
+        smart_contract
+            .code_body
+            .consensus_serialize(&mut bytes)
+            .unwrap();
+        bytes
+    }
+
+    fn serialize_versioned_smart_contract(
+        smart_contract: &TransactionSmartContract,
+        version: &ClarityVersion,
+    ) -> Vec<u8> {
+        let mut bytes = vec![];
+        ClarityVersion_consensus_serialize(version, &mut bytes).unwrap();
+        smart_contract.name.consensus_serialize(&mut bytes).unwrap();
+        smart_contract
+            .code_body
+            .consensus_serialize(&mut bytes)
+            .unwrap();
+        bytes
+    }
+
+    fn create_transaction_payload_bytes(
+        payload_id: TransactionPayloadID,
+        mut payload_bytes: Vec<u8>,
+    ) -> Vec<u8> {
+        let mut bytes = vec![payload_id as u8];
+        bytes.append(&mut payload_bytes);
+        bytes
+    }
+
+    // -- TransactionPayload codec tests (moved from stackslib) -------------
+
+    #[rstest]
+    #[case::standard_address(
+        PrincipalData::from(StacksAddress::new(1, Hash160([0xff; 20])).unwrap())
+    )]
+    #[case::contract_address(
+        PrincipalData::from(QualifiedContractIdentifier {
+            issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
+            name: ContractName::from_literal("foo-contract"),
+        })
+    )]
+    fn test_transaction_payload_token_transfer(#[case] addr: PrincipalData) {
+        let memo = TokenTransferMemo([1u8; 34]);
+        let amount = 123u64;
+        let payload = TransactionPayload::TokenTransfer(addr.clone(), amount, memo.clone());
+        let expected_bytes = create_token_transfer_bytes(&addr, amount, &memo);
+        check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
+    }
+
+    #[rstest]
+    #[case(ClarityVersion::Clarity1)]
+    #[case(ClarityVersion::Clarity2)]
+    #[case(ClarityVersion::Clarity3)]
+    #[case(ClarityVersion::Clarity4)]
+    #[case(ClarityVersion::Clarity5)]
+    fn clarity_version_codec_is_consistent(#[case] version: ClarityVersion) {
+        let mut buf = vec![];
+        ClarityVersion_consensus_serialize(&version, &mut buf).unwrap();
+        let mut cursor = Cursor::new(&buf);
+        let decoded = ClarityVersion_consensus_deserialize(&mut cursor).unwrap();
+        assert_eq!(version, decoded, "Roundtrip mismatch for {version:?}");
+    }
+
+    #[test]
+    fn test_transaction_contract_call_codec() {
+        let contract_call = sample_contract_call();
+        let expected_bytes = serialize_contract_call(&contract_call);
+        check_codec_and_corruption::<TransactionContractCall>(&contract_call, &expected_bytes);
+    }
+
+    #[test]
+    fn test_transaction_smart_contract_codec() {
+        let smart_contract = sample_smart_contract();
+        let expected_bytes = serialize_smart_contract(&smart_contract);
+        check_codec_and_corruption::<TransactionSmartContract>(&smart_contract, &expected_bytes);
+    }
+
+    #[rstest]
+    #[case(ClarityVersion::Clarity1)]
+    #[case(ClarityVersion::Clarity2)]
+    #[case(ClarityVersion::Clarity3)]
+    #[case(ClarityVersion::Clarity4)]
+    #[case(ClarityVersion::Clarity5)]
+    fn test_transaction_payload_versioned_contracts_codec(#[case] version: ClarityVersion) {
+        let payload = TransactionPayload::SmartContract(sample_smart_contract(), Some(version));
+        let expected_bytes = create_transaction_payload_bytes(
+            TransactionPayloadID::VersionedSmartContract,
+            serialize_versioned_smart_contract(&sample_smart_contract(), &version),
+        );
+        check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_coinbase() {
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None);
+        let mut coinbase_payload_bytes = vec![TransactionPayloadID::Coinbase as u8];
+        coinbase_payload_bytes.extend_from_slice(&[0x12u8; 32]);
+        check_codec_and_corruption::<TransactionPayload>(
+            &coinbase_payload,
+            &coinbase_payload_bytes,
+        );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_nakamoto_coinbase() {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
+
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof));
+
+        let mut coinbase_bytes = vec![TransactionPayloadID::NakamotoCoinbase as u8];
+        coinbase_bytes.extend_from_slice(&[0x12u8; 32]);
+        coinbase_bytes.push(0x09); // Value::none
+        coinbase_bytes.extend_from_slice(&proof_bytes);
+
+        check_codec_and_corruption(&coinbase_payload, &coinbase_bytes);
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_nakamoto_coinbase_alt_recipient() {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
+
+        let recipient = PrincipalData::from(QualifiedContractIdentifier {
+            issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
+            name: ContractName::from_literal("foo-contract"),
+        });
+
+        let coinbase_payload = TransactionPayload::Coinbase(
+            CoinbasePayload([0x12; 32]),
+            Some(recipient),
+            Some(proof),
+        );
+
+        let mut coinbase_bytes = vec![TransactionPayloadID::NakamotoCoinbase as u8];
+        coinbase_bytes.extend_from_slice(&[0x12u8; 32]);
+        // Some(..)
+        coinbase_bytes.push(0x0a);
+        // contract principal type
+        coinbase_bytes.push(0x06);
+        // address: version 1 + 20 bytes of 0xff
+        coinbase_bytes.push(0x01);
+        coinbase_bytes.extend_from_slice(&[0xffu8; 20]);
+        // name: "foo-contract" (length 12)
+        coinbase_bytes.push(0x0c);
+        coinbase_bytes.extend_from_slice(b"foo-contract");
+        // proof
+        coinbase_bytes.extend_from_slice(&proof_bytes);
+
+        check_codec_and_corruption(&coinbase_payload, &coinbase_bytes);
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_microblock_poison() {
+        let header_1 = StacksMicroblockHeader {
+            version: 0x12,
+            sequence: 0x34,
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
+            tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
+            signature: MessageSignature([2u8; 65]),
+        };
+
+        let header_2 = StacksMicroblockHeader {
+            version: 0x12,
+            sequence: 0x34,
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
+            tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
+            signature: MessageSignature([3u8; 65]),
+        };
+
+        let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
+
+        // Serialize via the type itself, then verify the wire format is what we expect.
+        let mut payload_bytes = vec![TransactionPayloadID::PoisonMicroblock as u8];
+        // header_1
+        payload_bytes.push(0x12); // version
+        payload_bytes.extend_from_slice(&[0x00, 0x34]); // sequence (u16 BE)
+        payload_bytes.extend_from_slice(&[0u8; 32]); // prev_block
+        payload_bytes.extend_from_slice(&[1u8; 32]); // tx_merkle_root
+        payload_bytes.extend_from_slice(&[2u8; 65]); // signature
+        // header_2
+        payload_bytes.push(0x12);
+        payload_bytes.extend_from_slice(&[0x00, 0x34]);
+        payload_bytes.extend_from_slice(&[0u8; 32]);
+        payload_bytes.extend_from_slice(&[2u8; 32]);
+        payload_bytes.extend_from_slice(&[3u8; 65]);
+
+        check_codec_and_corruption::<TransactionPayload>(&payload, &payload_bytes);
+
+        // Deserializing two equal microblock headers must fail (they should differ
+        // for a valid poison proof).
+        let mut payload_bytes_equal = vec![TransactionPayloadID::PoisonMicroblock as u8];
+        for _ in 0..2 {
+            payload_bytes_equal.push(0x12);
+            payload_bytes_equal.extend_from_slice(&[0x00, 0x34]);
+            payload_bytes_equal.extend_from_slice(&[0u8; 32]);
+            payload_bytes_equal.extend_from_slice(&[2u8; 32]);
+            payload_bytes_equal.extend_from_slice(&[2u8; 65]);
+        }
+        assert!(
+            TransactionPayload::consensus_deserialize(&mut &payload_bytes_equal[..])
+                .unwrap_err()
+                .to_string()
+                .contains("microblock headers match")
+        );
+
+        // Headers with different sequence AND different prev_block can't form
+        // a valid microblock fork — must fail with "do not identify a fork".
+        let mut payload_bytes_bad_parent = vec![TransactionPayloadID::PoisonMicroblock as u8];
+        // header_1: sequence=0x0035, prev_block=[0u8;32]
+        payload_bytes_bad_parent.push(0x12);
+        payload_bytes_bad_parent.extend_from_slice(&[0x00, 0x35]);
+        payload_bytes_bad_parent.extend_from_slice(&[0u8; 32]);
+        payload_bytes_bad_parent.extend_from_slice(&[1u8; 32]);
+        payload_bytes_bad_parent.extend_from_slice(&[2u8; 65]);
+        // header_2: sequence=0x0034, prev_block=[1u8;32] (different parent)
+        payload_bytes_bad_parent.push(0x12);
+        payload_bytes_bad_parent.extend_from_slice(&[0x00, 0x34]);
+        payload_bytes_bad_parent.extend_from_slice(&[1u8; 32]);
+        payload_bytes_bad_parent.extend_from_slice(&[2u8; 32]);
+        payload_bytes_bad_parent.extend_from_slice(&[3u8; 65]);
+        let err = TransactionPayload::consensus_deserialize(&mut &payload_bytes_bad_parent[..])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("do not identify a fork"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_invalid() {
+        let contract_call = sample_contract_call();
+        let mut transaction_contract_call = vec![0xff];
+        transaction_contract_call.append(&mut serialize_contract_call(&contract_call));
+
+        assert!(
+            TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..])
+                .unwrap_err()
+                .to_string()
+                .contains("unknown payload ID")
+        );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_invalid_contract_name() {
+        let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let bad_contract_name = "hello\x00contract-name";
+        let function_name = ClarityName::try_from("hello-function-name").unwrap();
+        let function_args = vec![Value::Int(0)];
+
+        let mut contract_call_bytes = vec![];
+        address
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+        contract_call_bytes.push(bad_contract_name.len() as u8);
+        contract_call_bytes.extend_from_slice(bad_contract_name.as_bytes());
+        function_name
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+        function_args
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+
+        let mut transaction_contract_call = vec![TransactionPayloadID::ContractCall as u8];
+        transaction_contract_call.append(&mut contract_call_bytes);
+
+        assert!(
+            TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..])
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to parse Contract name")
+        );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_invalid_function_name() {
+        let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let contract_name = ContractName::try_from("hello-contract-name").unwrap();
+        let bad_function_name = "hello\x00function-name";
+        let mut bad_function_name_bytes = vec![bad_function_name.len() as u8];
+        bad_function_name_bytes.extend_from_slice(bad_function_name.as_bytes());
+        let function_args = vec![Value::Int(0)];
+
+        let mut contract_call_bytes = vec![];
+        address
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+        contract_name
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+        contract_call_bytes.extend_from_slice(&bad_function_name_bytes);
+        function_args
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+
+        let mut transaction_contract_call = vec![TransactionPayloadID::ContractCall as u8];
+        transaction_contract_call.append(&mut contract_call_bytes);
+
+        assert!(
+            TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..])
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to parse Clarity name")
+        );
+    }
+
+    #[test]
+    fn tx_stacks_asset() {
+        let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let mut addr_bytes = vec![0x01u8];
+        addr_bytes.extend_from_slice(&[0xff; 20]);
+
+        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let mut asset_name_bytes = vec![asset_name.len()];
+        asset_name_bytes.extend_from_slice(asset_name.to_string().as_bytes());
+
+        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let mut contract_name_bytes = vec![contract_name.len()];
+        contract_name_bytes.extend_from_slice(contract_name.to_string().as_bytes());
+
+        let asset_info = AssetInfo {
+            contract_address: addr,
+            contract_name,
+            asset_name,
+        };
+
+        let mut expected_asset_info_bytes = vec![];
+        expected_asset_info_bytes.extend_from_slice(&addr_bytes);
+        expected_asset_info_bytes.extend_from_slice(&contract_name_bytes);
+        expected_asset_info_bytes.extend_from_slice(&asset_name_bytes);
+
+        check_codec_and_corruption::<AssetInfo>(&asset_info, &expected_asset_info_bytes);
+    }
+
+    #[test]
+    fn tx_stacks_postcondition() {
+        let tx_post_condition_principals = vec![
+            PostConditionPrincipal::Origin,
+            PostConditionPrincipal::Standard(StacksAddress::new(1, Hash160([1u8; 20])).unwrap()),
+            PostConditionPrincipal::Contract(
+                StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
+                ContractName::try_from("hello-world").unwrap(),
+            ),
+        ];
+
+        for tx_pcp in tx_post_condition_principals {
+            let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+            let asset_name = ClarityName::try_from("hello-asset").unwrap();
+            let contract_name = ContractName::try_from("contract-name").unwrap();
+
+            let stx_pc = TransactionPostCondition::STX(
+                tx_pcp.clone(),
+                FungibleConditionCode::SentGt,
+                12345,
+            );
+            let fungible_pc = TransactionPostCondition::Fungible(
+                tx_pcp.clone(),
+                AssetInfo {
+                    contract_address: addr.clone(),
+                    contract_name: contract_name.clone(),
+                    asset_name: asset_name.clone(),
+                },
+                FungibleConditionCode::SentGt,
+                23456,
+            );
+            let nonfungible_pc = TransactionPostCondition::Nonfungible(
+                tx_pcp.clone(),
+                AssetInfo {
+                    contract_address: addr.clone(),
+                    contract_name: contract_name.clone(),
+                    asset_name: asset_name.clone(),
+                },
+                Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
+                NonfungibleConditionCode::NotSent,
+            );
+
+            let mut stx_pc_bytes = vec![];
+            (AssetInfoID::STX as u8)
+                .consensus_serialize(&mut stx_pc_bytes)
+                .unwrap();
+            tx_pcp.consensus_serialize(&mut stx_pc_bytes).unwrap();
+            stx_pc_bytes.push(FungibleConditionCode::SentGt as u8);
+            stx_pc_bytes.extend_from_slice(&12345u64.to_be_bytes());
+
+            let mut fungible_pc_bytes = vec![];
+            (AssetInfoID::FungibleAsset as u8)
+                .consensus_serialize(&mut fungible_pc_bytes)
+                .unwrap();
+            tx_pcp.consensus_serialize(&mut fungible_pc_bytes).unwrap();
+            AssetInfo {
+                contract_address: addr.clone(),
+                contract_name: contract_name.clone(),
+                asset_name: asset_name.clone(),
+            }
+            .consensus_serialize(&mut fungible_pc_bytes)
+            .unwrap();
+            fungible_pc_bytes.push(FungibleConditionCode::SentGt as u8);
+            fungible_pc_bytes.extend_from_slice(&23456u64.to_be_bytes());
+
+            let mut nonfungible_pc_bytes = vec![];
+            (AssetInfoID::NonfungibleAsset as u8)
+                .consensus_serialize(&mut nonfungible_pc_bytes)
+                .unwrap();
+            tx_pcp
+                .consensus_serialize(&mut nonfungible_pc_bytes)
+                .unwrap();
+            AssetInfo {
+                contract_address: addr,
+                contract_name,
+                asset_name,
+            }
+            .consensus_serialize(&mut nonfungible_pc_bytes)
+            .unwrap();
+            Value::buff_from(vec![0, 1, 2, 3])
+                .unwrap()
+                .consensus_serialize(&mut nonfungible_pc_bytes)
+                .unwrap();
+            nonfungible_pc_bytes.push(NonfungibleConditionCode::NotSent as u8);
+
+            let pcs = vec![stx_pc, fungible_pc, nonfungible_pc];
+            let pc_bytes = [stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
+            for i in 0..3 {
+                check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
+            }
+        }
+    }
+
+    #[test]
+    fn tx_stacks_postcondition_nft_maybe_sent_codec() {
+        let postcondition = TransactionPostCondition::Nonfungible(
+            PostConditionPrincipal::Origin,
+            AssetInfo {
+                contract_address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
+                contract_name: ContractName::try_from("contract-name").unwrap(),
+                asset_name: ClarityName::try_from("hello-asset").unwrap(),
+            },
+            Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
+            NonfungibleConditionCode::MaybeSent,
+        );
+
+        let mut postcondition_bytes = vec![];
+        postcondition
+            .consensus_serialize(&mut postcondition_bytes)
+            .unwrap();
+
+        #[rustfmt::skip]
+        let expected_bytes = vec![
+            // asset info id
+            0x02,
+            // principal id (origin)
+            0x01,
+            // contract address (version 1, Hash160([0x11; 20]))
+            0x01,
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            // contract name "contract-name"
+            0x0d, b'c', b'o', b'n', b't', b'r', b'a', b'c', b't', b'-', b'n', b'a', b'm', b'e',
+            // asset name "hello-asset"
+            0x0b, b'h', b'e', b'l', b'l', b'o', b'-', b'a', b's', b's', b'e', b't',
+            // clarity value: buffer (type prefix 0x02, length 4, data [0,1,2,3])
+            0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x01, 0x02, 0x03,
+            // condition code (MaybeSent)
+            0x12,
+        ];
+        assert_eq!(postcondition_bytes, expected_bytes);
+
+        check_codec_and_corruption::<TransactionPostCondition>(
+            &postcondition,
+            &postcondition_bytes,
+        );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_codec_originator_mode_and_nft_maybe_sent() {
+        let auth = TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap();
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::new_contract_call(
+                StacksAddress::new(1, Hash160([0x22; 20])).unwrap(),
+                "hello",
+                "world",
+                vec![Value::Int(1)],
+            )
+            .unwrap(),
+        );
+
+        tx.post_condition_mode = TransactionPostConditionMode::Originator;
+        tx.post_conditions
+            .push(TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, Hash160([0x33; 20])).unwrap(),
+                    contract_name: ContractName::try_from("contract-name").unwrap(),
+                    asset_name: ClarityName::try_from("hello-asset").unwrap(),
+                },
+                Value::buff_from(vec![4, 5, 6, 7]).unwrap(),
+                NonfungibleConditionCode::MaybeSent,
+            ));
+
+        let mut tx_bytes = vec![];
+        tx.consensus_serialize(&mut tx_bytes).unwrap();
+
+        #[rustfmt::skip]
+        let expected_pc_bytes: &[u8] = &[
+            // post-condition mode (Originator)
+            0x03,
+            // post-conditions length prefix (1 item)
+            0x00, 0x00, 0x00, 0x01,
+            // asset info id (NonfungibleAsset)
+            0x02,
+            // principal id (origin)
+            0x01,
+            // contract address (version 1, Hash160([0x33; 20]))
+            0x01,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            // contract name "contract-name"
+            0x0d, b'c', b'o', b'n', b't', b'r', b'a', b'c', b't', b'-', b'n', b'a', b'm', b'e',
+            // asset name "hello-asset"
+            0x0b, b'h', b'e', b'l', b'l', b'o', b'-', b'a', b's', b's', b'e', b't',
+            // clarity value: buffer (type prefix 0x02, length 4, data [4,5,6,7])
+            0x02, 0x00, 0x00, 0x00, 0x04, 0x04, 0x05, 0x06, 0x07,
+            // condition code (MaybeSent)
+            0x12,
+        ];
+        assert!(
+            tx_bytes
+                .windows(expected_pc_bytes.len())
+                .any(|w| w == expected_pc_bytes),
+            "Expected post-condition bytes not found in serialized transaction"
+        );
+
+        check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
+    }
+
+    #[test]
+    fn tx_stacks_postcondition_invalid() {
+        let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let contract_name = ContractName::try_from("hello-world").unwrap();
+
+        // -- Invalid condition codes ---------------------------------------
+
+        let mut stx_pc_bytes_bad_condition = vec![];
+        (AssetInfoID::STX as u8)
+            .consensus_serialize(&mut stx_pc_bytes_bad_condition)
+            .unwrap();
+        stx_pc_bytes_bad_condition.push(PostConditionPrincipalID::Origin as u8);
+        // NotSent is a NonfungibleConditionCode, invalid for STX (fungible)
+        stx_pc_bytes_bad_condition.push(NonfungibleConditionCode::NotSent as u8);
+        stx_pc_bytes_bad_condition.extend_from_slice(&12345u64.to_be_bytes());
+
+        let mut fungible_pc_bytes_bad_condition = vec![];
+        (AssetInfoID::FungibleAsset as u8)
+            .consensus_serialize(&mut fungible_pc_bytes_bad_condition)
+            .unwrap();
+        fungible_pc_bytes_bad_condition.push(PostConditionPrincipalID::Origin as u8);
+        AssetInfo {
+            contract_address: addr.clone(),
+            contract_name: contract_name.clone(),
+            asset_name: asset_name.clone(),
+        }
+        .consensus_serialize(&mut fungible_pc_bytes_bad_condition)
+        .unwrap();
+        fungible_pc_bytes_bad_condition.push(NonfungibleConditionCode::Sent as u8);
+        fungible_pc_bytes_bad_condition.extend_from_slice(&23456u64.to_be_bytes());
+
+        let mut nonfungible_pc_bytes_bad_condition = vec![];
+        (AssetInfoID::NonfungibleAsset as u8)
+            .consensus_serialize(&mut nonfungible_pc_bytes_bad_condition)
+            .unwrap();
+        nonfungible_pc_bytes_bad_condition.push(PostConditionPrincipalID::Origin as u8);
+        AssetInfo {
+            contract_address: addr.clone(),
+            contract_name: contract_name.clone(),
+            asset_name: asset_name.clone(),
+        }
+        .consensus_serialize(&mut nonfungible_pc_bytes_bad_condition)
+        .unwrap();
+        Value::buff_from(vec![0, 1, 2, 3])
+            .unwrap()
+            .consensus_serialize(&mut nonfungible_pc_bytes_bad_condition)
+            .unwrap();
+        nonfungible_pc_bytes_bad_condition.push(FungibleConditionCode::SentGt as u8);
+
+        for bad in [
+            stx_pc_bytes_bad_condition,
+            fungible_pc_bytes_bad_condition,
+            nonfungible_pc_bytes_bad_condition,
+        ] {
+            assert!(TransactionPostCondition::consensus_deserialize(&mut &bad[..]).is_err());
+        }
+
+        // -- Invalid principal IDs -----------------------------------------
+
+        let mut stx_pc_bytes_bad_principal = vec![];
+        (AssetInfoID::STX as u8)
+            .consensus_serialize(&mut stx_pc_bytes_bad_principal)
+            .unwrap();
+        stx_pc_bytes_bad_principal.push(0xff); // invalid principal ID
+        stx_pc_bytes_bad_principal.push(FungibleConditionCode::SentGt as u8);
+        stx_pc_bytes_bad_principal.extend_from_slice(&12345u64.to_be_bytes());
+
+        let mut fungible_pc_bytes_bad_principal = vec![];
+        (AssetInfoID::FungibleAsset as u8)
+            .consensus_serialize(&mut fungible_pc_bytes_bad_principal)
+            .unwrap();
+        fungible_pc_bytes_bad_principal.push(0xff);
+        AssetInfo {
+            contract_address: addr.clone(),
+            contract_name: contract_name.clone(),
+            asset_name: asset_name.clone(),
+        }
+        .consensus_serialize(&mut fungible_pc_bytes_bad_principal)
+        .unwrap();
+        fungible_pc_bytes_bad_principal.push(FungibleConditionCode::SentGt as u8);
+        fungible_pc_bytes_bad_principal.extend_from_slice(&23456u64.to_be_bytes());
+
+        let mut nonfungible_pc_bytes_bad_principal = vec![];
+        (AssetInfoID::NonfungibleAsset as u8)
+            .consensus_serialize(&mut nonfungible_pc_bytes_bad_principal)
+            .unwrap();
+        nonfungible_pc_bytes_bad_principal.push(0xff);
+        AssetInfo {
+            contract_address: addr,
+            contract_name,
+            asset_name,
+        }
+        .consensus_serialize(&mut nonfungible_pc_bytes_bad_principal)
+        .unwrap();
+        Value::buff_from(vec![0, 1, 2, 3])
+            .unwrap()
+            .consensus_serialize(&mut nonfungible_pc_bytes_bad_principal)
+            .unwrap();
+        nonfungible_pc_bytes_bad_principal.push(NonfungibleConditionCode::NotSent as u8);
+
+        for bad in [
+            stx_pc_bytes_bad_principal,
+            fungible_pc_bytes_bad_principal,
+            nonfungible_pc_bytes_bad_principal,
+        ] {
+            assert!(TransactionPostCondition::consensus_deserialize(&mut &bad[..]).is_err());
+        }
+    }
+
+}
