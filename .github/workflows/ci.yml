@@ -147,7 +147,7 @@ jobs:
       github.event_name == 'merge_group')
     uses: ./.github/workflows/create-caches.yml
     with:
-      archive-file: {{ env.TEST_ARCHIVE_FILE }}
+      archive-file: ${{ env.TEST_ARCHIVE_FILE }}
 
   ## --- Run stacks core tests ------------------------------------------------
   stacks-core-tests:
@@ -187,7 +187,7 @@ jobs:
       github.event_name == 'merge_group')
     uses: ./.github/workflows/tests-bitcoin.yml
     with:
-      archive-file: {{ env.TEST_ARCHIVE_FILE }}
+      archive-file: ${{ env.TEST_ARCHIVE_FILE }}
 
   ## --- Run bitcoin RPC Tests ------------------------------------------------
   bitcoin-rpc-tests:
@@ -206,7 +206,7 @@ jobs:
       github.event_name == 'merge_group')
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
-      archive-file: {{ env.TEST_ARCHIVE_FILE }}
+      archive-file: ${{ env.TEST_ARCHIVE_FILE }}
 
   ## --- Run P2P Tests --------------------------------------------------------
   p2p-tests:
@@ -226,7 +226,7 @@ jobs:
       github.event_name == 'merge_group')
     uses: ./.github/workflows/tests-p2p.yml
     with:
-      archive-file: {{ env.TEST_ARCHIVE_FILE }}
+      archive-file: ${{ env.TEST_ARCHIVE_FILE }}
 
   ## --- Jobs to run on PR or manual trigger ----------------------------------
   # Runs when:
@@ -311,7 +311,7 @@ jobs:
        needs.check-release.outputs.is_signer_release == 'true')
     uses: ./.github/workflows/tests-epoch.yml
     with:
-      archive-file: {{ env.TEST_ARCHIVE_FILE }}
+      archive-file: ${{ env.TEST_ARCHIVE_FILE }}
 
   ## Merge and upload code coverage report files once all tests are done
   ##
