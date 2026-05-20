@@ -119,6 +119,7 @@ usage() {
     echo "                   ${COLCYAN}nakamoto${COLRESET} (full Epoch 3+ blocks)"
     echo "                   ${COLCYAN}full${COLRESET} (pre-nakamoto + nakamoto blocks)"
     echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch2/3 boundary)"
+    echo "                   ${COLCYAN}<start>+<count>${COLRESET} (count blocks starting at start, equivalent to <start>:<start+count-1>)"
     echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
     echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${WORK_DIR}/scratch)"
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
@@ -559,26 +560,38 @@ run_validation() {
             validate_block_range nakamoto "${pre_total}" $((pre_total + naka_total - 1))
             ;;
         *)
+            local start end
             if [[ "${VALIDATE}" =~ ^([0-9]+):([0-9]+)$ ]]; then
-                local start=${BASH_REMATCH[1]}
-                local end=${BASH_REMATCH[2]}
+                # <start>:<end>  -- inclusive range
+                start=${BASH_REMATCH[1]}
+                end=${BASH_REMATCH[2]}
                 if [ "${start}" -gt "${end}" ]; then
                     echo "${COLRED}Error${COLRESET} Invalid range: start (${start}) > end (${end})"
                     exit 1
                 fi
-                local pre_total=$(get_total_blocks pre-nakamoto)
-                if [ "${end}" -lt "${pre_total}" ]; then
-                    validate_block_range pre-nakamoto "${start}" "${end}"
-                elif [ "${start}" -ge "${pre_total}" ]; then
-                    validate_block_range nakamoto "${start}" "${end}"
-                else
-                    echo "${COLYELLOW}Range straddles epoch boundary at block ${pre_total}; splitting into two runs${COLRESET}"
-                    validate_block_range pre-nakamoto "${start}" $((pre_total - 1))
-                    validate_block_range nakamoto "${pre_total}" "${end}"
+            elif [[ "${VALIDATE}" =~ ^([0-9]+)[+]([0-9]+)$ ]]; then
+                # <start>+<count>  -- N blocks starting at start (count must be > 0)
+                start=${BASH_REMATCH[1]}
+                local count=${BASH_REMATCH[2]}
+                if [ "${count}" -lt 1 ]; then
+                    echo "${COLRED}Error${COLRESET} Invalid count: must be at least 1 (got ${count})"
+                    exit 1
                 fi
+                end=$((start + count - 1))
             else
                 echo "${COLRED}Error${COLRESET} Invalid VALIDATE value: '${VALIDATE}'"
                 exit 1
+            fi
+            
+            local pre_total=$(get_total_blocks pre-nakamoto)
+            if [ "${end}" -lt "${pre_total}" ]; then
+                validate_block_range pre-nakamoto "${start}" "${end}"
+            elif [ "${start}" -ge "${pre_total}" ]; then
+                validate_block_range nakamoto "${start}" "${end}"
+            else
+                echo "${COLYELLOW}Range straddles epoch boundary at block ${pre_total}; splitting into two runs${COLRESET}"
+                validate_block_range pre-nakamoto "${start}" $((pre_total - 1))
+                validate_block_range nakamoto "${pre_total}" "${end}"
             fi
             ;;
     esac
@@ -743,8 +756,9 @@ parse_args() {
                 case "${VALIDATE}" in
                     test|pre-nakamoto|nakamoto|full) ;;
                     *)
-                        if ! [[ "${VALIDATE}" =~ ^[0-9]+:[0-9]+$ ]]; then
-                            echo "ERROR: --validate must be one of: test, pre-nakamoto, nakamoto, full, or <start>:<end>"
+                        if ! [[ "${VALIDATE}" =~ ^[0-9]+[:+][0-9]+$ ]]; then
+                            echo "ERROR: Invalid argument: ${1}"
+                            usage
                             exit 1
                         fi
                         ;;
