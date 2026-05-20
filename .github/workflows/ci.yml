@@ -168,6 +168,7 @@ jobs:
   stacks-core-tests:
     name: Stacks Core Tests
     needs:
+      - setup-env
       - rustfmt
       - changelog-check
       - create-caches
@@ -188,6 +189,7 @@ jobs:
   bitcoin-tests:
     name: Bitcoin Tests
     needs:
+      - setup-env
       - rustfmt
       - changelog-check
       - create-caches
@@ -208,7 +210,9 @@ jobs:
   bitcoin-rpc-tests:
     name: Bitcoin RPC Tests
     needs:
+      - setup-env
       - rustfmt
+      - changelog-check
       - create-caches
       - check-release
     if: >-
@@ -227,6 +231,7 @@ jobs:
   p2p-tests:
     name: P2P Tests
     needs:
+      - setup-env
       - rustfmt
       - changelog-check
       - create-caches
@@ -315,6 +320,7 @@ jobs:
   epoch-tests:
     name: Epoch Tests
     needs:
+      - setup-env
       - rustfmt
       - changelog-check
       - create-caches

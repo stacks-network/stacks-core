@@ -73,7 +73,8 @@ jobs:
   # Cache the bitcoin binary
   cache-bitcoin-binary:
     name: Bitcoin Binary
-    needs: check-caches
+    needs:
+      - check-caches
     runs-on: ubuntu-latest
     if: needs.check-caches.outputs.bitcoin-cache-hit != 'true'
     steps:

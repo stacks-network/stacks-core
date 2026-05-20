@@ -2,7 +2,7 @@ name: Cargo Cache (Without Local Crates)
 description: |
     Rust Cargo cache without local crates. Used to build the test archive.
     All non-local crates are cached based on runner OS and Cargo.lock hash.
-    This speeds up test archive generation but this cache should not be used for executing the tests.
+    This speeds up test archive generation without deleting local build artifacts.
     See: https://github.com/actions/cache/blob/main/examples.md#rust---cargo
 
 inputs:
@@ -18,76 +18,76 @@ inputs:
 outputs:
   cache-hit:
     description: "Cache Hit"
-    value: ${{ steps.check_cache.outputs.cache-hit }}
+    value: ${{ steps.check-cache.outputs.cache-hit }}
 
 runs:
   using: "composite"
   steps:
-    # Initialize the cache key variable
-    - name: Set Cache Key
+    # Initialize the cache key and dynamic exclusion paths
+    - name: Set Cache Key and Paths
       shell: bash
       run: |
-        echo "CARGO_CACHE_KEY=cache-cargo-no-local-crates--${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
+        echo "CARGO_NO_LOCAL_CACHE_KEY=cache-cargo-no-local-crates--${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+        # Define base paths to always include
+        PATHS="~/.cargo/bin/
+        ~/.cargo/registry/index/
+        ~/.cargo/registry/cache/
+        ~/.cargo/git/db/
+        target/"
+
+        if [ -f Cargo.toml ]; then
+          echo "Identifying local workspace crates to exclude from cache..."
+          while read -r crate; do
+            crate_dash="${crate}"
+            crate_under="${crate//-/_}"
+            
+            # Append negative patterns to exclude local crate build artifacts
+            PATHS="$PATHS
+        !target/**/deps/${crate_dash}-*
+        !target/**/deps/lib${crate_dash}-*
+        !target/**/deps/${crate_under}-*
+        !target/**/deps/lib${crate_under}-*
+        !target/**/.fingerprint/${crate_dash}-*
+        !target/**/.fingerprint/${crate_under}-*
+        !target/**/build/${crate_dash}-*
+        !target/**/build/${crate_under}-*
+        !target/*/${crate_dash}
+        !target/*/${crate_under}"
+          done < <(cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name')
+        fi
+
+        # Save to a multi-line environment variable
+        echo "CARGO_CACHE_PATHS<<EOF" >> "$GITHUB_ENV"
+        echo "$PATHS" >> "$GITHUB_ENV"
+        echo "EOF" >> "$GITHUB_ENV"
   
     # Check if cache data exists
     - name: Check Cache
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-      id: check_cache
+      id: check-cache
       with:
         lookup-only: true
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ env.CARGO_CACHE_KEY }}
+        path: ${{ env.CARGO_CACHE_PATHS }}
+        key: ${{ env.CARGO_NO_LOCAL_CACHE_KEY }}
 
     # Restore cache data
     - name: Restore Cache
       if: |
         inputs.action == 'restore' &&
-        steps.check_cache.outputs.cache-hit == 'true'
+        steps.check-cache.outputs.cache-hit == 'true'
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ env.CARGO_CACHE_KEY }}
+        path: ${{ env.CARGO_CACHE_PATHS }}
+        key: ${{ env.CARGO_NO_LOCAL_CACHE_KEY }}
 
-    # Dynamic cleanup of local workspace crates right before the save occurs. We never want to cache them.
-    # These are things like stacks-signer, stacks-inspect, etc. built locally from our codebase. Always compile them on-the-fly from current code.
-    - name: Clean Local Workspace Crates
-      if: |
-        inputs.action == 'save' &&
-        steps.check_cache.outputs.cache-hit != 'true'
-      shell: bash
-      run: |
-        if [ -f Cargo.toml ]; then
-          echo "Identifying local workspace crates to exclude from cache..."
-          cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name' | while read -r crate; do
-            echo "Wiping build artifacts for local crate: $crate"
-            cargo clean -p "$crate"
-          done
-        else
-          echo "No Cargo.toml found in the current working directory. Skipping cleanup."
-        fi
-
-    # Save cache data
+    # Save cache data (Now purely handles exclusions via the path configurations)
     - name: Save Cache
       if: |
         inputs.action == 'save' &&
-        steps.check_cache.outputs.cache-hit != 'true'
+        steps.check-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ env.CARGO_CACHE_KEY }}
+        path: ${{ env.CARGO_CACHE_PATHS }}
+        key: ${{ env.CARGO_NO_LOCAL_CACHE_KEY }}
