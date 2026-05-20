@@ -1,7 +1,7 @@
-name: Cargo Cache (Without Local Crates)
+name: Cargo Cache
 description: |
-    Rust Cargo cache without local crates. Used to build the test archive.
-    All non-local crates are cached based on runner OS and Cargo.lock hash.
+    Rust Cargo cache used only to build the test archive.
+    All crates are cached based on runner OS and Cargo.lock hash.
     This speeds up test archive generation but this cache should not be used for executing the tests.
     See: https://github.com/actions/cache/blob/main/examples.md#rust---cargo
 
@@ -27,7 +27,7 @@ runs:
     - name: Set Cache Key
       shell: bash
       run: |
-        echo "CARGO_NO_LOCAL_CACHE_KEY=cache-cargo-no-local-crates--${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
+        echo "CARGO_CACHE_KEY=cache-cargo-no-local-crates--${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
   
     # Check if cache data exists
     - name: Check Cache
@@ -41,7 +41,7 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ env.CARGO_NO_LOCAL_CACHE_KEY }}
+        key: ${{ env.CARGO_CACHE_KEY }}
 
     # Restore cache data
     - name: Restore Cache
@@ -57,26 +57,7 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ env.CARGO_NO_LOCAL_CACHE_KEY }}
-
-    # Dynamic cleanup of local workspace crates right after restoring. We never want them to exist in the produced cache.
-    # These are things like stacks-signer, stacks-inspect, etc. built locally from our codebase.
-    # We must always compile them on-the-fly from current code, as they aren't bumped in version when they are changed.
-    - name: Clean Local Workspace Crates
-      if: |
-        inputs.action == 'restore' &&
-        steps.check-cache.outputs.cache-hit == 'true'
-      shell: bash
-      run: |
-        if [ -f Cargo.toml ]; then
-          echo "Identifying local workspace crates to exclude from cache..."
-          cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name' | while read -r crate; do
-            echo "Wiping build artifacts for local crate: $crate"
-            cargo clean -p "$crate"
-          done
-        else
-          echo "No Cargo.toml found in the current working directory. Skipping cleanup."
-        fi
+        key: ${{ env.CARGO_CACHE_KEY }}
 
     # Save cache data
     - name: Save Cache
@@ -91,4 +72,4 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ env.CARGO_NO_LOCAL_CACHE_KEY }}
+        key: ${{ env.CARGO_CACHE_KEY }}

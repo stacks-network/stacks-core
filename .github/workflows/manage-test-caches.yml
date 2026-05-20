@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       bitcoin-cache-hit: ${{ steps.bitcoin.outputs.cache-hit }}
-      cargo-no-local-cache-hit: ${{ steps.cargo-no-local.outputs.cache-hit }}
+      cargo-cache-hit: ${{ steps.cargo.outputs.cache-hit }}
       test-archive-cache-hit: ${{ steps.test-archive.outputs.cache-hit }}
     steps:
       # Checkout the code
@@ -54,10 +54,10 @@ jobs:
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin
 
-      # Check cache for cargo binaries (without local crates)
-      - name: Check Cargo Cache (Without Local Crates)
-        id: cargo-no-local
-        uses: ./.github/actions/cache/cargo-no-local
+      # Check cache for cargo binaries
+      - name: Check Cargo Cache
+        id: cargo
+        uses: ./.github/actions/cache/cargo
 
       # Check cache for nextest archive
       - name: Check Test Archive Cache
@@ -74,7 +74,7 @@ jobs:
           echo "| Cache | Exists |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Bitcoin | ${{ steps.bitcoin.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Cargo (Without Local Crates) | ${{ steps.cargo-no-local.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cargo | ${{ steps.cargo.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Test Archive | ${{ steps.test-archive.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
 
   # Cache the bitcoin binary
@@ -133,10 +133,27 @@ jobs:
           
       # Restore the cargo cache (without local crates) IF it exists
       - name: Restore Cache Cargo (Without Local Crates)
-        if: needs.check-caches.outputs.cargo-no-local-cache-hit == 'true'
-        uses: ./.github/actions/cache/cargo-no-local
+        if: needs.check-caches.outputs.cargo-cache-hit == 'true'
+        uses: ./.github/actions/cache/cargo
         with:
           action: restore
+          
+      # Dynamic cleanup of local workspace crates right after restoring. We never want them to exist in the produced cache.
+      # These are things like stacks-signer, stacks-inspect, etc. built locally from our codebase.
+      # We must always compile them on-the-fly from current code, as they aren't bumped in version when they are changed.
+      - name: Clean Local Workspace Crates
+        if: needs.check-caches.outputs.cargo-cache-hit == 'true'
+        shell: bash
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo "Identifying local workspace crates to exclude from cache..."
+            cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name' | while read -r crate; do
+              echo "Wiping build artifacts for local crate: $crate"
+              cargo clean -p "$crate"
+            done
+          else
+            echo "No Cargo.toml found in the current working directory. Skipping cleanup."
+          fi
      
       # Build the nextest archive (which also builds our cargo file structure for caching)
       - name: Build and Archive Tests
@@ -159,9 +176,9 @@ jobs:
           action: save
           archive-file: ${{ inputs.archive-file }}
      
-      # Save the cargo cache (without local crates) only IF it didn't already exist
-      - name: Save Cargo Cache (Without Local Crates)
-        if: needs.check-caches.outputs.cargo-no-local-cache-hit != 'true'
-        uses: ./.github/actions/cache/cargo-no-local
+      # Save the cargo cache only IF it didn't already exist
+      - name: Save Cargo Cache
+        if: needs.check-caches.outputs.cargo-cache-hit != 'true'
+        uses: ./.github/actions/cache/cargo
         with:
           action: save
