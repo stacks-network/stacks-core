@@ -30,8 +30,6 @@ concurrency:
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
-run-name: ${{ github.ref_name }}
-
 jobs:
   build-pkg:
     name: Check Nix package
