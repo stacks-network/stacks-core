@@ -1,7 +1,7 @@
 name: Cargo Cache
 description: |
     Rust Cargo cache used only to build the test archive.
-    All crates are cached based on runner OS and Cargo.lock hash.
+    All crates should be cached based on runner OS and Cargo.lock hash.
     This speeds up test archive generation but this cache should not be used for executing the tests.
     See: https://github.com/actions/cache/blob/main/examples.md#rust---cargo
 
@@ -10,6 +10,9 @@ inputs:
     description: "Type of operation (restore,save)"
     required: false
     default: ""
+  cache-key:
+    description: "The cache key to use. Should be based on runner OS and Cargo.lock hash."
+    required: true
   fail-on-cache-miss:
     description: "Fail workflow if cache is not restorable"
     required: false
@@ -23,11 +26,6 @@ outputs:
 runs:
   using: "composite"
   steps:
-    # Initialize the cache key variable
-    - name: Set Cache Key
-      shell: bash
-      run: |
-        echo "CARGO_CACHE_KEY=cache-cargo--${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
   
     # Check if cache data exists
     - name: Check Cache
@@ -41,7 +39,7 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ env.CARGO_CACHE_KEY }}
+        key: ${{ inputs.cache-key }}
 
     # Restore cache data
     - name: Restore Cache
@@ -57,7 +55,7 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ env.CARGO_CACHE_KEY }}
+        key: ${{ inputs.cache-key }}
 
     # Save cache data
     - name: Save Cache
@@ -72,4 +70,4 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ env.CARGO_CACHE_KEY }}
+        key: ${{ inputs.cache-key }}
