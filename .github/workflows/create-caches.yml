@@ -69,6 +69,18 @@ jobs:
         uses: ./.github/actions/cache/test-archive
         with:
           archive-file: ${{ inputs.archive-file }}
+          
+      # Output a job summary of cache status
+      - name: Output GitHub Job Summary
+        shell: bash
+        run: |
+          echo "### Cache Status" >> $GITHUB_STEP_SUMMARY
+          echo "| Cache | Exists |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Bitcoin | ${{ steps.bitcoin.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cargo (With Local Crates) | ${{ steps.cargo.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cargo (Without Local Crates) | ${{ steps.cargo-no-local.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Archive | ${{ steps.test-archive.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
 
   # Cache the bitcoin binary
   cache-bitcoin-binary:
