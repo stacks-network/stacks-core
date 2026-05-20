@@ -3,8 +3,12 @@
 name: Create Reusable Caches
 
 on:
-  workflow_dispatch:
   workflow_call:
+    inputs:
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -15,11 +19,6 @@ permissions:
 env:
   RUSTFLAGS: "-Cinstrument-coverage -Awarnings"
   LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
-  
-inputs:
-  archive-file:
-    description: "The test archive file"
-    required: true
 
 # Configure concurrency
 #   - cache will exist longer than workflow execution so other runners have access.
