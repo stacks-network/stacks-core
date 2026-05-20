@@ -121,11 +121,18 @@ jobs:
         with:
           components: llvm-tools-preview
      
-      #  Only install dependencies if cache miss (i.e. no existing data)
+      #  Install nextest
       - name: Install nextest
         uses: ./.github/actions/install-tool
         with:
           tools: nextest
+          
+      # Restore the cargo cache (without local crates) IF it exists
+      - name: Restore Cache Cargo (Without Local Crates)
+        if: needs.check-caches.outputs.cargo-no-local-cache-hit == 'true'
+        uses: ./.github/actions/cache/cargo-no-local
+        with:
+          action: restore
      
       # Build the nextest archive (which also builds our cargo file structure for caching)
       - name: Build and Archive Tests
@@ -142,21 +149,21 @@ jobs:
             --archive-file $ARCHIVE_FILE
      
       # Save the nextest archive to cache
-      - name: Cache Test Archive
+      - name: Save Cache Test Archive
         uses: ./.github/actions/cache/test-archive
         with:
           action: save
           archive-file: ${{ inputs.archive-file }}
      
       # Save the cargo cache (with local crates)
-      - name: Cache Cargo (With Local Crates)
+      - name: Save Cache Cargo (With Local Crates)
         uses: ./.github/actions/cache/cargo
         with:
           action: save
      
-      # Save the cargo cache (without local crates)
-      # IMPORTANT: this MUST happen last because local crates are cleaned (deleted) during save
-      - name: Cache Cargo (Without Local Crates)
+      # Save the cargo cache (without local crates) IF it didn't already exist
+      - name: Save Cache Cargo (Without Local Crates)
+        if: needs.check-caches.outputs.cargo-no-local-cache-hit != 'true'
         uses: ./.github/actions/cache/cargo-no-local
         with:
           action: save

@@ -1,7 +1,7 @@
 # The main Github Actions workflow
 
 name: CI
-run-name: "CI: ${{ github.ref_name }}"
+run-name: "CI: [${{ github.ref_name }}]"
 
 on:
   merge_group:
