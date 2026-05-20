@@ -27,7 +27,7 @@ runs:
     - name: Set Cache Key
       shell: bash
       run: |
-        echo "CARGO_CACHE_KEY=cache-cargo.${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_ENV"
+        echo "CARGO_CACHE_KEY=cache-cargo--${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_ENV"
   
     # Check if cache data exists
     - name: Check Cache

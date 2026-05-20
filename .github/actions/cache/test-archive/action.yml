@@ -14,7 +14,7 @@ inputs:
   cache-key:
     description: "Cache Key name"
     required: false
-    default: cache-test-archive.${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}
+    default: cache-test-archive--${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}
 
 outputs:
   cache-hit:
