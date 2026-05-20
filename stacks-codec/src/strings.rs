@@ -222,8 +222,7 @@ mod tests {
         bytes.push(b'd');
         let err = StacksString::consensus_deserialize(&mut &bytes[..]).unwrap_err();
         assert!(
-            err.to_string().contains("non-printable")
-                || err.to_string().contains("non-ASCII"),
+            err.to_string().contains("non-printable") || err.to_string().contains("non-ASCII"),
             "unexpected error: {err}"
         );
     }

@@ -3579,11 +3579,8 @@ mod tests {
             name: ContractName::from_literal("foo-contract"),
         });
 
-        let coinbase_payload = TransactionPayload::Coinbase(
-            CoinbasePayload([0x12; 32]),
-            Some(recipient),
-            Some(proof),
-        );
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), Some(recipient), Some(proof));
 
         let mut coinbase_bytes = vec![TransactionPayloadID::NakamotoCoinbase as u8];
         coinbase_bytes.extend_from_slice(&[0x12u8; 32]);
@@ -3631,7 +3628,7 @@ mod tests {
         payload_bytes.extend_from_slice(&[0u8; 32]); // prev_block
         payload_bytes.extend_from_slice(&[1u8; 32]); // tx_merkle_root
         payload_bytes.extend_from_slice(&[2u8; 65]); // signature
-        // header_2
+                                                     // header_2
         payload_bytes.push(0x12);
         payload_bytes.extend_from_slice(&[0x00, 0x34]);
         payload_bytes.extend_from_slice(&[0u8; 32]);
@@ -3802,11 +3799,8 @@ mod tests {
             let asset_name = ClarityName::try_from("hello-asset").unwrap();
             let contract_name = ContractName::try_from("contract-name").unwrap();
 
-            let stx_pc = TransactionPostCondition::STX(
-                tx_pcp.clone(),
-                FungibleConditionCode::SentGt,
-                12345,
-            );
+            let stx_pc =
+                TransactionPostCondition::STX(tx_pcp.clone(), FungibleConditionCode::SentGt, 12345);
             let fungible_pc = TransactionPostCondition::Fungible(
                 tx_pcp.clone(),
                 AssetInfo {
@@ -4125,7 +4119,6 @@ mod tests {
         assert_eq!(TransactionVersion::Mainnet as u8, 0x00);
         assert_eq!(TransactionVersion::Testnet as u8, 0x80);
     }
-
 
     /// Every `FungibleConditionCode` discriminant roundtrips, and unknown bytes
     /// fail to parse.
