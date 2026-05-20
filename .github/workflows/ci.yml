@@ -28,7 +28,7 @@ concurrency:
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
-run-name: [CI] ${{ github.ref_name }}
+run-name: "CI: ${{ github.ref_name }}"
 
 env:
   TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
