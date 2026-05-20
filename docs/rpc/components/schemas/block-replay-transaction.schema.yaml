@@ -42,7 +42,7 @@ properties:
     description: number of reference cycles executed
 execution_stats:
     type: object
-    description: etrics for the transaction execution context
+    description: metrics for the transaction execution context
     properties:
       secs:
         type: double
