@@ -50,12 +50,12 @@ jobs:
         uses: ./.github/actions/cache/bitcoin
         
       # Check cache for cargo data (with local crates)
-      - name: Check Cargo Cache
+      - name: Check Cargo Cache (With Local Crates)
         id: cargo
         uses: ./.github/actions/cache/cargo
 
       # Check cache for cargo data (without local crates)
-      - name: Check Cargo Target Cache
+      - name: Check Cargo Cache (Without Local Crates)
         id: cargo-no-local
         uses: ./.github/actions/cache/cargo-no-local
 
