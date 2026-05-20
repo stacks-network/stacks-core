@@ -90,6 +90,7 @@ runs:
       with:
         action: restore
         archive-file: ${{ inputs.archive-file }}
+        codecov-binary-path: ${{ inputs.codecov-binary-path }}
 
     # Install dependencies
     #   grcov is used in the code coverage workflow in tests, so it's installed here

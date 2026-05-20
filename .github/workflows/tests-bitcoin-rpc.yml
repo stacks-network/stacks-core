@@ -116,6 +116,7 @@ jobs:
         uses: ./.github/actions/cache/test-archive
         with:
           action: restore
+          archive-file: ${{ inputs.archive-file }}
 
       ############################################################################
       ### Run proptests

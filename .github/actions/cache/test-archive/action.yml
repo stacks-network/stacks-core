@@ -10,6 +10,10 @@ inputs:
   archive-file:
     description: "The test archive file"
     required: true
+  codecov-binary-path:
+    description: "Code coverage binary path"
+    required: false
+    default: "./target/debug/"
   fail-on-cache-miss:
     description: "Fail workflow if cache is not restorable"
     required: false
@@ -33,7 +37,9 @@ runs:
       id: check_cache
       with:
         lookup-only: true
-        path: ${{ inputs.archive-file }}
+        path: |
+          ${{ inputs.archive-file }}
+          ${{ inputs.codecov-binary-path }}
         key: ${{ inputs.cache-key }}
 
     # Restore cache data
@@ -44,7 +50,9 @@ runs:
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
-        path: ${{ inputs.archive-file }}
+        path: |
+          ${{ inputs.archive-file }}
+          ${{ inputs.codecov-binary-path }}
         key: ${{ inputs.cache-key }}
 
     # Save cache data
@@ -54,5 +62,7 @@ runs:
         steps.check_cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
-        path: ${{ inputs.archive-file }}
+        path: |
+          ${{ inputs.archive-file }}
+          ${{ inputs.codecov-binary-path }}
         key: ${{ inputs.cache-key }}
