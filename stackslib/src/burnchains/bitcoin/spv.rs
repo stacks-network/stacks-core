@@ -1053,10 +1053,15 @@ impl SpvClient {
         Ok(())
     }
 
-    /// Determine the (bits, target) between two headers
+    /// Determine the (bits, target) between two headers.
+    /// `target_ref` is the header whose nBits is used as the basis for the retarget calculation.
+    /// On mainnet/testnet3/regtest this is `last_header`. On testnet4 (BIP-94), `first_header`
+    /// is used instead, since the first block of an interval cannot use the 20-minute min-
+    /// difficulty exception and therefore preserves the real difficulty of the interval.
     pub fn get_target_between_headers(
         first_header: &LoneBlockHeader,
         last_header: &LoneBlockHeader,
+        target_ref: &LoneBlockHeader,
     ) -> (u32, Uint256) {
         let max_target = Uint256([
             0x0000000000000000,
@@ -1075,9 +1080,9 @@ impl SpvClient {
             actual_timespan = target_timespan * 4;
         }
 
-        let last_target = last_header.header.target();
+        let ref_target = target_ref.header.target();
         let new_target =
-            (last_target * Uint256::from_u64(actual_timespan)) / Uint256::from_u64(target_timespan);
+            (ref_target * Uint256::from_u64(actual_timespan)) / Uint256::from_u64(target_timespan);
         let target = cmp::min(new_target, max_target);
 
         let bits = BlockHeader::compact_target_from_u256(&target);
@@ -1164,32 +1169,27 @@ impl SpvClient {
                 None => return Ok(None),
             };
 
-        let last_header_height = interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1;
-        let mut last_header = match self.read_block_header(last_header_height)? {
-            Some(res) => res,
-            None => return Ok(None),
-        };
+        let last_header =
+            match self.read_block_header(interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1)? {
+                Some(res) => res,
+                None => return Ok(None),
+            };
 
-        // BIP-94 (testnet4): if the last block of the previous interval was a min-difficulty
-        // block, walk back to the most recent non-min-difficulty block in that interval before
-        // retargeting. Without this, a single min-difficulty block at the end of an interval
-        // would lock the next interval's target at the min as well — the timewarp that testnet3
-        // is famous for.
-        if self.network_id == BitcoinNetworkType::Testnet4 {
-            let interval_start_height = (interval - 1) * BLOCK_DIFFICULTY_CHUNK_SIZE;
-            let mut h = last_header_height;
-            while last_header.header.bits == max_target_bits && h > interval_start_height {
-                h -= 1;
-                last_header = match self.read_block_header(h)? {
-                    Some(res) => res,
-                    None => return Ok(None),
-                };
-            }
-        }
+        // BIP-94 (testnet4): use the first block of the previous interval as the difficulty
+        // reference instead of the last. The first block of an interval cannot take the
+        // 20-minute min-difficulty exception, so its nBits is guaranteed to be the real
+        // difficulty for that interval. This is what Bitcoin Core's `enforce_BIP94` branch
+        // in `CalculateNextWorkRequired` does, and it's what prevents the testnet3 timewarp.
+        let target_ref = if self.network_id == BitcoinNetworkType::Testnet4 {
+            &first_header
+        } else {
+            &last_header
+        };
 
         Ok(Some(SpvClient::get_target_between_headers(
             &first_header,
             &last_header,
+            target_ref,
         )))
     }
 

@@ -1995,13 +1995,24 @@ pub fn migrate_chainstate_dbs(
     }
 
     if fs::metadata(&sortdb_path).is_ok() {
-        info!("Migrating sortition DB to the latest schema version");
-        let migrator = SortitionDBMigrator::new(
-            burnchain.clone(),
-            chainstate_path,
-            chainstate_marf_opts.clone(),
-        )?;
-        SortitionDB::migrate_if_exists(sortdb_path, epochs, migrator)?;
+        if fs::metadata(&chainstate_path).is_ok() {
+            info!("Migrating sortition DB to the latest schema version");
+            let migrator = SortitionDBMigrator::new(
+                burnchain.clone(),
+                chainstate_path,
+                chainstate_marf_opts.clone(),
+            )?;
+            SortitionDB::migrate_if_exists(sortdb_path, epochs, migrator)?;
+        } else {
+            // The sortition DB exists but the chainstate doesn't — likely a partial init from a
+            // prior aborted startup, or an inconsistent data directory. `SortitionDBMigrator`
+            // opens the chainstate eagerly even when there is nothing to migrate, so skip the
+            // migration here and let `SortitionDB::connect` later in startup handle a fresh DB.
+            warn!(
+                "Sortition DB {sortdb_path} exists but chainstate {chainstate_path} does not; \
+                 skipping sortition migration (data directory may be in an inconsistent state)"
+            );
+        }
     }
     if fs::metadata(&chainstate_path).is_ok() {
         info!("Migrating chainstate DB to the latest schema version");
