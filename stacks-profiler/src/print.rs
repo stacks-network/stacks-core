@@ -22,6 +22,14 @@ use std::fmt::Write;
 
 use crate::{ProfileStats, Tag};
 
+const TREE_BRANCH_CONNECTOR: &str = "├── ";
+const TREE_LAST_CONNECTOR: &str = "└── ";
+const TREE_VERTICAL_PREFIX: &str = "│   ";
+const TREE_EMPTY_PREFIX: &str = "    ";
+const DETAIL_ROOT_INDENT: usize = 2;
+const NON_ROOT_NAME_ICON: &str = "▶";
+const NANOS_PER_MILLI: f64 = 1_000_000.0;
+
 /// ANSI escape sequences for terminal colouring.
 struct Style;
 
@@ -81,7 +89,7 @@ impl TreeFormatter for PrettyPrinter {
         let line = stats.id.line;
 
         // Icon & Name
-        let name_icon = if ctx.is_root { "" } else { "▶" };
+        let name_icon = if ctx.is_root { "" } else { NON_ROOT_NAME_ICON };
 
         // Tag
         let tag_display = if let Some(t) = stats.tag {
@@ -96,10 +104,10 @@ impl TreeFormatter for PrettyPrinter {
         };
 
         // Metrics
-        let wall_ms = stats.wall_time_ns as f64 / 1_000_000.0;
-        let cpu_ms = stats.cpu_time_ns as f64 / 1_000_000.0;
+        let wall_ms = stats.wall_time_ns as f64 / NANOS_PER_MILLI;
+        let cpu_ms = stats.cpu_time_ns as f64 / NANOS_PER_MILLI;
         let wait_ns = stats.wait_time_ns();
-        let wait_ms = wait_ns as f64 / 1_000_000.0;
+        let wait_ms = wait_ns as f64 / NANOS_PER_MILLI;
         let count = stats.entered_count;
 
         let wait_color = if wait_ns > stats.cpu_time_ns {
@@ -134,12 +142,12 @@ impl TreeFormatter for PrettyPrinter {
             // Build the continuation prefix: same indent as children would use, but with a thin
             // vertical line to visually group the details.
             let detail_prefix = if ctx.is_root {
-                String::from("  ")
+                " ".repeat(DETAIL_ROOT_INDENT)
             } else {
                 let continuation = if ctx.is_last_sibling {
-                    "    "
+                    TREE_EMPTY_PREFIX
                 } else {
-                    "│   "
+                    TREE_VERTICAL_PREFIX
                 };
                 format!("{gray}{}{continuation}{reset}", ctx.prefix)
             };
@@ -187,10 +195,11 @@ pub fn print_tree<F: TreeFormatter>(stats: &ProfileStats, formatter: &F) {
     let mut buffer = String::new();
     // Handle #[must_use] -- the recursive function returns a fmt::Result, but we ignore it since
     // we're writing to a String.
-    let _ = write_tree_recursive(stats, formatter, &mut buffer, "", "", true, 0);
+    let _ = write_tree_recursive(stats, formatter, &mut buffer, "", "", true, true, 0);
     print!("{}", buffer);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_tree_recursive<F: TreeFormatter, W: Write>(
     stats: &ProfileStats,
     formatter: &F,
@@ -198,13 +207,14 @@ fn write_tree_recursive<F: TreeFormatter, W: Write>(
     prefix: &str,
     connector: &str,
     is_root: bool,
+    is_last_sibling: bool,
     depth: usize,
 ) -> std::fmt::Result {
     // Format current node
     let ctx = NodeContext {
         stats,
         depth,
-        is_last_sibling: connector == "└── ",
+        is_last_sibling,
         is_root,
         prefix,
         connector,
@@ -215,19 +225,22 @@ fn write_tree_recursive<F: TreeFormatter, W: Write>(
     let len = stats.children.len();
     for (i, child) in stats.children.iter().enumerate() {
         let is_last = i == len - 1;
-        let child_connector = if is_last { "└── " } else { "├── " };
+        let child_connector = if is_last {
+            TREE_LAST_CONNECTOR
+        } else {
+            TREE_BRANCH_CONNECTOR
+        };
 
         // Calculate new prefix for the child:
         // - If we are root, we don't add prefix yet.
-        // - If we are not root:
-        //   - If we were the last sibling, our children don't see our pipe "│"
-        //   - If we were NOT the last sibling, our children see our pipe "│"
+        // - If we are not root, children either inherit our vertical prefix or an empty prefix
+        //   depending on whether more siblings follow us.
         let child_prefix_segment = if is_root {
             ""
-        } else if connector == "└── " {
-            "    "
+        } else if is_last_sibling {
+            TREE_EMPTY_PREFIX
         } else {
-            "│   "
+            TREE_VERTICAL_PREFIX
         };
 
         let child_prefix = format!("{}{}", prefix, child_prefix_segment);
@@ -239,6 +252,7 @@ fn write_tree_recursive<F: TreeFormatter, W: Write>(
             &child_prefix,
             child_connector,
             false,
+            is_last,
             depth + 1,
         )?;
     }
