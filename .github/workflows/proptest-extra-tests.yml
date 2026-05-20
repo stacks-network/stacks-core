@@ -1,4 +1,4 @@
-#GitHub workflow to run newly introduced proptests with higher case counts.
+# GitHub workflow to run newly introduced proptests with higher case counts.
 #
 # This works for tests tagged with `t_prop` tag like this:
 #
@@ -252,9 +252,9 @@ jobs:
       # build (cache miss): that build uses no special RUSTFLAGS, so the artifacts
       # are compatible and Rust only recompiles the crates that differ from BASE.
       # When testenv succeeds (cache hit), target/ contains artifacts built with
-      # -Cinstrument-coverage (from create-cache). The flag mismatch invalidates
+      # -Cinstrument-coverage (from create-caches). The flag mismatch invalidates
       # every fingerprint, forcing a full recompile regardless — no faster than
-      # using a fresh target directory (and it not worthy using same flag either).
+      # using a fresh target directory (and it's not worth using same flag either).
       - name: List BASE branch tests
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || inputs.base_ref }}

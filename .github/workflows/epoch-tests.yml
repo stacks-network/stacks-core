@@ -29,23 +29,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Always run create-cache regardless of trigger — downstream jobs depend on it.
-  create-cache:
-    name: Create Test Cache
-    if: ${{ inputs.build-cache }}
-    uses: ./.github/workflows/create-cache.yml
-
   # Epoch integration tests with code coverage
   epoch-tests:
     name: Epoch Tests
-    needs: create-cache
-    if: always() && !cancelled() && needs.create-cache.result != 'failure'
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     strategy:
       # Continue with the test matrix even if we've had a failure
       fail-fast: false
-      # Run a maximum of 32 concurrent tests from the test matrix
-      max-parallel: 32
       matrix:
         test-name:
           - tests::epoch_205::test_cost_limit_switch_version205
@@ -81,10 +72,10 @@ jobs:
       - name: Setup Test Environment
         uses: ./.github/actions/testenv
 
-      # Run test matrix using restored cache of archive file
+      # Run test matrix
       #   - test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
-        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        timeout-minutes: ${{ env.TEST_TIMEOUT }}
         uses: ./.github/actions/run-tests
         with:
           test-names: ${{ matrix.test-name }}

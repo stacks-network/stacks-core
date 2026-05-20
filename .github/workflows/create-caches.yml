@@ -1,6 +1,6 @@
 # Github workflow to create reusable caches
 
-name: Create Test Cache
+name: Create Reusable Caches
 
 on:
   workflow_dispatch:
@@ -17,11 +17,11 @@ env:
   LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
 
 # Configure concurrency
-#   - cache will exist longer than workflow execution so other runners have access. However, this is only relevant if the commit sha does not change between runs.
-#   - multiple test workflows may call create-cache simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
+#   - cache will exist longer than workflow execution so other runners have access.
+#   - multiple test workflows may call create-caches simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
 #   - runs on PR branches cancel old builds when a new commit arrives (github.head_ref is only set in a PR context).
 concurrency:
-  group: create-cache-${{ github.head_ref || github.ref }}
+  group: create-caches-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.head_ref != '' }}
 
 jobs:
@@ -32,6 +32,7 @@ jobs:
     outputs:
       bitcoin-cache-hit: ${{ steps.bitcoin.outputs.cache-hit }}
       cargo-cache-hit: ${{ steps.cargo.outputs.cache-hit }}
+      cargo-no-local-cache-hit: ${{ steps.cargo-no-local.outputs.cache-hit }}
       test-archive-cache-hit: ${{ steps.test-archive.outputs.cache-hit }}
     steps:
       # Checkout the code
@@ -47,45 +48,28 @@ jobs:
       - name: Check Bitcoin Cache
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin
-
-      # Check cache for cargo data
+        
+      # Check cache for cargo data (with local crates)
       - name: Check Cargo Cache
         id: cargo
         uses: ./.github/actions/cache/cargo
+
+      # Check cache for cargo data (without local crates)
+      - name: Check Cargo Target Cache
+        id: cargo-no-local
+        uses: ./.github/actions/cache/cargo-no-local
 
       # Check cache for nextest archive
       - name: Check Test Archive Cache
         id: test-archive
         uses: ./.github/actions/cache/test-archive
 
-  # Cache cargo data
-  cargo:
-    name: Cargo
-    needs: check-caches
-    runs-on: ubuntu-latest
-    if: needs.check-caches.outputs.cargo-cache-hit != 'true'
-    steps:
-      # Checkout the code
-      #   - only .github is required for this job
-      - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: |
-            .github
-
-      # Save cargo cache
-      - name: Cargo Cache
-        uses: ./.github/actions/cache/cargo
-        with:
-          action: save
-
   # Cache the bitcoin binary
   bitcoin-binary:
     name: Bitcoin Binary
     needs: check-caches
     runs-on: ubuntu-latest
-    if: needs.check-caches.outputs.bitcoin-cache-hit != 'true'
+    if: needs.check-caches.outputs.bitcoin-cache-hit == 'false'
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -104,17 +88,17 @@ jobs:
 
   # Cache nextest archives for tests
   nextest-archive:
-    name: Test Archive
+    name: Build & Cache Test Archive
     needs:
       - check-caches
-      - cargo
     runs-on: ubuntu-latest
-    # Run if test-archive is missing; tolerate cargo being skipped (cache already existed)
-    #   - If the cargo target cache (or the test-archive cache) is missing, then we'll need to rebuild the test archive and cache both the archive and cargo target (cargo archive is required for code coverage).
+    # Run if test-archive or either cargo cache is missing
+    #   - If the cargo target cache (or the test-archive cache) is missing, then we'll need to rebuild the test archive and cache both the archive and cargo (required for code coverage).
     if: >-
       !cancelled() &&
-      (needs.cargo.result == 'success' || needs.cargo.result == 'skipped') &&
-      (needs.check-caches.outputs.test-archive-cache-hit != 'true')
+      (needs.check-caches.outputs.test-archive-cache-hit == 'false' || 
+       needs.check-caches.outputs.cargo-cache-hit == 'false' || 
+       needs.check-caches.outputs.cargo-no-local-cache-hit == 'false')
     steps:
       # Checkout the code
       - name: Checkout the latest code
@@ -122,6 +106,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-      # Build and cache the nextest archive
-      - name: Build Nextest Cache
+      # Build and cache the test archive
+      - name: Build & Cache Test Archive
         uses: ./.github/actions/cache/build-cache

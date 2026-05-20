@@ -1,8 +1,8 @@
-name: Cargo Cache (With Local Crates)
+name: Cargo Cache (Without Local Crates)
 description: |
-    Rust Cargo cache with local crates. Used to execute tests so that coverage can be calculated.
-    All crates are cached based on the repo name and SHA of the commit.
-    This cache cannot persist across commits because local crates may have changed.
+    Rust Cargo cache without local crates. Used to build the test archive.
+    All non-local crates are cached based on runner OS and Cargo.lock hash.
+    This speeds up test archive generation but this cache should not be used for executing the tests.
 
 inputs:
   action:
@@ -26,7 +26,7 @@ runs:
     - name: Set Cache Key
       shell: bash
       run: |
-        echo "CARGO_CACHE_KEY=cargo-cache-${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_ENV"
+        echo "CARGO_CACHE_KEY=cargo-cache-no-local-crates-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
   
     # Check if cache data exists
     - name: Check Cache
@@ -57,6 +57,24 @@ runs:
           ~/.cargo/git/db/
           target/
         key: ${{ env.CARGO_CACHE_KEY }}
+
+    # Dynamic cleanup of local workspace crates right before the save occurs. We never want to cache them.
+    # These are things like stacks-signer, stacks-inspect, etc. built locally from our codebase. Always compile them on-the-fly from current code.
+    - name: Clean Local Workspace Crates
+      if: |
+        inputs.action == 'save' &&
+        steps.check_cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        if [ -f Cargo.toml ]; then
+          echo "Identifying local workspace crates to exclude from cache..."
+          cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name' | while read -r crate; do
+            echo "Wiping build artifacts for local crate: $crate"
+            cargo clean -p "$crate"
+          done
+        else
+          echo "No Cargo.toml found in the current working directory. Skipping cleanup."
+        fi
 
     # Save cache data
     - name: Save Cache

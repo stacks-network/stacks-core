@@ -128,8 +128,8 @@ jobs:
         run: bash ./.github/scripts/check_release.sh
 
   ## --- Create a reusable cache for tests ------------------------------------
-  create-cache:
-    name: Create Test Cache
+  create-caches:
+    name: Create Reusable Caches
     needs:
       - rustfmt
       - changelog-check
@@ -142,7 +142,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group')
-    uses: ./.github/workflows/create-cache.yml
+    uses: ./.github/workflows/create-caches.yml
 
   ## --- Run stacks core tests ------------------------------------------------
   stacks-core-tests:
@@ -150,7 +150,7 @@ jobs:
     needs:
       - rustfmt
       - changelog-check
-      - create-cache
+      - create-caches
       - check-release
     if: >-
       !cancelled() &&
@@ -168,7 +168,7 @@ jobs:
     needs:
       - rustfmt
       - changelog-check
-      - create-cache
+      - create-caches
       - check-release
     if: >-
       !cancelled() &&
@@ -185,7 +185,7 @@ jobs:
     name: Bitcoin RPC Tests
     needs:
       - rustfmt
-      - create-cache
+      - create-caches
       - check-release
     if: >-
       !cancelled() &&
@@ -203,7 +203,7 @@ jobs:
     needs:
       - rustfmt
       - changelog-check
-      - create-cache
+      - create-caches
       - check-release
     if: >-
       !cancelled() &&
@@ -289,7 +289,7 @@ jobs:
     needs:
       - rustfmt
       - changelog-check
-      - create-cache
+      - create-caches
       - check-release
     if: >-
       !cancelled() &&

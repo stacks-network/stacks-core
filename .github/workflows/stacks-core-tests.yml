@@ -30,19 +30,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Always run create-cache regardless of trigger — downstream jobs depend on it.
-  create-cache:
-    name: Create Test Cache
-    if: ${{ inputs.build-cache }}
-    uses: ./.github/workflows/create-cache.yml
-
   # Unit tests with code coverage
   unit-tests:
     name: Unit Tests
-    needs: create-cache
-    # Run if create-cache succeeded OR was skipped (caches already existed from a prior run).
-    # Do not run if create-cache genuinely failed.
-    if: always() && !cancelled() && needs.create-cache.result != 'failure'
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     # Continue the workflow in case a step fails (ex a single test fails)
     # continue-on-error: true
@@ -50,8 +41,8 @@ jobs:
       # Continue the workflow in case a step fails (ex a single test fails)
       fail-fast: false
       matrix:
-        # Partition unit tests into 8 concurrent jobs
-        partition: [1, 2, 3, 4, 5, 6, 7, 8]
+        # Partition unit tests into 16 concurrent jobs
+        partition: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     steps:
     # Checkout the code
     #   - only .github is required for this job
@@ -66,14 +57,14 @@ jobs:
       - name: Setup Test Environment
         uses: ./.github/actions/testenv
 
-      # Run test matrix using restored cache of archive file
+      # Run test matrix
       #   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
-        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        timeout-minutes: ${{ env.TEST_TIMEOUT }}
         uses: ./.github/actions/run-tests/partition
         with:
           partition: ${{ matrix.partition }}
-          total-partitions: 8
+          total-partitions: ${{ strategy.job-total }}
 
       # Create and upload code coverage file
       - name: Code Coverage

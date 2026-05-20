@@ -1,7 +1,7 @@
 name: Stacks Core Test Environment
 description: |
     Sets up the testing environment for the Stacks Blockchain.
-
+    Pulls down the cached test archive and cargo files (with local crates).
 
 inputs:
   btc-version:
@@ -24,12 +24,6 @@ runs:
       uses: ./.github/actions/setup-rust-toolchain
       with:
         components: llvm-tools-preview
-
-    # Restore cargo cache data
-    - name: Restore Cargo Cache
-      uses: ./.github/actions/cache/cargo
-      with:
-        action: restore
 
     # Restore bitcoin cache data
     - name: Restore Bitcoin Binary Cache
@@ -54,6 +48,12 @@ runs:
     - name: Restore Test Archive Cache
       id: restore_test_cache
       uses: ./.github/actions/cache/test-archive
+      with:
+        action: restore
+        
+    # Restore cargo cache data
+    - name: Restore Cargo Cache (With Local Crates)
+      uses: ./.github/actions/cache/cargo
       with:
         action: restore
 
