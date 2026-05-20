@@ -329,8 +329,7 @@ impl NodeStore {
 
     /// Overwrite the node at `idx` in place.
     ///
-    /// Call only after `flush` and only when the new serialization
-    /// length matches the original.
+    /// The new serialization length must match the original.
     /// Seals the store before writing.
     pub(crate) fn overwrite_node(&mut self, idx: usize, node: &TrieNodeType) -> Result<(), Error> {
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
