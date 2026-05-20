@@ -404,7 +404,7 @@ get_total_blocks() {
             ;;
     esac
     local inspect_bin="${REPO_DIR}/target/release/stacks-inspect"
-    local inspect_config="${REPO_DIR}/stackslib/conf/${NETWORK}-follower-conf.toml"
+    local inspect_config="${REPO_DIR}/sample/conf/${NETWORK}-follower-conf.toml"
     local count_output
     if ! count_output=$("${inspect_bin}" --config "${inspect_config}" validate-block "${SLICE_DIR}0" "${range_command}" 2>/dev/null); then
         echo "${COLRED}Error${COLRESET} retrieving total ${mode} blocks from chainstate" >&2
@@ -430,7 +430,7 @@ validate_block_range() {
     local range_command log_append
     case "$mode" in
         nakamoto)     range_command="naka-index-range"; log_append="_nakamoto" ;;
-        pre-nakamoto) range_command="index-range";       log_append="" ;;
+        pre-nakamoto) range_command="index-range";      log_append="" ;;
         *)
             echo "${COLRED}Error${COLRESET} validate_block_range: invalid mode '${mode}'"
             exit 1
@@ -445,8 +445,9 @@ validate_block_range() {
     local starting_block total_blocks
     case "$mode" in
         nakamoto)
-            local pre_total=$(get_total_blocks pre-nakamoto)
-            local naka_total=$(get_total_blocks nakamoto)
+            local pre_total naka_total
+            pre_total=$(get_total_blocks pre-nakamoto)
+            naka_total=$(get_total_blocks nakamoto)
             local epoch_min=${pre_total}
             local epoch_max=$((pre_total + naka_total - 1))
             if [ "${global_start}" -lt "${epoch_min}" ] || [ "${global_end}" -gt "${epoch_max}" ]; then
@@ -457,7 +458,8 @@ validate_block_range() {
             total_blocks=$((global_end - pre_total + 1))
             ;;
         pre-nakamoto)
-            local pre_total=$(get_total_blocks pre-nakamoto)
+            local pre_total
+            pre_total=$(get_total_blocks pre-nakamoto)
             local epoch_max=$((pre_total - 1))
             if [ "${global_start}" -lt 0 ] || [ "${global_end}" -gt "${epoch_max}" ]; then
                 echo "${COLRED}Error${COLRESET} pre-nakamoto range ${global_start}-${global_end} is outside the available epoch (0-${epoch_max})"
@@ -487,9 +489,9 @@ validate_block_range() {
     echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
     echo "Block range: ${COLYELLOW}${global_start}-${global_end}${COLRESET} (${block_diff} blocks)"
     echo "Slices: ${COLYELLOW}${slices}${COLRESET} | Blocks/slice: ${COLYELLOW}${slice_blocks}${COLRESET}"
-    echo "************************************************************************"
-    local range_label="${mode} validation"
+    local range_label="> ${mode} validation"
     local range_start=$(phase_start "${range_label}")
+    echo "************************************************************************"
 
     local end_block_count=$starting_block
     local slice_counter=0
@@ -548,17 +550,20 @@ run_validation() {
             validate_block_range nakamoto "${naka_start}" "${naka_end}"
             ;;
         pre-nakamoto)
-            local pre_total=$(get_total_blocks pre-nakamoto)
+            local pre_total
+            pre_total=$(get_total_blocks pre-nakamoto)
             validate_block_range pre-nakamoto 0 $((pre_total - 1))
             ;;
         nakamoto)
-            local pre_total=$(get_total_blocks pre-nakamoto)
-            local naka_total=$(get_total_blocks nakamoto)
+            local pre_total naka_total
+            pre_total=$(get_total_blocks pre-nakamoto)
+            naka_total=$(get_total_blocks nakamoto)
             validate_block_range nakamoto "${pre_total}" $((pre_total + naka_total - 1))
             ;;
         full)
-            local pre_total=$(get_total_blocks pre-nakamoto)
-            local naka_total=$(get_total_blocks nakamoto)
+            local pre_total naka_total
+            pre_total=$(get_total_blocks pre-nakamoto)
+            naka_total=$(get_total_blocks nakamoto)
             validate_block_range pre-nakamoto 0 $((pre_total - 1))
             validate_block_range nakamoto "${pre_total}" $((pre_total + naka_total - 1))
             ;;
@@ -586,7 +591,8 @@ run_validation() {
                 exit 1
             fi
             
-            local pre_total=$(get_total_blocks pre-nakamoto)
+            local pre_total
+            pre_total=$(get_total_blocks pre-nakamoto)
             if [ "${end}" -lt "${pre_total}" ]; then
                 validate_block_range pre-nakamoto "${start}" "${end}"
             elif [ "${start}" -ge "${pre_total}" ]; then
@@ -610,7 +616,7 @@ check_progress() {
     while [ $sleep_duration -gt 0 ]; do
         ${IS_TTY} && printf "Sleeping ...  \b [ %s%s%s ] \033[0K\r" "${COLYELLOW}" "${sleep_duration}" "${COLRESET}"
         sleep_duration=$((sleep_duration-1))
-        sleep 1
+        sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
     echo "************************************************************************"
     echo "Checking Block Validation status"
@@ -623,7 +629,7 @@ check_progress() {
             ${IS_TTY} && printf "\rAll block validation processes finished\033[0K\n"
             break
         fi
-        sleep 1
+        sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
     echo "************************************************************************"
 }
@@ -846,6 +852,30 @@ parse_args() {
     done
 }
 
+# SIGINT (Ctrl+C) handler: ask the user to confirm before actually quitting.
+# Reads from /dev/tty so the prompt works when stdin is piped/redirected.
+# Note: this is a best-effort safety net against accidental Ctrl+C. Because
+# the script runs under `set -e`, answering "no" only reliably resumes
+# execution if the interrupted command's failure is tolerated (see the
+# `sleep 1 || true` guards in check_progress).
+confirm_abort() {
+    # Ignore further SIGINTs while prompting to avoid re-entering the handler
+    trap '' INT
+    printf '\n%sCtrl+C detected. Really abort?%s [y/N] ' "${COLYELLOW}" "${COLRESET}" > /dev/tty
+    local reply=""
+    IFS= read -r reply < /dev/tty || true
+    case "${reply}" in
+        y|Y|yes|YES)
+            echo "${COLRED}Aborting.${COLRESET}" >&2
+            exit 130
+            ;;
+        *)
+            echo "${COLGREEN}Continuing.${COLRESET}" >&2
+            trap 'confirm_abort' INT
+            ;;
+    esac
+}
+
 # Print a "<label> started" timestamp line on stderr and return the start epoch on stdout.
 # Usage: local foo_start=$(phase_start "Foo")
 phase_start() {
@@ -873,6 +903,7 @@ main() {
     apply_input_config
     check_dependencies
     ${IS_TTY} && tput reset
+    ${IS_TTY} && trap 'confirm_abort' INT
 
     # Validation preparation
     local prep_start=$(phase_start "Preparation")
