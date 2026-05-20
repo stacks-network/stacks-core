@@ -42,11 +42,11 @@ jobs:
   #    - release workflow is triggered
   #
   
-  ## --- Global Environment Setup ---------------------------------------------
+  ## --- Global Variables Setup ---------------------------------------------
   # Bridges global env variables to the jobs context so they are safely 
   # accessible by downstream reusable workflows.
   setup-env:
-    name: Setup Shared Environment
+    name: Setup Global Variables
     runs-on: ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
@@ -149,6 +149,7 @@ jobs:
   create-caches:
     name: Create Reusable Caches
     needs:
+      - setup-env
       - rustfmt
       - changelog-check
       - check-release
