@@ -194,4 +194,55 @@ mod tests {
         assert!(StacksString::from_str("héllo").is_none()); // non-ASCII
     }
 
+    #[test]
+    fn stacks_string_accepts_tab_and_newline() {
+        // \t and \n are explicit exceptions in `is_printable`.
+        assert!(StacksString::from_str("line1\nline2").is_some());
+        assert!(StacksString::from_str("col1\tcol2").is_some());
+    }
+
+    #[test]
+    fn stacks_string_printable_ascii_boundaries() {
+        // 0x20 (space) is the lowest printable; 0x7e (~) is the highest.
+        assert!(StacksString::from_str(" ").is_some());
+        assert!(StacksString::from_str("~").is_some());
+        // 0x1f and 0x7f are out of range and aren't the special-cased \t/\n.
+        let s = String::from_utf8(vec![0x1f]).unwrap();
+        assert!(StacksString::from_string(&s).is_none());
+        let s = String::from_utf8(vec![0x7f]).unwrap();
+        assert!(StacksString::from_string(&s).is_none());
+    }
+
+    /// A `StacksString` containing valid bytes but non-printable content must
+    /// be rejected on deserialize even though it parses as valid UTF-8.
+    #[test]
+    fn stacks_string_deserialize_rejects_non_printable_bytes() {
+        let mut bytes = vec![0x00, 0x00, 0x00, 0x05];
+        bytes.extend_from_slice(b"a\x01bc"); // length 4 but we said 5 -> read 5 bytes
+        bytes.push(b'd');
+        let err = StacksString::consensus_deserialize(&mut &bytes[..]).unwrap_err();
+        assert!(
+            err.to_string().contains("non-printable")
+                || err.to_string().contains("non-ASCII"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// `is_clarity_variable` returns true for strings that satisfy the stricter
+    /// `ClarityName` rules.
+    #[test]
+    fn stacks_string_clarity_variable_detection() {
+        let s = StacksString::from_str("foo-bar").unwrap();
+        assert!(s.is_clarity_variable());
+        // ClarityName forbids '.' and spaces.
+        let s = StacksString::from_str("not a name").unwrap();
+        assert!(!s.is_clarity_variable());
+    }
+
+    #[test]
+    fn stacks_string_from_clarity_name_conversion() {
+        let clarity_name = ClarityName::try_from("hello-world").unwrap();
+        let stacks_str: StacksString = clarity_name.clone().into();
+        assert_eq!(stacks_str.to_string(), "hello-world");
+    }
 }

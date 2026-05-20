@@ -3311,7 +3311,7 @@ mod tests {
 
     use rstest::rstest;
     use stacks_common::codec::{read_next, write_next};
-    use stacks_common::types::chainstate::BlockHeaderHash;
+    use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
     use stacks_common::util::hash::hex_bytes;
 
     use super::*;
@@ -4098,4 +4098,253 @@ mod tests {
         }
     }
 
+    // -- Coverage gap tests (newly added in this crate) --------------------
+
+    /// `TransactionAnchorMode`, `TransactionPostConditionMode`, and
+    /// `TransactionVersion` are serialized inline as raw bytes inside
+    /// `StacksTransaction::consensus_serialize`, not via their own
+    /// `StacksMessageCodec` impl. Pin their on-wire values so any reordering
+    /// of the enum variants will trip a test rather than silently break the
+    /// consensus wire format.
+    #[test]
+    fn transaction_anchor_mode_byte_values() {
+        assert_eq!(TransactionAnchorMode::OnChainOnly as u8, 0x01);
+        assert_eq!(TransactionAnchorMode::OffChainOnly as u8, 0x02);
+        assert_eq!(TransactionAnchorMode::Any as u8, 0x03);
+    }
+
+    #[test]
+    fn transaction_post_condition_mode_byte_values() {
+        assert_eq!(TransactionPostConditionMode::Allow as u8, 0x01);
+        assert_eq!(TransactionPostConditionMode::Deny as u8, 0x02);
+        assert_eq!(TransactionPostConditionMode::Originator as u8, 0x03);
+    }
+
+    #[test]
+    fn transaction_version_byte_values() {
+        assert_eq!(TransactionVersion::Mainnet as u8, 0x00);
+        assert_eq!(TransactionVersion::Testnet as u8, 0x80);
+    }
+
+
+    /// Every `FungibleConditionCode` discriminant roundtrips, and unknown bytes
+    /// fail to parse.
+    #[rstest]
+    #[case(FungibleConditionCode::SentEq)]
+    #[case(FungibleConditionCode::SentGt)]
+    #[case(FungibleConditionCode::SentGe)]
+    #[case(FungibleConditionCode::SentLt)]
+    #[case(FungibleConditionCode::SentLe)]
+    fn fungible_condition_code_roundtrip(#[case] code: FungibleConditionCode) {
+        let byte = code as u8;
+        let decoded = FungibleConditionCode::from_u8(byte).unwrap();
+        assert_eq!(decoded, code);
+    }
+
+    #[rstest]
+    #[case(NonfungibleConditionCode::Sent)]
+    #[case(NonfungibleConditionCode::NotSent)]
+    #[case(NonfungibleConditionCode::MaybeSent)]
+    fn nonfungible_condition_code_roundtrip(#[case] code: NonfungibleConditionCode) {
+        let byte = code as u8;
+        let decoded = NonfungibleConditionCode::from_u8(byte).unwrap();
+        assert_eq!(decoded, code);
+    }
+
+    /// Every `TenureChangeCause` discriminant roundtrips through serialize and
+    /// deserialize. This was previously only covered indirectly via the
+    /// `TransactionPayload::TenureChange` case in `codec_all_transactions`.
+    /// `TenureChangeCause` intentionally does not implement `PartialEq`, so the
+    /// equality check uses the type's explicit `is_eq`.
+    #[rstest]
+    #[case(TenureChangeCause::BlockFound)]
+    #[case(TenureChangeCause::Extended)]
+    #[case(TenureChangeCause::ExtendedRuntime)]
+    #[case(TenureChangeCause::ExtendedReadCount)]
+    #[case(TenureChangeCause::ExtendedReadLength)]
+    #[case(TenureChangeCause::ExtendedWriteCount)]
+    #[case(TenureChangeCause::ExtendedWriteLength)]
+    fn tenure_change_cause_codec(#[case] cause: TenureChangeCause) {
+        let mut buf = vec![];
+        cause.consensus_serialize(&mut buf).unwrap();
+        assert_eq!(buf, vec![cause.as_u8()]);
+        let decoded = TenureChangeCause::consensus_deserialize(&mut &buf[..]).unwrap();
+        assert!(decoded.is_eq(&cause));
+    }
+
+    #[test]
+    fn tenure_change_cause_rejects_unknown_byte() {
+        // The highest defined variant is ExtendedWriteLength (6). Bytes >= 7
+        // should fail to deserialize.
+        for invalid in [7u8, 0xff] {
+            let buf = vec![invalid];
+            assert!(TenureChangeCause::consensus_deserialize(&mut &buf[..]).is_err());
+        }
+    }
+
+    /// A `TenureChangePayload` roundtrips through the codec.
+    /// `TenureChangePayload` does not derive `PartialEq` (because
+    /// `TenureChangeCause` deliberately doesn't), so this test compares each
+    /// field manually.
+    #[test]
+    fn tenure_change_payload_codec() {
+        let payload = TenureChangePayload {
+            tenure_consensus_hash: ConsensusHash([0xaa; 20]),
+            prev_tenure_consensus_hash: ConsensusHash([0xbb; 20]),
+            burn_view_consensus_hash: ConsensusHash([0xcc; 20]),
+            previous_tenure_end: StacksBlockId([0xdd; 32]),
+            previous_tenure_blocks: 42,
+            cause: TenureChangeCause::Extended,
+            pubkey_hash: Hash160([0xee; 20]),
+        };
+
+        let mut buf = vec![];
+        payload.consensus_serialize(&mut buf).unwrap();
+        let decoded = TenureChangePayload::consensus_deserialize(&mut &buf[..]).unwrap();
+        assert_eq!(decoded.tenure_consensus_hash, payload.tenure_consensus_hash);
+        assert_eq!(
+            decoded.prev_tenure_consensus_hash,
+            payload.prev_tenure_consensus_hash
+        );
+        assert_eq!(
+            decoded.burn_view_consensus_hash,
+            payload.burn_view_consensus_hash
+        );
+        assert_eq!(decoded.previous_tenure_end, payload.previous_tenure_end);
+        assert_eq!(
+            decoded.previous_tenure_blocks,
+            payload.previous_tenure_blocks
+        );
+        assert!(decoded.cause.is_eq(&payload.cause));
+        assert_eq!(decoded.pubkey_hash, payload.pubkey_hash);
+    }
+
+    /// `StacksMicroblockHeader` standalone codec roundtrip (was only exercised
+    /// indirectly via `PoisonMicroblock`).
+    #[test]
+    fn stacks_microblock_header_codec() {
+        let header = StacksMicroblockHeader {
+            version: 0x09,
+            sequence: 0x1234,
+            prev_block: BlockHeaderHash([0x77; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x88; 32]),
+            signature: MessageSignature([0x99; 65]),
+        };
+
+        let mut buf = vec![];
+        header.consensus_serialize(&mut buf).unwrap();
+        let decoded = StacksMicroblockHeader::consensus_deserialize(&mut &buf[..]).unwrap();
+        assert_eq!(decoded, header);
+    }
+
+    /// Every `TransactionAuthFlags` discriminant must serialize to a single
+    /// known byte.
+    #[test]
+    fn transaction_auth_flags_byte_values() {
+        assert_eq!(TransactionAuthFlags::AuthStandard as u8, 0x04);
+        assert_eq!(TransactionAuthFlags::AuthSponsored as u8, 0x05);
+    }
+
+    /// Empty post-condition list roundtrips through the transaction codec.
+    #[test]
+    fn stacks_transaction_empty_post_conditions_codec() {
+        let auth = TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap();
+        let tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0xaa; 20]))
+                    .unwrap()
+                    .into(),
+                1,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+
+        let mut buf = vec![];
+        tx.consensus_serialize(&mut buf).unwrap();
+        let decoded = StacksTransaction::consensus_deserialize(&mut &buf[..]).unwrap();
+        assert_eq!(decoded, tx);
+        assert!(decoded.post_conditions.is_empty());
+    }
+
+    /// A `TokenTransferMemo` is exactly 34 bytes on the wire — verify this
+    /// directly so that any change to the memo length will fail at the codec
+    /// boundary rather than silently corrupting transaction data.
+    #[test]
+    fn token_transfer_memo_fixed_size() {
+        let memo = TokenTransferMemo([0xab; 34]);
+        let mut buf = vec![];
+        memo.consensus_serialize(&mut buf).unwrap();
+        assert_eq!(buf.len(), 34);
+        assert_eq!(buf, vec![0xab; 34]);
+        let decoded = TokenTransferMemo::consensus_deserialize(&mut &buf[..]).unwrap();
+        assert_eq!(decoded.0, memo.0);
+    }
+
+    /// A `CoinbasePayload` is exactly 32 bytes on the wire.
+    #[test]
+    fn coinbase_payload_fixed_size() {
+        let payload = CoinbasePayload([0xcd; 32]);
+        let mut buf = vec![];
+        payload.consensus_serialize(&mut buf).unwrap();
+        assert_eq!(buf.len(), 32);
+        let decoded = CoinbasePayload::consensus_deserialize(&mut &buf[..]).unwrap();
+        assert_eq!(decoded.0, payload.0);
+    }
+
+    /// The `PostConditionPrincipalID` discriminants are part of the wire format
+    /// and must not silently shift.
+    #[test]
+    fn post_condition_principal_id_byte_values() {
+        assert_eq!(PostConditionPrincipalID::Origin as u8, 0x01);
+        assert_eq!(PostConditionPrincipalID::Standard as u8, 0x02);
+        assert_eq!(PostConditionPrincipalID::Contract as u8, 0x03);
+    }
+
+    /// The `AssetInfoID` discriminants are part of the wire format.
+    #[test]
+    fn asset_info_id_byte_values() {
+        assert_eq!(AssetInfoID::STX as u8, 0x00);
+        assert_eq!(AssetInfoID::FungibleAsset as u8, 0x01);
+        assert_eq!(AssetInfoID::NonfungibleAsset as u8, 0x02);
+    }
+
+    /// The `TransactionPayloadID` discriminants are part of the wire format —
+    /// reordering them would silently break consensus.
+    #[test]
+    fn transaction_payload_id_byte_values() {
+        assert_eq!(TransactionPayloadID::TokenTransfer as u8, 0x00);
+        assert_eq!(TransactionPayloadID::SmartContract as u8, 0x01);
+        assert_eq!(TransactionPayloadID::ContractCall as u8, 0x02);
+        assert_eq!(TransactionPayloadID::PoisonMicroblock as u8, 0x03);
+        assert_eq!(TransactionPayloadID::Coinbase as u8, 0x04);
+        assert_eq!(TransactionPayloadID::CoinbaseToAltRecipient as u8, 0x05);
+        assert_eq!(TransactionPayloadID::VersionedSmartContract as u8, 0x06);
+        assert_eq!(TransactionPayloadID::TenureChange as u8, 0x07);
+        assert_eq!(TransactionPayloadID::NakamotoCoinbase as u8, 0x08);
+    }
+
+    /// `chain_id` is serialized as a 4-byte big-endian field directly after the
+    /// version byte. Hard-pin this layout so any future struct reordering will
+    /// trip a test.
+    #[test]
+    fn stacks_transaction_header_layout() {
+        let auth = TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap();
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                StacksAddress::new(1, Hash160([0x00; 20])).unwrap().into(),
+                0,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx.chain_id = 0x01020304;
+
+        let mut buf = vec![];
+        tx.consensus_serialize(&mut buf).unwrap();
+        assert_eq!(buf[0], TransactionVersion::Mainnet as u8);
+        assert_eq!(&buf[1..5], &[0x01, 0x02, 0x03, 0x04]);
+    }
 }
