@@ -1164,11 +1164,28 @@ impl SpvClient {
                 None => return Ok(None),
             };
 
-        let last_header =
-            match self.read_block_header(interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1)? {
-                Some(res) => res,
-                None => return Ok(None),
-            };
+        let last_header_height = interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1;
+        let mut last_header = match self.read_block_header(last_header_height)? {
+            Some(res) => res,
+            None => return Ok(None),
+        };
+
+        // BIP-94 (testnet4): if the last block of the previous interval was a min-difficulty
+        // block, walk back to the most recent non-min-difficulty block in that interval before
+        // retargeting. Without this, a single min-difficulty block at the end of an interval
+        // would lock the next interval's target at the min as well — the timewarp that testnet3
+        // is famous for.
+        if self.network_id == BitcoinNetworkType::Testnet4 {
+            let interval_start_height = (interval - 1) * BLOCK_DIFFICULTY_CHUNK_SIZE;
+            let mut h = last_header_height;
+            while last_header.header.bits == max_target_bits && h > interval_start_height {
+                h -= 1;
+                last_header = match self.read_block_header(h)? {
+                    Some(res) => res,
+                    None => return Ok(None),
+                };
+            }
+        }
 
         Ok(Some(SpvClient::get_target_between_headers(
             &first_header,
