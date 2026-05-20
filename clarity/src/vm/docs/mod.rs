@@ -1419,12 +1419,15 @@ NIST P-256 curve (also known as secp256r1).",
 };
 
 const ED25519VERIFY_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff), (buff 64), (buff 32)",
+    input_type: "(buff 1048576), (buff 64), (buff 32)",
     snippet: "ed25519-verify ${1:message} ${2:signature} ${3:public-key})",
     output_type: "bool",
     signature: "(ed25519-verify message signature public-key)",
     description: "The `ed25519-verify` function verifies that the provided signature of the message
-was signed with the private key that generated the public key.",
+was signed with the private key that generated the public key.
+The `message` can be up to 1 MiB in size. The `signature` is the raw 64-byte signature, and the `public-key` is the raw 32-byte public key.
+returns `true` if the signature is valid, and `false` otherwise.
+Note that validation is in strict mode, so non-canonical signatures will be rejected.",
     example: "(ed25519-verify 0x68656c6c6f20776f726c64
     0x7e8346b0d9ef1151608df9d436c646b9df23758b292e0df400032f2603417724a25997d81a95a8997a55252813589b9409893df1ec75249a5b6f38753232810e
     0xec172b93ad5e563bf49683c1397357b1af93d4e937abda610c10ccc6112217c0) ;; Returns true
