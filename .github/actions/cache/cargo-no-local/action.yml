@@ -26,7 +26,7 @@ runs:
     - name: Set Cache Key
       shell: bash
       run: |
-        echo "CARGO_CACHE_KEY=cargo-cache-no-local-crates-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
+        echo "CARGO_CACHE_KEY=cache-cargo-no-local-crates.${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}" >> "$GITHUB_ENV"
   
     # Check if cache data exists
     - name: Check Cache

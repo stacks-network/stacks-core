@@ -18,6 +18,7 @@ permissions:
 # Set default env vars
 #   - transferred to composite action steps
 env:
+  NUM_UNIT_TEST_PARTITIONS: 16
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
@@ -30,9 +31,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Set up the unit test matrix
+  setup-unit-test-matrix:
+    name: Setup Unit Test Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix-array: ${{ steps.setup-matrix.outputs.result }}
+    steps:
+      - id: setup-matrix
+        run: |
+          # Generates a JSON array like [1, 2, 3, ..., 16] using jq
+          ARRAY=$(seq 1 ${{ env.NUM_UNIT_TEST_PARTITIONS }} | jq -s -c .)
+          echo "result=$ARRAY" >> $GITHUB_OUTPUT
+
   # Unit tests with code coverage
   unit-tests:
     name: Unit Tests
+    needs:
+      - setup-matrix
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     # Continue the workflow in case a step fails (ex a single test fails)
@@ -41,8 +57,8 @@ jobs:
       # Continue the workflow in case a step fails (ex a single test fails)
       fail-fast: false
       matrix:
-        # Partition unit tests into 16 concurrent jobs
-        partition: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        # Partition unit tests into env.NUM_UNIT_TEST_PARTITIONS concurrent jobs
+        partition: ${{ fromJSON(needs.setup-unit-test-matrix.outputs.matrix-array) }}
     steps:
     # Checkout the code
     #   - only .github is required for this job
