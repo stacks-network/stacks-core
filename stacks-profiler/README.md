@@ -85,14 +85,20 @@ for i in 0..10 {
 
 Returns `Option<ProfileGuard>` — `None` when suppressed or unsampled.
 
-#### `measure!(name, [tag], { block })`
+#### `measure!(name, [tag], { block })` / `measure!({ block })`
 
 Block-scoped span — wraps a block and returns its value. Shorter and harder
 to misuse than `span!` when you just want to time a region inline.
 
 ```rust
+// Named block:
 let result = stacks_profiler::measure!("Compute", {
     expensive_work()
+});
+
+// Anonymous block, span name defaults to "scope":
+stacks_profiler::measure!({
+    setup_work();
 });
 ```
 

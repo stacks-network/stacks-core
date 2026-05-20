@@ -36,6 +36,11 @@
 /// measure!("tx", rate: 100, suppress, {
 ///     measure!("verify", { /* ... */ });
 /// });
+///
+/// // Anonymous block:
+/// measure!({
+///     /* ... */
+/// });
 /// ```
 #[macro_export]
 macro_rules! measure {
@@ -98,10 +103,18 @@ macro_rules! measure {
     };
 
     // Anonymous Block
-    ($($t:tt)*) => {{
+    ($block:block) => {{
         let _guard = $crate::span!("scope");
-        $($t)*
+        $block
     }};
+
+    // Catch-all: reject malformed invocations instead of treating arbitrary tokens as an
+    // anonymous block body.
+    ($($t:tt)*) => {
+        compile_error!(
+            "invalid `measure!` invocation; see the macro documentation for supported forms and examples."
+        );
+    };
 }
 
 /// Create a profiling span guard for the current scope.

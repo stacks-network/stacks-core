@@ -42,10 +42,10 @@ fn test_macro_variations() {
         stacks_profiler::span!("Statement");
     }
 
-    // Block style
-    stacks_profiler::measure! {
+    // Anonymous/block style
+    stacks_profiler::measure!({
         let _x = 1 + 1;
-    };
+    });
 
     // Expression style
     let res = stacks_profiler::measure!("Expression", { 5 + 5 });
