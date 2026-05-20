@@ -2,7 +2,7 @@
 #   https://github.com/rust-lang/rust-clippy#usage
 #   https://rust-lang.github.io/rust-clippy/master/index.html
 #
-name: Checks: Clippy
+name: [Checks] Clippy
 
 # Only run when:
 #   - PRs are (re)opened against develop branch
