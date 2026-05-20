@@ -3,13 +3,12 @@
 name: Tests::Bitcoin
 
 on:
-  workflow_dispatch:
-    inputs:
-      build-cache:
-        type: boolean
-        default: true
-        description: Build the test cache before running tests
   workflow_call:
+    inputs:
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:

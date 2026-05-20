@@ -3,13 +3,12 @@
 name: Tests::Bitcoin RPC
 
 on:
-  workflow_dispatch:
-    inputs:
-      build-cache:
-        type: boolean
-        default: true
-        description: Build the test cache before running tests
   workflow_call:
+    inputs:
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -23,11 +22,6 @@ env:
   DISCOVER_TIMEOUT_MINS: 5
   # Minimum Bitcoin Core major version to start discovering Docker tags from.
   START_MAJOR: "25"
-
-inputs:
-  archive-file:
-    description: "The test archive file"
-    required: true
 
 # Configure concurrency
 concurrency:

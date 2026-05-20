@@ -3,13 +3,12 @@
 name: Tests::Stacks Core
 
 on:
-  workflow_dispatch:
-    inputs:
-      build-cache:
-        type: boolean
-        default: true
-        description: Build the test cache before running tests
   workflow_call:
+    inputs:
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -24,11 +23,6 @@ env:
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   TEST_TIMEOUT: 30
   CI: true  # Required by insta snapshot tests to run in CI
-
-inputs:
-  archive-file:
-    description: "The test archive file"
-    required: true
 
 # Configure concurrency
 concurrency:

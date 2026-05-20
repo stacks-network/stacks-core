@@ -3,13 +3,12 @@
 name: Tests::Epoch
 
 on:
-  workflow_dispatch:
-    inputs:
-      build-cache:
-        type: boolean
-        default: true
-        description: Build the test cache before running tests
   workflow_call:
+    inputs:
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -22,11 +21,6 @@ env:
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
-
-inputs:
-  archive-file:
-    description: "The test archive file"
-    required: true
 
 # Configure concurrency
 concurrency:
