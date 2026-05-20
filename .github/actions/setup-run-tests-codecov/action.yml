@@ -89,7 +89,7 @@ runs:
       uses: ./.github/actions/cache/test-archive
       with:
         action: restore
-        test-archive-file: ${{ inputs.archive-file }}
+        archive-file: ${{ inputs.archive-file }}
         
     # Restore cargo cache data
     - name: Restore Cargo Cache (With Local Crates)
