@@ -278,8 +278,12 @@ impl ProfileStats {
 
 /// Static entry-point for all profiler operations.
 ///
-/// Most users should prefer the [`span!`](span), [`measure!`](measure), and
-/// [`#[profile]`](profile) macros over calling these methods directly.
+/// Most users should prefer the [`span!`](span), [`measure!`](measure), and [`#[profile]`](profile)
+/// macros over calling these methods directly.
+///
+/// The hidden `begin_*` helpers are stack operations used by the macros. Returned guards must be
+/// dropped in strict LIFO order; manual out-of-order drops can corrupt the per-thread active span
+/// stack.
 pub struct Profiler;
 
 impl Profiler {
@@ -545,6 +549,10 @@ enum GuardKind {
 }
 
 /// RAII guard that ends a span (or suppression region) when dropped.
+///
+/// A guard does not carry a unique token for the frame it created; `Drop` ends the current
+/// top-of-stack frame for this thread. The public macros produce strict LIFO drops naturally.
+/// Manual use of the hidden `Profiler::begin_*` helpers must preserve that invariant.
 ///
 /// Intentionally `!Send + !Sync` — its `Drop` operates on thread-local state.
 ///
