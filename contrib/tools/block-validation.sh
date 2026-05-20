@@ -745,16 +745,25 @@ check_dependencies() {
     done
 }
 
+# Require that a value was passed after the current flag; otherwise show usage and exit 1.
+# Usage (from inside a parse_args case branch): require_value "${1}" "${2:-}"
+require_value() {
+    local flag=$1
+    local value=$2
+    if [ -z "${value}" ]; then
+        echo "ERROR: Missing required value for ${flag}"
+        usage
+        exit 1
+    fi
+}
+
 # Parse CLI flags into the config globals. See usage() for the supported flags.
 parse_args() {
     while [ ${#} -gt 0 ]; do
         case ${1} in
             -v|--validate)
                 # What to validate; see usage for accepted values
-                if [ "${2:-}" == "" ]; then
-                    echo "Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 VALIDATE="${2}"
                 case "${VALIDATE}" in
                     test|pre-nakamoto|nakamoto|full) ;;
@@ -770,67 +779,47 @@ parse_args() {
                 ;;
             -s|--scratchdir)
                 # Filesystem location to store the chainstate slice data used by stacks-inspect
-                if [ "${2:-}" == "" ]; then
-                    echo "Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 SCRATCH_DIR="${2}"
+                shift
                 ;;
             -n|--network)
                 # Required if not mainnet
-                if [ "${2:-}" == "" ]; then
-                    echo "ERROR: Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 NETWORK=${2}
                 shift
                 ;;
             -b|--branch)
                 # Build from a specific branch
-                if [ "${2:-}" == "" ]; then
-                    echo "ERROR: Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 BRANCH=${2}
                 shift
                 ;;
             -r|--repodir)
                 # Use an existing stacks-core checkout. Disables the branch-tracking
                 # logic in build_stacks_inspect — the dir is used as-is, --branch is ignored.
-                if [ "${2:-}" == "" ]; then
-                    echo "ERROR: Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 REPO_DIR="${2}"
                 TRACK_BRANCH=0
                 shift
                 ;;
             -c|--chaindir)
                 # Use a local chainstate
-                if [ "${2:-}" == "" ]; then
-                    echo "ERROR: Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 CHAIN_DIR="${2}"
                 shift
                 ;;
             -l|--logdir)
                 # Parent folder that collects every run's logs (timestamped subdir per run)
-                if [ "${2:-}" == "" ]; then
-                    echo "ERROR: Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 LOG_ROOT="${2}"
                 shift
                 ;;
             -p|--proc)
                 # Cores to use for validation
-                if [ "${2:-}" == "" ]; then
-                    echo "ERROR: Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 if ! [[ "$2" =~ ^[0-9]+$ ]]; then
-                    echo "ERROR: arg ($2) is not a number." >&2
+                    echo "ERROR: arg ($2) is not a number."
                     exit 1
                 fi
                 CORES=${2}
@@ -838,10 +827,7 @@ parse_args() {
                 ;;
             -w|--workdir)
                 # Use a specified workdir
-                if [ "${2:-}" == "" ]; then
-                    echo "ERROR: Missing required value for ${1}"
-                    exit 1
-                fi
+                require_value "${1}" "${2:-}"
                 WORK_DIR="${2}"
                 shift
                 ;;
