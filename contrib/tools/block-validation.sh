@@ -14,15 +14,15 @@ set -Eeuo pipefail
 # ** Default folder layout (when only -w/--workdir is set)
 #   ${WORK_DIR}/stacks-core/                   built repo (checkout of develop by default)
 #   ${WORK_DIR}/chain/                         chainstate used as the source of slices
-#   ${WORK_DIR}/downloads/                     downloaded Hiro snapshot archive
+#   ${WORK_DIR}/downloads/                     downloaded Hiro snapshot archive (expanded in-place to chain/ if missing)
 #   ${WORK_DIR}/scratch/                       slice copies + .scratch_meta
 #   ${WORK_DIR}/logs/<timestamp>/              per-run logs (slices + results)
 #
 # ** Caching (each step skips work when a prior artifact is reusable)
-#   - stacks-core/     : reused if present (git fetch + checkout + reset --hard)
+#   - stacks-core/     : reused if present (updated when branch tracking is enabled)
 #   - downloads/       : Hiro snapshot archive reused if already on disk (no redownload)
 #   - chain/           : reused if already extracted (no re-extract). 
-#   - scratch/         : slices reused when .scratch_meta matches the current LOCAL_CHAINSTATE
+#   - scratch/         : slices reused when .scratch_meta matches the current environment
 #                        path + slice count + chainstate fingerprint. Otherwise wiped and rebuilt.
 #   - logs/            : never wiped; each run gets a fresh timestamped subdir.
 #
@@ -30,7 +30,7 @@ set -Eeuo pipefail
 #   - Run this script in screen or tmux
 #   - Use an existing chainstate on a disk formatted using XFS, Btrfs, ZFS or APFS (for XFS, reflink support must be enabled at fs-creation time; this is the default in recent OS versions)
 #   - If using a filesystem which doesn't support reflink (e.g. ext4), ensure that the SCRATCH_DIR volume has multiple TBs of free space - each allocated CPU will require its own chainstate copy.
-#   - If using LOCAL_CHAINSTATE on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the SCRATCH_DIR.
+#   - If using CHAIN_DIR on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the SCRATCH_DIR.
 #   - Depending on how many CPU cores you have available, a full run will take several hours. More CPUs = faster execution time.
 #     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled partition, full validation took ~14 hours.
 
@@ -45,13 +45,15 @@ COLRESET=$'\033[0m'   # reset color/formatting
 # Initialize user-overridable defaults. Anything the
 # user can set via a CLI flag has its default here.
 set_default_config() {
-    WORK_DIR="${HOME}"                                # root folder used for block validation and related artifacts
-    BRANCH="develop"                                  # default branch to build stacks-inspect from
-    CORES=""                                          # cores to use for validation; resolved in apply_input_config
-    LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
-    NETWORK="mainnet"                                 # network to validate
-    VALIDATE="full"                                   # what to validate: scenario or block range
-    TERM_OUT=false                                    # terminal friendly output
+    WORK_DIR="${HOME}"                         # root folder used for block validation and related artifacts
+    CHAIN_DIR=""                               # path to local chainstate to use instead of snapshot download
+    NETWORK="mainnet"                          # network to validate
+    REPO_DIR=""                                # stacks-core checkout location; defaults to ${WORK_DIR}/stacks-core
+    BRANCH="develop"                           # default branch to build stacks-inspect from
+    TRACK_BRANCH=1                             # 1: BRANCH tracking enabled; 0: use REPO_DIR as-is if set by flag.
+    CORES=""                                   # cores to use for validation; resolved in apply_input_config
+    VALIDATE="full"                            # what to validate: scenario or block range
+    TERM_OUT=false                             # terminal friendly output
 }
 
 # Derive configurations and resolved values from the user-supplied config
@@ -89,12 +91,14 @@ apply_input_config() {
         exit 1
     fi
 
+    if [ -z "${REPO_DIR}" ]; then
+        REPO_DIR="${WORK_DIR}/stacks-core"            # default stacks-core checkout location
+    fi
+
     # Internal configurations
-    REPO_DIR="${WORK_DIR}/stacks-core"                # where to build the source
     SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
     REMOTE_REPO="stacks-network/stacks-core"          # remote git repo to build stacks-inspect from
     TMUX_SESSION="validation"                         # tmux session name to run the validation
-    REFLINK=0                                         # assume reflink is not enabled by default
 }
 
 # Show usage and exit
@@ -110,17 +114,17 @@ usage() {
     echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch boundary)"
     echo "        ${COLYELLOW}-t|--terminal${COLRESET}: more terminal friendly output"
     echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
-    echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${HOME}/scratch)"
+    echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${WORK_DIR}/scratch)"
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
-    echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
+    echo "        ${COLYELLOW}-r|--repodir${COLRESET}: use an existing stacks-core checkout as-is (must exist; --branch is ignored). Default: ${WORK_DIR}/stacks-core (automatic checkout)"
+    echo "        ${COLYELLOW}-c|--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
     echo "        ${COLYELLOW}-l|--logdir${COLRESET}: parent folder for run logs; a TIMESTAMP subdir is created per run (default: ${WORK_DIR}/logs)"
-    echo "        ${COLYELLOW}-r|--cores${COLRESET}: how many cpu cores to use for validation (default: max(1, nproc/4), capped at nproc)"
+    echo "        ${COLYELLOW}-p|--proc${COLRESET}: how many cpu cores to use for validation (default: max(1, nproc/4), capped at nproc)"
     echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts"
     echo
     echo "    ex: Full validation (Epoch 2 + 3) with chainstate automatically downloaded"
     echo "        ${COLCYAN}${0} -t -w /data/workdir ${COLRESET}"
     echo
-    exit 0
 }
 
 # Verify that cargo is installed in the expected path, not only $PATH
@@ -138,9 +142,17 @@ install_cargo() {
     return 0
 }
 
-# Build release stacks-inspect binary from specified repo/branch
+# Build release stacks-inspect binary.
+# When TRACK_BRANCH=1 (default): clone if missing, otherwise track the branch
+# When TRACK_BRANCH=0 (set by -r/--repodir): treat REPO_DIR as a pre-existing checkout
 build_stacks_inspect() {
-    if [ -d "${REPO_DIR}" ];then
+    if [ "${TRACK_BRANCH}" -eq 0 ]; then
+        if [ ! -d "${REPO_DIR}" ]; then
+            echo "${COLRED}Error${COLRESET} repo dir not found: ${REPO_DIR}"
+            exit 1
+        fi
+        echo "Using existing checkout at ${COLYELLOW}${REPO_DIR}${COLRESET} as-is (branch tracking disabled)"
+    elif [ -d "${REPO_DIR}" ]; then
         echo "Found ${COLYELLOW}${REPO_DIR}${COLRESET}. checking out ${COLGREEN}${BRANCH}${COLRESET} and resetting to ${COLBOLD}HEAD${COLRESET}"
         cd "${REPO_DIR}" && git fetch
         echo "Checking out ${BRANCH} and resetting to HEAD"
@@ -150,6 +162,7 @@ build_stacks_inspect() {
             echo "${COLRED}Error${COLRESET} checking out ${BRANCH}"
             exit 1
         }
+        git pull
     else
         echo "Cloning stacks-core ${BRANCH}"
         (git clone "https://github.com/${REMOTE_REPO}" --branch "${BRANCH}" "${REPO_DIR}" && cd "${REPO_DIR}") || {
@@ -157,7 +170,6 @@ build_stacks_inspect() {
             exit 1
         }
     fi
-    git pull
     # Build stacks-inspect to: ${REPO_DIR}/target/release/stacks-inspect
     echo "Building stacks-inspect binary"
     cd "${REPO_DIR}/contrib/stacks-inspect" && cargo build --bin=stacks-inspect --release || {
@@ -167,19 +179,19 @@ build_stacks_inspect() {
     echo "Done building. continuing"
 }
 
-# Resolve LOCAL_CHAINSTATE: use the user-provided path if set, otherwise reuse
+# Resolve chain dir: use the user-provided path if set, otherwise reuse
 # ${WORK_DIR}/chain if present, or download+extract the Hiro snapshot for ${NETWORK}.
 configure_chainstate() {
-    if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
-        if [ ! -d "${LOCAL_CHAINSTATE}" ]; then
-            echo "${COLRED}Error${COLRESET} Chainstate not found: ${LOCAL_CHAINSTATE}"
+    if [[ -n "${CHAIN_DIR}" ]]; then
+        if [ ! -d "${CHAIN_DIR}" ]; then
+            echo "${COLRED}Error${COLRESET} Chainstate not found: ${CHAIN_DIR}"
             exit 1
         fi
-        echo "${COLYELLOW}Using local chainstate: ${LOCAL_CHAINSTATE}"
+        echo "${COLYELLOW}Using local chainstate: ${CHAIN_DIR}"
     else
-        LOCAL_CHAINSTATE="${WORK_DIR}/chain"
-        if [ -d "${LOCAL_CHAINSTATE}" ]; then
-            echo "Chainstate found. It will be reused: ${COLYELLOW}${LOCAL_CHAINSTATE}${COLRESET}"
+        CHAIN_DIR="${WORK_DIR}/chain"
+        if [ -d "${CHAIN_DIR}" ]; then
+            echo "Chainstate found. It will be reused: ${COLYELLOW}${CHAIN_DIR}${COLRESET}"
             return 0
         fi
 
@@ -199,13 +211,13 @@ configure_chainstate() {
         fi
 
         # Extract downloaded archive
-        mkdir -p "${LOCAL_CHAINSTATE}"
+        mkdir -p "${CHAIN_DIR}"
         echo "Extracting downloaded archive: ${COLYELLOW}${archive_path}${COLRESET}"
         if [ ! -f "${archive_path}" ]; then
             echo "${COLRED}Error${COLRESET} ${archive_path} not found"
             exit 1
         fi
-        tar --strip-components=1 --zstd -xvf "${archive_path}" -C "${LOCAL_CHAINSTATE}" || {
+        tar --strip-components=1 --zstd -xvf "${archive_path}" -C "${CHAIN_DIR}" || {
             echo "${COLRED}Error${COLRESET} extracting ${NETWORK} chainstate archive"
             exit 1
         }
@@ -223,7 +235,7 @@ configure_validation_slices() {
     # Fingerprint the source chainstate so we detect in-place updates (same path,
     # different content). mtime+size of the canonical index.sqlite is cheap and
     # changes whenever the chainstate advances.
-    local chainstate_sentinel="${LOCAL_CHAINSTATE}/chainstate/vm/index.sqlite"
+    local chainstate_sentinel="${CHAIN_DIR}/chainstate/vm/index.sqlite"
     local chainstate_fp=""
     if [ -f "${chainstate_sentinel}" ]; then
         chainstate_fp=$(stat -c '%Y:%s' "${chainstate_sentinel}")
@@ -236,12 +248,12 @@ configure_validation_slices() {
         local prev_chainstate="" prev_slices="" prev_chainstate_fp=""
         while IFS='=' read -r key value; do
             case "${key}" in
-                LOCAL_CHAINSTATE) prev_chainstate="${value}" ;;
+                CHAIN_DIR) prev_chainstate="${value}" ;;
                 SLICES)           prev_slices="${value}" ;;
                 CHAINSTATE_FP)    prev_chainstate_fp="${value}" ;;
             esac
         done < "${meta_file}"
-        if [ "${prev_chainstate}" == "${LOCAL_CHAINSTATE}" ] \
+        if [ "${prev_chainstate}" == "${CHAIN_DIR}" ] \
             && [ "${prev_slices}" == "${expected_slices}" ] \
             && [ "${prev_chainstate_fp}" == "${chainstate_fp}" ] \
             && [ -n "${chainstate_fp}" ]; then
@@ -253,7 +265,7 @@ configure_validation_slices() {
                 fi
             done
             if [ "${all_valid}" -eq 1 ]; then
-                echo "Reusing existing scratch dir: ${COLYELLOW}${SCRATCH_DIR}${COLRESET} (${expected_slices} slices, chainstate: ${LOCAL_CHAINSTATE})"
+                echo "Reusing existing scratch dir: ${COLYELLOW}${SCRATCH_DIR}${COLRESET} (${expected_slices} slices, chainstate: ${CHAIN_DIR})"
                 return 0
             fi
             echo "${COLYELLOW}Scratch dir metadata matched but slices are incomplete${COLRESET}, rebuilding"
@@ -278,9 +290,10 @@ configure_validation_slices() {
     }
 
     # Check if reflink is enabled for the filesystem by copying a test file
+    local reflink=0
     touch "${SCRATCH_DIR}/reflink_test"
     if cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null; then
-        REFLINK=1
+        reflink=1
         echo "${COLGREEN}Reflink is supported${COLRESET}: chainstate slice copies will be fast and space-efficient"
     else
         echo "${COLYELLOW}Warning${COLRESET}: reflink is not enabled for this filesystem, chainstate copy will be slower"
@@ -289,9 +302,9 @@ configure_validation_slices() {
     rm "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy"  2>/dev/null
     
     # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
-    if [[ ${REFLINK} -ne "1" ]]; then
-        echo "Copying local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
-        cp -r "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0"
+    if [[ ${reflink} -ne "1" ]]; then
+        echo "Copying local chainstate ${CHAIN_DIR} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
+        cp -r "${CHAIN_DIR}"/* "${SLICE_DIR}0"
 
         echo "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> ${COLYELLOW}${SCRATCH_DIR}/marf.sqlite.blobs${COLRESET}"
         mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/ || {
@@ -304,8 +317,8 @@ configure_validation_slices() {
             exit 1
         }
     else 
-        echo "Copying local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
-        cp -r --reflink=always "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0" 2>/dev/null
+        echo "Copying local chainstate ${CHAIN_DIR} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
+        cp -r --reflink=always "${CHAIN_DIR}"/* "${SLICE_DIR}0" 2>/dev/null
     fi 
 
     # Sanity check that the chainstate db exists in slice0 before copying
@@ -317,7 +330,7 @@ configure_validation_slices() {
     # Create one slice copy per worker core.
     # note: decrement by 1 since we already have ${SLICE_DIR}0
     local cp_args=(-r)
-    if [[ ${REFLINK} -eq 1 ]]; then
+    if [[ ${reflink} -eq 1 ]]; then
         cp_args+=(--reflink=always)
     fi
     for ((i=1;i<=$(( CORES - 1 ));i++)); do
@@ -330,7 +343,7 @@ configure_validation_slices() {
 
     # Record what we built so a future run can reuse this scratch dir as-is.
     {
-        printf 'LOCAL_CHAINSTATE=%s\n' "${LOCAL_CHAINSTATE}"
+        printf 'CHAIN_DIR=%s\n' "${CHAIN_DIR}"
         printf 'SLICES=%s\n' "${expected_slices}"
         printf 'CHAINSTATE_FP=%s\n' "${chainstate_fp}"
     } > "${meta_file}"
@@ -746,7 +759,7 @@ parse_args() {
             -n|--network)
                 # Required if not mainnet
                 if [ "${2:-}" == "" ]; then
-                    echo "Missing required value for ${1}"
+                    echo "ERROR: Missing required value for ${1}"
                     exit 1
                 fi
                 NETWORK=${2}
@@ -755,34 +768,45 @@ parse_args() {
             -b|--branch)
                 # Build from a specific branch
                 if [ "${2:-}" == "" ]; then
-                    echo "Missing required value for ${1}"
+                    echo "ERROR: Missing required value for ${1}"
                     exit 1
                 fi
                 BRANCH=${2}
                 shift
                 ;;
-            -c|--chainstate)
-                # Use a local chainstate
+            -r|--repodir)
+                # Use an existing stacks-core checkout. Disables the branch-tracking
+                # logic in build_stacks_inspect — the dir is used as-is, --branch is ignored.
                 if [ "${2:-}" == "" ]; then
-                    echo "Missing required value for ${1}"
+                    echo "ERROR: Missing required value for ${1}"
                     exit 1
                 fi
-                LOCAL_CHAINSTATE="${2}"
+                REPO_DIR="${2}"
+                TRACK_BRANCH=0
+                shift
+                ;;
+            -c|--chaindir)
+                # Use a local chainstate
+                if [ "${2:-}" == "" ]; then
+                    echo "ERROR: Missing required value for ${1}"
+                    exit 1
+                fi
+                CHAIN_DIR="${2}"
                 shift
                 ;;
             -l|--logdir)
                 # Parent folder that collects every run's logs (timestamped subdir per run)
                 if [ "${2:-}" == "" ]; then
-                    echo "Missing required value for ${1}"
+                    echo "ERROR: Missing required value for ${1}"
                     exit 1
                 fi
                 LOG_ROOT="${2}"
                 shift
                 ;;
-            -r|--cores)
-                # Cores to use for validation (clamped to nproc, warns if aggressive)
+            -p|--proc)
+                # Cores to use for validation
                 if [ "${2:-}" == "" ]; then
-                    echo "Missing required value for ${1}"
+                    echo "ERROR: Missing required value for ${1}"
                     exit 1
                 fi
                 if ! [[ "$2" =~ ^[0-9]+$ ]]; then
@@ -795,7 +819,7 @@ parse_args() {
             -w|--workdir)
                 # Use a specified workdir
                 if [ "${2:-}" == "" ]; then
-                    echo "Missing required value for ${1}"
+                    echo "ERROR: Missing required value for ${1}"
                     exit 1
                 fi
                 WORK_DIR="${2}"
@@ -804,6 +828,12 @@ parse_args() {
             -h|--help|--usage)
                 # show usage/options and exit
                 usage
+                exit 0
+                ;;
+            *)
+                echo "ERROR: Invalid argument: ${1}"
+                usage
+                exit 1
                 ;;
         esac
         shift
