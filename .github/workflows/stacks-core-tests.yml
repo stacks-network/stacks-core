@@ -48,7 +48,7 @@ jobs:
   unit-tests:
     name: Unit Tests
     needs:
-      - setup-matrix
+      - setup-unit-test-matrix
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     # Continue the workflow in case a step fails (ex a single test fails)
