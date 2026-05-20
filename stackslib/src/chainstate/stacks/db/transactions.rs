@@ -630,7 +630,7 @@ impl StacksChainState {
 
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
-        tx.verify().map_err(Error::NetError)?;
+        tx.verify()?;
 
         // destined for us?
         if config.chain_id != tx.chain_id {
