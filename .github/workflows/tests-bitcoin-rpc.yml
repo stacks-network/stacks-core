@@ -116,12 +116,6 @@ jobs:
         uses: ./.github/actions/cache/test-archive
         with:
           action: restore
-          
-      # Restore cargo cache data
-      - name: Restore Cargo Cache (With Local Crates)
-        uses: ./.github/actions/cache/cargo
-        with:
-          action: restore
 
       ############################################################################
       ### Run proptests

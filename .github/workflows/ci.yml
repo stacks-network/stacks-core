@@ -59,7 +59,7 @@ jobs:
   #   - Checks for changelog updates (or the 'No Changelog' label on a PR
   #   - Required to pass for all subsequent jobs
   changelog-check:
-    name: Changelog Check
+    name: Check Changelog
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -86,7 +86,7 @@ jobs:
   #   - Check for correct formatting
   #   - Required to pass for all subsequent jobs
   rustfmt:
-    name: Rust Format
+    name: Check Rust Formatting
     needs: changelog-check
     runs-on: ubuntu-latest
     steps:
@@ -101,7 +101,7 @@ jobs:
         with:
           components: rustfmt
 
-      # Check if this is a release
+      # Check Rust formatting
       - name: Rustfmt
         run: bash ./.github/scripts/rustfmt.sh
 
@@ -113,7 +113,7 @@ jobs:
   #    - If this is true, 'is_signer_release' will also be true, since a 'stacks-signer' binary is always released alongside 'stacks-node'.
   #  - is_signer_release: True if the branch represents a 'stacks-signer' release, false otherwise.
   check-release:
-    name: Check Release
+    name: Check If Release
     needs:
       - rustfmt
       - changelog-check
@@ -144,9 +144,9 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: bash ./.github/scripts/check_release.sh
 
-  ## --- Create a reusable cache for tests ------------------------------------
+  ## --- Manage (often create) reusable caches for tests ------------------------------------
   create-caches:
-    name: Create Reusable Caches
+    name: Manage Test Caches
     needs:
       - setup-env
       - rustfmt
@@ -160,7 +160,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group')
-    uses: ./.github/workflows/create-caches.yml
+    uses: ./.github/workflows/manage-test-caches.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 

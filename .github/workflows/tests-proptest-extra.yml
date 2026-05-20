@@ -239,12 +239,6 @@ jobs:
         with:
           action: restore
           archive-file: ${{ env.TEST_ARCHIVE_FILE }}
-          
-      # Restore cargo cache data
-      - name: Restore Cargo Cache (With Local Crates)
-        uses: ./.github/actions/cache/cargo
-        with:
-          action: restore
 
       ############################################################################
       ### Run proptests

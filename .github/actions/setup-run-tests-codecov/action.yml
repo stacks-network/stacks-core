@@ -90,12 +90,6 @@ runs:
       with:
         action: restore
         archive-file: ${{ inputs.archive-file }}
-        
-    # Restore cargo cache data
-    - name: Restore Cargo Cache (With Local Crates)
-      uses: ./.github/actions/cache/cargo
-      with:
-        action: restore
 
     # Install dependencies
     #   grcov is used in the code coverage workflow in tests, so it's installed here
