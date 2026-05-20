@@ -25,6 +25,11 @@ env:
   TEST_TIMEOUT: 30
   CI: true  # Required by insta snapshot tests to run in CI
 
+inputs:
+  archive-file:
+    description: "The test archive file"
+    required: true
+
 # Configure concurrency
 concurrency:
   group: stacks-core-tests-${{ github.head_ref || github.ref || github.run_id }}
@@ -69,25 +74,15 @@ jobs:
           sparse-checkout: |
             .github
 
-      # Download cache(s) and configure the runner to run test(s)
-      - name: Setup Test Environment
-        uses: ./.github/actions/testenv
-
-      # Run test matrix
-      #   - Test will timeout after env.TEST_TIMEOUT minutes
-      - name: Run Tests
-        timeout-minutes: ${{ env.TEST_TIMEOUT }}
-        uses: ./.github/actions/run-tests/partition
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: ./.github/actions/setup-run-tests-codecov
         with:
           partition: ${{ matrix.partition }}
           total-partitions: ${{ strategy.job-total }}
-
-      # Create and upload code coverage file
-      - name: Code Coverage
-        if: github.event.repository.visibility == 'public'
-        uses: ./.github/actions/codecov
-        with:
-          test-name: ${{ github.job }}-${{ matrix.partition }}
+          codecov-test-name: ${{ github.job }}-${{ matrix.partition }}
+          archive-file: ${{ inputs.archive-file }}
 
   # Generate and upload openapi html artifact
   open-api-validation:

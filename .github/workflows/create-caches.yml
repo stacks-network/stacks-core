@@ -15,6 +15,11 @@ permissions:
 env:
   RUSTFLAGS: "-Cinstrument-coverage -Awarnings"
   LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
+  
+inputs:
+  archive-file:
+    description: "The test archive file"
+    required: true
 
 # Configure concurrency
 #   - cache will exist longer than workflow execution so other runners have access.
@@ -63,9 +68,11 @@ jobs:
       - name: Check Test Archive Cache
         id: test-archive
         uses: ./.github/actions/cache/test-archive
+        with:
+          archive-file: ${{ inputs.archive-file }}
 
   # Cache the bitcoin binary
-  bitcoin-binary:
+  cache-bitcoin-binary:
     name: Bitcoin Binary
     needs: check-caches
     runs-on: ubuntu-latest
@@ -87,13 +94,15 @@ jobs:
           action: save
 
   # Cache nextest archives for tests
-  nextest-archive:
-    name: Build & Cache Test Archive
+  cache-test-archive-and-cargo:
+    name: Build & Cache Test Archive + Cargo
     needs:
       - check-caches
     runs-on: ubuntu-latest
-    # Run if test-archive or either cargo cache is missing
-    #   - If the cargo target cache (or the test-archive cache) is missing, then we'll need to rebuild the test archive and cache both the archive and cargo (required for code coverage).
+    ####################################################################################
+    ### Everything below is ONLY done if at least one of these caches does not exist.
+    ### If they all exist, the below steps are skipped.
+    ####################################################################################
     if: >-
       !cancelled() &&
       (needs.check-caches.outputs.test-archive-cache-hit != 'true' || 
@@ -105,7 +114,49 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      # Build and cache the test archive
-      - name: Build & Cache Test Archive
-        uses: ./.github/actions/cache/build-cache
+     
+      # Setup rust toolchain
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          components: llvm-tools-preview
+     
+      #  Only install dependencies if cache miss (i.e. no existing data)
+      - name: Install nextest
+        uses: ./.github/actions/install-tool
+        with:
+          tools: nextest
+     
+      # Build the nextest archive (which also builds our cargo file structure for caching)
+      - name: Build and Archive Tests
+        shell: bash
+        run: |
+          ARCHIVE_FILE=${{ inputs.archive-file }}
+          
+          export RUSTFLAGS="-C instrument-coverage" && \
+          cargo nextest archive \
+            --workspace \
+            --tests \
+            --locked \
+            --features monitoring_prom \
+            --archive-file $ARCHIVE_FILE
+     
+      # Save the nextest archive to cache
+      - name: Cache Test Archive
+        uses: ./.github/actions/cache/test-archive
+        with:
+          action: save
+          archive-file: ${{ inputs.archive-file }}
+     
+      # Save the cargo cache (with local crates)
+      - name: Cache Cargo (With Local Crates)
+        uses: ./.github/actions/cache/cargo
+        with:
+          action: save
+     
+      # Save the cargo cache (without local crates)
+      # IMPORTANT: this MUST happen last because local crates are cleaned (deleted) during save
+      - name: Cache Cargo (Without Local Crates)
+        uses: ./.github/actions/cache/cargo-no-local
+        with:
+          action: save

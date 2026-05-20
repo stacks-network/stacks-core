@@ -1,6 +1,6 @@
-# Github workflow to run sbtc tests
+# Github workflow to run p2p tests
 
-name: Tests::SBTC
+name: Tests::P2P
 
 on:
   workflow_dispatch:
@@ -16,22 +16,22 @@ permissions:
   contents: read
 
 # Set default env vars
-#   - transferred to composite action steps
+#  - transferred to composite action steps
 env:
-  BITCOIND_TEST: 1
+  BITCOIND_TEST: 0
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
 
 # Configure concurrency
 concurrency:
-  group: sbtc-tests-${{ github.head_ref || github.ref || github.run_id }}
+  group: stackslib-tests-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  # Bitcoin integration tests with code coverage
-  sbtc-tests:
-    name: SBTC Tests
+  # P2P integration tests with code coverage
+  integration-tests:
+    name: Integration Tests
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     strategy:
@@ -39,8 +39,24 @@ jobs:
       fail-fast: false
       matrix:
         test-name:
-          - tests::stackerdb::test_stackerdb_event_observer
-          - tests::stackerdb::test_stackerdb_load_store
+          - net::tests::convergence::test_walk_ring_allow_15
+          - net::tests::convergence::test_walk_ring_15_plain
+          - net::tests::convergence::test_walk_ring_15_pingback
+          - net::tests::convergence::test_walk_ring_15_org_biased
+          - net::tests::convergence::test_walk_line_allowed_15
+          - net::tests::convergence::test_walk_line_15_plain
+          - net::tests::convergence::test_walk_line_15_org_biased
+          - net::tests::convergence::test_walk_line_15_pingback
+          - net::tests::convergence::test_walk_star_allowed_15
+          - net::tests::convergence::test_walk_star_15_plain
+          - net::tests::convergence::test_walk_star_15_pingback
+          - net::tests::convergence::test_walk_star_15_org_biased
+          - net::tests::convergence::test_walk_inbound_line_15
+          - net::api::tests::postblock_proposal::test_try_make_response
+          - net::server::test::test_http_10_threads_getinfo
+          - net::server::test::test_http_10_threads_getblock
+          - net::server::test::test_http_too_many_clients
+          - net::server::test::test_http_slow_client
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -51,31 +67,20 @@ jobs:
           sparse-checkout: |
             .github
 
-      # Download cache(s) and configure the runner to run test(s)
-      - name: Setup Test Environment
-        uses: ./.github/actions/testenv
-
-      # Run test matrix
-      #   - Test will timeout after env.TEST_TIMEOUT minutes
-      - name: Run Tests
-        timeout-minutes: ${{ env.TEST_TIMEOUT }}
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
           test-names: ${{ matrix.test-name }}
-
-      # Create and upload code coverage file
-      - name: Code Coverage
-        if: github.event.repository.visibility == 'public'
-        uses: ./.github/actions/codecov
-        with:
-          test-name: ${{ matrix.test-name }}
+          codecov-test-name: ${{ matrix.test-name }}
 
   # Check that all jobs in this workflow have succeeded.
   #   - will not run if the job is cancelled
   check-tests:
     name: Check Tests
     needs:
-      - sbtc-tests
+      - integration-tests
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:

@@ -52,10 +52,6 @@ jobs:
           sparse-checkout: |
             .github
 
-      # Download cache(s) and configure the runner to run test(s)
-      - name: Setup Test Environment
-        uses: ./.github/actions/testenv
-
       # Generate the bitcoin test matrices json used for running tests
       - name: Generate test matrices
         id: set-matrix
@@ -83,20 +79,13 @@ jobs:
           sparse-checkout: |
             .github
 
-      - name: Setup Test Environment
-        uses: ./.github/actions/testenv
-
-      - name: Run Tests
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
           test-names: ${{ matrix.batch.csv }}
-
-      - name: Code Coverage
-        if: github.event.repository.visibility == 'public'
-        uses: ./.github/actions/codecov
-        with:
-          test-name: batched-integration-tests-${{ matrix.batch.index }}
+          codecov-test-name: batched-integration-tests-${{ matrix.batch.index }}
 
   # Check that all jobs in this workflow have succeeded.
   check-tests:

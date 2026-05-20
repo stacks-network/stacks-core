@@ -59,7 +59,6 @@ env:
   # Enable `madhouse-rs` tests to work with `PROPTEST_CASES`
   MADHOUSE: 1
 
-
 jobs:
   proptests-nightly:
     name: Run All Proptest Tests
@@ -106,10 +105,12 @@ jobs:
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.75.21
+      # Install dependencies
+      - name: Install Dependencies
+        id: install_dependencies
+        uses: ./.github/actions/install-tool
         with:
-          tool: cargo-nextest
+          tools: nextest
 
       # Compile and list all tests matching the TEST_TAG tag.
       #   - build artifacts are cached by cargo for the subsequent run step.

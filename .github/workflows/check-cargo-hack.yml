@@ -41,7 +41,7 @@ jobs:
       - name: Install cargo-hack
         uses: ./.github/actions/install-tool
         with:
-          tool: cargo-hack
+          tools: cargo-hack
 
       # Install tools for Windows
       - name: Install Windows cross-compilation tools
@@ -82,7 +82,7 @@ jobs:
       - name: Install cargo-hack
         uses: ./.github/actions/install-tool
         with:
-          tool: cargo-hack
+          tools: cargo-hack
 
       # Run cargo-hack for WASM Web
       - name: Run cargo hack check (WASM Web)

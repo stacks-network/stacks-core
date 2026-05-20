@@ -56,6 +56,7 @@ env:
   REQUIRED_APPROVALS: 2
   # Number of generated cases to run per selected proptest.
   PROPTEST_CASES: 2500
+  TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
 
 jobs:
   # Gate 1: on manual dispatch, always proceed.
@@ -121,7 +122,7 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # Gate 2: scan Git diff for newly added proptest tests (no compilation).
+  # Gate 2: scan git diff for newly added proptest tests (no compilation).
   # Skips the expensive test listing/filtering job when a PR does not
   # introduce any new proptest tests.
   check-changes:
@@ -184,47 +185,76 @@ jobs:
     permissions:
       pull-requests: write
     steps:
+      ############################################################################
+      ### Setup test environment
+      ############################################################################
+      
       # Checkout the code
-      #   - only .github is required for this job
       - name: Checkout the latest code
+        id: git_checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: |
-            .github
-
-      # Download cache(s) and configure the runner to run test(s)
-      #   - try restoring `testenv` for HEAD.
-      # Allows the job to proceed even if the cache restore fails.
-      # The fallback steps will build the archive from source in that case.
-      - name: Setup Test Environment
-        id: setup-tests
-        continue-on-error: true
-        uses: ./.github/actions/testenv
-
-      # If testenv failed (e.g. cache miss), cargo-nextest will not be installed.
-      # Install it explicitly as a fallback using a pre-built binary.
-      - name: Install cargo-nextest (testenv fallback)
-        if: steps.setup-tests.outcome == 'failure'
+     
+      # Setup rust toolchain with llvm-tools-preview
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          components: llvm-tools-preview
+     
+      # Install nextest
+      - name: Install Dependencies
+        id: install_dependencies
         uses: ./.github/actions/install-tool
         with:
-          tool: nextest
+          tools: nextest
 
-      # If the nextest archive was not in cache,
-      # build it from the HEAD source.
-      - name: Build HEAD nextest archive (testenv fallback)
-        if: steps.setup-tests.outcome == 'failure'
+      # Create test caches (if needed)
+      - name: Create Reusable Caches (If Needed)
+        uses: ./.github/workflows/create-caches.yml
+        
+      # Restore bitcoin cache data
+      - name: Restore Bitcoin Binary Cache
+        uses: ./.github/actions/cache/bitcoin
+        with:
+          action: restore
+          btc-version: ${{ inputs.btc-version }}
+     
+      # Symlink bitoind to $PATH
+      - name: Link Bitcoin Binary
+        shell: bash
         run: |
-          cargo nextest archive \
-            --archive-file ~/test_archive.tar.zst \
-            --workspace \
-            --tests
+          sudo ln -s ~/bitcoin/bin/bitcoind /bin/
+     
+      # Increase open file descriptors limit
+      - name: Increase Open File Descriptors
+        shell: bash
+        run: |
+          sudo prlimit --nofile=4096:4096
+        
+      # Restore nextest test archive cache data
+      - name: Restore Test Archive Cache
+        id: restore_test_cache
+        uses: ./.github/actions/cache/test-archive
+        with:
+          action: restore
+          archive-file: ${{ env.TEST_ARCHIVE_FILE }}
+          
+      # Restore cargo cache data
+      - name: Restore Cargo Cache (With Local Crates)
+        uses: ./.github/actions/cache/cargo
+        with:
+          action: restore
+
+      ############################################################################
+      ### Run proptests
+      ############################################################################
 
       # List every test present on the HEAD branch.
       - name: List HEAD branch tests
         run: |
           cargo nextest list \
-            --archive-file ~/test_archive.tar.zst \
+            --archive-file $TEST_ARCHIVE_FILE \
             -Tjson 2>/dev/null \
           | jq -r '
               .["rust-suites"]
@@ -353,7 +383,7 @@ jobs:
 
           set +e
           cargo nextest run \
-            --archive-file ~/test_archive.tar.zst \
+            --archive-file $TEST_ARCHIVE_FILE \
             --fail-fast \
             --config-file /tmp/nextest-ci.toml
           exit_code=$?
