@@ -488,6 +488,8 @@ validate_block_range() {
     echo "Block range: ${COLYELLOW}${global_start}-${global_end}${COLRESET} (${block_diff} blocks)"
     echo "Slices: ${COLYELLOW}${slices}${COLRESET} | Blocks/slice: ${COLYELLOW}${slice_blocks}${COLRESET}"
     echo "************************************************************************"
+    local range_label="${mode} validation"
+    local range_start=$(phase_start "${range_label}")
 
     local end_block_count=$starting_block
     local slice_counter=0
@@ -519,6 +521,7 @@ validate_block_range() {
         slice_counter=$((slice_counter + 1))
     done
     check_progress
+    phase_end "${range_label}" "${range_start}"
 }
 
 # Translate the user-facing VALIDATE scenario into inclusive global block ranges,
@@ -617,7 +620,7 @@ check_progress() {
         if [ "${count}" -gt 0 ]; then
             ${IS_TTY} && printf "Block validation processes are currently active [ %s%s%s%s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "${COLYELLOW}" "${COLBOLD}" "${count}" "${COLRESET}"
         else
-            ${IS_TTY} && printf "\r\n"
+            ${IS_TTY} && printf "\rAll block validation processes finished\033[0K\n"
             break
         fi
         sleep 1
@@ -857,6 +860,25 @@ parse_args() {
     done
 }
 
+# Print a "<label> started" timestamp line on stderr and return the start epoch on stdout.
+# Usage: local foo_start=$(phase_start "Foo")
+phase_start() {
+    local label=$1
+    echo "${label} started: ${COLYELLOW}$(date)${COLRESET}" >&2
+    date +%s
+}
+
+# Print a "<label> finished" timestamp line with elapsed HH:MM:SS since start_epoch.
+# Usage: phase_end "Foo" "${foo_start}"
+phase_end() {
+    local label=$1
+    local start_epoch=$2
+    local end_epoch=$(date +%s)
+    local elapsed=$((end_epoch - start_epoch))
+    local duration=$(printf '%02d:%02d:%02d' $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60)))
+    echo "${label} finished: ${COLYELLOW}$(date)${COLRESET} (duration: ${COLYELLOW}${duration}${COLRESET})"
+}
+
 # Entry point
 main() {
     # Env preparation
@@ -864,22 +886,22 @@ main() {
     parse_args "$@"
     apply_input_config
     check_dependencies
-
-    # Validation execution
     ${IS_TTY} && tput reset
-    local start_epoch=$(date +%s)
-    echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
+
+    # Validation preparation
+    local prep_start=$(phase_start "Preparation")
     build_stacks_inspect
     configure_chainstate
     configure_validation_slices
     setup_logs
     setup_tmux
+    phase_end "Preparation" "${prep_start}"
+
+    # Validation execution
+    local val_start=$(phase_start "Validation")
     run_validation
     store_results
-    local end_epoch=$(date +%s)
-    local elapsed=$((end_epoch - start_epoch))
-    local duration=$(printf '%02d:%02d:%02d' $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60)))
-    echo "Validation finished: ${COLYELLOW}$(date)${COLRESET} (duration: ${COLYELLOW}${duration}${COLRESET})"
+    phase_end "Validation" "${val_start}"
 }
 
 main "$@"
