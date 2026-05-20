@@ -3,6 +3,7 @@
 #   https://rust-lang.github.io/rust-clippy/master/index.html
 #
 name: "Checks: Clippy"
+run-name: "Checks: Clippy [${{ github.ref_name }}]"
 
 # Only run when:
 #   - PRs are (re)opened against develop branch

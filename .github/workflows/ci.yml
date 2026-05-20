@@ -1,6 +1,7 @@
 # The main Github Actions workflow
 
 name: CI
+run-name: "CI: ${{ github.ref_name }}"
 
 on:
   merge_group:
@@ -27,8 +28,6 @@ concurrency:
   group: ci-${{ github.head_ref || github.ref || github.run_id }}
   # Always cancel duplicate jobs
   cancel-in-progress: true
-
-run-name: "CI: ${{ github.ref_name }}"
 
 env:
   TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
