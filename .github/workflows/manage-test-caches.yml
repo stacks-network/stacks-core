@@ -157,7 +157,7 @@ jobs:
           tools: nextest
 
       # Restore the cargo cache (without local crates) IF it exists
-      - name: Restore Cache Cargo (Without Local Crates)
+      - name: Restore Cargo Cache (Without Local Crates)
         if: needs.check-caches.outputs.cargo-cache-hit == 'true'
         uses: ./.github/actions/cache/cargo
         with:
@@ -172,13 +172,14 @@ jobs:
         shell: bash
         run: |
           if [ -f Cargo.toml ]; then
-            echo "Identifying local workspace crates to exclude from cache..."
+            echo "Identifying local workspace crates to exclude from restored cache..."
             cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name' | while read -r crate; do
               echo "Wiping build artifacts for local crate: $crate"
               cargo clean -p "$crate"
             done
           else
-            echo "No Cargo.toml found in the current working directory. Skipping cleanup."
+            echo "ERROR: No Cargo.toml found in the current working directory."
+            exit 1
           fi
 
       # Build the nextest archive (which also builds our cargo file structure for caching)

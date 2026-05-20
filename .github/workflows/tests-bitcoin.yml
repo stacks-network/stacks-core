@@ -51,8 +51,14 @@ jobs:
           sparse-checkout: |
             .github
 
+      # Install nextest
+      - name: Install nextest
+        uses: ./.github/actions/install-tool
+        with:
+          tools: nextest
+
       # Generate the bitcoin test matrices json used for running tests
-      - name: Generate test matrices
+      - name: Generate Test Matrices
         id: set-matrix
         run: bash ./.github/scripts/bitcoin_tests.sh
 

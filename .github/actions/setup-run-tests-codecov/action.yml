@@ -94,7 +94,6 @@ runs:
     # Install dependencies
     #   grcov is used in the code coverage workflow in tests, so it's installed here
     - name: Install Dependencies
-      id: install_dependencies
       uses: ./.github/actions/install-tool
       with:
         tools: nextest, grcov

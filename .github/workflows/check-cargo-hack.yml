@@ -62,7 +62,7 @@ jobs:
 
   # WASM targets - No caching needed as it runs in parallel with longer jobs
   wasm-targets:
-    name: WASM targets
+    name: WASM Targets
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -109,7 +109,7 @@ jobs:
 
   # Fuzz targets with nightly toolchain
   fuzz-targets:
-    name: Fuzz targets (nightly)
+    name: Fuzz Targets (Nightly)
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

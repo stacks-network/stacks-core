@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   check-consts:
-    name: Check the constants from stacks-inspect
+    name: Check stacks-inspect Constants
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -35,11 +35,11 @@ jobs:
         uses: ./.github/actions/setup-rust-toolchain
 
       # Dump constants from stacks-inspect
-      - name: Dump constants JSON
+      - name: Dump Constants JSON
         run: |
           cargo run --bin stacks-inspect -- dump-consts | tee out.json
 
       # Output any diff to the github job summary
-      - name: Compare expected constants JSON
+      - name: Compare Expected Constants JSON
         run: |
           diff out.json ./sample/expected_consts.json >> $GITHUB_STEP_SUMMARY
