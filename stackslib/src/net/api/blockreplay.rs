@@ -408,12 +408,6 @@ pub struct RPCReplayedBlockTransactionProfiler {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RPCReplayedBlockTransactionExecutionStats {
-    pub execution_time_secs: f64,
-    pub execution_time_nanos: u128,
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RPCReplayedBlockTransaction {
     /// transaction id
     pub txid: Txid,

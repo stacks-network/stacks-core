@@ -40,12 +40,15 @@ properties:
   cpu_ref_cycles:
     type: [integer, "null"]
     description: number of reference cycles executed
+profiler:
+    type: object
+    description: hardware profiler metrics for the transaction execution context
 execution_stats:
     type: object
     description: metrics for the transaction execution context
     properties:
       secs:
-        type: double
+        type: number
         description: execution time in seconds
       nanos:
         type: integer
