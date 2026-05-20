@@ -601,6 +601,7 @@ check_progress() {
             ${TERM_OUT} && printf "\r\n"
             break
         fi
+        sleep 1
     done
     echo "************************************************************************"
 }
