@@ -464,7 +464,7 @@ validate_block_range() {
     local global_offset=$((global_start - starting_block))
 
     local inspect_bin="${REPO_DIR}/target/release/stacks-inspect"
-    local inspect_config="${REPO_DIR}/stackslib/conf/${NETWORK}-follower-conf.toml"
+    local inspect_config="${REPO_DIR}/sample/conf/${NETWORK}-follower-conf.toml"
     local inspect_prefix="${inspect_bin} --config ${inspect_config} validate-block"
 
     local block_diff=$((global_end - global_start + 1))
