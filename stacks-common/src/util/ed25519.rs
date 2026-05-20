@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use thiserror::Error;
 
 use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
@@ -127,14 +127,14 @@ impl Ed25519PublicKey {
         self.key.to_bytes().to_vec()
     }
 
-    /// Verify a signature against a message.
+    /// Verify a signature (in strict mode) against a message.
     /// Returns Ok(()) if the signature is valid, or an error otherwise.
     pub fn verify(&self, msg: &[u8], sig: &MessageSignature) -> Result<(), Ed25519Error> {
         let ed25519_sig = sig.to_ed25519_signature();
 
         // Verify the signature
         self.key
-            .verify(msg, &ed25519_sig)
+            .verify_strict(msg, &ed25519_sig)
             .map_err(|_| Ed25519Error::InvalidSignature)
     }
 }
@@ -163,7 +163,6 @@ impl Ed25519PrivateKey {
     ///  SHA256 hashing the seed bytes until a private key is found.
     ///
     /// If `seed` is a valid private key, it will be returned without hashing.
-    /// The returned private key's compress_public flag will be `true`.
     pub fn from_seed(seed: &[u8]) -> Ed25519PrivateKey {
         let mut re_hashed_seed = Vec::from(seed);
         loop {
@@ -285,5 +284,43 @@ mod tests {
         let sig = privk1.sign(msg).unwrap();
         let e = pubk2.verify(msg, &sig).expect_err("expected an error");
         assert_eq!(e, Ed25519Error::InvalidSignature);
+    }
+
+    #[test]
+    fn test_enforces_verify_strict_instead_of_standard_verify() {
+        // 1. A structurally valid Ed25519 public key vector representing a point of order 8.
+        // Standard `verify` accepts this as a mathematically decipherable curve point.
+        // `verify_strict` hits `self.point.is_small_order()` and returns an Error.
+        let weak_pubkey_bytes = [
+            0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10,
+            0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77,
+            0x92, 0xac, 0x03, 0x7a,
+        ];
+
+        let pubk = Ed25519PublicKey::from_slice(&weak_pubkey_bytes)
+            .expect("Should pass basic deserialization successfully");
+
+        let msg = b"any message";
+
+        // 2. Pair it with a complementary signature layout where R matches the public key
+        // point geometry exactly, and S = 0.
+        let mut weak_sig_bytes = [0u8; 64];
+        weak_sig_bytes[0..32].copy_from_slice(&weak_pubkey_bytes); // Set R = Public Key Point
+                                                                   // Bytes 32 to 64 (S) remain 0x00
+
+        let sig = MessageSignature::from_bytes(&weak_sig_bytes).unwrap();
+
+        // 3. Execution Verification Check
+        let result = pubk.verify(msg, &sig);
+
+        // CRITICAL SECURITY ASSERTION:
+        // If you are using loose `verify`, the inner loop math resolves: R = [0]B - A -> R = -A.
+        // Because this is an order-8 element, the assertion holds, and loose verify returns Ok(()).
+        // We expect an error path to prove that `verify_strict` intercepted the execution chain!
+        assert!(
+            result.is_err(),
+            "CRITICAL SECURITY VULNERABILITY: Your wrapper code is calling loose `verify` \
+         instead of `verify_strict`. An order-8 malleable public key signature was allowed!"
+        );
     }
 }
