@@ -326,21 +326,21 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
             .clarity
             .eval_method_read_only(
                 &self.pox_contract,
-                "get-staker-set-next-item-for-cycle",
+                "get-signer-set-next-item-for-cycle",
                 &[lookup_signer.clone(), self.reward_cycle_clar.clone()],
             )
             .map_err(|e| PoxEntryParsingError::Abort(e.to_string()))?
             .expect_optional()
             .map_err(|_| {
                 PoxEntryParsingError::Abort(
-                    "get-staker-set-next-item-for-cycle did not return optional".into(),
+                    "get-signer-set-next-item-for-cycle did not return optional".into(),
                 )
             })?
             .map(|entry| entry.expect_principal())
             .transpose()
             .map_err(|_| {
                 PoxEntryParsingError::Abort(
-                    "get-staker-set-next-item-for-cycle did not return principal".into(),
+                    "get-signer-set-next-item-for-cycle did not return principal".into(),
                 )
             })?;
         self.current_signer = next_signer;
@@ -436,20 +436,20 @@ impl NakamotoSigners {
         let current_signer = clarity
             .eval_method_read_only(
                 &pox_contract,
-                "get-staker-set-first-item-for-cycle",
+                "get-signer-set-first-item-for-cycle",
                 &[reward_cycle_clar.clone()],
             )?
             .expect_optional()
             .map_err(|_| {
                 ChainstateError::Expects(
-                    "get-staker-set-first-item-for-cycle did not return optional".into(),
+                    "get-signer-set-first-item-for-cycle did not return optional".into(),
                 )
             })?
             .map(|value| value.expect_principal())
             .transpose()
             .map_err(|_| {
                 ChainstateError::Expects(
-                    "get-staker-set-first-item-for-cycle did not return optional principal".into(),
+                    "get-signer-set-first-item-for-cycle did not return optional principal".into(),
                 )
             })?;
 
