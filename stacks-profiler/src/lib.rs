@@ -101,7 +101,7 @@ thread_local! {
 thread_local! {
     /// Thread-local string interner for [`Tag::Str`] values from owned `String`s.
     /// Strings are leaked once and reused for the thread's lifetime, keeping [`Tag`] `Copy`.
-    static TAG_INTERNER: RefCell<rapidhash::RapidHashMap<Box<str>, &'static str>> =
+    static TAG_INTERNER: RefCell<rapidhash::RapidHashMap<&'static str, &'static str>> =
         RefCell::new(rapidhash::HashMapExt::with_capacity(64));
 }
 
@@ -116,7 +116,7 @@ fn intern_tag_str(s: String) -> &'static str {
         }
         let boxed: Box<str> = s.into_boxed_str();
         let leaked: &'static str = Box::leak(boxed);
-        map.insert(leaked.into(), leaked);
+        map.insert(leaked, leaked);
         leaked
     })
 }

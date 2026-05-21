@@ -175,6 +175,21 @@ fn test_zero_time_safety() {
 }
 
 #[test]
+fn test_owned_string_tags_are_interned_once() {
+    let a: stacks_profiler::Tag = String::from("same-tag").into();
+    let b: stacks_profiler::Tag = String::from("same-tag").into();
+
+    let (stacks_profiler::Tag::Str(a), stacks_profiler::Tag::Str(b)) = (a, b) else {
+        panic!("owned string tags should intern as Tag::Str");
+    };
+
+    assert!(
+        std::ptr::eq(a, b),
+        "repeated owned string tags should reuse the same interned string"
+    );
+}
+
+#[test]
 fn test_sampling_rate_accuracy() {
     Profiler::clear();
 
