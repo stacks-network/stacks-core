@@ -50,6 +50,8 @@
 (define-constant ERR_BOND_ALREADY_STARTED (err u43))
 ;; Cannot call `update-bond-registration` with the same signer
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
+;; The lockup amount does not match the specified amount of sats
+(define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -1480,9 +1482,7 @@
             (accumulator (try! accumulator-res))
             (block (try! (parse-block-header (get header lockup))))
             (expected-script-hash (get expected-script-hash accumulator))
-            (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup)
-                (get amount lockup) expected-script-hash
-            )))
+            (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
         )
@@ -1491,6 +1491,9 @@
         )
         (asserts! (is-eq (get script output) expected-script-hash)
             ERR_INVALID_LOCKUP_SCRIPT
+        )
+        (asserts! (is-eq (get amount output) (get amount lockup))
+            ERR_INVALID_LOCKUP_AMOUNT
         )
         ;; verify merkle proof
         (asserts!
@@ -2748,44 +2751,6 @@
 ;; This is the reverse of what you see on block explorers.
 (define-read-only (get-reversed-txid (tx (buff 100000)))
     (sha256 (sha256 tx))
-)
-
-;; TODO: replace with clarity built-ins
-(define-private (verify-merkle-proof
-        ;; #[allow(unused_binding)]
-        (leaf-hash (buff 32))
-        ;; #[allow(unused_binding)]
-        (root-hash (buff 32))
-        ;; #[allow(unused_binding)]
-        (tx-index uint)
-        ;; #[allow(unused_binding)]
-        (tx-count uint)
-        ;; #[allow(unused_binding)]
-        (leaf-hashes (list 14 (buff 32)))
-    )
-    true
-)
-
-;; TODO: replace with clarity built-ins
-(define-private (get-bitcoin-tx-output?
-        (tx-bytes (buff 100000))
-        ;; #[allow(unused_binding)]
-        (output-index uint)
-        ;; TODO: remove when built-in exists
-        ;; #[allow(unused_binding)]
-        (amount uint)
-        ;; TODO: remove when built-in exists
-        ;; #[allow(unused_binding)]
-        (script (buff 34))
-    )
-    (if true
-        (ok {
-            amount: amount,
-            script: script,
-            txid: (get-reversed-txid tx-bytes),
-        })
-        (err u1) ;; indeterminate type otherwise
-    )
 )
 
 ;;; Lock script helpers
