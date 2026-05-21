@@ -7,6 +7,7 @@ edition = "2024"
 stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
 clarity = { path = "../../clarity", default-features = false }
 clarity-cli = { path = "../clarity-cli", default-features = false }
+stacks-codec = { path = "../../stacks-codec" }
 stacks-common = { path = "../../stacks-common", default-features = false }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
