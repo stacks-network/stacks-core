@@ -25,7 +25,9 @@ env:
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
   # Configurable batch size per partitioned set of matrixed tests 
-  BATCH_SIZE: 5
+  BATCH_SIZE: 7
+  # Specify location of nextest archive file for matrixed test generation
+  NEXTEST_ARCHIVE: "${{ inputs.archive-file }}"
 
 # Configure concurrency
 concurrency:
@@ -56,6 +58,13 @@ jobs:
         uses: ./.github/actions/install-tool
         with:
           tools: nextest
+          
+      # Restore nextest test archive cache data
+      - name: Restore Test Archive Cache
+        uses: ./.github/actions/cache/test-archive
+        with:
+          action: restore
+          archive-file: ${{ inputs.archive-file }}
 
       # Generate the bitcoin test matrices json used for running tests
       - name: Generate Test Matrices
