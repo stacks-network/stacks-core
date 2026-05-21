@@ -177,7 +177,7 @@ runs:
         FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
         FILTERSET="test(=${FILTERSET})"
 
-        cargo llvm-cov nextest run \
+        cargo llvm-cov nextest \
           --lcov \
           --output-path ${{ steps.generate-test-file-name.outputs.file-name }} \
           --ignore-filename-regex "^\.\./|^\/|\.github|\.vscode|changelog\.d|contrib|/\.cargo/|/benches/|\.clar$|\.json$|\.md$|\.sha256$|\.snap$|\.toml$|\.txt$|\.yml$" \
@@ -199,7 +199,7 @@ runs:
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
         
-        cargo llvm-cov nextest run \
+        cargo llvm-cov nextest \
           --lcov \
           --output-path ${{ steps.generate-test-file-name.outputs.file-name }} \
           --ignore-filename-regex "^\.\./|^\/|\.github|\.vscode|changelog\.d|contrib|/\.cargo/|/benches/|\.clar$|\.json$|\.md$|\.sha256$|\.snap$|\.toml$|\.txt$|\.yml$" \
