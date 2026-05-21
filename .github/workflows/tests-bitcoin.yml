@@ -25,8 +25,6 @@ env:
   TEST_TAG_CI_SKIP: ci_skip
   # Configurable batch size per partitioned set of matrixed tests 
   BATCH_SIZE: 7
-  # Specify location of nextest archive file for matrixed test generation
-  NEXTEST_ARCHIVE: "${{ inputs.archive-file }}"
 
 # Configure concurrency
 concurrency:
