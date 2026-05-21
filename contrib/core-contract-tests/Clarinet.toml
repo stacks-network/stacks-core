@@ -62,18 +62,18 @@ epoch = 2.4
 
 [contracts.pox-5]
 path = "./contracts/pox-5.clar"
-clarity_version = 4
-epoch = 3.3
+clarity_version = 6
+epoch = 4.0
 
 [contracts.test-pox-5-signer]
 path = "./contracts/test-pox-5-signer.clar"
-clarity_version = 4
-epoch = 3.3
+clarity_version = 6
+epoch = 4.0
 
 [contracts.signer-manager]
 path = "./contracts/signer-manager.clar"
-clarity_version = 4
-epoch = 3.3
+clarity_version = 6
+epoch = 4.0
 
 [repl.analysis.lints]
 # unused_const = "off"
