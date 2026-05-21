@@ -1,8 +1,8 @@
 name: Run Tests
 description: |
-  1. Sets up the runner with grcov, nextest tooling, etc.
-  2. Runs tests using cargo nextest, either sequentially by name or in parallel via partitions.
-  3. Generates and uploads the code coverage artifact
+  1. Sets up the runner with nextest tooling, etc.
+  2. Runs tests using cargo nextest and llvm-cov, either sequentially by name or in parallel via partitions.
+  3. Uploads the generated code coverage artifact
 
 inputs:
   btc-version:
@@ -32,7 +32,7 @@ inputs:
   status-level:
     description: "Output status level"
     required: false
-    default: "fail"
+    default: "all"
   retries:
     description: "Number of test retries"
     required: false
@@ -92,16 +92,23 @@ runs:
         archive-file: ${{ inputs.archive-file }}
         codecov-binary-path: ${{ inputs.codecov-binary-path }}
 
-    # Install dependencies
-    #   grcov is used in the code coverage workflow in tests, so it's installed here
+    # Install nextest
     - name: Install Dependencies
       uses: ./.github/actions/install-tool
       with:
-        tools: nextest, grcov
+        tools: nextest
 
     ############################################################################
     ### Run the tests
     ############################################################################
+  
+   - name: Generate sanitized test file name for lcov file
+      id: generate-test-file-name
+      if: github.event.repository.visibility == 'public'
+      shell: bash
+      run: |
+        SANITIZED_FILE_NAME=$(echo "lcov_${{ inputs.codecov-test-name }}.info" | sed 's/[\\/:\*\?"<>|]/_/g')
+        echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
   
     # Step 1: Validate Inputs
     - name: Validate Inputs
@@ -170,7 +177,10 @@ runs:
         FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
         FILTERSET="test(=${FILTERSET})"
 
-        cargo nextest run \
+        cargo llvm-cov nextest run \
+          --lcov
+          --output-path ${{ steps.generate-test-file-name.outputs.file-name }} \
+          --ignore-filename-regex "^\.\./|^\/|\.github|\.vscode|changelog\.d|contrib|/\.cargo/|/benches/|\.clar$|\.json$|\.md$|\.sha256$|\.snap$|\.toml$|\.txt$|\.yml$" \
           --archive-file ${{ inputs.archive-file }} \
           --retries ${{ inputs.retries }} \
           --test-threads 1 \
@@ -189,7 +199,10 @@ runs:
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
         
-        cargo nextest run \
+        cargo llvm-cov nextest run \
+          --lcov
+          --output-path ${{ steps.generate-test-file-name.outputs.file-name }} \
+          --ignore-filename-regex "^\.\./|^\/|\.github|\.vscode|changelog\.d|contrib|/\.cargo/|/benches/|\.clar$|\.json$|\.md$|\.sha256$|\.snap$|\.toml$|\.txt$|\.yml$" \
           --archive-file ${{ inputs.archive-file }} \
           --retries ${{ inputs.retries }} \
           --fail-fast \
@@ -200,51 +213,8 @@ runs:
           --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }}
           
     ############################################################################
-    ### Generate and upload code coverage artifact
+    ### Upload code coverage artifact
     ############################################################################
-    
-    # Modify test-name input to be a valid filename, since we use it to name the coverage file
-    - name: Generate sanitized test file name for grcov
-      id: generate-test-file-name
-      if: github.event.repository.visibility == 'public'
-      shell: bash
-      run: |
-        SANITIZED_FILE_NAME=$(echo "lcov_${{ inputs.codecov-test-name }}.info" | sed 's/[\\/:\*\?"<>|]/_/g')
-        echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
-
-    # Generate code coverage using grcov
-    #   - Resulting coverage filenames must be unique, so use test-name input to name the file
-    - name: Run grcov
-      if: github.event.repository.visibility == 'public'
-      shell: bash
-      run: |
-        grcov . \
-          -b ${{ inputs.codecov-binary-path }} \
-          -s . \
-          -t lcov \
-          --branch \
-          --ignore-not-existing \
-          --ignore "../*" \
-          --ignore "/*" \
-          --ignore ".github/**" \
-          --ignore ".vscode/**" \
-          --ignore "changelog.d/**" \
-          --ignore "contrib/**" \
-          --ignore "**/.cargo/**" \
-          --ignore "**/benches/**" \
-          --ignore "**/test{,s}/**" \
-          --ignore "**/test{,s}.rs" \
-          --ignore "**/*_test{,s}.rs" \
-          --ignore "**/*.clar" \
-          --ignore "**/*.json" \
-          --ignore "**/*.md" \
-          --ignore "**/*.sha256" \
-          --ignore "**/*.snap" \
-          --ignore "**/*.toml" \
-          --ignore "**/*.txt" \
-          --ignore "**/*.yml" \
-          -o ${{ steps.generate-test-file-name.outputs.file-name }} \
-        || exit 1
 
     # Store coverage file in GitHub CI artifacts (with SHA prefix)
     - name: Store Code Coverage as Artifact
