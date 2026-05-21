@@ -22,6 +22,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 batch_size="${BATCH_SIZE:-50}"
 # Set the nextest archive to use
 nextest_archive="${NEXTEST_ARCHIVE:-${HOME}/test_archive.tar.zst}"
+# Safely replace a leading ~ with the actual absolute $HOME path if provided in the env var
+nextest_archive="${nextest_archive/#\~/$HOME}"
 # Exclude tests tagged with a skip tag
 ci_skip_tag="${TEST_TAG_CI_SKIP:-ci_skip}"
 

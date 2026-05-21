@@ -130,8 +130,11 @@ jobs:
           BITCOIN_IMAGE_TAG: ${{ matrix.bitcoin_version }}
           TEST_ARCHIVE_FILE: ${{ inputs.archive-file }}
         run: |
+          # Safely replace a leading ~ with the actual absolute $HOME path
+          TEST_ARCHIVE_FILE="${TEST_ARCHIVE_FILE/#\~/$HOME}"
+        
           cargo nextest run \
-            --archive-file $TEST_ARCHIVE_FILE \
+            --archive-file "$TEST_ARCHIVE_FILE" \
             --fail-fast \
             --status-level fail \
             --run-ignored all \
