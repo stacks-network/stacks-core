@@ -435,10 +435,10 @@ fn bind_squashed_blocks_chunk<T: MarfTrieId>(
     Ok(())
 }
 
-/// Build `INSERT OR REPLACE INTO marf_squashed_blocks (...) VALUES (?,?,?), (?,?,?), ...`
+/// Build `INSERT INTO marf_squashed_blocks (...) VALUES (?,?,?), (?,?,?), ...`
 fn build_squashed_blocks_insert_sql(rows: usize) -> String {
     let mut sql = String::from(
-        "INSERT OR REPLACE INTO marf_squashed_blocks (height, block_hash, marf_root_hash) VALUES ",
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) VALUES ",
     );
     for i in 0..rows {
         if i > 0 {
