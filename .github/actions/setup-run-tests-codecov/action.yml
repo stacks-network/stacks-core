@@ -102,7 +102,7 @@ runs:
     ### Run the tests
     ############################################################################
   
-   - name: Generate sanitized test file name for lcov file
+    - name: Generate sanitized test file name for lcov file
       id: generate-test-file-name
       if: github.event.repository.visibility == 'public'
       shell: bash
@@ -178,7 +178,7 @@ runs:
         FILTERSET="test(=${FILTERSET})"
 
         cargo llvm-cov nextest run \
-          --lcov
+          --lcov \
           --output-path ${{ steps.generate-test-file-name.outputs.file-name }} \
           --ignore-filename-regex "^\.\./|^\/|\.github|\.vscode|changelog\.d|contrib|/\.cargo/|/benches/|\.clar$|\.json$|\.md$|\.sha256$|\.snap$|\.toml$|\.txt$|\.yml$" \
           --archive-file ${{ inputs.archive-file }} \
@@ -200,7 +200,7 @@ runs:
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
         
         cargo llvm-cov nextest run \
-          --lcov
+          --lcov \
           --output-path ${{ steps.generate-test-file-name.outputs.file-name }} \
           --ignore-filename-regex "^\.\./|^\/|\.github|\.vscode|changelog\.d|contrib|/\.cargo/|/benches/|\.clar$|\.json$|\.md$|\.sha256$|\.snap$|\.toml$|\.txt$|\.yml$" \
           --archive-file ${{ inputs.archive-file }} \
