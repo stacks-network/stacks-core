@@ -1,6 +1,6 @@
 # Github workflow to run p2p tests
 
-name: Tests::P2P
+name: "Tests: P2P"
 
 on:
   workflow_call:

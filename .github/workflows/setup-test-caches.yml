@@ -1,6 +1,6 @@
-# Github workflow to manage (and often create) reusable test caches
+# Github workflow to setup reusable test caches
 
-name: Manage Test Caches
+name: "Setup: Test Caches"
 
 on:
   workflow_call:

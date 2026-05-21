@@ -1,6 +1,6 @@
 # Check constants output with stacks-inspect
 
-name: Constants Check
+name: "Check: Constants"
 
 on:
   workflow_call:

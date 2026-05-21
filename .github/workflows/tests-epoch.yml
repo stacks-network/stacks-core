@@ -1,6 +1,6 @@
 # Github workflow to run epoch tests
 
-name: Tests::Epoch
+name: "Tests: Epoch"
 
 on:
   workflow_call:

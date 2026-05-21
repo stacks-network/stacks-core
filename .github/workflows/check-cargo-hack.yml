@@ -1,6 +1,6 @@
 # Cargo hack to check features on different targets/toolchains
 
-name: Cargo Hack Check
+name: "Check: Cargo Hack"
 
 on:
   workflow_call:

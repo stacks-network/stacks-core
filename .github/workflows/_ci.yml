@@ -45,7 +45,7 @@ jobs:
   # Bridges global env variables to the jobs context so they are safely 
   # accessible by downstream reusable workflows.
   setup-env:
-    name: Setup Global Variables
+    name: "Setup: Global Variables"
     runs-on: ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
@@ -58,8 +58,8 @@ jobs:
   ## --- Changelog check ------------------------------------------------------
   #   - Checks for changelog updates (or the 'No Changelog' label on a PR
   #   - Required to pass for all subsequent jobs
-  changelog-check:
-    name: Check Changelog
+  check-changelog:
+    name: "Check: Changelog"
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -85,9 +85,10 @@ jobs:
   ## --- Check Rust Formatting ------------------------------------------------
   #   - Check for correct formatting
   #   - Required to pass for all subsequent jobs
-  rustfmt:
-    name: Check Rust Formatting
-    needs: changelog-check
+  check-rustfmt:
+    name: "Check: Rust Formatting"
+    needs:
+      - check-changelog
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the latest code
@@ -113,10 +114,10 @@ jobs:
   #    - If this is true, 'is_signer_release' will also be true, since a 'stacks-signer' binary is always released alongside 'stacks-node'.
   #  - is_signer_release: True if the branch represents a 'stacks-signer' release, false otherwise.
   check-release:
-    name: Check If Release
+    name: "Check: Release"
     needs:
-      - rustfmt
-      - changelog-check
+      - check-changelog
+      - check-rustfmt
     if: >-
       !cancelled() &&
       github.event.repository.visibility == 'public' &&
@@ -144,38 +145,36 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: bash ./.github/scripts/check_release.sh
 
-  ## --- Manage (often create) reusable caches for tests ------------------------------------
-  manage-caches:
-    name: Manage Test Caches
+  ## --- Setup reusable caches for tests ------------------------------------
+  setup-test-caches:
+    name: "Setup: Test Caches"
     needs:
-      - setup-env
-      - rustfmt
-      - changelog-check
+      - check-changelog
       - check-release
+      - check-rustfmt
+      - setup-env
     if: >-
       !cancelled() &&
-      needs.rustfmt.result == 'success' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group')
-    uses: ./.github/workflows/manage-test-caches.yml
+    uses: ./.github/workflows/setup-test-caches.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
   ## --- Run stacks core tests ------------------------------------------------
-  stacks-core-tests:
-    name: Stacks Core Tests
+  tests-stacks-core:
+    name: "Tests: Stacks Core"
     needs:
-      - setup-env
-      - rustfmt
-      - changelog-check
-      - manage-caches
+      - check-changelog
       - check-release
+      - check-rustfmt
+      - setup-test-caches
+      - setup-env
     if: >-
       !cancelled() &&
-      needs.rustfmt.result == 'success' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
@@ -186,17 +185,16 @@ jobs:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
   ## --- Run bitcoin Tests ----------------------------------------------------
-  bitcoin-tests:
-    name: Bitcoin Tests
+  tests-bitcoin:
+    name: "Tests: Bitcoin"
     needs:
-      - setup-env
-      - rustfmt
-      - changelog-check
-      - manage-caches
+      - check-changelog
       - check-release
+      - check-rustfmt
+      - setup-caches
+      - setup-env
     if: >-
       !cancelled() &&
-      needs.rustfmt.result == 'success' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
@@ -207,17 +205,17 @@ jobs:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
   ## --- Run bitcoin RPC Tests ------------------------------------------------
-  bitcoin-rpc-tests:
-    name: Bitcoin RPC Tests
+  tests:bitcoin-rpc:
+    name: "Tests: Bitcoin RPC"
     needs:
-      - setup-env
-      - rustfmt
-      - changelog-check
-      - manage-caches
+      - check-changelog
+      - check-rustfmt
       - check-release
+      - setup-caches
+      - setup-env
+      
     if: >-
       !cancelled() &&
-      needs.rustfmt.result == 'success' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
@@ -228,17 +226,16 @@ jobs:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
   ## --- Run P2P Tests --------------------------------------------------------
-  p2p-tests:
-    name: P2P Tests
+  tests-p2p:
+    name: "Tests: P2P"
     needs:
-      - setup-env
-      - rustfmt
-      - changelog-check
-      - manage-caches
+      - check-changelog
+      - check-rustfmt
       - check-release
+      - setup-caches
+      - setup-env
     if: >-
       !cancelled() &&
-      needs.rustfmt.result == 'success' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
@@ -255,30 +252,28 @@ jobs:
   #     - PR added to merge queue
   #
   ## --- Cargo Hack check------------------------------------------------------
-  cargo-hack-check:
-    name: Cargo Hack Check
+  check-cargo-hack:
+    name: "Check: Cargo Hack"
     needs:
-      - rustfmt
-      - changelog-check
+      - check-changelog
       - check-release
+      - check-rustfmt
     if: >-
       !cancelled() &&
-      needs.rustfmt.result == 'success' &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group')
     uses: ./.github/workflows/check-cargo-hack.yml
 
   ## --- Validate constants dumped by stacks-inspect --------------------------
-  constants-check:
-    name: Constants Check
+  check-constants:
+    name: "Check: Constants"
     needs:
-      - rustfmt
-      - changelog-check
+      - check-changelog
       - check-release
+      - check-rustfmt
     if: >-
       !cancelled() &&
-      needs.rustfmt.result == 'success' &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group')
@@ -293,18 +288,16 @@ jobs:
   #   - Creates Docker images and pushes to ghcr registry
   #   - Creates a draft github release
   create-release:
+    name: "Create: Release"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
     if: >-
       !cancelled() &&
       github.event.repository.visibility == 'public' &&
-      needs.rustfmt.result == 'success' &&
-      needs.changelog-check.result == 'success' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true')
-    name: Create Release
-    needs:
-      - rustfmt
-      - changelog-check
-      - check-release
     permissions:
       contents: write      # required for github release
       id-token: write      # required for attestation
@@ -317,17 +310,16 @@ jobs:
       is_node_release: ${{ needs.check-release.outputs.is_node_release }} # boolean used in matrix conditional in .github/workflows/release-github.yml
 
   ## --- Epoch Tests ----------------------------------------------------------
-  epoch-tests:
-    name: Epoch Tests
+  tests-epoch:
+    name: "Tests: Epoch"
     needs:
-      - setup-env
-      - rustfmt
-      - changelog-check
-      - manage-caches
+      - check-changelog
+      - check-rustfmt
       - check-release
+      - setup-caches
+      - setup-env
     if: >-
       !cancelled() &&
-      needs.rustfmt.result == 'success' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
        needs.check-release.outputs.is_signer_release == 'true')
     uses: ./.github/workflows/tests-epoch.yml
@@ -338,20 +330,20 @@ jobs:
   ##
   ## Runs when:
   ##   - always (unless workflow is cancelled OR either blockchain or core tests are skipped)
-  trigger-code-coverage-report:
+  create-code-coverage-report:
     if: >-
       always() &&
       !cancelled() && 
       !contains(needs.stacks-core-tests.result, 'skipped') && 
       !contains(needs.bitcoin-tests.result, 'skipped') &&
       github.event.repository.visibility == 'public'
-    name: Merge & Upload Code Coverage Report
+    name: "Create: Code Coverage Report"
     runs-on: ubuntu-latest
     needs:
-      - stacks-core-tests
-      - bitcoin-tests
-      - p2p-tests
-      - epoch-tests
+      - tests-bitcoin
+      - tests-epoch
+      - tests-p2p
+      - tests-stacks-core
     env:
       REPORT_FILES_DIR: "code_coverage_files"
       REPORT_FILES_EXT: "info"
@@ -359,7 +351,6 @@ jobs:
     steps:
       # Checkout the code (Coveralls requires source code to be available when action is called)
       - name: Checkout the latest code
-        id: git_checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       # Download the code coverage .info files generated by tests from artifacts (prefixed by commit SHA)
       - name: Download code coverage artifacts

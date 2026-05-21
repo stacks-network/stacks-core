@@ -1,6 +1,6 @@
 # Github workflow to run bitcoin tests in multiple github matrices
 
-name: Tests::Bitcoin
+name: "Tests: Bitcoin"
 
 on:
   workflow_call:

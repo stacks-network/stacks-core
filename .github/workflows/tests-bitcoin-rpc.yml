@@ -1,6 +1,6 @@
 # Github workflow to run bitcoin RPC tests over multiple versions of Bitcoin Core
 
-name: Tests::Bitcoin RPC
+name: "Tests: Bitcoin RPC"
 
 on:
   workflow_call:
