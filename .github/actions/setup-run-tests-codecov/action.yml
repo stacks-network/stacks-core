@@ -210,7 +210,7 @@ runs:
       shell: bash
       run: |
         SANITIZED_FILE_NAME=$(echo "lcov_${{ inputs.codecov-test-name }}.info" | sed 's/[\\/:\*\?"<>|]/_/g')
-        echo "result=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
+        echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
 
     # Generate code coverage using grcov
     #   - Resulting coverage filenames must be unique, so use test-name input to name the file
@@ -243,7 +243,7 @@ runs:
           --ignore "**/*.toml" \
           --ignore "**/*.txt" \
           --ignore "**/*.yml" \
-          -o ${{ steps.generate-test-file-name.outputs.result }} \
+          -o ${{ steps.generate-test-file-name.outputs.file-name }} \
         || exit 1
 
     # Store coverage file in GitHub CI artifacts (with SHA prefix)
@@ -251,8 +251,8 @@ runs:
       if: github.event.repository.visibility == 'public'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: ${{ github.sha }}-${{ steps.generate_test_file_name.outputs.result }}
-        path: ${{ steps.generate_test_file_name.outputs.result }}
+        name: ${{ github.sha }}-${{ steps.generate-test-file-name.outputs.file-name }}
+        path: ${{ steps.generate-test-file-name.outputs.file-name }}
         if-no-files-found: error
         retention-days: 1
         compression-level: 9 # 0 (none) - 9 (most)
