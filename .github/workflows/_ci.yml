@@ -120,7 +120,7 @@ jobs:
       - check-rustfmt
     if: >-
       !cancelled() &&
-      github.event.repository.visibility == 'public' &&
+      github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     outputs:
       node_tag: ${{ steps.check-release.outputs.node_tag }}
