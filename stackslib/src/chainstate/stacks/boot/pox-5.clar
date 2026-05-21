@@ -2732,17 +2732,12 @@
 
 ;; Verify that a block header hashes to a burnchain header hash at a given height.
 ;; Returns true if so; false if not.
-;;
-;; TODO: remove the `is-in-mainnet` check, instead use proper mocks
 (define-read-only (verify-block-header
         (headerbuff (buff 80))
         (expected-block-height uint)
     )
     (match (get-burn-block-info? header-hash expected-block-height)
-        bhh (if is-in-mainnet
-            (is-eq bhh (reverse-buff32 (sha256 (sha256 headerbuff))))
-            true
-        )
+        bhh (is-eq bhh (reverse-buff32 (sha256 (sha256 headerbuff))))
         false
     )
 )

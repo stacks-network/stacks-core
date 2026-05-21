@@ -20411,6 +20411,774 @@ fn check_pox_5_register_for_bond_lifecycle() {
 
 #[test]
 #[ignore]
+/// Verify the pox-5 bond lifecycle end-to-end using the L1 BTC lockup path.
+///
+/// The test broadcasts a *real* Bitcoin transaction that locks
+/// `BTC_LOCKUP_SATS` sats into the canonical timelock P2WSH and then
+/// calls `register-for-bond` with those lockup details.
+///
+/// The test:
+///   1. Stands up a side wallet `pox5-l1-bondholder` with private
+///      keys enabled, then funds it from the miner.
+///   2. Computes the expected P2WSH by calling pox-5's own
+///      `construct-lockup-output-script` as a read-only, derives the
+///      bech32 regtest address, and `bondholder_rpc.send_to_address`s
+///      the lockup payment from the bondholder wallet.
+///   3. Calls `generateblock(coinbase, &[our_txid])` so the resulting
+///      block has exactly `[coinbase, lockup_tx]` — `tx_count=2`,
+///      `tx_index=1`, and `siblings=[coinbase_txid_internal]` make the
+///      merkle proof trivial to assemble.
+///   4. Pulls the actual 80-byte header and the canonical txid order
+///      back out of bitcoind and feeds the lockup tuple into
+///      `register-for-bond`.
+///
+/// Assertions:
+/// - STX is locked, with unlock height set to the bond's unlock-burn-height
+/// - the bond membership records `is-l1-lock: true` (the membership reads
+///   `(is-ok btc-lockup)`)
+/// - the staker's sBTC balance is unchanged (no sBTC `ft-transfer?` runs
+///   on the L1 path)
+/// - a second `register-for-bond` from the same staker fails with
+///   `ERR_ALREADY_REGISTERED` (u9) and does not perturb the existing lock
+fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
+    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
+    // it out so unrelated tests don't accidentally cross it.
+    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+    epochs[StacksEpochId::Epoch34].end_height = 254;
+    epochs[StacksEpochId::Epoch40].start_height = 254;
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    let signer_sk = signers.signer_keys[0].clone();
+    let signer_pk = StacksPublicKey::from_private(&signer_sk);
+
+    let sender_addr = tests::to_addr(&sender_sk);
+    let deploy_fee = 3000;
+    let call_fee = 400;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + call_fee * 10,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // sBTC stub — pox-5 boot needs the stub deployed before the epoch 4.0
+    // transition for static analysis to find the referenced contract.
+    // Even on the L1 path we deploy it so the boot succeeds; we just never
+    // mint to the staker, and the test asserts the staker's sBTC balance
+    // never changes.
+    let sbtc_deployer_sk = Secp256k1PrivateKey::random();
+    let sbtc_deployer_addr = tests::to_addr(&sbtc_deployer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sbtc_deployer_addr.clone()).to_string(),
+        deploy_fee,
+    );
+    let sbtc_token_id = QualifiedContractIdentifier::new(
+        sbtc_deployer_addr.clone().into(),
+        clarity::vm::ContractName::try_from("sbtc-token").unwrap(),
+    );
+    naka_conf.node.pox_5_sbtc_contract = Some(sbtc_token_id.clone());
+
+    // The pox-5 boot contract initializes its `bond-admin` data var to
+    // `tx-sender`, which at boot deploy time is the unsignable boot
+    // principal. Override it to a key we control so that `setup-bond` is
+    // callable from the test (forbidden on mainnet).
+    let bond_admin_sk = Secp256k1PrivateKey::random();
+    let bond_admin_addr = tests::to_addr(&bond_admin_sk);
+    let setup_bond_fee = 5000u64;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(bond_admin_addr.clone()).to_string(),
+        setup_bond_fee + 1000,
+    );
+    naka_conf.node.pox_5_bond_admin = Some(PrincipalData::from(bond_admin_addr.clone()));
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+    let staker_sk = setup_stacker(&mut naka_conf);
+    let staker_addr = tests::to_addr(&staker_sk);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    // The L1 lockup tx is broadcast by a separate bondholder wallet, which
+    // needs its own spendable Bitcoin. We seed that wallet now by paying it
+    // from the miner, then mining one block to confirm.
+    const BONDHOLDER_WALLET: &str = "pox5-l1-bondholder";
+    let bondholder_rpc =
+        crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient::from_stx_config(&naka_conf)
+            .expect("failed to construct bondholder RPC client");
+    bondholder_rpc
+        .create_wallet(BONDHOLDER_WALLET, Some(false))
+        .expect("create bondholder wallet");
+    let bondholder_addr = bondholder_rpc
+        .get_new_address(
+            BONDHOLDER_WALLET,
+            None,
+            Some(crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType::Bech32),
+        )
+        .expect("getnewaddress on bondholder wallet");
+    // 2_000_000 sats = 0.02 BTC: comfortably covers the 1_000_000-sat
+    // P2WSH lockup plus the fee for the subsequent `send_to_address`.
+    const BONDHOLDER_FUNDING_SATS: u64 = 2_000_000;
+    let miner_keychain = Keychain::default(naka_conf.node.seed.clone());
+    let mut miner_op_signer = miner_keychain.generate_op_signer();
+    btc_regtest_controller
+        .send_btc(
+            StacksEpochId::Epoch21,
+            &mut miner_op_signer,
+            &bondholder_addr,
+            BONDHOLDER_FUNDING_SATS,
+        )
+        .expect("send_btc miner → bondholder");
+    btc_regtest_controller.build_next_block(1);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+    // boot_to_epoch_3 replaces signer_keys with the pox-4 signer; the
+    // pox-5 staker below registers `signer_sk` and that key ends up in
+    // the reward set once pox-5 takes over signing. Add it now so
+    // `blind_signer`'s clone can produce valid signatures across the
+    // pox-4 → pox-5 cycle boundary.
+    signers.signer_keys.push(signer_sk.clone());
+    blind_signer(&naka_conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    let sbtc_token_contract = r#"
+(define-fungible-token sbtc-token)
+
+(define-public (transfer
+        (amount uint)
+        (sender principal)
+        (recipient principal)
+        (memo (optional (buff 34)))
+    )
+    (begin
+        (try! (ft-transfer? sbtc-token amount sender recipient))
+        (ok true)
+    )
+)
+
+(define-read-only (get-balance (who principal))
+    (ok (ft-get-balance sbtc-token who))
+)
+
+(define-public (mint (amount uint) (recipient principal))
+    (ft-mint? sbtc-token amount recipient)
+)
+"#;
+    let sbtc_deploy_tx = make_contract_publish(
+        &sbtc_deployer_sk,
+        0,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "sbtc-token",
+        sbtc_token_contract,
+    );
+    submit_tx(&http_origin, &sbtc_deploy_tx);
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce > 0)
+    })
+    .expect("Timed out waiting for sbtc-token deploy");
+
+    // mine until epoch 4.0
+    loop {
+        let blocks_before = test_observer::get_blocks().len();
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch40].start_height
+        {
+            break;
+        }
+    }
+    info!("Reached Epoch-4.0 boundary, deploying signer-manager and registering signer");
+
+    let mut sender_nonce = 0;
+
+    // Deploy the signer-manager contract.
+    let signer_contract = r#"
+(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+
+(define-public (validate-stake!
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (checkpoint-staker
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (is-bond bool)
+    )
+    (ok true)
+)
+
+(define-public (register-self
+    (signer-manager <signer-manager-trait>)
+    (signer-key (buff 33))
+    (auth-id uint)
+    (signer-sig (buff 65))
+  )
+  (as-contract? ()
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
+      signer-key current-contract auth-id signer-sig
+    ))
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
+      signer-manager signer-key
+    ))
+  )
+)
+"#;
+    let signer_deploy_tx = make_contract_publish(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "test-signer",
+        signer_contract,
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &signer_deploy_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for test-signer deploy");
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
+        sender_addr.clone().into(),
+        clarity::vm::ContractName::try_from("test-signer").unwrap(),
+    ));
+    let auth_id: u128 = 1;
+    let signer_grant_sig =
+        stacks::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature(
+            &test_signer_principal,
+            auth_id,
+            naka_conf.burnchain.chain_id,
+            &signer_sk,
+        )
+        .expect("Failed to generate signer grant signature");
+    let register_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        "test-signer",
+        "register-self",
+        &[
+            Value::Principal(test_signer_principal.clone()),
+            Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            Value::UInt(auth_id),
+            Value::buff_from(signer_grant_sig.to_rsv()).unwrap(),
+        ],
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &register_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for register-self");
+
+    let pox_5_id = boot_code_id("pox-5", false);
+    let pox_5_addr: StacksAddress = pox_5_id.issuer.clone().into();
+
+    // 1) `setup-bond` from the configured bond admin. Allowlist the staker
+    // for `BTC_LOCKUP_SATS` sats. With `stx-value-ratio = 100` and
+    // `min-ustx-ratio = 10000` (== 100% in basis points),
+    // `min-ustx-for-sats-amount(BTC_LOCKUP_SATS, 100, 10000) = BTC_LOCKUP_SATS`
+    // ustx, so any `amount-ustx >= BTC_LOCKUP_SATS` clears the bond's STX
+    // floor.
+    //
+    // The `early-unlock-signers` buffer here is the script template that
+    // pox-5 stitches into the L1 timelock — the actual contents are opaque
+    // to the contract (which just hashes them); we use a recognizable
+    // sentinel so a mismatch shows up clearly in failure messages.
+    const BTC_LOCKUP_SATS: u128 = 1_000_000;
+    let early_unlock_signers = vec![0xAAu8; 32];
+    let allowlist_entry = clarity::vm::Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                ClarityName::try_from("staker").unwrap(),
+                Value::Principal(staker_addr.clone().into()),
+            ),
+            (
+                ClarityName::try_from("max-sats").unwrap(),
+                Value::UInt(BTC_LOCKUP_SATS),
+            ),
+        ])
+        .unwrap(),
+    );
+    let allowlist_value = Value::cons_list_unsanitized(vec![allowlist_entry]).unwrap();
+    let setup_bond_tx = make_contract_call(
+        &bond_admin_sk,
+        0,
+        setup_bond_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "setup-bond",
+        &[
+            Value::UInt(0),
+            Value::UInt(1000),
+            Value::UInt(100),
+            Value::UInt(10000),
+            Value::buff_from(early_unlock_signers.clone()).unwrap(),
+            Value::Principal(bond_admin_addr.clone().into()),
+            allowlist_value,
+        ],
+    );
+    let setup_bond_txid = submit_tx(&http_origin, &setup_bond_tx);
+    info!("Submitted pox-5 setup-bond (L1 test) txid: {setup_bond_txid}");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 1)
+    })
+    .expect("Timed out waiting for setup-bond");
+
+    // 2) Build a real L1 lockup proof for `register-for-bond`'s
+    // `(ok { outputs, unlock-bytes })` branch, but just use fake unlock-bytes
+    // for simplicity since the test doesn't actually execute the unlock.
+    let lockup_unlock_bytes = vec![0xBBu8; 32];
+
+    // (a) Compute the expected P2WSH script-pubkey by calling pox-5's own
+    //     read-only `construct-lockup-output-script` — this returns the
+    //     34-byte `0x0020 || sha256(timelock_script)` that the burn-chain
+    //     output must pay to. We hand the same arguments the contract will
+    //     reconstruct internally during `verify-l1-lockups`.
+    let bond_index = 0u128;
+    let unlock_burn_height = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-bond-l1-unlock-height",
+        vec![&Value::UInt(bond_index)],
+    )
+    .result()
+    .expect("get-bond-l1-unlock-height failed")
+    .expect_u128()
+    .expect("get-bond-l1-unlock-height should return a uint");
+    let expected_script_buff = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "construct-lockup-output-script",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::UInt(unlock_burn_height),
+            &Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
+            &Value::buff_from(early_unlock_signers.clone()).unwrap(),
+        ],
+    )
+    .result()
+    .expect("construct-lockup-output-script failed")
+    .expect_buff(34)
+    .expect("construct-lockup-output-script should return (buff 34)");
+    assert_eq!(
+        &expected_script_buff[0..2],
+        &[0x00, 0x20],
+        "lockup output script is supposed to be a SegWit V0 P2WSH push (0x00 0x20 || hash)"
+    );
+    let mut witness_script_hash = [0u8; 32];
+    witness_script_hash.copy_from_slice(&expected_script_buff[2..]);
+
+    let p2wsh_addr = stacks::burnchains::bitcoin::address::BitcoinAddress::Segwit(
+        stacks::burnchains::bitcoin::address::SegwitBitcoinAddress::P2WSH(
+            stacks::burnchains::bitcoin::BitcoinNetworkType::Regtest,
+            witness_script_hash,
+        ),
+    );
+    info!(
+        "Lockup P2WSH derived from construct-lockup-output-script: {}",
+        &p2wsh_addr
+    );
+
+    // (b) Broadcast a tx from the bondholder wallet to the P2WSH address.
+    //     This puts the tx into bitcoind's mempool; we then ask
+    //     `generateblock` to mine a block whose non-coinbase txs are
+    //     exactly `[our_txid]`, so the resulting block has a fully-known
+    //     shape: coinbase at index 0, our P2WSH tx at index 1,
+    //     tx_count = 2.
+    let lockup_btc_amount = 0.01_f64; // 1_000_000 sats
+    let p2wsh_txid = bondholder_rpc
+        .send_to_address(BONDHOLDER_WALLET, &p2wsh_addr, lockup_btc_amount)
+        .expect("send_to_address into lockup P2WSH");
+    info!("Sent {lockup_btc_amount} BTC to lockup P2WSH; txid={p2wsh_txid}");
+
+    let coinbase_recipient = bondholder_rpc
+        .get_new_address(
+            BONDHOLDER_WALLET,
+            None,
+            Some(crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType::Bech32),
+        )
+        .expect("getnewaddress for generateblock coinbase");
+    let pre_register_burn_height = get_chain_info_result(&naka_conf).unwrap().burn_block_height;
+    let lockup_block_hash = bondholder_rpc
+        .generate_block(&coinbase_recipient, &[&p2wsh_txid.to_hex()])
+        .expect("generateblock with lockup tx");
+    info!("Mined lockup tx into block {lockup_block_hash}");
+
+    // (c) Wait for the Stacks node to ingest the new burn block so that
+    //     `get-burn-block-info? header-hash <height>` will return Some.
+    wait_for(60, || {
+        Ok(get_chain_info_result(&naka_conf).unwrap().burn_block_height > pre_register_burn_height)
+    })
+    .expect("Stacks node did not ingest the lockup burn block");
+    let lockup_burn_height = get_chain_info_result(&naka_conf).unwrap().burn_block_height;
+    info!("Stacks node observed lockup burn block; burn_block_height = {lockup_burn_height}");
+
+    // (d) Reconstruct the raw tx, pinpoint the P2WSH output index, and
+    //     read out the actual lockup amount the contract will check against
+    //     `(get amount lockup)`.
+    let lockup_tx_struct = bondholder_rpc
+        .get_raw_transaction(&p2wsh_txid)
+        .expect("getrawtransaction for lockup tx");
+    let lockup_tx_hex =
+        stacks_common::deps_common::bitcoin::network::serialize::serialize_hex(&lockup_tx_struct)
+            .expect("serialize_hex(lockup_tx)");
+    let lockup_tx_bytes = hex_bytes(&lockup_tx_hex).expect("decode lockup_tx hex");
+    let (lockup_output_index, lockup_output_amount) = lockup_tx_struct
+        .output
+        .iter()
+        .enumerate()
+        .find_map(|(idx, out)| {
+            let script = out.script_pubkey.as_bytes();
+            if script.len() == 34
+                && script[..2] == [0x00, 0x20]
+                && script[2..] == witness_script_hash
+            {
+                Some((idx, out.value))
+            } else {
+                None
+            }
+        })
+        .expect("lockup tx must contain a P2WSH output matching the expected script");
+    info!(
+        "Lockup tx output index {lockup_output_index} (= {lockup_output_amount} sats) is the timelock P2WSH"
+    );
+    assert_eq!(
+        lockup_output_amount,
+        u64::try_from(BTC_LOCKUP_SATS).unwrap(),
+        "send_to_address moved exactly {BTC_LOCKUP_SATS} sats into the P2WSH"
+    );
+
+    // (e) Pull the actual 80-byte block header and the txid ordering so we
+    //     can build a real merkle proof. `verify-merkle-proof` consumes
+    //     internal-byte-order hashes; bitcoind's getblock returns
+    //     display-order, so reverse.
+    let header_hex = bondholder_rpc
+        .get_block_header_hex(&lockup_block_hash)
+        .expect("getblockheader for lockup block");
+    let lockup_header_bytes = hex_bytes(&header_hex).expect("decode header hex");
+    assert_eq!(
+        lockup_header_bytes.len(),
+        80,
+        "Bitcoin block header is always 80 bytes"
+    );
+    let block_txids_display = bondholder_rpc
+        .get_block_txids(&lockup_block_hash)
+        .expect("getblock for lockup block txids");
+    assert_eq!(
+        block_txids_display.len(),
+        2,
+        "lockup block should contain exactly coinbase + lockup tx; got {} txs",
+        block_txids_display.len()
+    );
+    // bitcoind always orders the coinbase first.
+    let mut coinbase_txid_internal: [u8; 32] = block_txids_display[0].as_bytes().clone();
+    coinbase_txid_internal.reverse();
+    let mut lockup_txid_display: [u8; 32] = block_txids_display[1].as_bytes().clone();
+    assert_eq!(
+        block_txids_display[1].to_hex(),
+        p2wsh_txid.to_hex(),
+        "lockup tx must be the non-coinbase entry in the generated block",
+    );
+    lockup_txid_display.reverse(); // unused beyond the sanity check, but keeps intent obvious
+
+    // (f) Assemble the lockup tuple.
+    let lockup_output = clarity::vm::Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                ClarityName::try_from("height").unwrap(),
+                Value::UInt(lockup_burn_height as u128),
+            ),
+            (
+                ClarityName::try_from("tx").unwrap(),
+                Value::buff_from(lockup_tx_bytes).unwrap(),
+            ),
+            (
+                ClarityName::try_from("output-index").unwrap(),
+                Value::UInt(lockup_output_index as u128),
+            ),
+            (
+                ClarityName::try_from("header").unwrap(),
+                Value::buff_from(lockup_header_bytes).unwrap(),
+            ),
+            (
+                ClarityName::try_from("leaf-hashes").unwrap(),
+                Value::cons_list_unsanitized(vec![Value::buff_from(
+                    coinbase_txid_internal.to_vec(),
+                )
+                .unwrap()])
+                .unwrap(),
+            ),
+            (ClarityName::try_from("tx-count").unwrap(), Value::UInt(2)),
+            (ClarityName::try_from("tx-index").unwrap(), Value::UInt(1)),
+            (
+                ClarityName::try_from("amount").unwrap(),
+                Value::UInt(u128::from(lockup_output_amount)),
+            ),
+        ])
+        .unwrap(),
+    );
+    let lockup_tuple = clarity::vm::Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                ClarityName::try_from("outputs").unwrap(),
+                Value::cons_list_unsanitized(vec![lockup_output]).unwrap(),
+            ),
+            (
+                ClarityName::try_from("unlock-bytes").unwrap(),
+                Value::buff_from(lockup_unlock_bytes).unwrap(),
+            ),
+        ])
+        .unwrap(),
+    );
+    let l1_lockup_arg = Value::okay(lockup_tuple).expect("failed to wrap lockup tuple in (ok ...)");
+
+    // 3) `register-for-bond` via the L1 lockup branch.
+    let register_fee = 2000u64;
+    let bond_amount = POX_DEFAULT_STACKER_STX_AMT;
+    let staker_balance_before = get_account(&http_origin, &staker_addr).balance;
+    assert!(staker_balance_before >= bond_amount + register_fee as u128 * 2);
+
+    let sbtc_balance_before = sbtc_balance(&naka_conf, &sbtc_deployer_addr, &staker_addr);
+
+    test_observer::clear();
+    let register_tx = make_contract_call(
+        &staker_sk,
+        0,
+        register_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "register-for-bond",
+        &[
+            Value::UInt(0),
+            Value::Principal(test_signer_principal.clone()),
+            Value::UInt(bond_amount),
+            l1_lockup_arg.clone(),
+            Value::none(),
+        ],
+    );
+    let register_txid = submit_tx(&http_origin, &register_tx);
+    info!("Submitted pox-5 register-for-bond (L1 lockup) txid: {register_txid}");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &staker_addr).nonce == 1
+            && get_tx_result_by_id(&register_txid).is_some())
+    })
+    .expect("Timed out waiting for register-for-bond (L1)");
+
+    // Pull `unlock-burn-height` out of the register-for-bond response so
+    // we can assert pox-locking applied the expected unlock to the
+    // staker's STX.
+    let parsed = get_tx_result_by_id(&register_txid)
+        .expect("did not observe register-for-bond txid in test_observer");
+    let response = parsed
+        .expect_result()
+        .expect("register-for-bond response should be a clarity response");
+    let ok_value = response.expect("register-for-bond (L1) should have returned ok");
+    let tuple = ok_value
+        .expect_tuple()
+        .expect("register-for-bond ok payload should be a tuple");
+    let register_unlock_height = tuple
+        .get("unlock-burn-height")
+        .expect("register-for-bond response missing unlock-burn-height")
+        .clone()
+        .expect_u128()
+        .expect("unlock-burn-height should be a uint") as u64;
+
+    let after_register = get_account(&http_origin, &staker_addr);
+    assert_eq!(
+        after_register.locked, bond_amount,
+        "register-for-bond (L1) should have locked exactly {bond_amount} ustx"
+    );
+    assert_eq!(
+        after_register.unlock_height, register_unlock_height,
+        "pox-locking should have applied the bond's unlock-burn-height"
+    );
+
+    // L1 path must not move sBTC; we never minted to the staker, but assert
+    // explicitly to catch a regression where the contract takes the wrong
+    // branch and silently runs `lock-sbtc`.
+    let sbtc_balance_after = sbtc_balance(&naka_conf, &sbtc_deployer_addr, &staker_addr);
+    assert_eq!(
+        sbtc_balance_after, sbtc_balance_before,
+        "L1 lockup branch must not change the staker's sBTC balance \
+         (before={sbtc_balance_before}, after={sbtc_balance_after})",
+    );
+
+    // The bond membership row must record `is-l1-lock: true` so future
+    // `announce-l1-early-exit` calls dispatch correctly.
+    let membership = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-bond-membership",
+        vec![&Value::Principal(staker_addr.clone().into())],
+    )
+    .result()
+    .expect("get-bond-membership read failed");
+    let is_l1_lock = membership
+        .expect_optional()
+        .expect("get-bond-membership response should be (optional ...)")
+        .expect("staker should have a bond membership after register-for-bond")
+        .expect_tuple()
+        .expect("bond membership should be a tuple")
+        .get("is-l1-lock")
+        .expect("bond membership missing `is-l1-lock` field")
+        .clone()
+        .expect_bool()
+        .expect("`is-l1-lock` should be a bool");
+    assert!(
+        is_l1_lock,
+        "bond membership must record `is-l1-lock: true` for the L1 lockup branch",
+    );
+
+    // 4) A second `register-for-bond` from the same staker via the L1 path
+    // must still fail with `ERR_ALREADY_REGISTERED` (u9) — the duplicate
+    // check sits after `verify-l1-lockups` runs.
+    test_observer::clear();
+    let dup_tx = make_contract_call(
+        &staker_sk,
+        1,
+        register_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "register-for-bond",
+        &[
+            Value::UInt(0),
+            Value::Principal(test_signer_principal.clone()),
+            Value::UInt(bond_amount),
+            l1_lockup_arg,
+            Value::none(),
+        ],
+    );
+    let dup_txid = submit_tx(&http_origin, &dup_tx);
+    info!("Submitted duplicate pox-5 register-for-bond (L1) txid: {dup_txid}");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &staker_addr).nonce == 2
+            && get_tx_result_by_id(&dup_txid).is_some())
+    })
+    .expect("Timed out waiting for duplicate register-for-bond (L1)");
+
+    let parsed = get_tx_result_by_id(&dup_txid)
+        .expect("Did not observe duplicate register-for-bond txid in test_observer");
+    assert_eq!(
+        parsed,
+        Value::error(Value::UInt(9)).unwrap(),
+        "duplicate register-for-bond (L1) should fail with ERR_ALREADY_REGISTERED (u9)"
+    );
+
+    // The duplicate failure must not have disturbed the existing lock.
+    let after_dup = get_account(&http_origin, &staker_addr);
+    assert_eq!(
+        after_dup.locked, bond_amount,
+        "failed duplicate register-for-bond must not change locked balance"
+    );
+    assert_eq!(
+        after_dup.unlock_height, register_unlock_height,
+        "failed duplicate register-for-bond must not change unlock-burn-height"
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+    run_loop_thread.join().unwrap();
+}
+
+/// Read the `sbtc-token` stub's `get-balance` for `who`. Used by L1 lockup
+/// tests to assert that the L1 path does *not* move sBTC, in contrast to
+/// the sBTC branch of `register-for-bond`.
+fn sbtc_balance(conf: &Config, deployer: &StacksAddress, who: &StacksAddress) -> u128 {
+    let value = call_read_only(
+        conf,
+        deployer,
+        "sbtc-token",
+        "get-balance",
+        vec![&Value::Principal(who.clone().into())],
+    )
+    .result()
+    .expect("get-balance read failed");
+    value
+        .expect_result_ok()
+        .expect("get-balance should return (ok uint)")
+        .expect_u128()
+        .expect("get-balance ok payload should be a uint")
+}
+
+#[test]
+#[ignore]
 /// Verify the `with-stacking` allowances work as expected when staking STX
 fn check_with_stacking_allowances_stake() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
