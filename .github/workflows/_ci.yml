@@ -205,7 +205,7 @@ jobs:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
   ## --- Run bitcoin RPC Tests ------------------------------------------------
-  tests:bitcoin-rpc:
+  tests-bitcoin-rpc:
     name: "Tests: Bitcoin RPC"
     needs:
       - check-changelog
