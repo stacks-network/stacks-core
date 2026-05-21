@@ -12,6 +12,7 @@ import { beforeEach, expect, test } from 'vitest';
 import { filterEvents, rov, rovErr, rovOk, txErr, txOk } from '@clarigen/test';
 import { mineUntil, stxToUStx } from '../test-helpers';
 import {
+  buildL1Lockup,
   deployTestSigner,
   errorCodes,
   expectAllSignersHaveKeys,
@@ -67,7 +68,7 @@ function bondTargetYieldPerCalculation({
   sats: bigint;
   targetRate: bigint;
 }) {
-  return ((sats * targetRate) / BASIS_POINTS) / 50n;
+  return (sats * targetRate) / BASIS_POINTS / 50n;
 }
 
 beforeEach(() => {
@@ -919,9 +920,7 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
     targetRate,
   });
   expect(rov(pox5.getEarned(signer, true, 0n))).toBe(firstBondRewards);
-  expect(rov(pox5.getEarned(signer, true, 1n))).toBe(
-    1500n - firstBondRewards,
-  );
+  expect(rov(pox5.getEarned(signer, true, 1n))).toBe(1500n - firstBondRewards);
   expect(rov(pox5.getEarned(signer, false, 3n))).toBe(0n);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
 });
@@ -1039,9 +1038,7 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
     totalShares: stxStake * 2n,
   });
 
-  expect(rov(pox5.getReserveBalance())).toBe(
-    reserveRewards(remainingRewards),
-  );
+  expect(rov(pox5.getReserveBalance())).toBe(reserveRewards(remainingRewards));
   expect(rov(pox5.getEarned(signer1, true, 0n))).toBe(firstBondRewards);
   expect(rov(pox5.getEarned(signer2, true, 1n))).toBe(secondBondRewards);
   expect(rov(pox5.getEarned(signer1, false, 3n))).toBe(signerStxRewards);
@@ -1323,17 +1320,7 @@ test('only early unlock admin can announce l1 early exit', () => {
       amountUstx: aliceUstx,
       btcLockup: ok({
         outputs: [
-          {
-            amount: aliceSats,
-            txid: new Uint8Array(32),
-            outputIndex: 0n,
-            header: new Uint8Array(80),
-            leafHashes: [],
-            txCount: 0n,
-            txIndex: 0n,
-            height: 0n,
-            tx: new Uint8Array(1000),
-          },
+          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1419,17 +1406,7 @@ test('l1 early exit prevents future bond rewards but leaves stx delegated', () =
       amountUstx: aliceUstx,
       btcLockup: ok({
         outputs: [
-          {
-            amount: aliceSats,
-            txid: new Uint8Array(32),
-            outputIndex: 0n,
-            header: new Uint8Array(80),
-            leafHashes: [],
-            txCount: 0n,
-            txIndex: 0n,
-            height: 0n,
-            tx: new Uint8Array(1000),
-          },
+          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1486,17 +1463,7 @@ test('l1 early exit does not erase already accrued bond rewards', () => {
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          {
-            amount: aliceSats,
-            txid: new Uint8Array(32),
-            outputIndex: 0n,
-            header: new Uint8Array(80),
-            leafHashes: [],
-            txCount: 0n,
-            txIndex: 0n,
-            height: 0n,
-            tx: new Uint8Array(1000),
-          },
+          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1766,17 +1733,7 @@ test('sbtc unstake rejects invalid signer, l1 bonds, and excess withdrawal', () 
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          {
-            amount: aliceSbtc,
-            txid: new Uint8Array(32),
-            outputIndex: 0n,
-            header: new Uint8Array(80),
-            leafHashes: [],
-            txCount: 0n,
-            txIndex: 0n,
-            height: 0n,
-            tx: new Uint8Array(1000),
-          },
+          buildL1Lockup({ staker: bob, sats: aliceSbtc, bondIndex: 0n }),
         ],
         unlockBytes: new Uint8Array(),
       }),
