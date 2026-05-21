@@ -33,15 +33,7 @@ env:
   TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
 
 jobs:
-  ## --- Jobs to run on every workflow trigger --------------------------------
-  # Runs when:
-  #    - this workflow is called manually
-  #    - PR is opened or new commits pushed
-  #    - PR added to merge queue
-  #    - release workflow is triggered
-  #
-  
-  ## --- Global Variables Setup ---------------------------------------------
+  # --- Global Variables Setup ---------------------------------------------
   # Bridges global env variables to the jobs context so they are safely 
   # accessible by downstream reusable workflows.
   setup-env:
@@ -55,9 +47,9 @@ jobs:
         run: echo "test_archive_file=${{ env.TEST_ARCHIVE_FILE }}" >> $GITHUB_OUTPUT
   
   
-  ## --- Changelog check ------------------------------------------------------
-  #   - Checks for changelog updates (or the 'No Changelog' label on a PR
-  #   - Required to pass for all subsequent jobs
+  # --- Changelog check ------------------------------------------------------
+  # Checks for changelog updates (or the 'No Changelog' label) on a PR
+  # Required to pass for all subsequent jobs
   check-changelog:
     name: "Check: Changelog"
     runs-on: ubuntu-latest
@@ -82,9 +74,9 @@ jobs:
             const changelog = require('./.github/scripts/changelog.js');
             await changelog({ github, context, core });
 
-  ## --- Check Rust Formatting ------------------------------------------------
-  #   - Check for correct formatting
-  #   - Required to pass for all subsequent jobs
+  # --- Check Rust Formatting ------------------------------------------------
+  # Checks for correct formatting
+  # Required to pass for all subsequent jobs
   check-rustfmt:
     name: "Check: Rust Formatting"
     needs:
@@ -106,7 +98,7 @@ jobs:
       - name: Rustfmt
         run: bash ./.github/scripts/rustfmt.sh
 
-  ## --- Check if this is a release build -------------------------------------
+  # --- Check if this is a release build -------------------------------------
   # Outputs:
   #  - node_tag: Tag of the stacks-node if the branch is a release one (example: release/3.4.0.0.1), null otherwise
   #  - signer_tag: Tag of the stacks-signer if the branch is a release one (example: release/3.4.0.0.1.0), null otherwise
@@ -144,7 +136,35 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: bash ./.github/scripts/check_release.sh
 
-  ## --- Setup reusable caches for tests ------------------------------------
+  # --- Cargo Hack check------------------------------------------------------
+  check-cargo-hack:
+    name: "Check: Cargo Hack"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'merge_group')
+    uses: ./.github/workflows/check-cargo-hack.yml
+
+  # --- Validate constants dumped by stacks-inspect --------------------------
+  check-constants:
+    name: "Check: Constants"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'merge_group')
+    uses: ./.github/workflows/check-constants.yml
+
+  # --- Setup reusable caches for tests ------------------------------------
   setup-test-caches:
     name: "Setup: Test Caches"
     needs:
@@ -163,7 +183,7 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  ## --- Run stacks core tests ------------------------------------------------
+  # --- Run stacks core tests ------------------------------------------------
   tests-stacks-core:
     name: "Tests: Stacks Core"
     needs:
@@ -183,7 +203,7 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  ## --- Run bitcoin Tests ----------------------------------------------------
+  # --- Run bitcoin Tests ----------------------------------------------------
   tests-bitcoin:
     name: "Tests: Bitcoin"
     needs:
@@ -203,7 +223,7 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  ## --- Run bitcoin RPC Tests ------------------------------------------------
+  # --- Run bitcoin RPC Tests ------------------------------------------------
   tests-bitcoin-rpc:
     name: "Tests: Bitcoin RPC"
     needs:
@@ -224,7 +244,7 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  ## --- Run P2P Tests --------------------------------------------------------
+  # --- Run P2P Tests --------------------------------------------------------
   tests-p2p:
     name: "Tests: P2P"
     needs:
@@ -244,48 +264,10 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  ## --- Jobs to run on PR or manual trigger ----------------------------------
-  # Runs when:
-  #     - this workflow is called manually
-  #     - PR is opened or new commits pushed
-  #     - PR added to merge queue
-  #
-  ## --- Cargo Hack check------------------------------------------------------
-  check-cargo-hack:
-    name: "Check: Cargo Hack"
-    needs:
-      - check-changelog
-      - check-release
-      - check-rustfmt
-    if: >-
-      !cancelled() &&
-      (github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
-    uses: ./.github/workflows/check-cargo-hack.yml
-
-  ## --- Validate constants dumped by stacks-inspect --------------------------
-  check-constants:
-    name: "Check: Constants"
-    needs:
-      - check-changelog
-      - check-release
-      - check-rustfmt
-    if: >-
-      !cancelled() &&
-      (github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
-    uses: ./.github/workflows/check-constants.yml
-
-  ## --- Jobs to run on release trigger ---------------------------------------
-  # Runs when:
-  #   - it is a node release run
-  #
   # --- Create a release ---------------------------------------
-  #   - Creates binary archives for several architectures
-  #   - Creates Docker images and pushes to ghcr registry
-  #   - Creates a draft github release
+  # Creates binary archives for several architectures
+  # Creates Docker images and pushes to ghcr registry
+  # Creates a draft GitHub release
   create-release:
     name: "Create: Release"
     needs:
@@ -308,7 +290,8 @@ jobs:
       signer_tag: ${{ needs.check-release.outputs.signer_tag }} # 6 place version format like 1.2.3.4.5.6
       is_node_release: ${{ needs.check-release.outputs.is_node_release }} # boolean used in matrix conditional in .github/workflows/release-github.yml
 
-  ## --- Epoch Tests ----------------------------------------------------------
+  # --- Epoch Tests ----------------------------------------------------------
+  # Only run for releases
   tests-epoch:
     name: "Tests: Epoch"
     needs:
@@ -325,10 +308,7 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  ## Merge and upload code coverage report files once all tests are done
-  ##
-  ## Runs when:
-  ##   - always (unless workflow is cancelled OR either blockchain or core tests are skipped)
+  # --- Create Code Coverage Report -------------------------------------------
   create-code-coverage-report:
     if: >-
       always() &&
