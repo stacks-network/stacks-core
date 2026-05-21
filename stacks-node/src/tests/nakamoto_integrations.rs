@@ -135,7 +135,9 @@ use crate::tests::neon_integrations::{
     get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
-use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
+use crate::tests::signer::v0::{
+    pox5_signer_manager_source, sbtc_registry_stub_source, sbtc_token_stub_source,
+};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
@@ -1143,6 +1145,115 @@ pub fn boot_to_epoch_3(
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
+}
+
+/// Boot the chain through `boot_to_epoch_3`, deploy the sBTC stub contracts
+/// that pox-5 requires for static analysis at the Epoch 4.0 boundary, then
+/// mine forward until the chain crosses into Epoch 4.0.
+///
+/// Steps:
+///  1. `boot_to_epoch_3` with `stacker_sks` / `signer_sks` / `self_signing`.
+///  2. Append `extra_signer_keys` to `self_signing.signer_keys`. `boot_to_epoch_3`
+///     replaces the signer set with `signer_sks`; tests that register an
+///     additional pox-5 signer pass that key here so `blind_signer`'s clone can
+///     sign across the pox-4 → pox-5 cycle boundary.
+///  3. Spawn `blind_signer` and wait for the first Nakamoto block commit.
+///  4. Publish `sbtc-token` (and `sbtc-registry` if `sbtc_registry_pubkey` is
+///     `Some`) from `sbtc_deployer_sk` starting at nonce 0, using `deploy_fee`.
+///     The caller must have set `naka_conf.node.pox_5_sbtc_contract` (and
+///     `pox_5_sbtc_registry_contract` when deploying the registry) to match
+///     the deployer's qualified contract ids.
+///  5. Mine bitcoin blocks until the observer reports a burn height at or past
+///     the configured Epoch 4.0 start.
+pub fn boot_to_epoch_4_0(
+    naka_conf: &Config,
+    blocks_processed: &Arc<AtomicU64>,
+    counters: &Counters,
+    coord_channel: &Arc<Mutex<CoordinatorChannels>>,
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
+    extra_signer_keys: &[StacksPrivateKey],
+    sbtc_deployer_sk: &StacksPrivateKey,
+    sbtc_registry_pubkey: Option<&[u8; 33]>,
+    deploy_fee: u64,
+    self_signing: &mut Option<&mut TestSigners>,
+    btc_regtest_controller: &mut BitcoinRegtestController,
+) {
+    boot_to_epoch_3(
+        naka_conf,
+        blocks_processed,
+        stacker_sks,
+        signer_sks,
+        self_signing,
+        btc_regtest_controller,
+    );
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    if let Some(signers) = self_signing.as_mut() {
+        signers.signer_keys.extend_from_slice(extra_signer_keys);
+        blind_signer(naka_conf, signers, counters);
+    }
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let chain_id = naka_conf.burnchain.chain_id;
+
+    let sbtc_deploy_tx = make_contract_publish(
+        sbtc_deployer_sk,
+        0,
+        deploy_fee,
+        chain_id,
+        "sbtc-token",
+        sbtc_token_stub_source(),
+    );
+    submit_tx(&http_origin, &sbtc_deploy_tx);
+
+    let expected_deployer_nonce: u64 = if let Some(pubkey) = sbtc_registry_pubkey {
+        let sbtc_registry_contract = sbtc_registry_stub_source(pubkey);
+        let sbtc_registry_deploy_tx = make_contract_publish(
+            sbtc_deployer_sk,
+            1,
+            deploy_fee,
+            chain_id,
+            "sbtc-registry",
+            &sbtc_registry_contract,
+        );
+        submit_tx(&http_origin, &sbtc_registry_deploy_tx);
+        2
+    } else {
+        1
+    };
+    next_block_and_process_new_stacks_block(btc_regtest_controller, 60, coord_channel)
+        .expect("Failed to mine block including sBTC stub deploy(s)");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(sbtc_deployer_sk)).nonce >= expected_deployer_nonce)
+    })
+    .expect("Timed out waiting for sBTC stub deploy(s) to confirm");
+
+    let epoch_40_height =
+        naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch40].start_height;
+    loop {
+        let blocks_before = test_observer::get_blocks().len();
+        next_block_and_process_new_stacks_block(btc_regtest_controller, 60, coord_channel)
+            .expect("Failed to mine block while advancing to Epoch 4.0");
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= epoch_40_height
+        {
+            break;
+        }
+    }
+    info!(
+        "Reached Epoch-4.0 boundary; current burn_height={}",
+        get_chain_info_opt(naka_conf).unwrap().burn_block_height
+    );
 }
 
 /// Boot the chain to just before the Epoch 3.0 boundary to allow for flash blocks
@@ -19497,12 +19608,7 @@ fn check_pox_5_stake_lifecycle() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
-    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
-    // it out so unrelated tests don't accidentally cross it.
-    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
-    epochs[StacksEpochId::Epoch34].end_height = 254;
-    epochs[StacksEpochId::Epoch40].start_height = 254;
+    enable_epoch_4_0(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -19571,118 +19677,29 @@ fn check_pox_5_stake_lifecycle() {
         .unwrap();
     wait_for_runloop(&blocks_processed);
 
-    boot_to_epoch_3(
-        &naka_conf,
-        &blocks_processed,
-        &[stacker_sk.clone()],
-        &[sender_signer_sk],
-        &mut Some(&mut signers),
-        &mut btc_regtest_controller,
-    );
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-    // boot_to_epoch_3 replaces signer_keys with the pox-4 signer; the pox-5
-    // staker below registers `signer_sk` and that key ends up in the reward
-    // set once pox-5 takes over signing. Add it now so blind_signer's clone
-    // can produce valid signatures across the pox-4 → pox-5 cycle boundary.
-    signers.signer_keys.push(signer_sk.clone());
-    blind_signer(&naka_conf, &signers, &counters);
-    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
-
     let pubkey_bytes: [u8; 33] = signer_pk
         .to_bytes_compressed()
         .try_into()
         .expect("compressed secp256k1 pubkey should be 33 bytes");
-    let sbtc_token_contract = sbtc_token_stub_source();
-    let sbtc_deploy_tx = make_contract_publish(
+    boot_to_epoch_4_0(
+        &naka_conf,
+        &blocks_processed,
+        &counters,
+        &coord_channel,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &[signer_sk.clone()],
         &sbtc_deployer_sk,
-        0,
+        Some(&pubkey_bytes),
         deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-token",
-        sbtc_token_contract,
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
     );
-    submit_tx(&http_origin, &sbtc_deploy_tx);
-    let sbtc_registry_contract = sbtc_registry_stub_source(&pubkey_bytes);
-    let sbtc_registry_deploy_tx = make_contract_publish(
-        &sbtc_deployer_sk,
-        1,
-        deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-registry",
-        &sbtc_registry_contract,
-    );
-    submit_tx(&http_origin, &sbtc_registry_deploy_tx);
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
-    wait_for(60, || {
-        Ok(get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce > 1)
-    })
-    .expect("Timed out waiting for sbtc-token and sbtc-registry deploys");
-
-    // mine until epoch 4.0
-    loop {
-        let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
-        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
-            .expect("Timed out waiting for observer to process new block");
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        if last_block
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap()
-            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch40].start_height
-        {
-            break;
-        }
-    }
 
     let mut sender_nonce = 0;
 
     // Deploy the signer-manager contract.
-    let signer_contract = r#"
-(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-
-(define-public (validate-stake!
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (amount-ustx uint)
-        (amount-sats uint)
-        (is-bond bool)
-        (signer-calldata (optional (buff 500)))
-    )
-    (ok true)
-)
-
-(define-public (checkpoint-staker
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (is-bond bool)
-    )
-    (ok true)
-)
-
-(define-public (register-self
-    (signer-manager <signer-manager-trait>)
-    (signer-key (buff 33))
-    (auth-id uint)
-    (signer-sig (buff 65))
-  )
-  (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
-      signer-key current-contract auth-id signer-sig
-    ))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
-      signer-manager signer-key
-    ))
-  )
-)
-"#;
+    let signer_contract = pox5_signer_manager_source();
     let signer_deploy_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
@@ -19924,12 +19941,7 @@ fn check_pox_5_register_for_bond_lifecycle() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
-    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
-    // it out so unrelated tests don't accidentally cross it.
-    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
-    epochs[StacksEpochId::Epoch34].end_height = 254;
-    epochs[StacksEpochId::Epoch40].start_height = 254;
+    enable_epoch_4_0(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -20014,119 +20026,30 @@ fn check_pox_5_register_for_bond_lifecycle() {
         .unwrap();
     wait_for_runloop(&blocks_processed);
 
-    boot_to_epoch_3(
-        &naka_conf,
-        &blocks_processed,
-        &[stacker_sk.clone()],
-        &[sender_signer_sk],
-        &mut Some(&mut signers),
-        &mut btc_regtest_controller,
-    );
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-    // boot_to_epoch_3 replaces signer_keys with the pox-4 signer; the pox-5
-    // staker below registers `signer_sk` and that key ends up in the reward
-    // set once pox-5 takes over signing. Add it now so blind_signer's clone
-    // can produce valid signatures across the pox-4 → pox-5 cycle boundary.
-    signers.signer_keys.push(signer_sk.clone());
-    blind_signer(&naka_conf, &signers, &counters);
-    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
-
     let pubkey_bytes: [u8; 33] = signer_pk
         .to_bytes_compressed()
         .try_into()
         .expect("compressed secp256k1 pubkey should be 33 bytes");
-    let sbtc_token_contract = sbtc_token_stub_source();
-    let sbtc_deploy_tx = make_contract_publish(
+    boot_to_epoch_4_0(
+        &naka_conf,
+        &blocks_processed,
+        &counters,
+        &coord_channel,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &[signer_sk.clone()],
         &sbtc_deployer_sk,
-        0,
+        Some(&pubkey_bytes),
         deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-token",
-        sbtc_token_contract,
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
     );
-    submit_tx(&http_origin, &sbtc_deploy_tx);
-    let sbtc_registry_contract = sbtc_registry_stub_source(&pubkey_bytes);
-    let sbtc_registry_deploy_tx = make_contract_publish(
-        &sbtc_deployer_sk,
-        1,
-        deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-registry",
-        &sbtc_registry_contract,
-    );
-    submit_tx(&http_origin, &sbtc_registry_deploy_tx);
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
-    wait_for(60, || {
-        Ok(get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce > 1)
-    })
-    .expect("Timed out waiting for sbtc-token and sbtc-registry deploys");
-
-    // mine until epoch 4.0
-    loop {
-        let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
-        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
-            .expect("Timed out waiting for observer to process new block");
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        if last_block
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap()
-            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch40].start_height
-        {
-            break;
-        }
-    }
     info!("Reached Epoch-4.0 boundary, deploying signer-manager and registering signer");
 
     let mut sender_nonce = 0;
 
     // Deploy the signer-manager contract.
-    let signer_contract = r#"
-(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-
-(define-public (validate-stake!
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (amount-ustx uint)
-        (amount-sats uint)
-        (is-bond bool)
-        (signer-calldata (optional (buff 500)))
-    )
-    (ok true)
-)
-
-(define-public (checkpoint-staker
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (is-bond bool)
-    )
-    (ok true)
-)
-
-(define-public (register-self
-    (signer-manager <signer-manager-trait>)
-    (signer-key (buff 33))
-    (auth-id uint)
-    (signer-sig (buff 65))
-  )
-  (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
-      signer-key current-contract auth-id signer-sig
-    ))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
-      signer-manager signer-key
-    ))
-  )
-)
-"#;
+    let signer_contract = pox5_signer_manager_source();
     let signer_deploy_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
@@ -20447,12 +20370,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
-    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
-    // it out so unrelated tests don't accidentally cross it.
-    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
-    epochs[StacksEpochId::Epoch34].end_height = 254;
-    epochs[StacksEpochId::Epoch40].start_height = 254;
+    enable_epoch_4_0(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -20564,128 +20482,26 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         .unwrap();
     wait_for_runloop(&blocks_processed);
 
-    boot_to_epoch_3(
+    boot_to_epoch_4_0(
         &naka_conf,
         &blocks_processed,
+        &counters,
+        &coord_channel,
         &[stacker_sk.clone()],
         &[sender_signer_sk],
+        &[signer_sk.clone()],
+        &sbtc_deployer_sk,
+        None,
+        deploy_fee,
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-    // boot_to_epoch_3 replaces signer_keys with the pox-4 signer; the
-    // pox-5 staker below registers `signer_sk` and that key ends up in
-    // the reward set once pox-5 takes over signing. Add it now so
-    // `blind_signer`'s clone can produce valid signatures across the
-    // pox-4 → pox-5 cycle boundary.
-    signers.signer_keys.push(signer_sk.clone());
-    blind_signer(&naka_conf, &signers, &counters);
-    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
-
-    let sbtc_token_contract = r#"
-(define-fungible-token sbtc-token)
-
-(define-public (transfer
-        (amount uint)
-        (sender principal)
-        (recipient principal)
-        (memo (optional (buff 34)))
-    )
-    (begin
-        (try! (ft-transfer? sbtc-token amount sender recipient))
-        (ok true)
-    )
-)
-
-(define-read-only (get-balance (who principal))
-    (ok (ft-get-balance sbtc-token who))
-)
-
-(define-public (mint (amount uint) (recipient principal))
-    (ft-mint? sbtc-token amount recipient)
-)
-"#;
-    let sbtc_deploy_tx = make_contract_publish(
-        &sbtc_deployer_sk,
-        0,
-        deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-token",
-        sbtc_token_contract,
-    );
-    submit_tx(&http_origin, &sbtc_deploy_tx);
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
-    wait_for(60, || {
-        Ok(get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce > 0)
-    })
-    .expect("Timed out waiting for sbtc-token deploy");
-
-    // mine until epoch 4.0
-    loop {
-        let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
-        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
-            .expect("Timed out waiting for observer to process new block");
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        if last_block
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap()
-            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch40].start_height
-        {
-            break;
-        }
-    }
     info!("Reached Epoch-4.0 boundary, deploying signer-manager and registering signer");
 
     let mut sender_nonce = 0;
 
     // Deploy the signer-manager contract.
-    let signer_contract = r#"
-(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-
-(define-public (validate-stake!
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (amount-ustx uint)
-        (amount-sats uint)
-        (is-bond bool)
-        (signer-calldata (optional (buff 500)))
-    )
-    (ok true)
-)
-
-(define-public (checkpoint-staker
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (is-bond bool)
-    )
-    (ok true)
-)
-
-(define-public (register-self
-    (signer-manager <signer-manager-trait>)
-    (signer-key (buff 33))
-    (auth-id uint)
-    (signer-sig (buff 65))
-  )
-  (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
-      signer-key current-contract auth-id signer-sig
-    ))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
-      signer-manager signer-key
-    ))
-  )
-)
-"#;
+    let signer_contract = pox5_signer_manager_source();
     let signer_deploy_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
@@ -21187,12 +21003,7 @@ fn check_with_stacking_allowances_stake() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
-    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
-    // it out so unrelated tests don't accidentally cross it.
-    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
-    epochs[StacksEpochId::Epoch34].end_height = 254;
-    epochs[StacksEpochId::Epoch40].start_height = 254;
+    enable_epoch_4_0(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -21266,133 +21077,29 @@ fn check_with_stacking_allowances_stake() {
         .unwrap();
     wait_for_runloop(&blocks_processed);
 
-    boot_to_epoch_3(
-        &naka_conf,
-        &blocks_processed,
-        &[stacker_sk.clone()],
-        &[sender_signer_sk],
-        &mut Some(&mut signers),
-        &mut btc_regtest_controller,
-    );
-
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-
-    info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, &counters);
-    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
-
-    // Deploy the sBTC token stub before the epoch 4.0 transition. The pox-5
-    // boot contract references this contract by its qualified identifier and
-    // will fail static analysis at the epoch boundary if it is not present.
     let pubkey_bytes: [u8; 33] = signer_pk
         .to_bytes_compressed()
         .try_into()
         .expect("compressed secp256k1 pubkey should be 33 bytes");
-    let sbtc_token_contract = sbtc_token_stub_source();
-    let sbtc_deploy_tx = make_contract_publish(
+    boot_to_epoch_4_0(
+        &naka_conf,
+        &blocks_processed,
+        &counters,
+        &coord_channel,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &[],
         &sbtc_deployer_sk,
-        0,
+        Some(&pubkey_bytes),
         deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-token",
-        sbtc_token_contract,
-    );
-    let sbtc_deploy_txid = submit_tx(&http_origin, &sbtc_deploy_tx);
-    info!("Submitted sbtc-token deploy txid: {sbtc_deploy_txid}");
-    let sbtc_registry_contract = sbtc_registry_stub_source(&pubkey_bytes);
-    let sbtc_registry_deploy_tx = make_contract_publish(
-        &sbtc_deployer_sk,
-        1,
-        deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-registry",
-        &sbtc_registry_contract,
-    );
-    let sbtc_registry_deploy_txid = submit_tx(&http_origin, &sbtc_registry_deploy_tx);
-    info!("Submitted sbtc-registry deploy txid: {sbtc_registry_deploy_txid}");
-
-    // Wait for the sbtc-token and sbtc-registry deploys to be processed.
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
-    wait_for(60, || {
-        let sbtc_deployer_nonce = get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce;
-        Ok(sbtc_deployer_nonce > 1)
-    })
-    .expect("Timed out waiting for sbtc-token and sbtc-registry contract deploys");
-
-    // mine until epoch 4.0 height
-    loop {
-        let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
-
-        // wait for the observer to process the new block
-        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
-            .expect("Timed out waiting for observer to process new block");
-
-        // once we actually get a block in epoch 4.0, exit
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        if last_block
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap()
-            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch40].start_height
-        {
-            break;
-        }
-    }
-
-    info!(
-        "Nakamoto miner has advanced to bitcoin height {}",
-        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
     );
 
     let mut sender_nonce = 0;
 
     // Deploy the signer contract
-    let signer_contract = r#"
-(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-
-(define-public (validate-stake!
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (amount-ustx uint)
-        (amount-sats uint)
-        (is-bond bool)
-        (signer-calldata (optional (buff 500)))
-    )
-    (ok true)
-)
-
-(define-public (checkpoint-staker
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (is-bond bool)
-    )
-    (ok true)
-)
-
-(define-public (register-self
-    (signer-manager <signer-manager-trait>)
-    (signer-key (buff 33))
-    (auth-id uint)
-    (signer-sig (buff 65))
-  )
-  (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
-      signer-key current-contract auth-id signer-sig
-    ))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
-      signer-manager signer-key
-    ))
-  )
-)
-"#;
+    let signer_contract = pox5_signer_manager_source();
     let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
@@ -21806,12 +21513,7 @@ fn check_with_stacking_allowances_register_for_bond() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    // Bring Epoch 4.0 close to Epoch 3.4 so the boundary fires after a handful
-    // of bitcoin blocks; the default in `NAKAMOTO_INTEGRATION_EPOCHS` pushes
-    // it out so unrelated tests don't accidentally cross it.
-    let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
-    epochs[StacksEpochId::Epoch34].end_height = 254;
-    epochs[StacksEpochId::Epoch40].start_height = 254;
+    enable_epoch_4_0(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -21901,128 +21603,29 @@ fn check_with_stacking_allowances_register_for_bond() {
         .unwrap();
     wait_for_runloop(&blocks_processed);
 
-    boot_to_epoch_3(
-        &naka_conf,
-        &blocks_processed,
-        &[stacker_sk.clone()],
-        &[sender_signer_sk],
-        &mut Some(&mut signers),
-        &mut btc_regtest_controller,
-    );
-
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-
-    info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, &counters);
-    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
-
-    // Deploy the sBTC token stub before the epoch 4.0 transition.
     let pubkey_bytes: [u8; 33] = signer_pk
         .to_bytes_compressed()
         .try_into()
         .expect("compressed secp256k1 pubkey should be 33 bytes");
-    let sbtc_token_contract = sbtc_token_stub_source();
-    let sbtc_deploy_tx = make_contract_publish(
+    boot_to_epoch_4_0(
+        &naka_conf,
+        &blocks_processed,
+        &counters,
+        &coord_channel,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &[],
         &sbtc_deployer_sk,
-        0,
+        Some(&pubkey_bytes),
         deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-token",
-        sbtc_token_contract,
-    );
-    let sbtc_deploy_txid = submit_tx(&http_origin, &sbtc_deploy_tx);
-    info!("Submitted sbtc-token deploy txid: {sbtc_deploy_txid}");
-    let sbtc_registry_contract = sbtc_registry_stub_source(&pubkey_bytes);
-    let sbtc_registry_deploy_tx = make_contract_publish(
-        &sbtc_deployer_sk,
-        1,
-        deploy_fee,
-        naka_conf.burnchain.chain_id,
-        "sbtc-registry",
-        &sbtc_registry_contract,
-    );
-    let sbtc_registry_deploy_txid = submit_tx(&http_origin, &sbtc_registry_deploy_tx);
-    info!("Submitted sbtc-registry deploy txid: {sbtc_registry_deploy_txid}");
-
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
-    wait_for(60, || {
-        let sbtc_deployer_nonce = get_account(&http_origin, &to_addr(&sbtc_deployer_sk)).nonce;
-        Ok(sbtc_deployer_nonce > 1)
-    })
-    .expect("Timed out waiting for sbtc-token and sbtc-registry contract deploys");
-
-    // mine until epoch 4.0 height
-    loop {
-        let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
-
-        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
-            .expect("Timed out waiting for observer to process new block");
-
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        if last_block
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap()
-            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch40].start_height
-        {
-            break;
-        }
-    }
-
-    info!(
-        "Nakamoto miner has advanced to bitcoin height {}",
-        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
     );
 
     let mut sender_nonce = 0;
 
     // Deploy the signer contract — same shape as `check_with_stacking_allowances_stake`.
-    let signer_contract = r#"
-(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-
-(define-public (validate-stake!
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (amount-ustx uint)
-        (amount-sats uint)
-        (is-bond bool)
-        (signer-calldata (optional (buff 500)))
-    )
-    (ok true)
-)
-
-(define-public (checkpoint-staker
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (is-bond bool)
-    )
-    (ok true)
-)
-
-(define-public (register-self
-    (signer-manager <signer-manager-trait>)
-    (signer-key (buff 33))
-    (auth-id uint)
-    (signer-sig (buff 65))
-  )
-  (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
-      signer-key current-contract auth-id signer-sig
-    ))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
-      signer-manager signer-key
-    ))
-  )
-)
-"#;
+    let signer_contract = pox5_signer_manager_source();
     let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
