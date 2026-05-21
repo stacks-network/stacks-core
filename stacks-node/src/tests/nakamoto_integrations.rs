@@ -19580,6 +19580,11 @@ fn check_pox_5_stake_lifecycle() {
         &mut btc_regtest_controller,
     );
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+    // boot_to_epoch_3 replaces signer_keys with the pox-4 signer; the pox-5
+    // staker below registers `signer_sk` and that key ends up in the reward
+    // set once pox-5 takes over signing. Add it now so blind_signer's clone
+    // can produce valid signatures across the pox-4 → pox-5 cycle boundary.
+    signers.signer_keys.push(signer_sk.clone());
     blind_signer(&naka_conf, &signers, &counters);
     wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
 
@@ -19642,20 +19647,24 @@ fn check_pox_5_stake_lifecycle() {
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 
 (define-public (validate-stake!
-    ;; #[allow(unused_binding)]
-    (staker principal)
-    ;; #[allow(unused_binding)]
-    (amount-ustx uint)
-    ;; #[allow(unused_binding)]
-    (amount-sats uint)
-    ;; #[allow(unused_binding)]
-    (num-cycles uint)
-    ;; #[allow(unused_binding)]
-    (is-bond bool)
-    ;; #[allow(unused_binding)]
-    (signer-calldata (optional (buff 500)))
-  )
-  (ok true)
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (checkpoint-staker
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (is-bond bool)
+    )
+    (ok true)
 )
 
 (define-public (register-self
@@ -19777,6 +19786,7 @@ fn check_pox_5_stake_lifecycle() {
         "stake-update",
         &[
             Value::Principal(test_signer_principal.clone()),
+            Value::Principal(test_signer_principal.clone()),
             Value::UInt(1),
             Value::UInt(extra),
             Value::none(),
@@ -19821,7 +19831,7 @@ fn check_pox_5_stake_lifecycle() {
             &pox_5_addr,
             "pox-5",
             "unstake",
-            &[],
+            &[Value::Principal(test_signer_principal.clone())],
         );
         let unstake_txid = submit_tx(&http_origin, &unstake_tx);
         info!("Submitted pox-5 unstake txid: {unstake_txid} (attempt {attempt})");
@@ -20013,6 +20023,11 @@ fn check_pox_5_register_for_bond_lifecycle() {
         &mut btc_regtest_controller,
     );
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+    // boot_to_epoch_3 replaces signer_keys with the pox-4 signer; the pox-5
+    // staker below registers `signer_sk` and that key ends up in the reward
+    // set once pox-5 takes over signing. Add it now so blind_signer's clone
+    // can produce valid signatures across the pox-4 → pox-5 cycle boundary.
+    signers.signer_keys.push(signer_sk.clone());
     blind_signer(&naka_conf, &signers, &counters);
     wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
 
@@ -20076,20 +20091,24 @@ fn check_pox_5_register_for_bond_lifecycle() {
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 
 (define-public (validate-stake!
-    ;; #[allow(unused_binding)]
-    (staker principal)
-    ;; #[allow(unused_binding)]
-    (amount-ustx uint)
-    ;; #[allow(unused_binding)]
-    (amount-sats uint)
-    ;; #[allow(unused_binding)]
-    (num-cycles uint)
-    ;; #[allow(unused_binding)]
-    (is-bond bool)
-    ;; #[allow(unused_binding)]
-    (signer-calldata (optional (buff 500)))
-  )
-  (ok true)
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (checkpoint-staker
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (is-bond bool)
+    )
+    (ok true)
 )
 
 (define-public (register-self
@@ -20197,6 +20216,7 @@ fn check_pox_5_register_for_bond_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
+            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -20352,7 +20372,7 @@ fn check_pox_5_register_for_bond_lifecycle() {
         &pox_5_addr,
         "pox-5",
         "unstake",
-        &[],
+        &[Value::Principal(test_signer_principal.clone())],
     );
     let unstake_txid = submit_tx(&http_origin, &unstake_tx);
     info!("Submitted pox-5 unstake (bond holder) txid: {unstake_txid}");
@@ -20569,20 +20589,24 @@ fn check_with_stacking_allowances_stake() {
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 
 (define-public (validate-stake!
-    ;; #[allow(unused_binding)]
-    (staker principal)
-    ;; #[allow(unused_binding)]
-    (amount-ustx uint)
-    ;; #[allow(unused_binding)]
-    (amount-sats uint)
-    ;; #[allow(unused_binding)]
-    (num-cycles uint)
-    ;; #[allow(unused_binding)]
-    (is-bond bool)
-    ;; #[allow(unused_binding)]
-    (signer-calldata (optional (buff 500)))
-  )
-  (ok true)
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (checkpoint-staker
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (is-bond bool)
+    )
+    (ok true)
 )
 
 (define-public (register-self
@@ -21195,20 +21219,24 @@ fn check_with_stacking_allowances_register_for_bond() {
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 
 (define-public (validate-stake!
-    ;; #[allow(unused_binding)]
-    (staker principal)
-    ;; #[allow(unused_binding)]
-    (amount-ustx uint)
-    ;; #[allow(unused_binding)]
-    (amount-sats uint)
-    ;; #[allow(unused_binding)]
-    (num-cycles uint)
-    ;; #[allow(unused_binding)]
-    (is-bond bool)
-    ;; #[allow(unused_binding)]
-    (signer-calldata (optional (buff 500)))
-  )
-  (ok true)
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (checkpoint-staker
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (is-bond bool)
+    )
+    (ok true)
 )
 
 (define-public (register-self
@@ -21423,6 +21451,7 @@ fn check_with_stacking_allowances_register_for_bond() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
+            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
