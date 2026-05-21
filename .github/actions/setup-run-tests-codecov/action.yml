@@ -32,7 +32,7 @@ inputs:
   status-level:
     description: "Output status level"
     required: false
-    default: "fail"
+    default: "pass"
   retries:
     description: "Number of test retries"
     required: false
