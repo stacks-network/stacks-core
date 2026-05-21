@@ -30,7 +30,6 @@ use self::context::Epoch33ToEpoch34TestContext;
 /// returns `(err u0)` with effects rolled back. Both "safe" (within allowance)
 /// and "combined-exceeds" (each op passes individually, combined total exceeds)
 /// are exercised in each epoch.
-#[tag(t_prop)]
 #[test]
 fn scenario_with_stx_postconditions() {
     let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
@@ -104,7 +103,6 @@ fn scenario_cross_version_calls() {
 /// SIP-040 post-condition new features: `Originator` mode and `MaybeSent`
 /// condition code. Pre-Epoch34 both features are rejected by static epoch
 /// validation. Epoch34 exercises all happy and failure paths.
-#[tag(t_prop)]
 #[test]
 fn scenario_sip040_postconditions() {
     let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
