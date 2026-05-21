@@ -6,6 +6,7 @@ import {
   ok,
 } from '@clarigen/core';
 import { Cl, ClarityType } from '@stacks/transactions';
+import { hex } from '@scure/base';
 import { accounts } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
 import { filterEvents, rov, rovErr, rovOk, txErr, txOk } from '@clarigen/test';
@@ -97,6 +98,33 @@ test('can calculate bond start height correctly', () => {
   expect(rov(pox5.bondPeriodToBurnHeight(1n))).toBe(
     rov(pox5.rewardCycleToBurnHeight(1n)) + REWARD_CYCLE_LENGTH * 2n,
   );
+});
+
+/**
+ * `uint-to-buff-le` encodes a uint as a little-endian buffer. The contract's
+ * bounds check accepts `n < u65536`, so the boundaries to verify are 0, 255,
+ * 256 (the 1→2 byte transition), 65535 (max valid), and 65536 (must panic).
+ */
+test('uint-to-buff-le encodes values < 256 as a single byte', () => {
+  expect(hex.encode(rov(pox5.uintToBuffLe(0n)))).toEqual('00');
+  expect(hex.encode(rov(pox5.uintToBuffLe(1n)))).toEqual('01');
+  expect(hex.encode(rov(pox5.uintToBuffLe(75n)))).toEqual('4b');
+  expect(hex.encode(rov(pox5.uintToBuffLe(255n)))).toEqual('ff');
+});
+
+test('uint-to-buff-le encodes values in [256, 65535] as two little-endian bytes', () => {
+  expect(hex.encode(rov(pox5.uintToBuffLe(256n)))).toEqual('0001');
+  expect(hex.encode(rov(pox5.uintToBuffLe(257n)))).toEqual('0101');
+  expect(hex.encode(rov(pox5.uintToBuffLe(0x1234n)))).toEqual('3412');
+  expect(hex.encode(rov(pox5.uintToBuffLe(0xff00n)))).toEqual('00ff');
+  expect(hex.encode(rov(pox5.uintToBuffLe(0xfffen)))).toEqual('feff');
+  expect(hex.encode(rov(pox5.uintToBuffLe(0xffffn)))).toEqual('ffff');
+});
+
+test('uint-to-buff-le panics on values >= 65536', () => {
+  expect(() => rov(pox5.uintToBuffLe(65536n))).toThrow();
+  expect(() => rov(pox5.uintToBuffLe(0x10000n))).toThrow();
+  expect(() => rov(pox5.uintToBuffLe(2n ** 64n))).toThrow();
 });
 
 /**
