@@ -121,7 +121,6 @@ jobs:
     if: >-
       !cancelled() &&
       github.event.repository.visibility == 'public' &&
-      needs.rustfmt.result == 'success'
     runs-on: ubuntu-latest
     outputs:
       node_tag: ${{ steps.check-release.outputs.node_tag }}
