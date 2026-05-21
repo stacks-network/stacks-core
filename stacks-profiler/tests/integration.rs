@@ -39,7 +39,7 @@ fn test_macro_variations() {
 
     // Statement style (wrapped in block to force drop)
     {
-        stacks_profiler::span!("Statement");
+        let _guard = stacks_profiler::span!("Statement");
     }
 
     // Anonymous/block style
@@ -156,7 +156,7 @@ fn test_zero_time_safety() {
 
     // Ensure very fast operations don't cause underflow/crashes
     for _ in 0..1000 {
-        stacks_profiler::span!("Fast");
+        let _guard = stacks_profiler::span!("Fast");
     }
 
     let results = Profiler::take_results();

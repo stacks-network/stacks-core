@@ -361,6 +361,13 @@ impl Profiler {
         }
     }
 
+    #[doc(hidden)]
+    #[must_use = "span guard is dropped immediately unless bound; assign it to a variable for the span duration"]
+    #[inline(always)]
+    pub fn must_use_span_guard(guard: Option<ProfileGuard>) -> Option<ProfileGuard> {
+        guard
+    }
+
     /// Ends a timed span, updating the node's cumulative wall and CPU time with the elapsed
     /// duration.
     ///
@@ -568,7 +575,7 @@ enum GuardKind {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<stacks_profiler::ProfileGuard>();
 /// ```
-#[must_use = "profiling guards end their span when dropped; bind the guard to keep the span active"]
+#[must_use = "span ends when this guard is dropped; bind it to keep the span active"]
 pub struct ProfileGuard {
     kind: GuardKind,
     _not_send: PhantomData<*const ()>,

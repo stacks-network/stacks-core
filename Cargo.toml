@@ -47,6 +47,7 @@ toml = "0.5.6"
 # Other dependencies
 libc = { version = "0.2.182", default-features = false }
 rapidhash = { version = "4.3.0", default-features = false, features = ["std"] }
+trybuild = { version = "1.0.116", default-features = false }
 
 # Benchmarking dependencies
 criterion = { version = "0.8.2", default-features = false, features = ["html_reports"] }

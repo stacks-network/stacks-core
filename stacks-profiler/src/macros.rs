@@ -151,7 +151,9 @@ macro_rules! measure {
 /// let guard = span!("outer");
 /// drop(guard); // end early
 ///
-/// let _g = span!("hot", rate: 100); // sample 1%
+/// // Keep the guard in a named binding for the span's duration.
+/// // `let _ = span!(...)` drops the guard immediately.
+/// let _guard = span!("hot", rate: 100); // sample 1%
 ///
 /// measure!("root", {
 ///     let _p = span!("parent", rate: 100, suppress);
@@ -169,6 +171,10 @@ macro_rules! span {
 
     (@begin $id:expr, $tag_opt:expr) => {{
         Some($crate::Profiler::begin_timed_span($id, $tag_opt))
+    }};
+
+    (@must_use $guard:expr) => {{
+        $crate::Profiler::must_use_span_guard($guard)
     }};
 
     (@should_sample $counter:ident, $rate:literal) => {{
@@ -190,132 +196,148 @@ macro_rules! span {
 
     // Name, Tag, Rate, count_only
     ($name:literal, $tag:expr, rate: $rate:literal, count_only) => {{
-        if $crate::Profiler::is_suppressed() {
-            None
-        } else {
-            static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
-                std::sync::atomic::AtomicUsize::new(0);
-
-            // Hoist id + tag so both branches share the same OnceLock/static.
-            let __id = $crate::span!(@get_id $name);
-            let __tag: $crate::Tag = ::core::convert::Into::into($tag);
-
-            if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
-                $crate::span!(@begin __id, Some(__tag))
+        $crate::span!(@must_use {
+            if $crate::Profiler::is_suppressed() {
+                None
             } else {
-                Some($crate::Profiler::begin_count_only_span(__id, Some(__tag)))
+                static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+
+                // Hoist id + tag so both branches share the same OnceLock/static.
+                let __id = $crate::span!(@get_id $name);
+                let __tag: $crate::Tag = ::core::convert::Into::into($tag);
+
+                if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
+                    $crate::span!(@begin __id, Some(__tag))
+                } else {
+                    Some($crate::Profiler::begin_count_only_span(__id, Some(__tag)))
+                }
             }
-        }
+        })
     }};
 
     // Name, Rate, count_only
     ($name:literal, rate: $rate:literal, count_only) => {{
-        if $crate::Profiler::is_suppressed() {
-            None
-        } else {
-            static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
-                std::sync::atomic::AtomicUsize::new(0);
-
-            // Hoist id so both branches share the same OnceLock/static.
-            let __id = $crate::span!(@get_id $name);
-
-            if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
-                $crate::span!(@begin __id, None)
+        $crate::span!(@must_use {
+            if $crate::Profiler::is_suppressed() {
+                None
             } else {
-                Some($crate::Profiler::begin_count_only_span(__id, None))
+                static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+
+                // Hoist id so both branches share the same OnceLock/static.
+                let __id = $crate::span!(@get_id $name);
+
+                if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
+                    $crate::span!(@begin __id, None)
+                } else {
+                    Some($crate::Profiler::begin_count_only_span(__id, None))
+                }
             }
-        }
+        })
     }};
 
     // Name, Tag, Rate, suppress
     ($name:literal, $tag:expr, rate: $rate:literal, suppress) => {{
-        if $crate::Profiler::is_suppressed() {
-            None
-        } else {
-            static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
-                std::sync::atomic::AtomicUsize::new(0);
-
-            if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
-                let __id = $crate::span!(@get_id $name);
-                let __tag: $crate::Tag = ::core::convert::Into::into($tag);
-                $crate::span!(@begin __id, Some(__tag))
+        $crate::span!(@must_use {
+            if $crate::Profiler::is_suppressed() {
+                None
             } else {
-                Some($crate::Profiler::begin_suppression())
+                static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+
+                if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
+                    let __id = $crate::span!(@get_id $name);
+                    let __tag: $crate::Tag = ::core::convert::Into::into($tag);
+                    $crate::span!(@begin __id, Some(__tag))
+                } else {
+                    Some($crate::Profiler::begin_suppression())
+                }
             }
-        }
+        })
     }};
 
     // Name, Rate, suppress
     ($name:literal, rate: $rate:literal, suppress) => {{
-        if $crate::Profiler::is_suppressed() {
-            None
-        } else {
-            static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
-                std::sync::atomic::AtomicUsize::new(0);
-
-            if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
-                let __id = $crate::span!(@get_id $name);
-                $crate::span!(@begin __id, None)
+        $crate::span!(@must_use {
+            if $crate::Profiler::is_suppressed() {
+                None
             } else {
-                Some($crate::Profiler::begin_suppression())
+                static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+
+                if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
+                    let __id = $crate::span!(@get_id $name);
+                    $crate::span!(@begin __id, None)
+                } else {
+                    Some($crate::Profiler::begin_suppression())
+                }
             }
-        }
+        })
     }};
 
     // Name, Tag, Rate (default: unsampled => None)
     ($name:literal, $tag:expr, rate: $rate:literal) => {{
-        if $crate::Profiler::is_suppressed() {
-            None
-        } else {
-            static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
-                std::sync::atomic::AtomicUsize::new(0);
-
-            if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
-                let __id = $crate::span!(@get_id $name);
-                let __tag: $crate::Tag = ::core::convert::Into::into($tag);
-                $crate::span!(@begin __id, Some(__tag))
-            } else {
+        $crate::span!(@must_use {
+            if $crate::Profiler::is_suppressed() {
                 None
+            } else {
+                static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+
+                if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
+                    let __id = $crate::span!(@get_id $name);
+                    let __tag: $crate::Tag = ::core::convert::Into::into($tag);
+                    $crate::span!(@begin __id, Some(__tag))
+                } else {
+                    None
+                }
             }
-        }
+        })
     }};
 
     // Name, Rate (default: unsampled => None)
     ($name:literal, rate: $rate:literal) => {{
-        if $crate::Profiler::is_suppressed() {
-            None
-        } else {
-            static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
-                std::sync::atomic::AtomicUsize::new(0);
-
-            if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
-                let __id = $crate::span!(@get_id $name);
-                $crate::span!(@begin __id, None)
-            } else {
+        $crate::span!(@must_use {
+            if $crate::Profiler::is_suppressed() {
                 None
+            } else {
+                static __PROFILER_SAMPLE_COUNTER: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+
+                if $crate::span!(@should_sample __PROFILER_SAMPLE_COUNTER, $rate) {
+                    let __id = $crate::span!(@get_id $name);
+                    $crate::span!(@begin __id, None)
+                } else {
+                    None
+                }
             }
-        }
+        })
     }};
 
     // Name, Tag
     ($name:literal, $tag:expr) => {{
-        if $crate::Profiler::is_suppressed() {
-            None
-        } else {
-            let __id = $crate::span!(@get_id $name);
-            let __tag: $crate::Tag = ::core::convert::Into::into($tag);
-            $crate::span!(@begin __id, Some(__tag))
-        }
+        $crate::span!(@must_use {
+            if $crate::Profiler::is_suppressed() {
+                None
+            } else {
+                let __id = $crate::span!(@get_id $name);
+                let __tag: $crate::Tag = ::core::convert::Into::into($tag);
+                $crate::span!(@begin __id, Some(__tag))
+            }
+        })
     }};
 
     // Name
     ($name:literal) => {{
-        if $crate::Profiler::is_suppressed() {
-            None
-        } else {
-            let __id = $crate::span!(@get_id $name);
-            $crate::span!(@begin __id, None)
-        }
+        $crate::span!(@must_use {
+            if $crate::Profiler::is_suppressed() {
+                None
+            } else {
+                let __id = $crate::span!(@get_id $name);
+                $crate::span!(@begin __id, None)
+            }
+        })
     }};
 }
 
@@ -324,11 +346,11 @@ macro_rules! span {
 #[macro_export]
 macro_rules! span_if {
     ($pred:expr, $($rest:tt)+) => {{
-        if $pred {
+        $crate::Profiler::must_use_span_guard(if $pred {
             $crate::span!($($rest)+)
         } else {
             None
-        }
+        })
     }};
 }
 
