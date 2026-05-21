@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ""
   cache-key:
-    description: "The cache key to use. Should be based on runner OS and Cargo.lock hash."
+    description: "The cache key to use. Should be based on runner OS, Cargo.lock hash, and Cargo.toml hash."
     required: true
   fail-on-cache-miss:
     description: "Fail workflow if cache is not restorable"
