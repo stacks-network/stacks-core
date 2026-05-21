@@ -9,6 +9,10 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      btc-version:
+        description: "Bitcoin version"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -124,9 +128,10 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT_MINS) }}
         env:
           BITCOIN_IMAGE_TAG: ${{ matrix.bitcoin_version }}
+          TEST_ARCHIVE_FILE: ${{ inputs.archive-file }}
         run: |
           cargo nextest run \
-            --archive-file ~/test_archive.tar.zst \
+            --archive-file $TEST_ARCHIVE_FILE \
             --fail-fast \
             --status-level fail \
             --run-ignored all \

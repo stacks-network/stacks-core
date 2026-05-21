@@ -9,6 +9,10 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      btc-version:
+        description: "Bitcoin version"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -22,14 +26,14 @@ env:
 
 # Configure concurrency
 #   - cache will exist longer than workflow execution so other runners have access.
-#   - multiple test workflows may call manage-test-caches simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
+#   - multiple test workflows may call setup-test-caches simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
 #   - runs on PR branches cancel old builds when a new commit arrives (github.head_ref is only set in a PR context).
 concurrency:
-  group: manage-test-caches-${{ github.head_ref || github.ref }}
+  group: setup-test-caches-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.head_ref != '' }}
 
 jobs:
-  # Generate cargo cache key based on Cargo.lock file
+  # Generate cargo cache key based on Cargo.lock and Cargo.toml files
   generate-cargo-cache-key:
     name: Generate Cargo Cache Key
     runs-on: ubuntu-latest
@@ -37,19 +41,20 @@ jobs:
       cache-key: ${{ steps.generate-cache-key.outputs.cache-key }}
     steps:
       # Checkout the code
-      #   - only Cargo.lock is required to generate the cache key
+      #   - only Cargo.lock and Cargo.toml are required to generate the cache key
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             Cargo.lock
+            Cargo.toml
 
       - name: Generate Cache Key
         id: generate-cache-key
         shell: bash
         run: |
-          echo "cache-key=cache-cargo--${{ runner.os }}-${{ hashFiles('Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+          echo "cache-key=cache-cargo--${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml') }}" >> "$GITHUB_OUTPUT"
 
   # Check which caches already exist before creating them
   check-caches:
@@ -75,6 +80,8 @@ jobs:
       - name: Check Bitcoin Cache
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin
+        with:
+          btc-version: ${{ inputs.btc-version }}
 
       # Check cache for cargo binaries
       - name: Check Cargo Cache
@@ -123,6 +130,7 @@ jobs:
         uses: ./.github/actions/cache/bitcoin
         with:
           action: save
+          btc-version: ${{ inputs.btc-version }}
 
   # Cache nextest archives for tests
   cache-test-archive-and-cargo:

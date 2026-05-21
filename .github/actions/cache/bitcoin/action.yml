@@ -13,8 +13,7 @@ inputs:
     default: "true"
   btc-version:
     description: "Bitcoin version"
-    required: false
-    default: "25.0"
+    required: true
 
 outputs:
   cache-hit:

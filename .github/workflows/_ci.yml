@@ -31,6 +31,7 @@ concurrency:
 
 env:
   TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
+  BTC_VERSION: "25.0"
 
 jobs:
   # --- Global Variables Setup ---------------------------------------------
@@ -41,11 +42,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
+      btc-version: ${{ steps.set-env.outputs.btc_version }}
     steps:
       - name: Export Env Variables
         id: set-env
-        run: echo "test_archive_file=${{ env.TEST_ARCHIVE_FILE }}" >> $GITHUB_OUTPUT
-  
+        run: |
+          echo "test_archive_file=${{ env.TEST_ARCHIVE_FILE }}" >> $GITHUB_OUTPUT
+          echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
   
   # --- Changelog check ------------------------------------------------------
   # Checks for changelog updates (or the 'No Changelog' label) on a PR
@@ -182,6 +185,7 @@ jobs:
     uses: ./.github/workflows/setup-test-caches.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
 
   # --- Run stacks core tests ------------------------------------------------
   tests-stacks-core:
@@ -243,6 +247,7 @@ jobs:
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      btc-version: 
 
   # --- Run P2P Tests --------------------------------------------------------
   tests-p2p:
@@ -313,8 +318,8 @@ jobs:
     if: >-
       always() &&
       !cancelled() && 
-      !contains(needs.stacks-core-tests.result, 'skipped') && 
-      !contains(needs.bitcoin-tests.result, 'skipped') &&
+      !contains(needs.tests-stacks-core.result, 'skipped') && 
+      !contains(needs.tests-bitcoin.result, 'skipped') &&
       github.event.repository.visibility == 'public'
     name: "Create: Code Coverage Report"
     runs-on: ubuntu-latest
@@ -362,6 +367,7 @@ jobs:
           EXT="${{ env.REPORT_FILES_EXT }}"
           DIR="${{ env.REPORT_FILES_DIR }}"
           INTERMEDIATE_FILES=()
+          PIDS=() # Array to track background process IDs
     
           cd "$DIR" || exit 1
     
@@ -396,10 +402,23 @@ jobs:
               # Run lcov in the background
               echo "Processing chunk $((i / CHUNK_SIZE + 1))..."
               lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" & 
+              PIDS+=("$!") # Capture the PID of the process just put in the background
           done
     
-          # 3. Wait for all background processes to finish
-          wait
+          # 3. Wait for all background processes to finish and catch errors
+          echo "Waiting for ${#PIDS[@]} background jobs to complete..."
+          FAILED=0
+          for pid in "${PIDS[@]}"; do
+              if ! wait "$pid"; then
+                  echo "ERROR: Background process with PID $pid failed."
+                  FAILED=1
+              fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+              echo "ERROR: One or more lcov chunk operations failed. Aborting final merge."
+              exit 1
+          fi
     
           # 4. Final Merge: Combine the intermediate files into the final report
           FINAL_ARGS=()
