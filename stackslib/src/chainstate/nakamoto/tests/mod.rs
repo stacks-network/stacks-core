@@ -138,6 +138,7 @@ fn test_path(name: &str) -> String {
 }
 
 pub mod node;
+pub mod signer_set;
 
 #[test]
 fn codec_nakamoto_header() {
@@ -3173,7 +3174,7 @@ pub mod nakamoto_block_signatures {
     /// Helper function make a reward set with (PrivateKey, weight) tuples
     fn make_reward_set(signers: &[(Secp256k1PrivateKey, u32)]) -> RewardSet {
         let mut reward_set = RewardSet::empty();
-        reward_set.signers = Some(
+        reward_set.as_v0_mut().expect("empty() is V0").signers = Some(
             signers
                 .iter()
                 .map(|(s, w)| {

@@ -346,9 +346,7 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
             cur_epoch,
         )?;
 
-        if is_nakamoto_reward_set
-            && (reward_set.signers.is_none() || reward_set.signers == Some(vec![]))
-        {
+        if is_nakamoto_reward_set && reward_set.signers().map_or(true, |s| s.is_empty()) {
             error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
             return Err(Error::PoXAnchorBlockRequired);
         }
@@ -924,14 +922,12 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
     reward_recipient_info: Option<RewardSetInfo>,
     consensus_hash: &ConsensusHash,
 ) {
-    let recipients = if let Some(recip_info) = reward_recipient_info {
-        recip_info
-            .recipients
-            .into_iter()
-            .map(|(addr, ..)| addr)
-            .collect()
-    } else {
-        vec![]
+    let recipients = match reward_recipient_info {
+        Some(RewardSetInfo::V0(v0)) => v0.recipients.into_iter().map(|(addr, ..)| addr).collect(),
+        Some(RewardSetInfo::Waterfall(wf)) => {
+            vec![wf.sbtc_address]
+        }
+        None => vec![],
     };
 
     dispatcher.announce_burn_block(

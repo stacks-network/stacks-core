@@ -496,7 +496,7 @@ impl RPCPoxInfoData {
         if let Some(threshold) = current_reward_sets
             .get(&reward_cycle_id)
             .and_then(|reward_cycle| reward_cycle.reward_set())
-            .and_then(|reward_set| reward_set.pox_ustx_threshold)
+            .and_then(|reward_set| reward_set.pox_ustx_threshold())
             .and_then(|threshold| u64::try_from(threshold).ok())
         {
             return Some(threshold);
@@ -509,7 +509,7 @@ impl RPCPoxInfoData {
             provider.read_reward_set_nakamoto(chainstate, reward_cycle_id, sortdb, tip, true)
         {
             if let Some(threshold) = reward_set
-                .pox_ustx_threshold
+                .pox_ustx_threshold()
                 .and_then(|threshold| u64::try_from(threshold).ok())
             {
                 return Some(threshold);
@@ -523,7 +523,7 @@ impl RPCPoxInfoData {
         ) {
             if let Some(threshold) = reward_cycle_info
                 .known_selected_anchor_block()
-                .and_then(|reward_set| reward_set.pox_ustx_threshold)
+                .and_then(|reward_set| reward_set.pox_ustx_threshold())
                 .and_then(|threshold| u64::try_from(threshold).ok())
             {
                 return Some(threshold);

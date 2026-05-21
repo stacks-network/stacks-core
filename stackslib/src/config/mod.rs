@@ -39,7 +39,8 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use crate::chainstate::nakamoto::signer_set::{
-    set_pox_5_bond_admin, set_pox_5_sbtc_contract, NakamotoSigners,
+    set_pox_5_bond_admin, set_pox_5_sbtc_contract, set_pox_5_sbtc_registry_contract,
+    NakamotoSigners,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
@@ -914,6 +915,14 @@ impl Config {
             );
         }
 
+        if is_mainnet && node.pox_5_sbtc_registry_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_registry_contract` set. \
+                 Signer-set computation always reads the canonical sBTC registry on mainnet."
+                    .into(),
+            );
+        }
+
         if is_mainnet && node.pox_5_bond_admin.is_some() {
             return Err(
                 "Attempted to run mainnet node with `pox_5_bond_admin` set. \
@@ -1148,6 +1157,7 @@ impl Config {
     /// in addition to values populated by [`Config::from_config_file`].
     pub fn apply_runtime_state(&self) {
         set_pox_5_sbtc_contract(self.node.pox_5_sbtc_contract.clone());
+        set_pox_5_sbtc_registry_contract(self.node.pox_5_sbtc_registry_contract.clone());
         set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
     }
 
@@ -2218,13 +2228,19 @@ pub struct NodeConfig {
     /// @default: `false`
     pub txindex: bool,
     /// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
-    /// references — pox-5 calls `get-balance` on it, and signer-set
-    /// computation reads `get-current-aggregate-pubkey` from it to derive the
-    /// per-cycle sBTC waterfall recipient. Devnet/test only — different
-    /// operators configuring different contracts will fork the chain.
+    /// references via `get-balance`. Devnet/test only; different operators
+    /// configuring different contracts will fork the chain.
     /// ---
     /// @default: `None`
     pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that
+    /// signer-set computation reads `get-current-aggregate-pubkey` from to
+    /// derive the per-cycle sBTC waterfall recipient. Devnet/test only;
+    /// different operators configuring different contracts will fork the
+    /// chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_registry_contract: Option<QualifiedContractIdentifier>,
     /// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes
     /// the `bond-admin` data var to. By default the contract source
     /// initializes it to `tx-sender`, which at boot deploy time is the
@@ -2498,6 +2514,7 @@ impl Default for NodeConfig {
             stacker_dbs: vec![],
             txindex: false,
             pox_5_sbtc_contract: None,
+            pox_5_sbtc_registry_contract: None,
             pox_5_bond_admin: None,
         }
     }
@@ -3918,10 +3935,13 @@ pub struct NodeConfigFile {
     /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
     pub txindex: Option<bool>,
     /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
-    /// of the sBTC token contract that pox-5 references for `get-balance` and
-    /// from which signer-set computation reads `get-current-aggregate-pubkey`
-    /// to derive the per-cycle sBTC waterfall recipient.
+    /// of the sBTC token contract that pox-5 references for `get-balance`.
     pub pox_5_sbtc_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC registry contract from which signer-set computation reads
+    /// `get-current-aggregate-pubkey` to derive the per-cycle sBTC waterfall
+    /// recipient.
+    pub pox_5_sbtc_registry_contract: Option<String>,
     /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
     /// pox-5 initializes the `bond-admin` data var to. Used to override the
     /// default initializer (`tx-sender`, the unsignable boot principal) so
@@ -4026,6 +4046,12 @@ impl NodeConfigFile {
                 .map(QualifiedContractIdentifier::parse)
                 .transpose()
                 .map_err(|e| format!("Invalid pox_5_sbtc_contract: {e}"))?,
+            pox_5_sbtc_registry_contract: self
+                .pox_5_sbtc_registry_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_registry_contract: {e}"))?,
             pox_5_bond_admin: self
                 .pox_5_bond_admin
                 .as_deref()
