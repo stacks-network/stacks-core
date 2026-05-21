@@ -47,6 +47,15 @@ pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Erro
         let ptrs = node.ptrs();
         let mut child_hashes = Vec::with_capacity(ptrs.len());
         for child_ptr in ptrs {
+            // After `remap_child_ptrs`, the squash invariant guarantees that
+            // no backpointers remain. A leftover backpointer would cause us
+            // to silently hash an empty child here, so fail instead.
+            if is_backptr(child_ptr.id()) {
+                return Err(Error::CorruptionError(format!(
+                    "squash invariant: node {idx} still has backpointer child \
+                     after remap; refusing to recompute hash"
+                )));
+            }
             if !is_inline_child_ptr(child_ptr) {
                 child_hashes.push(empty_hash);
             } else {
