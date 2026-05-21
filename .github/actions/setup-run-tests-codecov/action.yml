@@ -96,7 +96,7 @@ runs:
     - name: Install Dependencies
       uses: ./.github/actions/install-tool
       with:
-        tools: nextest
+        tools: nextest llvm-cov
 
     ############################################################################
     ### Run the tests
