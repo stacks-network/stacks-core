@@ -191,7 +191,7 @@ jobs:
       - check-changelog
       - check-release
       - check-rustfmt
-      - setup-caches
+      - setup-test-caches
       - setup-env
     if: >-
       !cancelled() &&
@@ -211,7 +211,7 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-release
-      - setup-caches
+      - setup-test-caches
       - setup-env
       
     if: >-
@@ -232,7 +232,7 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-release
-      - setup-caches
+      - setup-test-caches
       - setup-env
     if: >-
       !cancelled() &&
@@ -316,7 +316,7 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-release
-      - setup-caches
+      - setup-test-caches
       - setup-env
     if: >-
       !cancelled() &&
