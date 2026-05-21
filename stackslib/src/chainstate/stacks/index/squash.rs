@@ -306,9 +306,13 @@ fn collect_per_height_metadata<T: MarfTrieId>(
             )));
         }
         for (h, bh, rh) in side_table {
-            if h <= max_h {
-                block_info.push((h, bh, rh));
+            if h > max_h {
+                return Err(Error::CorruptionError(format!(
+                    "Source squash side table has row at height {h} > \
+                     declared src_squash_height {max_h}"
+                )));
             }
+            block_info.push((h, bh, rh));
         }
         info!(
             "[{label}] [2/8] Build height index: filled heights 0..={max_h} from \
