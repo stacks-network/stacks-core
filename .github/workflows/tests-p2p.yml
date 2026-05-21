@@ -19,7 +19,6 @@ permissions:
 env:
   BITCOIND_TEST: 0
   RUST_BACKTRACE: full
-  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
 
 # Configure concurrency

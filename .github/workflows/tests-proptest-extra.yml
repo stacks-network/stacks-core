@@ -50,7 +50,6 @@ concurrency:
 # Set default env vars
 env:
   RUST_BACKTRACE: full
-  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   TEST_TIMEOUT: 30
   # Minimum number of PR approvals required before running the tests
   REQUIRED_APPROVALS: 2

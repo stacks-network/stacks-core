@@ -21,7 +21,6 @@ env:
   # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
   BITCOIN_IMAGE_TAG: "25"
   RUST_BACKTRACE: full
-  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
   # Configurable batch size per partitioned set of matrixed tests 

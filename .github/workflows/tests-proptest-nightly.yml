@@ -45,7 +45,6 @@ concurrency:
 # Set default env vars
 env:
   RUST_BACKTRACE: full
-  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   # Test timeout in minutes
   TEST_TIMEOUT: 120
   # Branch to check out on scheduled (nightly) runs.

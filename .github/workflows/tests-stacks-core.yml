@@ -20,9 +20,7 @@ env:
   NUM_UNIT_TEST_PARTITIONS: 16
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
-  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   TEST_TIMEOUT: 30
-  CI: true  # Required by insta snapshot tests to run in CI
 
 # Configure concurrency
 concurrency:

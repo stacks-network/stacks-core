@@ -17,7 +17,6 @@ permissions:
 # Set default env vars
 env:
   RUST_BACKTRACE: full
-  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 5
   TEST_TIMEOUT_MINS: 5
   DISCOVER_TIMEOUT_MINS: 5
   # Minimum Bitcoin Core major version to start discovering Docker tags from.
