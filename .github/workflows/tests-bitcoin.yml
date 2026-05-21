@@ -24,7 +24,7 @@ env:
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
   # Configurable batch size per partitioned set of matrixed tests 
-  BATCH_SIZE: 7
+  BATCH_SIZE: 3
 
 # Configure concurrency
 concurrency:
