@@ -79,6 +79,7 @@ use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
     DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
 };
+use crate::chainstate::stacks::index::storage::SquashBoundary;
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
@@ -339,6 +340,9 @@ pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
     fn sqlite(&self) -> &Connection;
 
+    /// Squash boundary for a backing MARF opened from a squashed snapshot.
+    fn squash_boundary(&self) -> Option<SquashBoundary>;
+
     /// Get the ancestor block hash given a coinbase height
     fn get_ancestor_block_id(
         &mut self,
@@ -492,6 +496,10 @@ impl StacksDBIndexed for StacksDBConn<'_> {
         self.conn()
     }
 
+    fn squash_boundary(&self) -> Option<SquashBoundary> {
+        self.index.squash_boundary()
+    }
+
     fn get_ancestor_block_id(
         &mut self,
         coinbase_height: u64,
@@ -508,6 +516,10 @@ impl StacksDBIndexed for StacksDBTx<'_> {
 
     fn sqlite(&self) -> &Connection {
         self.tx().deref()
+    }
+
+    fn squash_boundary(&self) -> Option<SquashBoundary> {
+        self.index().squash_boundary()
     }
 
     fn get_ancestor_block_id(
@@ -3200,6 +3212,16 @@ impl NakamotoChainState {
     ) -> Result<Option<u64>, ChainstateError> {
         // nakamoto header?
         if let Some(hdr) = Self::get_block_header_nakamoto(chainstate_conn.sqlite(), block)? {
+            // On squashed snapshots, below-boundary MARF reads are guarded.
+            // Keep this gated so live nodes retain fork-aware MARF lookups.
+            if chainstate_conn.squash_boundary().is_some() {
+                if let Some(cbh) = Self::get_coinbase_height_from_tenure_events(
+                    chainstate_conn.sqlite(),
+                    &hdr.consensus_hash,
+                )? {
+                    return Ok(Some(cbh));
+                }
+            }
             return Ok(chainstate_conn.get_coinbase_height(block, &hdr.consensus_hash)?);
         }
 
@@ -3213,6 +3235,34 @@ impl NakamotoChainState {
             .map(u64::try_from)
             .transpose()
             .map_err(|_| ChainstateError::DBError(DBError::ParseError))
+    }
+
+    /// Each tenure-extend block writes another `nakamoto_tenure_events` row
+    /// with the same `tenure_id_consensus_hash` and the same `coinbase_height`;
+    /// distinct heights for one tenure are corruption.
+    fn get_coinbase_height_from_tenure_events(
+        conn: &Connection,
+        tenure_id_consensus_hash: &ConsensusHash,
+    ) -> Result<Option<u64>, ChainstateError> {
+        let sql = "SELECT DISTINCT coinbase_height \
+                   FROM nakamoto_tenure_events \
+                   WHERE tenure_id_consensus_hash = ?1";
+        let heights: Vec<i64> = conn
+            .prepare(sql)?
+            .query_map(params![tenure_id_consensus_hash], |row| {
+                row.get::<_, i64>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        match heights.as_slice() {
+            [] => Ok(None),
+            [h] => u64::try_from(*h)
+                .map(Some)
+                .map_err(|_| ChainstateError::DBError(DBError::ParseError)),
+            many => Err(ChainstateError::Expects(format!(
+                "nakamoto_tenure_events has {} distinct coinbase_height values for tenure {tenure_id_consensus_hash}: {many:?}",
+                many.len()
+            ))),
+        }
     }
 
     /// Verify that a nakamoto block's block-commit's VRF seed is consistent with the VRF proof.
@@ -3681,6 +3731,75 @@ impl NakamotoChainState {
             })
             .optional()
             .map_err(ChainstateError::from)
+    }
+
+    /// Reads the copied reward set for `cycle` from `nakamoto_reward_sets`
+    /// when the archival MARF lookup would hit pruned data.
+    ///
+    /// Returns `Ok(None)` when `cycle`'s prepare phase starts strictly above
+    /// `boundary.bitcoin_height` (its reward set could only have been
+    /// calculated at or after the squash and so was never copied) or when no
+    /// matching row exists.
+    pub(crate) fn try_read_squashed_reward_set_of_cycle(
+        chainstate_db: &Connection,
+        boundary: SquashBoundary,
+        cycle: u64,
+        first_burn_height: u64,
+        reward_cycle_length: u64,
+        prepare_length: u64,
+    ) -> Result<Option<RewardSet>, ChainstateError> {
+        if reward_cycle_length == 0 {
+            return Ok(None);
+        }
+        // Reward sets for `cycle` are calculated in the prepare phase of
+        // `cycle - 1`. If that prepare phase begins strictly above the squash
+        // boundary, no row could have been copied - skip the SQL entirely.
+        let cycle_prepare_start = first_burn_height
+            .saturating_add(cycle.saturating_mul(reward_cycle_length))
+            .saturating_sub(prepare_length)
+            .saturating_add(1);
+        if cycle_prepare_start > u64::from(boundary.bitcoin_height) {
+            return Ok(None);
+        }
+        // We're operating on the Stacks-indexed MARF here, so the boundary's
+        // `marf_height` is a Stacks block height.
+        let squash_stacks_height = boundary.marf_height;
+        let sql = "\
+            SELECT n.reward_set, n.index_block_hash \
+            FROM nakamoto_reward_sets n \
+            JOIN nakamoto_block_headers h ON n.index_block_hash = h.index_block_hash \
+            WHERE h.block_height < ?1 \
+              AND CASE \
+                    WHEN (h.burn_header_height - ?2) % ?3 = 0 \
+                      THEN (h.burn_header_height - ?2) / ?3 \
+                    ELSE (h.burn_header_height - ?2) / ?3 + 1 \
+                  END = ?4";
+        let mut stmt = chainstate_db.prepare(sql)?;
+        let mut rows = stmt.query(params![
+            i64::from(squash_stacks_height),
+            i64::try_from(first_burn_height)
+                .map_err(|_| ChainstateError::DBError(DBError::ParseError))?,
+            i64::try_from(reward_cycle_length)
+                .map_err(|_| ChainstateError::DBError(DBError::ParseError))?,
+            i64::try_from(cycle).map_err(|_| ChainstateError::DBError(DBError::ParseError))?,
+        ])?;
+        let Some(first) = rows.next()? else {
+            return Ok(None);
+        };
+        let rs_json: String = first.get(0)?;
+        let first_block: StacksBlockId = first.get(1)?;
+        while let Some(other) = rows.next()? {
+            let other_json: String = other.get(0)?;
+            if other_json != rs_json {
+                let other_block: StacksBlockId = other.get(1)?;
+                return Err(ChainstateError::Expects(format!(
+                    "nakamoto_reward_sets has multiple distinct rows for cycle {cycle} below squash_stacks_height={squash_stacks_height}: blocks {first_block} and {other_block}"
+                )));
+            }
+        }
+        let reward_set = RewardSet::metadata_deserialize(&rs_json)
+            .map_err(|s| ChainstateError::DBError(DBError::Other(s)))?;
+        Ok(Some(reward_set))
     }
 
     /// Keep track of how many blocks each signer is signing

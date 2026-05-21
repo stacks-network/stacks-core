@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use clarity::types::chainstate::{SortitionId, StacksBlockId};
+use clarity::types::chainstate::SortitionId;
 use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
@@ -24,14 +24,14 @@ use clarity::vm::{ClarityName, ContractName, Value};
 use libstackerdb::StackerDBChunkData;
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng, RngCore};
-use rusqlite::params;
+use rusqlite::{params, Connection};
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
-    StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
 };
 use stacks_common::types::{Address, PrivateKey, StacksEpoch, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
@@ -57,7 +57,7 @@ use crate::chainstate::nakamoto::staging_blocks::{
 use crate::chainstate::nakamoto::tenure::NakamotoTenureEvent;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
+    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, StacksDBIndexed,
 };
 use crate::chainstate::stacks::boot::{
     NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -65,6 +65,7 @@ use crate::chainstate::stacks::boot::{
 use crate::chainstate::stacks::db::{
     StacksAccount, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
+use crate::chainstate::stacks::index::storage::SquashBoundary;
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksTransaction,
     TenureChangeCause, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
@@ -75,6 +76,7 @@ use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
 use crate::net::stackerdb::MINER_SLOT_COUNT;
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::Error as DBError;
 use crate::util_lib::strings::StacksString;
 
 impl NakamotoStagingBlocksConnRef<'_> {
@@ -135,6 +137,507 @@ pub fn get_account(
 
 fn test_path(name: &str) -> String {
     format!("/tmp/stacks-node-tests/nakamoto-tests/{}", name)
+}
+
+fn consensus_hash(byte: u8) -> ConsensusHash {
+    ConsensusHash([byte; 20])
+}
+
+fn block_hash(byte: u8) -> BlockHeaderHash {
+    BlockHeaderHash([byte; 32])
+}
+
+fn block_id(byte: u8) -> StacksBlockId {
+    StacksBlockId::new(&consensus_hash(byte), &block_hash(byte))
+}
+
+fn real_chainstate(test_name: &str) -> StacksChainState {
+    crate::chainstate::stacks::db::test::instantiate_chainstate(
+        false,
+        CHAIN_ID_TESTNET,
+        &format!("nakamoto-marf-squash-regressions-{test_name}"),
+    )
+}
+
+fn nakamoto_header(
+    tenure_id_consensus_hash: ConsensusHash,
+    header_byte: u8,
+    block_height: u64,
+) -> NakamotoBlockHeader {
+    NakamotoBlockHeader {
+        version: 0,
+        chain_length: block_height,
+        burn_spent: u64::from(header_byte),
+        consensus_hash: tenure_id_consensus_hash,
+        parent_block_id: block_id(header_byte.wrapping_add(0x80)),
+        tx_merkle_root: Sha512Trunc256Sum([header_byte; 32]),
+        state_index_root: TrieHash([header_byte.wrapping_add(1); 32]),
+        timestamp: 1_000 + u64::from(header_byte),
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::<4000>::zeros(1).unwrap(),
+    }
+}
+
+fn tenure_change_payload(
+    tenure_id_consensus_hash: ConsensusHash,
+    prev_tenure_id_consensus_hash: ConsensusHash,
+    burn_view_consensus_hash: ConsensusHash,
+    cause: TenureChangeCause,
+) -> TenureChangePayload {
+    TenureChangePayload {
+        tenure_consensus_hash: tenure_id_consensus_hash,
+        prev_tenure_consensus_hash: prev_tenure_id_consensus_hash,
+        burn_view_consensus_hash,
+        previous_tenure_end: block_id(0xee),
+        previous_tenure_blocks: 1,
+        cause,
+        pubkey_hash: Hash160([0x02; 20]),
+    }
+}
+
+fn add_tenure_event(
+    chainstate: &StacksChainState,
+    tenure_id_consensus_hash: ConsensusHash,
+    burn_view_consensus_hash: ConsensusHash,
+    header_byte: u8,
+    cause: TenureChangeCause,
+    coinbase_height: u64,
+) {
+    let block_header = nakamoto_header(tenure_id_consensus_hash.clone(), header_byte, 1);
+    let prev_tenure_id_consensus_hash = if cause.expects_sortition() {
+        consensus_hash(0xee)
+    } else {
+        tenure_id_consensus_hash.clone()
+    };
+    let tenure_payload = tenure_change_payload(
+        tenure_id_consensus_hash,
+        prev_tenure_id_consensus_hash,
+        burn_view_consensus_hash,
+        cause,
+    );
+    NakamotoChainState::insert_nakamoto_tenure(
+        chainstate.db(),
+        &block_header,
+        coinbase_height,
+        &tenure_payload,
+    )
+    .unwrap();
+}
+
+fn nakamoto_header_info(
+    block_header: &NakamotoBlockHeader,
+    header_byte: u8,
+    burn_header_height: u32,
+) -> StacksHeaderInfo {
+    StacksHeaderInfo {
+        anchored_header: block_header.clone().into(),
+        microblock_tail: None,
+        stacks_block_height: block_header.chain_length,
+        index_root: TrieHash([header_byte.wrapping_add(2); 32]),
+        consensus_hash: block_header.consensus_hash.clone(),
+        burn_header_hash: BurnchainHeaderHash([header_byte.wrapping_add(3); 32]),
+        burn_header_height,
+        burn_header_timestamp: 2_000 + u64::from(header_byte),
+        anchored_block_size: 1,
+        burn_view: Some(consensus_hash(header_byte.wrapping_add(4))),
+        total_tenure_size: 0,
+    }
+}
+
+fn add_nakamoto_header(
+    chainstate: &mut StacksChainState,
+    header_byte: u8,
+    block_height: u64,
+    burn_header_height: u32,
+) -> StacksBlockId {
+    let block_header = nakamoto_header(consensus_hash(header_byte), header_byte, block_height);
+    let header_info = nakamoto_header_info(&block_header, header_byte, burn_header_height);
+    let block_id = block_header.block_id();
+    let (tx, _) = chainstate.chainstate_tx_begin();
+    NakamotoChainState::insert_stacks_block_header(
+        &tx,
+        &header_info,
+        &block_header,
+        None,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        true,
+        1,
+        0,
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    block_id
+}
+
+fn add_reward_set_with_header(
+    chainstate: &mut StacksChainState,
+    header_byte: u8,
+    reward_set: &RewardSet,
+    block_height: u64,
+    burn_header_height: u32,
+) {
+    let block_header = nakamoto_header(consensus_hash(header_byte), header_byte, block_height);
+    let header_info = nakamoto_header_info(&block_header, header_byte, burn_header_height);
+    let block_id = block_header.block_id();
+    let (mut tx, _) = chainstate.chainstate_tx_begin();
+    NakamotoChainState::insert_stacks_block_header(
+        &tx,
+        &header_info,
+        &block_header,
+        None,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        true,
+        1,
+        0,
+    )
+    .unwrap();
+    NakamotoChainState::write_reward_set(&mut tx, &block_id, reward_set).unwrap();
+    tx.commit().unwrap();
+}
+
+fn expect_expects_error(err: ChainstateError) -> String {
+    match err {
+        ChainstateError::Expects(msg) => msg,
+        other => panic!("expected ChainstateError::Expects, got {other:?}"),
+    }
+}
+
+#[test]
+fn get_coinbase_height_from_tenure_events_single_row_hit() {
+    let chainstate = real_chainstate("single-row-hit");
+
+    let tenure_id = consensus_hash(0x01);
+    add_tenure_event(
+        &chainstate,
+        tenure_id.clone(),
+        consensus_hash(0x02),
+        0x03,
+        TenureChangeCause::BlockFound,
+        42,
+    );
+
+    let result =
+        NakamotoChainState::get_coinbase_height_from_tenure_events(chainstate.db(), &tenure_id)
+            .unwrap();
+    assert_eq!(result, Some(42));
+}
+
+#[test]
+fn get_coinbase_height_from_tenure_events_tenure_extend_duplicates_collapse() {
+    let chainstate = real_chainstate("tenure-extend-duplicates-collapse");
+
+    let tenure_id = consensus_hash(0x11);
+    add_tenure_event(
+        &chainstate,
+        tenure_id.clone(),
+        consensus_hash(0x12),
+        0x13,
+        TenureChangeCause::BlockFound,
+        42,
+    );
+    add_tenure_event(
+        &chainstate,
+        tenure_id.clone(),
+        consensus_hash(0x15),
+        0x16,
+        TenureChangeCause::Extended,
+        42,
+    );
+    add_tenure_event(
+        &chainstate,
+        tenure_id.clone(),
+        consensus_hash(0x18),
+        0x19,
+        TenureChangeCause::Extended,
+        42,
+    );
+
+    let result =
+        NakamotoChainState::get_coinbase_height_from_tenure_events(chainstate.db(), &tenure_id)
+            .unwrap();
+    assert_eq!(result, Some(42));
+}
+
+#[test]
+fn get_coinbase_height_from_tenure_events_distinct_mismatch_fails_loudly() {
+    let chainstate = real_chainstate("distinct-mismatch-fails-loudly");
+
+    let tenure_id = consensus_hash(0x21);
+    add_tenure_event(
+        &chainstate,
+        tenure_id.clone(),
+        consensus_hash(0x22),
+        0x23,
+        TenureChangeCause::BlockFound,
+        42,
+    );
+    add_tenure_event(
+        &chainstate,
+        tenure_id.clone(),
+        consensus_hash(0x25),
+        0x26,
+        TenureChangeCause::Extended,
+        43,
+    );
+
+    let err =
+        NakamotoChainState::get_coinbase_height_from_tenure_events(chainstate.db(), &tenure_id)
+            .unwrap_err();
+    let msg = expect_expects_error(err);
+    assert!(msg.contains("42"), "{msg}");
+    assert!(msg.contains("43"), "{msg}");
+}
+
+#[test]
+fn get_coinbase_height_from_tenure_events_empty_returns_none() {
+    let chainstate = real_chainstate("empty-returns-none");
+
+    let result = NakamotoChainState::get_coinbase_height_from_tenure_events(
+        chainstate.db(),
+        &consensus_hash(0x31),
+    )
+    .unwrap();
+    assert_eq!(result, None);
+}
+
+/// Boundary with `bitcoin_height` set high enough that the prepare-phase
+/// gate never trips, so the SQL path executes. Use this for tests that
+/// exercise the SQL behavior of `try_read_squashed_reward_set_of_cycle`.
+const SQL_BOUNDARY: SquashBoundary = SquashBoundary {
+    marf_height: 100,
+    bitcoin_height: u32::MAX,
+};
+
+#[test]
+fn try_read_squashed_reward_set_of_cycle_match_below_squash() {
+    let mut chainstate = real_chainstate("reward-set-match-below-squash");
+
+    let reward_set = RewardSet::empty();
+    add_reward_set_with_header(&mut chainstate, 0x41, &reward_set, 50, 1100);
+
+    let result = NakamotoChainState::try_read_squashed_reward_set_of_cycle(
+        chainstate.db(),
+        SQL_BOUNDARY,
+        5,
+        100,
+        200,
+        50,
+    )
+    .unwrap();
+    assert_eq!(result, Some(reward_set));
+}
+
+#[test]
+fn try_read_squashed_reward_set_of_cycle_at_boundary_not_returned() {
+    let mut chainstate = real_chainstate("reward-set-at-boundary-not-returned");
+
+    let reward_set = RewardSet::empty();
+    add_reward_set_with_header(&mut chainstate, 0x51, &reward_set, 100, 1100);
+
+    let result = NakamotoChainState::try_read_squashed_reward_set_of_cycle(
+        chainstate.db(),
+        SQL_BOUNDARY,
+        5,
+        100,
+        200,
+        50,
+    )
+    .unwrap();
+    assert_eq!(result, None);
+}
+
+#[test]
+fn try_read_squashed_reward_set_of_cycle_duplicate_byte_equal_blobs_return_one() {
+    let mut chainstate = real_chainstate("reward-set-duplicate-byte-equal");
+
+    let reward_set = RewardSet::empty();
+    add_reward_set_with_header(&mut chainstate, 0x61, &reward_set, 50, 1100);
+    add_reward_set_with_header(&mut chainstate, 0x62, &reward_set, 51, 1100);
+
+    let result = NakamotoChainState::try_read_squashed_reward_set_of_cycle(
+        chainstate.db(),
+        SQL_BOUNDARY,
+        5,
+        100,
+        200,
+        50,
+    )
+    .unwrap();
+    assert_eq!(result, Some(reward_set));
+}
+
+#[test]
+fn try_read_squashed_reward_set_of_cycle_duplicate_distinct_blobs_fail_loudly() {
+    let mut chainstate = real_chainstate("reward-set-duplicate-distinct");
+
+    let reward_set = RewardSet::empty();
+    let mut other_reward_set = RewardSet::empty();
+    other_reward_set.pox_ustx_threshold = Some(1);
+    add_reward_set_with_header(&mut chainstate, 0x71, &reward_set, 50, 1100);
+    add_reward_set_with_header(&mut chainstate, 0x72, &other_reward_set, 51, 1100);
+
+    let err = NakamotoChainState::try_read_squashed_reward_set_of_cycle(
+        chainstate.db(),
+        SQL_BOUNDARY,
+        5,
+        100,
+        200,
+        50,
+    )
+    .unwrap_err();
+    let msg = expect_expects_error(err);
+    assert!(msg.contains("multiple distinct rows"), "{msg}");
+    assert!(msg.contains("cycle 5"), "{msg}");
+}
+
+/// When `cycle`'s prepare phase begins strictly above `boundary.bitcoin_height`,
+/// the helper must short-circuit before issuing the SQL query: that reward set
+/// could only have been calculated at or after the squash and therefore
+/// cannot exist in the copied table.
+#[test]
+fn try_read_squashed_reward_set_of_cycle_gate_blocks_when_prepare_above_boundary() {
+    let mut chainstate = real_chainstate("reward-set-gate-blocks");
+
+    // Insert a row that *would* match the SQL filter if it ran, so the gate
+    // is what's keeping us from returning it.
+    let reward_set = RewardSet::empty();
+    add_reward_set_with_header(&mut chainstate, 0x81, &reward_set, 50, 1100);
+
+    // Cycle 5 prepare phase: [first_burn + cycle*cycle_length - prep + 1, ...]
+    //   = [100 + 5*200 - 50 + 1, ...] = [1051, 1100]
+    // Boundary.bitcoin_height = 1050 → 1051 > 1050, gate trips.
+    let boundary = SquashBoundary {
+        marf_height: 100,
+        bitcoin_height: 1050,
+    };
+    let result = NakamotoChainState::try_read_squashed_reward_set_of_cycle(
+        chainstate.db(),
+        boundary,
+        5,
+        100,
+        200,
+        50,
+    )
+    .unwrap();
+    assert_eq!(result, None);
+}
+
+/// Test double that records whether `get_coinbase_height` used the MARF path.
+struct MockStacksDbIndexed<'a> {
+    conn: &'a Connection,
+    boundary: Option<SquashBoundary>,
+    coinbase_height: u64,
+    get_calls: usize,
+}
+
+impl StacksDBIndexed for MockStacksDbIndexed<'_> {
+    fn get(&mut self, _tip: &StacksBlockId, _key: &str) -> Result<Option<String>, DBError> {
+        self.get_calls += 1;
+        Ok(Some(crate::chainstate::nakamoto::keys::make_u64_value(
+            self.coinbase_height,
+        )))
+    }
+
+    fn sqlite(&self) -> &Connection {
+        self.conn
+    }
+
+    fn squash_boundary(&self) -> Option<SquashBoundary> {
+        self.boundary
+    }
+
+    fn get_ancestor_block_id(
+        &mut self,
+        _coinbase_height: u64,
+        _tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError> {
+        Ok(None)
+    }
+}
+
+#[test]
+fn get_coinbase_height_uses_marf_path_when_no_squash_boundary() {
+    let mut chainstate = real_chainstate("gate-off-uses-marf");
+    let index_block_hash = add_nakamoto_header(&mut chainstate, 0x82, 77, 1100);
+
+    let mut chainstate_conn = MockStacksDbIndexed {
+        conn: chainstate.db(),
+        boundary: None,
+        coinbase_height: 7,
+        get_calls: 0,
+    };
+
+    let result =
+        NakamotoChainState::get_coinbase_height(&mut chainstate_conn, &index_block_hash).unwrap();
+    assert_eq!(result, Some(7));
+    assert_eq!(chainstate_conn.get_calls, 1);
+}
+
+#[test]
+fn get_coinbase_height_uses_sql_path_when_squashed() {
+    let mut chainstate = real_chainstate("gate-on-uses-sql");
+    let header_byte = 0x83;
+    let block_header = nakamoto_header(consensus_hash(header_byte), header_byte, 77);
+    let header_info = nakamoto_header_info(&block_header, header_byte, 1100);
+    let index_block_hash = block_header.block_id();
+
+    // Tenure-change payload matching the block header's consensus_hash so
+    // `insert_nakamoto_tenure`'s internal assertion holds.
+    let tenure_payload = TenureChangePayload {
+        tenure_consensus_hash: consensus_hash(header_byte),
+        prev_tenure_consensus_hash: consensus_hash(0xee),
+        burn_view_consensus_hash: consensus_hash(header_byte.wrapping_add(4)),
+        previous_tenure_end: block_id(0xee),
+        previous_tenure_blocks: 1,
+        cause: TenureChangeCause::BlockFound,
+        pubkey_hash: Hash160([0x02; 20]),
+    };
+
+    let (tx, _) = chainstate.chainstate_tx_begin();
+    NakamotoChainState::insert_stacks_block_header(
+        &tx,
+        &header_info,
+        &block_header,
+        None,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        true,
+        1,
+        0,
+    )
+    .unwrap();
+    let sql_coinbase_height = 42u64;
+    NakamotoChainState::insert_nakamoto_tenure(
+        &tx,
+        &block_header,
+        sql_coinbase_height,
+        &tenure_payload,
+    )
+    .unwrap();
+    tx.commit().unwrap();
+
+    let chainstate_db = chainstate.db();
+    let mut chainstate_conn = MockStacksDbIndexed {
+        conn: chainstate_db,
+        boundary: Some(SquashBoundary {
+            marf_height: 100,
+            bitcoin_height: 100,
+        }),
+        // If the MARF path runs, this sentinel is returned instead of the SQL value.
+        coinbase_height: 999,
+        get_calls: 0,
+    };
+
+    let result =
+        NakamotoChainState::get_coinbase_height(&mut chainstate_conn, &index_block_hash).unwrap();
+    assert_eq!(result, Some(sql_coinbase_height));
+    assert_eq!(
+        chainstate_conn.get_calls, 0,
+        "SQL fast path must bypass the MARF on a squashed snapshot"
+    );
 }
 
 pub mod node;

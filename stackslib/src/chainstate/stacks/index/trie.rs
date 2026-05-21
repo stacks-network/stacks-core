@@ -798,7 +798,7 @@ impl Trie {
             // ancestor falls inside the squashed range; otherwise fall back to
             // opening the ancestor's own trie blob.
             let ancestor_hash = if storage
-                .squash_height()
+                .squash_marf_height()
                 .is_some_and(|h| ancestor_height <= h)
             {
                 trie_sql::read_squashed_block_root_hash_by_height(

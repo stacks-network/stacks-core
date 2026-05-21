@@ -30,7 +30,7 @@ use stacks_common::types::chainstate::TrieHash;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _, MARF};
 use crate::chainstate::stacks::index::node::{clear_backptr, is_backptr, TrieNodeID, TriePtr};
 use crate::chainstate::stacks::index::storage::{
-    SquashInfo, TrieFileStorage, TrieStorageConnection,
+    SquashBoundary, SquashInfo, TrieFileStorage, TrieStorageConnection,
 };
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
@@ -174,8 +174,10 @@ pub struct SquashStepDurations {
 pub struct SquashStats {
     /// Total number of nodes collected into the squashed MARF.
     pub node_count: u64,
-    /// Squash height (blocks 0..=height are squashed).
-    pub squash_height: u32,
+    /// MARF height the squash was created at (blocks 0..=marf_height are squashed).
+    /// Stacks block height for clarity/index MARFs, sortition block height for
+    /// the sortition MARF.
+    pub marf_height: u32,
     /// Path to the destination MARF SQLite database.
     pub dst_db_path: PathBuf,
     /// Path to the destination `.blobs` file containing the shared trie.
@@ -184,7 +186,7 @@ pub struct SquashStats {
     pub blob_size: u64,
     /// Number of placeholder rows inserted for historical blocks 0..H-1.
     pub historical_placeholder_count: u64,
-    /// Root hash of the archival MARF at `squash_height`.
+    /// Root hash of the archival MARF at `marf_height`.
     pub source_root_hash: TrieHash,
     /// Hash of the squashed trie root node.
     pub squash_root_node_hash: TrieHash,
@@ -385,10 +387,10 @@ fn persist_squash_metadata<T: MarfTrieId>(
     conn: &rusqlite::Connection,
     block_info: &[BlockInfo<T>],
     source_root_hash: &TrieHash,
-    height: u32,
+    boundary: SquashBoundary,
 ) -> Result<(), Error> {
     let start = Instant::now();
-    trie_sql::write_squash_info(conn, source_root_hash, height)?;
+    trie_sql::write_squash_info(conn, source_root_hash, boundary)?;
 
     const CHUNK_ROWS: usize = 500;
 
@@ -525,7 +527,7 @@ impl<T: MarfTrieId> MARF<T> {
         dst_path: &str,
         open_opts: MARFOpenOpts,
         tip: &T,
-        height: u32,
+        boundary: SquashBoundary,
         label: &str,
     ) -> Result<SquashStats, Error> {
         if open_opts.compress {
@@ -556,7 +558,7 @@ impl<T: MarfTrieId> MARF<T> {
             &dst_blobs_path,
             open_opts,
             tip,
-            height,
+            boundary,
             label,
         );
 
@@ -574,9 +576,10 @@ impl<T: MarfTrieId> MARF<T> {
         dst_blobs_path: &Path,
         open_opts: MARFOpenOpts,
         tip: &T,
-        height: u32,
+        boundary: SquashBoundary,
         label: &str,
     ) -> Result<SquashStats, Error> {
+        let marf_height = boundary.marf_height;
         let dst_path = dst_db_path.to_str().ok_or_else(|| {
             Error::CorruptionError(format!(
                 "squash dst path is not valid UTF-8: {}",
@@ -591,19 +594,20 @@ impl<T: MarfTrieId> MARF<T> {
         let src_storage = TrieFileStorage::open_readonly(src_path, open_opts.clone())?;
         let mut src = MARF::from_storage(src_storage);
 
-        // Re-squashes must advance past the source squash height.
-        let src_squash_height = trie_sql::read_squash_info(src.sqlite_conn())?.map(|(_, _, sh)| sh);
+        // Re-squashing at or below the source boundary would rely on history already pruned.
+        let src_squash_height =
+            trie_sql::read_squash_info(src.sqlite_conn())?.map(|info| info.boundary.marf_height);
         if let Some(sh) = src_squash_height {
-            if height <= sh {
+            if marf_height <= sh {
                 return Err(Error::CorruptionError(format!(
-                    "Cannot re-squash at height {height}: source is already squashed \
-                     at height {sh}; the new height must be strictly greater"
+                    "Cannot re-squash at marf_height {marf_height}: source is already squashed \
+                     at marf_height {sh}; the new marf_height must be strictly greater"
                 )));
             }
         }
 
         let block_at_height = src
-            .get_block_at_height(height, tip)?
+            .get_block_at_height(marf_height, tip)?
             .ok_or(Error::NotFoundError)?;
 
         let start = Instant::now();
@@ -615,10 +619,10 @@ impl<T: MarfTrieId> MARF<T> {
             fmt_duration(step_durations.load_block_map)
         );
 
-        // [2/8] Build height index
+        // [2/8] Build marf_height index
         info!(
-            "[{label}] [2/8] Build height index: reading {} heights...",
-            height + 1
+            "[{label}] [2/8] Build marf_height index: reading {} heights...",
+            marf_height + 1
         );
         let start = Instant::now();
         let block_info = src.with_conn(|conn| {
@@ -628,7 +632,7 @@ impl<T: MarfTrieId> MARF<T> {
                 &block_at_height,
                 &block_map,
                 src_squash_height,
-                height,
+                marf_height,
                 label,
             )
         })?;
@@ -799,7 +803,7 @@ impl<T: MarfTrieId> MARF<T> {
             .find(|(_, bh, _)| bh == &block_at_height)
             .map(|(_, _, rh)| *rh)
             .ok_or(Error::NotFoundError)?;
-        persist_squash_metadata(tx.sqlite_tx(), &block_info, &source_root_hash, height)?;
+        persist_squash_metadata(tx.sqlite_tx(), &block_info, &source_root_hash, boundary)?;
         info!("[{label}] Squash root hash: {squash_root_node_hash}");
 
         finalize_shared_blob_offsets(tx.sqlite_tx(), &block_at_height, &squash_root_node_hash)?;
@@ -807,7 +811,7 @@ impl<T: MarfTrieId> MARF<T> {
         tx.set_squash_info(Some(SquashInfo {
             archival_marf_root_hash: source_root_hash,
             squash_root_node_hash,
-            height,
+            boundary,
         }));
 
         // Commit the SQL transaction without flushing TrieRAM (we already wrote the blob directly)
@@ -827,7 +831,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         Ok(SquashStats {
             node_count,
-            squash_height: height,
+            marf_height,
             dst_db_path: dst_db_path.to_path_buf(),
             dst_blobs_path: dst_blobs_path.to_path_buf(),
             blob_size: total_blob_size,

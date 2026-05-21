@@ -75,6 +75,23 @@ macro_rules! inf_or_debug {
     })
 }
 
+/// In Nakamoto, an empty reward set or missing signer set forces PoX
+/// anchor-block rebuild.
+fn ensure_usable_nakamoto_reward_set(reward_set: &RewardSet, debug_log: bool) -> Result<(), Error> {
+    if reward_set.rewarded_addresses.is_empty() {
+        err_or_debug!(debug_log, "No PoX participation");
+        return Err(Error::PoXAnchorBlockRequired);
+    }
+    if reward_set.signers.is_none() {
+        err_or_debug!(
+            debug_log,
+            "FATAL: PoX reward set did not specify signer set in Nakamoto"
+        );
+        return Err(Error::PoXAnchorBlockRequired);
+    }
+    Ok(())
+}
+
 impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     /// Read a reward_set written while updating .signers
     /// `debug_log` should be set to true if the reward set loading should
@@ -103,6 +120,25 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         block_id: &StacksBlockId,
         debug_log: bool,
     ) -> Result<RewardSet, Error> {
+        if let Some(boundary) = chainstate.state_index.squash_boundary() {
+            if let Some(reward_set) = NakamotoChainState::try_read_squashed_reward_set_of_cycle(
+                chainstate.db(),
+                boundary,
+                cycle,
+                sortdb.first_block_height,
+                u64::from(sortdb.pox_constants.reward_cycle_length),
+                u64::from(sortdb.pox_constants.prepare_length),
+            )? {
+                ensure_usable_nakamoto_reward_set(&reward_set, debug_log)?;
+                inf_or_debug!(
+                    debug_log,
+                    "PoX reward set loaded from nakamoto_reward_sets SQL fast path";
+                    "cycle_number" => cycle,
+                );
+                return Ok(reward_set);
+            }
+        }
+
         // figure out the block ID
         let Some(coinbase_height_of_calculation) = chainstate
             .eval_boot_code_read_only(
@@ -218,11 +254,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         // This method should only ever called if the current reward cycle is a nakamoto reward cycle
         //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
         //  Non participation is fatal.
-        if reward_set.rewarded_addresses.is_empty() {
-            // no one is stacking
-            err_or_debug!(debug_log, "No PoX participation");
-            return Err(Error::PoXAnchorBlockRequired);
-        }
+        ensure_usable_nakamoto_reward_set(&reward_set, debug_log)?;
 
         inf_or_debug!(
             debug_log,
@@ -232,14 +264,6 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             "stacks_block_height" => reward_set_block.stacks_block_height,
             "burn_header_height" => reward_set_block.burn_header_height,
         );
-
-        if reward_set.signers.is_none() {
-            err_or_debug!(
-                debug_log,
-                "FATAL: PoX reward set did not specify signer set in Nakamoto"
-            );
-            return Err(Error::PoXAnchorBlockRequired);
-        }
 
         Ok(reward_set)
     }
