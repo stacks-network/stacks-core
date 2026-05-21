@@ -1151,7 +1151,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
         let result = {
             let nested_view = InvocationContext {
-                contract_context: &contract.contract_context,
+                contract_context: &contract,
                 sender: invoke_ctx.sender.clone(),
                 caller: invoke_ctx.caller.clone(),
                 sponsor: invoke_ctx.sponsor.clone(),
@@ -1275,10 +1275,13 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
         self.global_context.add_memory(contract_size)?;
 
+        // NOTE: When contract caching is used, then the memory counters here will drop the
+        // `contract_size` after the contract execution has completed, but the contracts will remain
+        // in the cache (up to the cache eviction policy's limits).
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
-            let func = contract.contract_context.lookup_function(tx_name)
+            let func = contract.lookup_function(tx_name)
                 .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
             if !allow_private && !func.is_public() {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
@@ -1314,7 +1317,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 return Err(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&contract.contract_context), allow_private);
+            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&*contract), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1481,7 +1484,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
         match result {
             Ok(contract) => {
-                let data_size = contract.contract_context.data_size;
+                let data_size = contract.data_size;
                 self.global_context
                     .database
                     .insert_contract(&contract_identifier, contract)?;
@@ -1869,7 +1872,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         &mut self,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
-        contract_context: ContractContext,
+        contract_context: &ContractContext,
         f: F,
     ) -> std::result::Result<A, E>
     where
@@ -1887,7 +1890,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 call_stack: &mut callstack,
             };
             let invoke_ctx = InvocationContext {
-                contract_context: &contract_context,
+                contract_context,
                 sender: Some(sender.clone()),
                 caller: Some(sender),
                 sponsor,

@@ -334,7 +334,12 @@ impl RollbackWrapper<'_> {
         Ok(())
     }
 
-    ///
+    /// Returns whether or not the wrapper is currently retargeted to another block by e.g. an
+    /// `at-block` scope.
+    pub fn is_retargeted(&self) -> bool {
+        !self.query_pending_data
+    }
+
     /// `query_pending_data` indicates whether the rollback wrapper should query the rollback
     ///    wrapper's pending data on reads. This is set to `false` during (at-block ...) closures,
     ///    and `true` otherwise.
@@ -594,5 +599,28 @@ impl RollbackWrapper<'_> {
         key: &str,
     ) -> bool {
         matches!(self.get_metadata(contract, key), Ok(Some(_)))
+    }
+
+    /// Returns `true` if any of the given metadata keys for `contract` has an uncommitted edit in
+    /// the rollback stack (i.e. would be served from pending data rather than the backing store on
+    /// a `get_metadata` call).
+    ///
+    /// Used by caching implementations to avoid caching reads whose metadata could later be rolled
+    /// back.
+    pub fn has_pending_metadata(
+        &self,
+        contract: &QualifiedContractIdentifier,
+        keys: &[&str],
+    ) -> bool {
+        // Retargeted wrappers always read from the backing store, so pending metadata is
+        // irrelevant.
+        if self.is_retargeted() {
+            return false;
+        }
+
+        keys.iter().any(|key| {
+            let metadata_key = (contract.clone(), (*key).to_string());
+            self.metadata_lookup_map.contains_key(&metadata_key)
+        })
     }
 }
