@@ -435,17 +435,16 @@ fn bind_squashed_blocks_chunk<T: MarfTrieId>(
     Ok(())
 }
 
-/// Build `INSERT INTO marf_squashed_blocks (...) VALUES (?,?,?), (?,?,?), ...`
+/// Build `INSERT INTO marf_squashed_blocks (...) VALUES (?,?,?),(?,?,?),...`
 fn build_squashed_blocks_insert_sql(rows: usize) -> String {
-    let mut sql = String::from(
-        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) VALUES ",
+    assert!(
+        rows > 0,
+        "build_squashed_blocks_insert_sql: rows must be >= 1"
     );
-    for i in 0..rows {
-        if i > 0 {
-            sql.push(',');
-        }
-        sql.push_str("(?,?,?)");
-    }
+    let mut sql = String::from(
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) VALUES (?,?,?)",
+    );
+    sql.push_str(&",(?,?,?)".repeat(rows - 1));
     sql
 }
 
