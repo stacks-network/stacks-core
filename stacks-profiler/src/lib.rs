@@ -302,6 +302,7 @@ impl Profiler {
     /// Begin a **timed** span.  Wall and CPU clocks are read on entry; elapsed time is accumulated
     /// when the returned guard is dropped.
     #[doc(hidden)]
+    #[must_use = "the returned guard must be kept alive for the span's duration"]
     #[inline]
     pub fn begin_timed_span(id: &'static SpanId, tag: Option<Tag>) -> ProfileGuard {
         let start_wall = Instant::now();
@@ -328,6 +329,7 @@ impl Profiler {
     /// Begin a **count-only** span — preserves hierarchy and increments [`Node::entered_count`],
     /// but does **not** read clocks.
     #[doc(hidden)]
+    #[must_use = "the returned guard must be kept alive for the span's duration"]
     #[inline]
     pub fn begin_count_only_span(id: &'static SpanId, tag: Option<Tag>) -> ProfileGuard {
         STATE.with(|cell| {
@@ -349,6 +351,7 @@ impl Profiler {
     /// [`span!`](span)/[`measure!`](measure) calls return [`None`] (no-op), preventing children
     /// from attaching to the wrong parent.
     #[doc(hidden)]
+    #[must_use = "the returned guard must be kept alive for the suppression region's duration"]
     #[inline(always)]
     pub fn begin_suppression() -> ProfileGuard {
         SUPPRESS_DEPTH.with(|d| d.set(d.get().wrapping_add(1)));
@@ -565,6 +568,7 @@ enum GuardKind {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<stacks_profiler::ProfileGuard>();
 /// ```
+#[must_use = "profiling guards end their span when dropped; bind the guard to keep the span active"]
 pub struct ProfileGuard {
     kind: GuardKind,
     _not_send: PhantomData<*const ()>,
