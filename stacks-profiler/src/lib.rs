@@ -92,6 +92,9 @@ thread_local! {
 
 thread_local! {
     /// Suppression nesting depth. Separate from [`STATE`] to avoid borrowing the `RefCell`.
+    ///
+    /// Invariant: `begin_suppression` always pairs with `end_suppression`; underflow on misuse
+    /// saturates at 0 rather than wrapping (which would suppress the thread effectively forever).
     static SUPPRESS_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -354,7 +357,12 @@ impl Profiler {
     #[must_use = "the returned guard must be kept alive for the suppression region's duration"]
     #[inline(always)]
     pub fn begin_suppression() -> ProfileGuard {
-        SUPPRESS_DEPTH.with(|d| d.set(d.get().wrapping_add(1)));
+        SUPPRESS_DEPTH.with(|d| {
+            let depth = d.get();
+            debug_assert!(depth < u32::MAX, "begin_suppression overflow");
+            d.set(depth.saturating_add(1));
+        });
+
         ProfileGuard {
             kind: GuardKind::Suppression,
             _not_send: PhantomData,
@@ -458,7 +466,11 @@ impl Profiler {
     #[inline(always)]
     #[doc(hidden)]
     pub fn end_suppression() {
-        SUPPRESS_DEPTH.with(|d| d.set(d.get().wrapping_sub(1)));
+        SUPPRESS_DEPTH.with(|d| {
+            let depth = d.get();
+            debug_assert!(depth > 0, "end_suppression underflow: depth already zero");
+            d.set(depth.saturating_sub(1));
+        });
     }
 
     /// Enable record/counter attachment (**process-global** default: enabled).
