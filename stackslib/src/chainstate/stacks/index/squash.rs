@@ -448,8 +448,8 @@ fn build_squashed_blocks_insert_sql(rows: usize) -> String {
     sql
 }
 
-/// Persist `squash_root_node_hash` and broadcast the tip blob offset to all
-/// placeholder rows.
+/// Persist `squash_root_node_hash` and broadcast the tip blob offset to every
+/// confirmed `marf_data` row.
 fn finalize_shared_blob_offsets<T: MarfTrieId>(
     conn: &rusqlite::Connection,
     block_at_height: &T,
@@ -460,10 +460,9 @@ fn finalize_shared_blob_offsets<T: MarfTrieId>(
     let start = Instant::now();
     let bh_id = trie_sql::get_block_identifier(conn, block_at_height)?;
     let (offset, length) = trie_sql::get_external_trie_offset_length(conn, bh_id)?;
-    let updated = trie_sql::bulk_update_blob_offsets(conn, offset, length, block_at_height)?;
+    let updated = trie_sql::bulk_update_blob_offsets(conn, offset, length)?;
     info!(
-        "Squash: updated {} placeholder blob offsets in {}",
-        updated,
+        "Squash: updated {updated} marf_data blob offsets in {}",
         fmt_duration(start.elapsed())
     );
     Ok(updated)
