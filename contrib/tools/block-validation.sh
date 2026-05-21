@@ -495,6 +495,7 @@ validate_block_range() {
 
     local end_block_count=$starting_block
     local slice_counter=0
+    local slice_log_files=()
     while [[ ${end_block_count} -lt ${total_blocks} ]]; do
         local start_block_count=$end_block_count
         end_block_count=$((end_block_count + slice_blocks))
@@ -507,6 +508,7 @@ validate_block_range() {
         local global_slice_end=$((end_block_count + global_offset - 1))
         local slice_path="${SLICE_DIR}${slice_counter}"
         local log_file="${LOG_DIR}/slice${slice_counter}${log_append}.log"
+        slice_log_files+=("${log_file}")
         local log=" | tee -a ${log_file}"
         local cmd="${inspect_prefix} ${slice_path} ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
         echo "  ${COLGREEN}${TMUX_SESSION}:slice${slice_counter}${COLRESET} :: Blocks: ${COLYELLOW}${global_slice_start}-${global_slice_end}${COLRESET} :: Logging to: ${log_file}"
@@ -522,7 +524,7 @@ validate_block_range() {
         }
         slice_counter=$((slice_counter + 1))
     done
-    check_progress
+    check_progress "${slice_log_files[@]}"
     phase_end "${range_label}" "${range_start}"
 }
 
@@ -606,13 +608,50 @@ run_validation() {
     esac
 }
 
+# Coarse overall progress for the current phase, computed from the last 1-2 slice
+# logs (last-spawned slices lag the rest; the final slice may own a different-sized
+# remainder, so a weighted average across all slices would skew optimistic).
+# stacks-inspect emits in-place progress as "\rValidating: NN% (X/Y)" (no \n until
+# completion), so while validation runs the entire progress stream lives on a single
+# un-terminated line. We tail by bytes (not lines) and translate \r -> \n before
+# grepping for the latest "Validating: NN%" entry.
+# Args: <log_file>...
+# Prints "NN%" or "NA" on stdout.
+compute_progress_pct() {
+    local logs=("$@")
+    local n=${#logs[@]}
+    local tail_logs=()
+    if [ "${n}" -ge 2 ]; then
+        tail_logs=("${logs[n-2]}" "${logs[n-1]}")
+    elif [ "${n}" -eq 1 ]; then
+        tail_logs=("${logs[0]}")
+    fi
+    local pct_sum=0 found=0
+    local f last_line
+    for f in "${tail_logs[@]}"; do
+        [ -f "${f}" ] || continue
+        last_line=$(tail -c 1024 "${f}" | tr '\r' '\n' | grep -E '^Validating:[[:space:]]+[0-9]+%' | tail -n 1 || true)
+        if [[ "${last_line}" =~ ([0-9]+)% ]]; then
+            pct_sum=$((pct_sum + BASH_REMATCH[1]))
+            found=$((found + 1))
+        fi
+    done
+    if [ "${found}" -gt 0 ]; then
+        printf '%d%%' $(( pct_sum / found ))
+    else
+        printf 'NA'
+    fi
+}
+
 # Pretty print the status output (simple spinner while pids are active)
+# Args: <log_file>...   slice logs for the current phase, used to estimate %.
 check_progress() {
+    local slice_logs=("$@")
     # Give the pids a few seconds to show up in process table before checking if they're running
     local sleep_duration=5
     local progress=1
     local sp="/-\|"
-    local count
+    local count pct
     while [ $sleep_duration -gt 0 ]; do
         ${IS_TTY} && printf "Sleeping ...  \b [ %s%s%s ] \033[0K\r" "${COLYELLOW}" "${sleep_duration}" "${COLRESET}"
         sleep_duration=$((sleep_duration-1))
@@ -624,7 +663,8 @@ check_progress() {
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
         if [ "${count}" -gt 0 ]; then
-            ${IS_TTY} && printf "Block validation processes are currently active [ %s%s%s%s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "${COLYELLOW}" "${COLBOLD}" "${count}" "${COLRESET}"
+            pct=$(compute_progress_pct "${slice_logs[@]}")
+            ${IS_TTY} && printf "Block validation processes are currently active [ %s%s%s%s ] Progress: [ %s%s%s%s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "${COLYELLOW}" "${COLBOLD}" "${count}" "${COLRESET}" "${COLYELLOW}" "${COLBOLD}" "${pct}" "${COLRESET}"
         else
             ${IS_TTY} && printf "\rAll block validation processes finished\033[0K\n"
             break
