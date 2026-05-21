@@ -478,6 +478,17 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 .all(|(addr, initial)| get_account(&http_origin, addr).nonce >= initial + 1))
         })
         .expect("Timed out waiting for per-signer contract publishes to confirm");
+        // Nonces advancing only proves the publish txs were mined; a static-
+        // check failure (e.g. trait drift) still consumes the nonce without
+        // instantiating the contract, which would surface as a misleading
+        // NoSuchContract panic on register-self below. Assert here instead.
+        for (signer_addr, per_signer_name, _) in &contract_principals {
+            assert!(
+                contract_source_exists(&http_origin, signer_addr, per_signer_name),
+                "per-signer contract {signer_addr}.{per_signer_name} did not instantiate; \
+                 check for trait drift between pox5_signer_manager_source() and pox-5.clar's signer-manager-trait",
+            );
+        }
 
         // Step 2: call register-self on each per-signer contract. Each
         // signer signs its own grant.
@@ -569,10 +580,9 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
 
 /// Source for the per-signer signer-manager contract published by
 /// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`] and by the pox-5
-/// regtest lifecycle tests in `nakamoto_integrations`. `validate-stake!`
-/// and `checkpoint-staker` are no-ops (always ok); `register-self`
-/// forwards a signer-key grant + `register-signer` call to pox-5 under
-/// `as-contract?`.
+/// regtest lifecycle tests in `nakamoto_integrations`. `validate-stake!` and
+/// `checkpoint-staker` are no-ops (always ok); `register-self` forwards a
+/// signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
 pub(crate) fn pox5_signer_manager_source() -> &'static str {
     r#"
 (impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
@@ -1505,6 +1515,19 @@ impl MultipleMinerTest {
                 }))
         })
         .expect("Timed out waiting for per-signer publishes on both nodes");
+        // Nonces advancing only proves the publish txs were mined; a static-
+        // check failure (e.g. trait drift) still consumes the nonce without
+        // instantiating the contract, which would surface as a misleading
+        // NoSuchContract panic on register-self below. Check both nodes.
+        for (signer_addr, per_signer_name, _) in &contract_principals {
+            for origin in [&http_origin_1, &http_origin_2] {
+                assert!(
+                    contract_source_exists(origin, signer_addr, per_signer_name),
+                    "per-signer contract {signer_addr}.{per_signer_name} did not instantiate on {origin}; \
+                     check for trait drift between pox5_signer_manager_source() and pox-5.clar's signer-manager-trait",
+                );
+            }
+        }
 
         // Step 2: register-self on each per-signer contract. Each signer
         // signs its own grant.

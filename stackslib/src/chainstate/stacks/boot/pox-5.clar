@@ -2787,17 +2787,24 @@
 )
 
 ;; Convert a u8 or u16 to a little-endian byte buffer,
-;; ONLY FOR n < 0xffff
+;; ONLY FOR n <= 0xffff (or it will panic).
 (define-read-only (uint-to-buff-le (n uint))
-    (unwrap-panic (as-max-len?
-        (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? n))
+    (let (
+            (bounds-check_ (unwrap-panic (if (<= n u65535)
+                (some true)
+                none
+            )))
+            (bytes (unwrap-panic (to-consensus-buff? n)))
+            (lsb (unwrap-panic (slice? bytes u16 u17)))
+        )
+        (unwrap-panic (as-max-len?
             (if (< n u256)
-                u16
-                u17
-            ) u17
+                lsb
+                (concat lsb (unwrap-panic (slice? bytes u15 u16)))
+            )
+            u2
         ))
-        u2
-    ))
+    )
 )
 
 ;; Construct the correct script for pushing bytes into a Bitcoin script.

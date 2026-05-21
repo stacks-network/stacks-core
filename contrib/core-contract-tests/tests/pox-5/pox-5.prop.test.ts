@@ -6,6 +6,19 @@ import * as BTC from '@scure/btc-signer';
 import { hex } from '@scure/base';
 import { randomPrincipalGen } from '../test-helpers';
 
+it('uint-to-buff-le matches little-endian encoding for all n < 65536', () => {
+  fc.assert(
+    fc.property(fc.integer({ min: 0, max: 0xffff }), (n) => {
+      const actual = rov(pox5.uintToBuffLe(n));
+      const expected =
+        n < 256
+          ? new Uint8Array([n])
+          : new Uint8Array([n & 0xff, (n >> 8) & 0xff]);
+      expect(hex.encode(actual)).toEqual(hex.encode(expected));
+    }),
+  );
+});
+
 it('should correctly prefix a script based on length', () => {
   fc.assert(
     fc.property(
