@@ -22,10 +22,10 @@ env:
 
 # Configure concurrency
 #   - cache will exist longer than workflow execution so other runners have access.
-#   - multiple test workflows may call create-caches simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
+#   - multiple test workflows may call manage-test-caches simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
 #   - runs on PR branches cancel old builds when a new commit arrives (github.head_ref is only set in a PR context).
 concurrency:
-  group: create-caches-${{ github.head_ref || github.ref }}
+  group: manage-test-caches-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.head_ref != '' }}
 
 jobs:
@@ -156,8 +156,8 @@ jobs:
         with:
           tools: nextest
 
-      # Restore the cargo cache (without local crates) IF it exists
-      - name: Restore Cargo Cache (Without Local Crates)
+      # Restore the cargo cache IF it exists
+      - name: Restore Cargo Cache
         if: needs.check-caches.outputs.cargo-cache-hit == 'true'
         uses: ./.github/actions/cache/cargo
         with:

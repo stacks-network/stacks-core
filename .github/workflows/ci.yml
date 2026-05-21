@@ -145,7 +145,7 @@ jobs:
         run: bash ./.github/scripts/check_release.sh
 
   ## --- Manage (often create) reusable caches for tests ------------------------------------
-  create-caches:
+  manage-caches:
     name: Manage Test Caches
     needs:
       - setup-env
@@ -171,7 +171,7 @@ jobs:
       - setup-env
       - rustfmt
       - changelog-check
-      - create-caches
+      - manage-caches
       - check-release
     if: >-
       !cancelled() &&
@@ -192,7 +192,7 @@ jobs:
       - setup-env
       - rustfmt
       - changelog-check
-      - create-caches
+      - manage-caches
       - check-release
     if: >-
       !cancelled() &&
@@ -213,7 +213,7 @@ jobs:
       - setup-env
       - rustfmt
       - changelog-check
-      - create-caches
+      - manage-caches
       - check-release
     if: >-
       !cancelled() &&
@@ -234,7 +234,7 @@ jobs:
       - setup-env
       - rustfmt
       - changelog-check
-      - create-caches
+      - manage-caches
       - check-release
     if: >-
       !cancelled() &&
@@ -323,7 +323,7 @@ jobs:
       - setup-env
       - rustfmt
       - changelog-check
-      - create-caches
+      - manage-caches
       - check-release
     if: >-
       !cancelled() &&

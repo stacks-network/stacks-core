@@ -209,9 +209,9 @@ jobs:
         with:
           tools: nextest
 
-      # Create test caches (if needed)
-      - name: Create Reusable Caches (If Needed)
-        uses: ./.github/workflows/create-caches.yml
+      # Manage test caches (if needed)
+      - name: Manage Test Caches (If Needed)
+        uses: ./.github/workflows/manage-test-caches.yml
         
       # Restore bitcoin cache data
       - name: Restore Bitcoin Binary Cache
@@ -276,7 +276,7 @@ jobs:
       # build (cache miss): that build uses no special RUSTFLAGS, so the artifacts
       # are compatible and Rust only recompiles the crates that differ from BASE.
       # When testenv succeeds (cache hit), target/ contains artifacts built with
-      # -Cinstrument-coverage (from create-caches). The flag mismatch invalidates
+      # -Cinstrument-coverage (from manage-test-caches). The flag mismatch invalidates
       # every fingerprint, forcing a full recompile regardless — no faster than
       # using a fresh target directory (and it's not worth using same flag either).
       - name: List BASE branch tests

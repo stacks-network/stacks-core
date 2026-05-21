@@ -1,6 +1,7 @@
 name: Nextest Archive Cache
 description: |
     Nextest binary archive for tests
+    Includes contents of ./target/debug because they're needed for both unit tests and code coverage
 
 inputs:
   action:
