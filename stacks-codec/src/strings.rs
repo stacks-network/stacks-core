@@ -130,6 +130,10 @@ impl StacksString {
         Some(StacksString(s.as_bytes().to_vec()))
     }
 
+    // Inherent `from_str` is intentional: `StacksString::from_str` returns an
+    // `Option`, while `std::str::FromStr::from_str` would have to return a
+    // `Result`. Renaming would churn many call sites.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<StacksString> {
         if !StacksString::is_valid_string(&String::from(s)) {
             return None;
@@ -137,6 +141,10 @@ impl StacksString {
         Some(StacksString(s.as_bytes().to_vec()))
     }
 
+    // The inherent `to_string` is kept (rather than relying on `Display`'s
+    // blanket impl) because it skips the formatter machinery — the bytes are
+    // already valid ASCII.
+    #[allow(clippy::inherent_to_string_shadow_display)]
     pub fn to_string(&self) -> String {
         // guaranteed to always succeed because the string is ASCII
         String::from_utf8(self.0.clone()).unwrap()

@@ -1204,7 +1204,7 @@ impl SinglesigSpendingCondition {
         let ret = self.signature.clone();
         self.signature = MessageSignature::empty();
 
-        return Some(TransactionAuthField::Signature(self.key_encoding, ret));
+        Some(TransactionAuthField::Signature(self.key_encoding, ret))
     }
 
     pub fn address_mainnet(&self) -> StacksAddress {
@@ -1633,8 +1633,7 @@ impl TransactionSpendingCondition {
 
         assert!(new_tx_hash_bits.len() == new_tx_hash_bits_len as usize);
 
-        let next_sighash = Txid::from_sighash_bytes(&new_tx_hash_bits);
-        next_sighash
+        Txid::from_sighash_bytes(&new_tx_hash_bits)
     }
 
     pub fn make_sighash_postsign(
@@ -1660,8 +1659,7 @@ impl TransactionSpendingCondition {
 
         assert!(new_tx_hash_bits.len() == new_tx_hash_bits_len as usize);
 
-        let next_sighash = Txid::from_sighash_bytes(&new_tx_hash_bits);
-        next_sighash
+        Txid::from_sighash_bytes(&new_tx_hash_bits)
     }
 
     /// Linear-complexity signing algorithm -- we sign a rolling hash over all data committed to by
@@ -1810,12 +1808,8 @@ impl StacksMessageCodec for TransactionAuth {
 
 impl TransactionAuth {
     pub fn from_p2pkh(privk: &StacksPrivateKey) -> Option<TransactionAuth> {
-        match TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
-            privk,
-        )) {
-            Some(auth) => Some(TransactionAuth::Standard(auth)),
-            None => None,
-        }
+        TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(privk))
+            .map(TransactionAuth::Standard)
     }
 
     pub fn from_p2sh(privks: &[StacksPrivateKey], num_sigs: u16) -> Option<TransactionAuth> {
@@ -1824,10 +1818,8 @@ impl TransactionAuth {
             pubks.push(StacksPublicKey::from_private(privk));
         }
 
-        match TransactionSpendingCondition::new_multisig_p2sh(num_sigs, pubks) {
-            Some(auth) => Some(TransactionAuth::Standard(auth)),
-            None => None,
-        }
+        TransactionSpendingCondition::new_multisig_p2sh(num_sigs, pubks)
+            .map(TransactionAuth::Standard)
     }
 
     pub fn from_order_independent_p2sh(
@@ -1851,12 +1843,8 @@ impl TransactionAuth {
     }
 
     pub fn from_p2wpkh(privk: &StacksPrivateKey) -> Option<TransactionAuth> {
-        match TransactionSpendingCondition::new_singlesig_p2wpkh(StacksPublicKey::from_private(
-            privk,
-        )) {
-            Some(auth) => Some(TransactionAuth::Standard(auth)),
-            None => None,
-        }
+        TransactionSpendingCondition::new_singlesig_p2wpkh(StacksPublicKey::from_private(privk))
+            .map(TransactionAuth::Standard)
     }
 
     pub fn from_p2wsh(privks: &[StacksPrivateKey], num_sigs: u16) -> Option<TransactionAuth> {
@@ -1865,10 +1853,8 @@ impl TransactionAuth {
             pubks.push(StacksPublicKey::from_private(privk));
         }
 
-        match TransactionSpendingCondition::new_multisig_p2wsh(num_sigs, pubks) {
-            Some(auth) => Some(TransactionAuth::Standard(auth)),
-            None => None,
-        }
+        TransactionSpendingCondition::new_multisig_p2wsh(num_sigs, pubks)
+            .map(TransactionAuth::Standard)
     }
 
     /// merge two standard auths into a sponsored auth.
@@ -1949,10 +1935,7 @@ impl TransactionAuth {
     }
 
     pub fn get_sponsor_nonce(&self) -> Option<u64> {
-        match self.sponsor() {
-            None => None,
-            Some(s) => Some(s.nonce()),
-        }
+        self.sponsor().map(|s| s.nonce())
     }
 
     pub fn set_sponsor_nonce(&mut self, n: u64) -> Result<(), AuthError> {
@@ -2173,7 +2156,7 @@ impl NonfungibleConditionCode {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub fn check(&self, nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
@@ -3818,7 +3801,7 @@ mod tests {
                 .unwrap();
             nonfungible_pc_bytes.push(NonfungibleConditionCode::NotSent as u8);
 
-            let pcs = vec![stx_pc, fungible_pc, nonfungible_pc];
+            let pcs = [stx_pc, fungible_pc, nonfungible_pc];
             let pc_bytes = [stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
             for i in 0..3 {
                 check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
@@ -4124,7 +4107,7 @@ mod tests {
         // The highest defined variant is ExtendedWriteLength (6). Bytes >= 7
         // should fail to deserialize.
         for invalid in [7u8, 0xff] {
-            let buf = vec![invalid];
+            let buf = [invalid];
             assert!(TenureChangeCause::consensus_deserialize(&mut &buf[..]).is_err());
         }
     }
