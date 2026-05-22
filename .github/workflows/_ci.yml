@@ -47,7 +47,11 @@ jobs:
       - name: Export Env Variables
         id: set-env
         run: |
-          echo "test_archive_file=${{ env.TEST_ARCHIVE_FILE }}" >> $GITHUB_OUTPUT
+          # Capture the archive file input, then expand the leading ~ to $HOME
+          INPUT_FILE="${{ env.TEST_ARCHIVE_FILE }}"
+          ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
+        
+          echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
           echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
   
   # --- Changelog check ------------------------------------------------------
