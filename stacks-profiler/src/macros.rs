@@ -179,12 +179,15 @@ macro_rules! span {
 
     (@should_sample $counter:ident, $rate:literal) => {{
         const __RATE: usize = $rate;
-        if __RATE <= 1 {
+        const __IS_ALWAYS_SAMPLED: bool = __RATE <= 1;
+        const __IS_POWER_OF_TWO: bool = __RATE.is_power_of_two();
+
+        if __IS_ALWAYS_SAMPLED {
             true
         } else {
             let __n = $counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-            if __RATE.is_power_of_two() {
+            if __IS_POWER_OF_TWO {
                 (__n & (__RATE - 1)) == 0
             } else {
                 (__n % __RATE) == 0
