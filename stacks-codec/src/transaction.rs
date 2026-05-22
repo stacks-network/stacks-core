@@ -3310,6 +3310,7 @@ mod tests {
     use std::io::Cursor;
 
     use rstest::rstest;
+    use stacks_common::codec::testing::check_codec_and_corruption;
     use stacks_common::codec::{read_next, write_next};
     use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
     use stacks_common::util::hash::hex_bytes;
@@ -3355,42 +3356,6 @@ mod tests {
                 "Unrecognized ClarityVersion byte {}",
                 &version_byte
             ))),
-        }
-    }
-
-    /// Roundtrip + truncation check. Local copy of
-    /// `stackslib::net::codec::test::check_codec_and_corruption` so this crate's
-    /// tests don't reach back into `stackslib`.
-    fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
-        obj: &T,
-        bytes: &[u8],
-    ) {
-        let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
-        obj.consensus_serialize(&mut write_buf).unwrap();
-        assert_eq!(write_buf, *bytes);
-
-        let read_buf: Vec<u8> = write_buf.clone();
-        match T::consensus_deserialize(&mut &read_buf[..]) {
-            Ok(out) => assert_eq!(out, *obj),
-            Err(e) => panic!("Failed to parse {obj:?} from {bytes:?}: {e:?}"),
-        }
-
-        if !write_buf.is_empty() {
-            let mut short_buf = write_buf.clone();
-            let short_len = short_buf.len() - 1;
-            short_buf.truncate(short_len);
-
-            match T::consensus_deserialize(&mut &short_buf[..]) {
-                Ok(_) => {
-                    // Some encodings legitimately admit shorter forms; not a failure.
-                }
-                Err(codec_error::ReadError(io_error)) => {
-                    assert_eq!(io_error.kind(), std::io::ErrorKind::UnexpectedEof);
-                }
-                Err(_) => {
-                    // Other deserialize errors are also acceptable for truncated input.
-                }
-            }
         }
     }
 
@@ -3512,6 +3477,24 @@ mod tests {
         assert_eq!(version, decoded, "Roundtrip mismatch for {version:?}");
     }
 
+    /// Compile-time exhaustiveness check: every `ClarityVersion` variant must
+    /// appear in the `#[case]` list above (and in the codec helpers). Adding a
+    /// new variant without updating either will trip a `non_exhaustive_patterns`
+    /// compile error here. Replaces the role the cross-crate
+    /// `test_clarity_versions` rstest template used to play.
+    #[test]
+    fn clarity_version_cases_are_exhaustive() {
+        // Reject this match if a new variant is added without updating the
+        // tests above.
+        match ClarityVersion::latest() {
+            ClarityVersion::Clarity1
+            | ClarityVersion::Clarity2
+            | ClarityVersion::Clarity3
+            | ClarityVersion::Clarity4
+            | ClarityVersion::Clarity5 => {}
+        }
+    }
+
     #[test]
     fn test_transaction_contract_call_codec() {
         let contract_call = sample_contract_call();
@@ -3620,33 +3603,33 @@ mod tests {
 
         let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
 
-        // Serialize via the type itself, then verify the wire format is what we expect.
+        // Wire format: payload-id byte, then two microblock headers laid out as
+        //   version : u8          (1 byte)
+        //   sequence: u16 BE      (2 bytes)
+        //   prev_block: [u8; 32]  (32 bytes)
+        //   tx_merkle_root: [u8; 32]
+        //   signature: [u8; 65]
+        // = 132 bytes per header, 265 bytes total.
+        let header_bytes = |seq: [u8; 2], prev: u8, merkle: u8, sig: u8| -> Vec<u8> {
+            let mut b = vec![0x12];
+            b.extend_from_slice(&seq);
+            b.extend_from_slice(&[prev; 32]);
+            b.extend_from_slice(&[merkle; 32]);
+            b.extend_from_slice(&[sig; 65]);
+            b
+        };
         let mut payload_bytes = vec![TransactionPayloadID::PoisonMicroblock as u8];
-        // header_1
-        payload_bytes.push(0x12); // version
-        payload_bytes.extend_from_slice(&[0x00, 0x34]); // sequence (u16 BE)
-        payload_bytes.extend_from_slice(&[0u8; 32]); // prev_block
-        payload_bytes.extend_from_slice(&[1u8; 32]); // tx_merkle_root
-        payload_bytes.extend_from_slice(&[2u8; 65]); // signature
-                                                     // header_2
-        payload_bytes.push(0x12);
-        payload_bytes.extend_from_slice(&[0x00, 0x34]);
-        payload_bytes.extend_from_slice(&[0u8; 32]);
-        payload_bytes.extend_from_slice(&[2u8; 32]);
-        payload_bytes.extend_from_slice(&[3u8; 65]);
+        payload_bytes.extend(header_bytes([0x00, 0x34], 0, 1, 2));
+        payload_bytes.extend(header_bytes([0x00, 0x34], 0, 2, 3));
 
         check_codec_and_corruption::<TransactionPayload>(&payload, &payload_bytes);
 
         // Deserializing two equal microblock headers must fail (they should differ
         // for a valid poison proof).
         let mut payload_bytes_equal = vec![TransactionPayloadID::PoisonMicroblock as u8];
-        for _ in 0..2 {
-            payload_bytes_equal.push(0x12);
-            payload_bytes_equal.extend_from_slice(&[0x00, 0x34]);
-            payload_bytes_equal.extend_from_slice(&[0u8; 32]);
-            payload_bytes_equal.extend_from_slice(&[2u8; 32]);
-            payload_bytes_equal.extend_from_slice(&[2u8; 65]);
-        }
+        let equal_header = header_bytes([0x00, 0x34], 0, 2, 2);
+        payload_bytes_equal.extend_from_slice(&equal_header);
+        payload_bytes_equal.extend_from_slice(&equal_header);
         assert!(
             TransactionPayload::consensus_deserialize(&mut &payload_bytes_equal[..])
                 .unwrap_err()
@@ -3657,18 +3640,8 @@ mod tests {
         // Headers with different sequence AND different prev_block can't form
         // a valid microblock fork — must fail with "do not identify a fork".
         let mut payload_bytes_bad_parent = vec![TransactionPayloadID::PoisonMicroblock as u8];
-        // header_1: sequence=0x0035, prev_block=[0u8;32]
-        payload_bytes_bad_parent.push(0x12);
-        payload_bytes_bad_parent.extend_from_slice(&[0x00, 0x35]);
-        payload_bytes_bad_parent.extend_from_slice(&[0u8; 32]);
-        payload_bytes_bad_parent.extend_from_slice(&[1u8; 32]);
-        payload_bytes_bad_parent.extend_from_slice(&[2u8; 65]);
-        // header_2: sequence=0x0034, prev_block=[1u8;32] (different parent)
-        payload_bytes_bad_parent.push(0x12);
-        payload_bytes_bad_parent.extend_from_slice(&[0x00, 0x34]);
-        payload_bytes_bad_parent.extend_from_slice(&[1u8; 32]);
-        payload_bytes_bad_parent.extend_from_slice(&[2u8; 32]);
-        payload_bytes_bad_parent.extend_from_slice(&[3u8; 65]);
+        payload_bytes_bad_parent.extend(header_bytes([0x00, 0x35], 0, 1, 2));
+        payload_bytes_bad_parent.extend(header_bytes([0x00, 0x34], 1, 2, 3));
         let err = TransactionPayload::consensus_deserialize(&mut &payload_bytes_bad_parent[..])
             .unwrap_err()
             .to_string();
@@ -4120,15 +4093,16 @@ mod tests {
         assert_eq!(TransactionVersion::Testnet as u8, 0x80);
     }
 
-    /// Every `FungibleConditionCode` discriminant roundtrips, and unknown bytes
-    /// fail to parse.
+    /// Every `FungibleConditionCode` discriminant survives a `from_u8 ∘ as u8`
+    /// round-trip — these codes are serialized inline as raw bytes inside
+    /// `TransactionPostCondition` rather than via their own codec impl.
     #[rstest]
     #[case(FungibleConditionCode::SentEq)]
     #[case(FungibleConditionCode::SentGt)]
     #[case(FungibleConditionCode::SentGe)]
     #[case(FungibleConditionCode::SentLt)]
     #[case(FungibleConditionCode::SentLe)]
-    fn fungible_condition_code_roundtrip(#[case] code: FungibleConditionCode) {
+    fn fungible_condition_code_from_u8_roundtrip(#[case] code: FungibleConditionCode) {
         let byte = code as u8;
         let decoded = FungibleConditionCode::from_u8(byte).unwrap();
         assert_eq!(decoded, code);
@@ -4138,7 +4112,7 @@ mod tests {
     #[case(NonfungibleConditionCode::Sent)]
     #[case(NonfungibleConditionCode::NotSent)]
     #[case(NonfungibleConditionCode::MaybeSent)]
-    fn nonfungible_condition_code_roundtrip(#[case] code: NonfungibleConditionCode) {
+    fn nonfungible_condition_code_from_u8_roundtrip(#[case] code: NonfungibleConditionCode) {
         let byte = code as u8;
         let decoded = NonfungibleConditionCode::from_u8(byte).unwrap();
         assert_eq!(decoded, code);

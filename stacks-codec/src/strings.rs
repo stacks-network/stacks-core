@@ -145,21 +145,9 @@ impl StacksString {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use stacks_common::codec::testing::check_codec_and_corruption;
 
-    /// Roundtrip + truncation check for the printable-ASCII string codec.
-    /// Duplicated locally so the strings tests don't depend on
-    /// `stacks-codec::transaction::tests`.
-    fn check_codec_and_corruption<T: StacksMessageCodec + std::fmt::Debug + Clone + PartialEq>(
-        obj: &T,
-        bytes: &[u8],
-    ) {
-        let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
-        obj.consensus_serialize(&mut write_buf).unwrap();
-        assert_eq!(write_buf, *bytes);
-        let decoded = T::consensus_deserialize(&mut &write_buf[..]).unwrap();
-        assert_eq!(decoded, *obj);
-    }
+    use super::*;
 
     #[test]
     fn stacks_strings_codec() {
@@ -217,13 +205,19 @@ mod tests {
     /// be rejected on deserialize even though it parses as valid UTF-8.
     #[test]
     fn stacks_string_deserialize_rejects_non_printable_bytes() {
+        // 4-byte BE length prefix (0x00000005) followed by 5 bytes whose
+        // second byte (0x01) is non-printable.
         let mut bytes = vec![0x00, 0x00, 0x00, 0x05];
-        bytes.extend_from_slice(b"a\x01bc"); // length 4 but we said 5 -> read 5 bytes
-        bytes.push(b'd');
+        bytes.extend_from_slice(b"a\x01bcd");
         let err = StacksString::consensus_deserialize(&mut &bytes[..]).unwrap_err();
         assert!(
-            err.to_string().contains("non-printable") || err.to_string().contains("non-ASCII"),
-            "unexpected error: {err}"
+            matches!(err, codec_error::DeserializeError(_)),
+            "expected DeserializeError, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("non-printable") || msg.contains("non-ASCII"),
+            "unexpected error: {msg}"
         );
     }
 
