@@ -3463,35 +3463,18 @@ mod tests {
         check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
     }
 
-    #[rstest]
-    #[case(ClarityVersion::Clarity1)]
-    #[case(ClarityVersion::Clarity2)]
-    #[case(ClarityVersion::Clarity3)]
-    #[case(ClarityVersion::Clarity4)]
-    #[case(ClarityVersion::Clarity5)]
-    fn clarity_version_codec_is_consistent(#[case] version: ClarityVersion) {
-        let mut buf = vec![];
-        ClarityVersion_consensus_serialize(&version, &mut buf).unwrap();
-        let mut cursor = Cursor::new(&buf);
-        let decoded = ClarityVersion_consensus_deserialize(&mut cursor).unwrap();
-        assert_eq!(version, decoded, "Roundtrip mismatch for {version:?}");
-    }
-
-    /// Compile-time exhaustiveness check: every `ClarityVersion` variant must
-    /// appear in the `#[case]` list above (and in the codec helpers). Adding a
-    /// new variant without updating either will trip a `non_exhaustive_patterns`
-    /// compile error here. Replaces the role the cross-crate
-    /// `test_clarity_versions` rstest template used to play.
+    /// Iterates `ClarityVersion::ALL` rather than enumerating `#[case]` lines
+    /// so the test stays exhaustive as new variants are added in clarity-types.
+    /// `ClarityVersion_consensus_serialize`'s own `match` provides the
+    /// compile-time guard that every variant has a wire mapping.
     #[test]
-    fn clarity_version_cases_are_exhaustive() {
-        // Reject this match if a new variant is added without updating the
-        // tests above.
-        match ClarityVersion::latest() {
-            ClarityVersion::Clarity1
-            | ClarityVersion::Clarity2
-            | ClarityVersion::Clarity3
-            | ClarityVersion::Clarity4
-            | ClarityVersion::Clarity5 => {}
+    fn clarity_version_codec_is_consistent() {
+        for &version in ClarityVersion::ALL {
+            let mut buf = vec![];
+            ClarityVersion_consensus_serialize(&version, &mut buf).unwrap();
+            let mut cursor = Cursor::new(&buf);
+            let decoded = ClarityVersion_consensus_deserialize(&mut cursor).unwrap();
+            assert_eq!(version, decoded, "Roundtrip mismatch for {version:?}");
         }
     }
 
@@ -3509,19 +3492,16 @@ mod tests {
         check_codec_and_corruption::<TransactionSmartContract>(&smart_contract, &expected_bytes);
     }
 
-    #[rstest]
-    #[case(ClarityVersion::Clarity1)]
-    #[case(ClarityVersion::Clarity2)]
-    #[case(ClarityVersion::Clarity3)]
-    #[case(ClarityVersion::Clarity4)]
-    #[case(ClarityVersion::Clarity5)]
-    fn test_transaction_payload_versioned_contracts_codec(#[case] version: ClarityVersion) {
-        let payload = TransactionPayload::SmartContract(sample_smart_contract(), Some(version));
-        let expected_bytes = create_transaction_payload_bytes(
-            TransactionPayloadID::VersionedSmartContract,
-            serialize_versioned_smart_contract(&sample_smart_contract(), &version),
-        );
-        check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
+    #[test]
+    fn test_transaction_payload_versioned_contracts_codec() {
+        for &version in ClarityVersion::ALL {
+            let payload = TransactionPayload::SmartContract(sample_smart_contract(), Some(version));
+            let expected_bytes = create_transaction_payload_bytes(
+                TransactionPayloadID::VersionedSmartContract,
+                serialize_versioned_smart_contract(&sample_smart_contract(), &version),
+            );
+            check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
+        }
     }
 
     #[test]
@@ -3603,13 +3583,13 @@ mod tests {
 
         let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
 
-        // Wire format: payload-id byte, then two microblock headers laid out as
-        //   version : u8          (1 byte)
-        //   sequence: u16 BE      (2 bytes)
-        //   prev_block: [u8; 32]  (32 bytes)
-        //   tx_merkle_root: [u8; 32]
-        //   signature: [u8; 65]
-        // = 132 bytes per header, 265 bytes total.
+        // Wire format: payload-id byte (1) + two microblock headers (132 each)
+        // = 265 bytes total. Each header is laid out as
+        //   version       : u8          ( 1 byte)
+        //   sequence      : u16 BE      ( 2 bytes)
+        //   prev_block    : [u8; 32]    (32 bytes)
+        //   tx_merkle_root: [u8; 32]    (32 bytes)
+        //   signature     : [u8; 65]    (65 bytes)
         let header_bytes = |seq: [u8; 2], prev: u8, merkle: u8, sig: u8| -> Vec<u8> {
             let mut b = vec![0x12];
             b.extend_from_slice(&seq);

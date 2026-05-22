@@ -238,4 +238,11 @@ mod tests {
         let stacks_str: StacksString = clarity_name.clone().into();
         assert_eq!(stacks_str.to_string(), "hello-world");
     }
+
+    #[test]
+    fn stacks_string_from_contract_name_conversion() {
+        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let stacks_str: StacksString = contract_name.into();
+        assert_eq!(stacks_str.to_string(), "hello-world");
+    }
 }
