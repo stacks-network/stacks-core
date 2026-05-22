@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,9 +20,9 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckError, CheckErrors};
-pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
+use super::errors::{StaticCheckError, StaticCheckErrorKind};
+pub use super::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::costs::CostTracker;
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::{ClarityVersion, Value};
@@ -34,7 +34,7 @@ impl FunctionType {
         args: &[TypeSignature],
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 self.check_args_2_05(accounting, args)
@@ -47,9 +47,10 @@ impl FunctionType {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => self.check_args_2_1(accounting, args, clarity_version),
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => self.check_args_2_1(accounting, args, clarity_version),
             StacksEpochId::Epoch10 => {
-                Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
+                Err(StaticCheckErrorKind::Unreachable("Epoch10 is not supported".into()).into())
             }
         }
     }
@@ -60,7 +61,7 @@ impl FunctionType {
         func_args: &[Value],
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 self.check_args_by_allowing_trait_cast_2_05(db, func_args)
@@ -73,11 +74,12 @@ impl FunctionType {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => {
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => {
                 self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
             }
             StacksEpochId::Epoch10 => {
-                Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
+                Err(StaticCheckErrorKind::Unreachable("Epoch10 is not supported".into()).into())
             }
         }
     }
@@ -94,6 +96,8 @@ fn is_reserved_word_v3(word: &str) -> bool {
 pub fn is_reserved_word(word: &str, version: ClarityVersion) -> bool {
     match version {
         ClarityVersion::Clarity1 | ClarityVersion::Clarity2 => false,
-        ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => is_reserved_word_v3(word),
+        ClarityVersion::Clarity3 | ClarityVersion::Clarity4 | ClarityVersion::Clarity5 => {
+            is_reserved_word_v3(word)
+        }
     }
 }

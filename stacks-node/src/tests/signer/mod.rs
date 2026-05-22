@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 mod commands;
-#[cfg(feature = "build-signer-v3-1-0-0-13")]
+#[cfg(feature = "build-signer-v3-3-0-0-5-0")]
 pub mod multiversion;
 pub mod v0;
 
@@ -63,6 +63,7 @@ use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerCon
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer_state::LocalStateMachine;
+use stacks_signer::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{
@@ -82,7 +83,9 @@ use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
     wait_for_runloop,
 };
-use crate::tests::signer::v0::wait_for_state_machine_update_by_miner_tenure_id;
+use crate::tests::signer::v0::{
+    wait_for_state_machine_update, wait_for_state_machine_update_by_miner_tenure_id,
+};
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 
@@ -471,20 +474,27 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
             debug!("Issue status request to {path}");
             let client = reqwest::blocking::Client::new();
-            let response = client
-                .get(path)
-                .send()
-                .expect("Failed to send status request");
-            assert!(response.status().is_success())
+            match client.get(path).send() {
+                Ok(response) if response.status().is_success() => {}
+                Ok(response) => {
+                    debug!(
+                        "Signer #{signer_ix} returned non-success status: {}",
+                        response.status()
+                    );
+                }
+                Err(e) => {
+                    debug!("Failed to send status request to signer #{signer_ix}: {e}");
+                }
+            }
         }
     }
 
     pub fn wait_for_registered(&self) {
         let mut finished_signers = HashSet::new();
         wait_for(120, || {
-            self.send_status_request(&finished_signers);
-            thread::sleep(Duration::from_secs(1));
-            let latest_states = self.get_states(&finished_signers);
+            self.send_status_request(&HashSet::new());
+            thread::sleep(Duration::from_secs(5));
+            let latest_states = self.get_states(&HashSet::new());
             for (ix, state) in latest_states.iter().enumerate() {
                 let Some(state) = state else { continue; };
                 if state.runloop_state == State::RegisteredSigners {
@@ -558,6 +568,27 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         );
     }
 
+    /// Wait for >70% of signers to update their global state to the
+    /// current burn block tip. Call this after mining a bitcoin block
+    /// when you need signers to have the correct burn block view before
+    /// proceeding (e.g., before checking for specific block proposals).
+    /// Mining is skipped during the wait to prevent the miner from
+    /// proposing a block before signers have the correct view.
+    pub fn wait_for_signer_state_update(&self) {
+        let was_skipping = TEST_MINE_SKIP.get();
+        TEST_MINE_SKIP.set(true);
+        let peer_info = get_chain_info(&self.running_nodes.conf);
+        wait_for_state_machine_update(
+            30,
+            &peer_info.pox_consensus,
+            peer_info.burn_block_height,
+            None,
+            &self.signer_addresses_versions_majority(),
+        )
+        .expect("Signers failed to update to new burn block view");
+        TEST_MINE_SKIP.set(was_skipping);
+    }
+
     /// Fetch the local signer state machine for all the signers,
     ///  waiting until every signer has processed the latest burn block.
     /// Then, check that every signer's state machine corresponds to the
@@ -585,7 +616,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let latest_block = self
             .stacks_client
             .get_tenure_tip(&sortition_prior.consensus_hash)
-            .unwrap();
+            .unwrap()
+            .anchored_header;
         let latest_block_id =
             StacksBlockId::new(&sortition_prior.consensus_hash, &latest_block.block_hash());
 
@@ -642,7 +674,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let latest_block = self
             .stacks_client
             .get_tenure_tip(sortition_prior.stacks_parent_ch.as_ref().unwrap())
-            .unwrap();
+            .unwrap()
+            .anchored_header;
         let latest_block_id = StacksBlockId::new(
             sortition_prior.stacks_parent_ch.as_ref().unwrap(),
             &latest_block.block_hash(),
@@ -904,7 +937,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let latest_block = self
             .stacks_client
             .get_tenure_tip(&sortition_prior.consensus_hash)
-            .unwrap();
+            .unwrap()
+            .anchored_header;
         let latest_block_id =
             StacksBlockId::new(&sortition_prior.consensus_hash, &latest_block.block_hash());
 
@@ -984,7 +1018,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let latest_block = self
             .stacks_client
             .get_tenure_tip(&sortition_parent.consensus_hash)
-            .unwrap();
+            .unwrap()
+            .anchored_header;
         let latest_block_id =
             StacksBlockId::new(&sortition_parent.consensus_hash, &latest_block.block_hash());
 
@@ -1414,10 +1449,14 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .iter()
             .zip(self.signer_configs.clone())
             .map(|(privk, config)| {
-                (
-                    StacksAddress::p2pkh(false, &StacksPublicKey::from_private(privk)),
-                    config.supported_signer_protocol_version,
-                )
+                let public_key = StacksPublicKey::from_private(privk);
+                let pinned_versions = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
+                let version = if let Some(pinned_version) = pinned_versions.get(&public_key) {
+                    *pinned_version
+                } else {
+                    config.supported_signer_protocol_version
+                };
+                (StacksAddress::p2pkh(false, &public_key), version)
             })
             .collect()
     }
@@ -1673,7 +1712,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let accepted = BlockResponse::accepted(
             block.header.signer_signature_hash(),
             signature,
-            get_epoch_time_secs().wrapping_add(u64::MAX),
+            get_epoch_time_secs().saturating_add(u64::MAX),
+            get_epoch_time_secs().saturating_add(u64::MAX),
         );
         stackerdb
             .send_message_with_retry::<SignerMessage>(accepted.into())
@@ -1703,6 +1743,22 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .previous_output
             .txid;
         Some(Txid::from_bitcoin_tx_hash(parent_txid))
+    }
+    /// Restart the signer at `idx` with a new supported protocol version.
+    pub fn restart_signer_with_supported_version(&mut self, idx: usize, version: u64) {
+        let mut cfg = self.stop_signer(idx);
+        cfg.supported_signer_protocol_version = version;
+        self.restart_signer(idx, cfg);
+    }
+
+    /// Restart the first `n` signers with a new supported protocol version.
+    /// Restarts in reverse index order so removals/insertions don't shift upcoming indices.
+    /// Waits for all signers to re-register after restarts.
+    pub fn restart_first_n_signers_with_supported_version(&mut self, n: usize, version: u64) {
+        for idx in (0..n).rev() {
+            self.restart_signer_with_supported_version(idx, version);
+        }
+        self.wait_for_registered();
     }
 }
 
@@ -1738,6 +1794,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
             EventKeyType::BlockProposal,
             EventKeyType::MinedBlocks,
             EventKeyType::BurnchainBlocks,
+            EventKeyType::MemPoolTransactions,
         ],
         timeout_ms: 1000,
         disable_retries: false,

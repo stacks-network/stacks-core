@@ -21,7 +21,7 @@ use clarity::vm::database::sqlite::{
     sqlite_insert_metadata,
 };
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
-use clarity::vm::errors::{InterpreterError, InterpreterResult, RuntimeErrorType};
+use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite;
 use rusqlite::Connection;
@@ -67,8 +67,8 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// disappear when this instance is dropped
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip() {
             self.teardown_views();
             let res =
@@ -85,8 +85,8 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// unless the RAM-only sqlite DB is experiencing problems (which is probably not recoverable).
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         self.teardown_views();
         let res = SqliteConnection::drop_metadata(self.ephemeral_marf.sqlite_tx(), target);
         self.setup_views();
@@ -111,8 +111,8 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// transaction, so no disk I/O will be performed.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn drop_unconfirmed(mut self) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn drop_unconfirmed(mut self) -> Result<(), VmExecutionError> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip().cloned() {
             debug!("Drop unconfirmed MARF trie {}", tip);
             self.drop_metadata_for_trie(&tip)?;
@@ -127,13 +127,13 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// motions just in case any errors would be reported.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn commit_to_processed_block(mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn commit_to_processed_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         if self.ephemeral_marf.get_open_chain_tip().is_some() {
             self.commit_metadata_for_trie(target)?;
             let _ = self.ephemeral_marf.commit_to(target).map_err(|e| {
                 error!("Failed to commit to ephemeral MARF block {target}: {e:?}",);
-                InterpreterError::Expect("Failed to commit to MARF block".into())
+                VmInternalError::Expect("Failed to commit to MARF block".into())
             })?;
         }
         Ok(())
@@ -145,8 +145,8 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// motions just in case any errors would be reported.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn commit_to_mined_block(mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn commit_to_mined_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip().cloned() {
             // rollback the side_store
             //    the side_store shouldn't commit data for blocks that won't be
@@ -156,7 +156,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
             self.drop_metadata_for_trie(&tip)?;
             let _ = self.ephemeral_marf.commit_mined(target).map_err(|e| {
                 error!("Failed to commit to mined MARF block {target}: {e:?}",);
-                InterpreterError::Expect("Failed to commit to MARF block".into())
+                VmInternalError::Expect("Failed to commit to MARF block".into())
             })?;
         }
         Ok(())
@@ -246,11 +246,11 @@ impl<'a> EphemeralMarfStore<'a> {
     }
 
     /// Test to see if a given tip is in the ephemeral MARF
-    fn is_ephemeral_tip(&mut self, tip: &StacksBlockId) -> Result<bool, InterpreterError> {
+    fn is_ephemeral_tip(&mut self, tip: &StacksBlockId) -> Result<bool, VmInternalError> {
         match self.ephemeral_marf.get_root_hash_at(tip) {
             Ok(_) => Ok(true),
             Err(Error::NotFoundError) => Ok(false),
-            Err(e) => Err(InterpreterError::MarfFailure(e.to_string())),
+            Err(e) => Err(VmInternalError::MarfFailure(e.to_string())),
         }
     }
 
@@ -313,15 +313,15 @@ impl<'a> EphemeralMarfStore<'a> {
         }
     }
 
-    /// Helper function to cast a Result<Option<T>, Error> into InterpreterResult<Option<T>>
-    fn handle_marf_result<T>(res: Result<Option<T>, Error>) -> InterpreterResult<Option<T>> {
+    /// Helper function to cast a Result<Option<T>, Error> into Result<Option<T>, VmExecutionError>
+    fn handle_marf_result<T>(res: Result<Option<T>, Error>) -> Result<Option<T>, VmExecutionError> {
         match res {
             Ok(result_opt) => Ok(result_opt),
             Err(Error::NotFoundError) => {
                 trace!("Ephemeral MarfedKV get not found",);
                 Ok(None)
             }
-            Err(e) => Err(InterpreterError::Expect(format!(
+            Err(e) => Err(VmInternalError::Expect(format!(
                 "ERROR: Unexpected MARF failure: {e:?}"
             ))
             .into()),
@@ -334,20 +334,20 @@ impl<'a> EphemeralMarfStore<'a> {
     ///
     /// Returns Ok(Some(V)) if the key was mapped in eiher MARF
     /// Returns Ok(None) if the key was not mapped in either MARF
-    /// Returns Err(InterpreterError(..)) on failure.
+    /// Returns Err(VmInternalError(..)) on failure.
     fn get_with_fn<Key, V, TxGetter, MarfGetter>(
         &mut self,
         key: Key,
         tx_getter: TxGetter,
         marf_getter: MarfGetter,
-    ) -> InterpreterResult<Option<V>>
+    ) -> Result<Option<V>, VmExecutionError>
     where
         TxGetter: FnOnce(
             &mut MarfTransaction<StacksBlockId>,
             &StacksBlockId,
             Key,
-        ) -> InterpreterResult<Option<V>>,
-        MarfGetter: FnOnce(&mut ReadOnlyMarfStore, Key) -> InterpreterResult<Option<V>>,
+        ) -> Result<Option<V>, VmExecutionError>,
+        MarfGetter: FnOnce(&mut ReadOnlyMarfStore, Key) -> Result<Option<V>, VmExecutionError>,
         Key: std::fmt::Debug + Copy,
     {
         let value_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
@@ -378,7 +378,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Returns Ok(old-chain-tip) on success.
     /// Returns Err(..) if the given chain tip does not exist or is on a different fork (e.g. is
     /// not an ancestor of this struct's tip).
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError> {
         if self.is_ephemeral_tip(&bhh)? {
             // open the disk-backed MARF to the base tip, so we can carry out reads on disk-backed
             // data in the event that a read on a key is `None` for the ephemeral MARF.
@@ -397,7 +397,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
             .map_err(|e| match e {
                 Error::NotFoundError => {
                     test_debug!("No such block {:?} (NotFoundError)", &bhh);
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 Error::NonMatchingForks(_bh1, _bh2) => {
                     test_debug!(
@@ -406,7 +406,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                         BlockHeaderHash(_bh1),
                         BlockHeaderHash(_bh2)
                     );
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
@@ -427,7 +427,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Returns Ok(Some(value)) if the key was mapped to the given value at the opened chain tip.
     /// Returns Ok(None) if the key was not mapped to the given value at the opened chain tip.
     /// Returns Err(..) on all other failures.
-    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
         trace!(
             "Ephemeral MarfedKV get_data: {key:?} tip={:?}",
             &self.open_tip
@@ -441,7 +441,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 let side_key = marf_value.to_hex();
                 let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
                     .ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {side_key}",
                         ))
                     })?;
@@ -455,7 +455,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Returns Ok(Some(value)) if the key was mapped to the given value at the opeend chain tip.
     /// Returns Ok(None) if the key was not mapped to the given value at the opened chain tip.
     /// Returns Err(..) on all other failures
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>, VmExecutionError> {
         trace!(
             "Ephemeral MarfedKV get_from_hash: {:?} tip={:?}",
             hash,
@@ -477,7 +477,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 );
                 let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
                     .ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                         "ERROR: Ephemeral MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -492,7 +492,10 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Returns Ok(Some(value)) if the key was mapped to the given value at the opened chain tip.
     /// Returns Ok(None) if the key was not mapped to the given value at the opened chain tip.
     /// Returns Err(..) on all other failures
-    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         trace!(
             "Ephemeral MarfedKV get_data_with_proof: '{}' tip={:?}",
             key,
@@ -509,7 +512,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 let side_key = marf_value.to_hex();
                 let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
                     .ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -527,7 +530,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         trace!(
             "Ephemeral MarfedKV get_data_with_proof_from_hash: {:?} tip={:?}",
             hash,
@@ -544,7 +547,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 let side_key = marf_value.to_hex();
                 let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
                     .ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -676,7 +679,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Write all (key, value) pairs to the ephemeral MARF.
     /// Returns Ok(()) on success
     /// Returns Err(..) on inner MARF errors.
-    fn put_all_data(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
         let mut keys = Vec::with_capacity(items.len());
         let mut values = Vec::with_capacity(items.len());
 
@@ -721,7 +724,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
         sqlite_get_contract_hash(self, contract)
     }
 
@@ -736,7 +739,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> InterpreterResult<()> {
+    ) -> Result<(), VmExecutionError> {
         self.teardown_views();
         let res = sqlite_insert_metadata(self, contract, key, value);
         self.setup_views();
@@ -752,7 +755,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata(self, contract, key)
     }
 
@@ -766,7 +769,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }

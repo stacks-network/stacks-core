@@ -114,6 +114,7 @@ fn ClarityVersion_consensus_serialize<W: Write>(
         ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
         ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
         ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
+        ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
     }
     Ok(())
 }
@@ -127,6 +128,7 @@ fn ClarityVersion_consensus_deserialize<R: Read>(
         2u8 => Ok(ClarityVersion::Clarity2),
         3u8 => Ok(ClarityVersion::Clarity3),
         4u8 => Ok(ClarityVersion::Clarity4),
+        5u8 => Ok(ClarityVersion::Clarity5),
         _ => Err(codec_error::DeserializeError(format!(
             "Unrecognized ClarityVersion byte {}",
             &version_byte
@@ -155,19 +157,32 @@ impl StacksMessageCodec for TenureChangePayload {
         write_next(fd, &self.burn_view_consensus_hash)?;
         write_next(fd, &self.previous_tenure_end)?;
         write_next(fd, &self.previous_tenure_blocks)?;
-        write_next(fd, &self.cause)?;
+        write_next(fd, &self.cause.as_u8())?;
         write_next(fd, &self.pubkey_hash)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let tenure_consensus_hash = read_next(fd)?;
+        let prev_tenure_consensus_hash = read_next(fd)?;
+        let burn_view_consensus_hash = read_next(fd)?;
+        let previous_tenure_end = read_next(fd)?;
+        let previous_tenure_blocks = read_next(fd)?;
+        let cause_field: u8 = read_next(fd)?;
+        let cause = TenureChangeCause::try_from(cause_field).map_err(|_| {
+            codec_error::DeserializeError(format!(
+                "Unknown cause byte in TenureChange payload: {cause_field}"
+            ))
+        })?;
+        let pubkey_hash = read_next(fd)?;
+
         Ok(Self {
-            tenure_consensus_hash: read_next(fd)?,
-            prev_tenure_consensus_hash: read_next(fd)?,
-            burn_view_consensus_hash: read_next(fd)?,
-            previous_tenure_end: read_next(fd)?,
-            previous_tenure_blocks: read_next(fd)?,
-            cause: read_next(fd)?,
-            pubkey_hash: read_next(fd)?,
+            tenure_consensus_hash,
+            prev_tenure_consensus_hash,
+            burn_view_consensus_hash,
+            previous_tenure_end,
+            previous_tenure_blocks,
+            cause,
+            pubkey_hash,
         })
     }
 }
@@ -633,6 +648,9 @@ impl StacksTransaction {
             }
             x if x == TransactionPostConditionMode::Deny as u8 => {
                 TransactionPostConditionMode::Deny
+            }
+            x if x == TransactionPostConditionMode::Originator as u8 => {
+                TransactionPostConditionMode::Originator
             }
             _ => {
                 warn!("Invalid tx: invalid post condition mode");
@@ -1823,14 +1841,12 @@ mod test {
             ));
 
         let mut corrupt_tx_post_condition_mode = signed_tx.clone();
-        corrupt_tx_post_condition_mode.post_condition_mode = if corrupt_tx_post_condition_mode
-            .post_condition_mode
-            == TransactionPostConditionMode::Allow
-        {
-            TransactionPostConditionMode::Deny
-        } else {
-            TransactionPostConditionMode::Allow
-        };
+        corrupt_tx_post_condition_mode.post_condition_mode =
+            match corrupt_tx_post_condition_mode.post_condition_mode {
+                TransactionPostConditionMode::Allow => TransactionPostConditionMode::Deny,
+                TransactionPostConditionMode::Deny => TransactionPostConditionMode::Originator,
+                TransactionPostConditionMode::Originator => TransactionPostConditionMode::Allow,
+            };
 
         // mess with payload
         let mut corrupt_tx_payload = signed_tx.clone();
@@ -3591,6 +3607,116 @@ mod test {
                 check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
             }
         }
+    }
+
+    #[test]
+    fn tx_stacks_postcondition_nft_maybe_sent_codec() {
+        let postcondition = TransactionPostCondition::Nonfungible(
+            PostConditionPrincipal::Origin,
+            AssetInfo {
+                contract_address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
+                contract_name: ContractName::try_from("contract-name").unwrap(),
+                asset_name: ClarityName::try_from("hello-asset").unwrap(),
+            },
+            Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
+            NonfungibleConditionCode::MaybeSent,
+        );
+
+        let mut postcondition_bytes = vec![];
+        postcondition
+            .consensus_serialize(&mut postcondition_bytes)
+            .unwrap();
+
+        #[rustfmt::skip]
+        let expected_bytes = vec![
+            // asset info id
+            0x02,
+            // principal id (origin)
+            0x01,
+            // contract address (version 1, Hash160([0x11; 20]))
+            0x01,
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            // contract name "contract-name"
+            0x0d, b'c', b'o', b'n', b't', b'r', b'a', b'c', b't', b'-', b'n', b'a', b'm', b'e',
+            // asset name "hello-asset"
+            0x0b, b'h', b'e', b'l', b'l', b'o', b'-', b'a', b's', b's', b'e', b't',
+            // clarity value: buffer (type prefix 0x02, length 4, data [0,1,2,3])
+            0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x01, 0x02, 0x03,
+            // condition code (MaybeSent)
+            0x12,
+        ];
+        assert_eq!(postcondition_bytes, expected_bytes);
+
+        check_codec_and_corruption::<TransactionPostCondition>(
+            &postcondition,
+            &postcondition_bytes,
+        );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_codec_originator_mode_and_nft_maybe_sent() {
+        let auth = TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap();
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::new_contract_call(
+                StacksAddress::new(1, Hash160([0x22; 20])).unwrap(),
+                "hello",
+                "world",
+                vec![Value::Int(1)],
+            )
+            .unwrap(),
+        );
+
+        tx.post_condition_mode = TransactionPostConditionMode::Originator;
+        tx.post_conditions
+            .push(TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, Hash160([0x33; 20])).unwrap(),
+                    contract_name: ContractName::try_from("contract-name").unwrap(),
+                    asset_name: ClarityName::try_from("hello-asset").unwrap(),
+                },
+                Value::buff_from(vec![4, 5, 6, 7]).unwrap(),
+                NonfungibleConditionCode::MaybeSent,
+            ));
+
+        let mut tx_bytes = vec![];
+        tx.consensus_serialize(&mut tx_bytes).unwrap();
+
+        // Check the post-condition bytes directly within the serialized transaction
+        #[rustfmt::skip]
+        let expected_pc_bytes: &[u8] = &[
+            // post-condition mode (Originator)
+            0x03,
+            // post-conditions length prefix (1 item)
+            0x00, 0x00, 0x00, 0x01,
+            // asset info id (NonfungibleAsset)
+            0x02,
+            // principal id (origin)
+            0x01,
+            // contract address (version 1, Hash160([0x33; 20]))
+            0x01,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            // contract name "contract-name"
+            0x0d, b'c', b'o', b'n', b't', b'r', b'a', b'c', b't', b'-', b'n', b'a', b'm', b'e',
+            // asset name "hello-asset"
+            0x0b, b'h', b'e', b'l', b'l', b'o', b'-', b'a', b's', b's', b'e', b't',
+            // clarity value: buffer (type prefix 0x02, length 4, data [4,5,6,7])
+            0x02, 0x00, 0x00, 0x00, 0x04, 0x04, 0x05, 0x06, 0x07,
+            // condition code (MaybeSent)
+            0x12,
+        ];
+        assert!(
+            tx_bytes
+                .windows(expected_pc_bytes.len())
+                .any(|w| w == expected_pc_bytes),
+            "Expected post-condition bytes not found in serialized transaction"
+        );
+
+        check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
     }
 
     #[test]

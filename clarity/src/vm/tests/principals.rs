@@ -1,3 +1,17 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
@@ -5,14 +19,14 @@ use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     SequenceData, StandardPrincipalData, TupleData, Value,
 };
+use crate::vm::{ClarityVersion, execute_with_parameters};
 #[cfg(test)]
 use crate::vm::{
-    errors::CheckErrors,
+    errors::RuntimeCheckErrorKind,
     functions::principals::PrincipalConstructErrorCode,
     types::TypeSignature::PrincipalType,
     types::{ResponseData, TypeSignature},
 };
-use crate::vm::{execute_with_parameters, ClarityVersion};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {
@@ -25,7 +39,11 @@ fn test_simple_is_standard_check_inputs() {
             true
         )
         .unwrap_err(),
-        CheckErrors::TypeValueError(Box::new(PrincipalType), Box::new(Value::UInt(10)),).into()
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(PrincipalType),
+            Value::UInt(10).to_error_string()
+        )
+        .into()
     );
 }
 
@@ -898,18 +916,19 @@ fn test_principal_construct_version_byte_future() {
 }
 
 #[test]
-// Test cases where the wrong type should be a `CheckErrors` error, because it should have been
+// Test cases where the wrong type should be a `RuntimeCheckErrorKind` error, because it should have been
 // caught by the type checker.
-fn test_principal_construct_check_errors() {
+fn test_principal_construct_runtime_check_errors() {
     // The version bytes 0x5904934 are invalid. Should have been caught by type checker so use
-    // `CheckErrors`.
+    // `RuntimeCheckErrorKind`.
     let input = r#"(principal-construct? 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("590493").unwrap()
-            }))),
+            }))
+            .to_error_string(),
         )
         .into()),
         execute_with_parameters(
@@ -921,12 +940,12 @@ fn test_principal_construct_check_errors() {
     );
 
     // u22 is not a byte buffer, so is invalid. Should have been caught by type checker so use
-    // `CheckErrors`.
+    // `RuntimeCheckErrorKind`.
     let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(Value::UInt(22)),
+            Value::UInt(22).to_error_string(),
         )
         .into()),
         execute_with_parameters(
@@ -937,7 +956,7 @@ fn test_principal_construct_check_errors() {
         )
     );
 
-    // Hash key part is too large, should have length 20. This is a `CheckErrors` error because it
+    // Hash key part is too large, should have length 20. This is a `RuntimeCheckErrorKind` error because it
     // should have been caught by the type checker.
     let input = r#"(principal-construct? 0x16 0x010203040506070809101112131415161718192021)"#;
     assert_eq!(
@@ -948,11 +967,12 @@ fn test_principal_construct_check_errors() {
             false
         )
         .unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_20),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
-            }))),
+            }))
+            .to_error_string(),
         )
         .into()
     );
@@ -960,15 +980,14 @@ fn test_principal_construct_check_errors() {
     // Name is too long, which should have been caught by the type-checker
     let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                        .as_bytes()
-                        .to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    .as_bytes()
+                    .to_vec()
+            })))
+            .to_error_string()
         )
         .into()),
         execute_with_parameters(

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -204,19 +204,19 @@ macro_rules! define_versioned_named_enum_internal {
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! guarded_string {
-    ($Name:ident, $Label:literal, $Regex:expr, $MaxStringLength:expr, $ErrorType:ty, $ErrorVariant:path) => {
+    ($Name:ident, $Regex:expr, $MaxStringLength:expr, $ErrorType:ty, $ErrorVariant:path) => {
         #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $Name(String);
         impl TryFrom<String> for $Name {
             type Error = $ErrorType;
             fn try_from(value: String) -> Result<Self, Self::Error> {
                 if value.len() > ($MaxStringLength as usize) {
-                    return Err($ErrorVariant($Label, value));
+                    return Err($ErrorVariant(value));
                 }
                 if $Regex.is_match(&value) {
                     Ok(Self(value))
                 } else {
-                    Err($ErrorVariant($Label, value))
+                    Err($ErrorVariant(value))
                 }
             }
         }
@@ -426,8 +426,8 @@ macro_rules! impl_array_newtype {
             }
         }
 
+        #[allow(clippy::non_canonical_clone_impl)]
         impl Clone for $thing {
-            #[allow(clippy::non_canonical_clone_impl)]
             fn clone(&self) -> Self {
                 $thing(self.0.clone())
             }
@@ -587,18 +587,17 @@ macro_rules! impl_byte_array_newtype {
             /// Convert to a hex string
             #[allow(dead_code)]
             pub fn to_hex(&self) -> String {
-                use $crate::util::hash::to_hex;
-                to_hex(&self.0)
+                $crate::util::hash::to_hex(&self.0)
             }
         }
         impl std::fmt::LowerHex for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}", self.to_hex())
+                f.write_str(&self.to_hex())
             }
         }
         impl std::fmt::Display for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}", self.to_hex())
+                f.write_str(&self.to_hex())
             }
         }
         impl std::convert::AsRef<[u8]> for $thing {
@@ -755,11 +754,21 @@ macro_rules! impl_byte_array_rusqlite_only {
     };
 }
 
-// Test hepler to get the name of the current function.
+/// Test helper to get the full name of the current function.
+#[cfg(any(test, feature = "testing"))]
 #[macro_export]
 macro_rules! function_name {
     () => {
         stdext::function_name!()
+    };
+}
+
+/// Test helper to get the name of the current function (without the namespace)
+#[cfg(any(test, feature = "testing"))]
+#[macro_export]
+macro_rules! function_name_no_ns {
+    () => {
+        function_name!().split("::").last().unwrap();
     };
 }
 

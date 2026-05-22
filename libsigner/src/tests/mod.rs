@@ -26,7 +26,7 @@ use std::{mem, thread};
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
-use clarity::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey, TrieHash};
+use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use libstackerdb::StackerDBChunkData;
@@ -174,11 +174,12 @@ fn test_simple_signer() {
     let sent_events: Vec<SignerEvent<SignerMessage>> = chunks
         .iter()
         .map(|event| {
-            let messages: Vec<(StacksPublicKey, SignerMessage)> = event
+            let messages: Vec<_> = event
                 .modified_slots
                 .iter()
                 .filter_map(|chunk| {
                     Some((
+                        chunk.slot_id,
                         chunk.recover_pk().ok()?,
                         read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok()?,
                     ))

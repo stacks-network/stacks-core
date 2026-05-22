@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,16 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity_types::types::MAX_TO_ASCII_BUFFER_LEN;
+use proptest::prelude::*;
 use stacks_common::types::StacksEpochId;
 
-pub use crate::vm::analysis::errors::CheckErrors;
+pub use crate::vm::analysis::errors::RuntimeCheckErrorKind;
+use crate::vm::tests::proptest_utils::{
+    contract_name_strategy, execute_versioned, standard_principal_strategy,
+    to_ascii_buffer_snippet_strategy, utf8_string_ascii_only_snippet_strategy,
+    utf8_string_snippet_strategy,
+};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use crate::vm::{execute_v2, execute_with_parameters, ClarityVersion};
+use crate::vm::{ClarityVersion, execute_v2, execute_with_parameters};
 
 #[test]
 fn test_simple_buff_to_int_le() {
@@ -48,22 +54,21 @@ fn test_simple_buff_to_int_le() {
         "(buff-to-int-le \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
     assert_eq!(
         execute_v2(bad_wrong_number_test).unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()
     );
 
     // Right number of arguments, but wrong type.
     let bad_wrong_type_test = "(buff-to-int-le \"wrong-type\")";
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "wrong-type".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "wrong-type".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -72,13 +77,14 @@ fn test_simple_buff_to_int_le() {
     let bad_too_large_test = "(buff-to-int-le 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
-            })))
+            }))
+            .to_error_string()
         )
         .into()
     );
@@ -106,22 +112,21 @@ fn test_simple_buff_to_uint_le() {
         "(buff-to-uint-le \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
     assert_eq!(
         execute_v2(bad_wrong_number_test).unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()
     );
 
     // Right number of arguments, but wrong type.
     let bad_wrong_type_test = "(buff-to-uint-le \"wrong-type\")";
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "wrong-type".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "wrong-type".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -130,13 +135,14 @@ fn test_simple_buff_to_uint_le() {
     let bad_too_large_test = "(buff-to-uint-le 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
-            })))
+            }))
+            .to_error_string()
         )
         .into()
     );
@@ -164,22 +170,21 @@ fn test_simple_buff_to_int_be() {
         "(buff-to-int-be \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
     assert_eq!(
         execute_v2(bad_wrong_number_test).unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()
     );
 
     // Right number of arguments, but wrong type.
     let bad_wrong_type_test = "(buff-to-int-be \"wrong-type\")";
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "wrong-type".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "wrong-type".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -188,13 +193,14 @@ fn test_simple_buff_to_int_be() {
     let bad_too_large_test = "(buff-to-int-be 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
-            })))
+            }))
+            .to_error_string()
         )
         .into()
     );
@@ -222,22 +228,21 @@ fn test_simple_buff_to_uint_be() {
         "(buff-to-uint-be \"not-needed\" 0xfffffffffffffffffffffffffffffffe)";
     assert_eq!(
         execute_v2(bad_wrong_number_test).unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()
     );
 
     // Right number of arguments, but wrong type.
     let bad_wrong_type_test = "(buff-to-uint-be \"wrong-type\")";
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "wrong-type".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "wrong-type".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -246,13 +251,14 @@ fn test_simple_buff_to_uint_be() {
     let bad_too_large_test = "(buff-to-uint-be 0x000102030405060708090a0b0c0d0e0f00)";
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
-        CheckErrors::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
-            })))
+            }))
+            .to_error_string()
         )
         .into()
     );
@@ -306,18 +312,18 @@ fn test_simple_string_to_int() {
     let no_args_test = r#"(string-to-int?)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into()
     );
 
     let wrong_type_error_test = r#"(string-to-int? 1)"#;
     assert_eq!(
         execute_v2(wrong_type_error_test).unwrap_err(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(Value::Int(1))
+            Value::Int(1).to_error_string()
         )
         .into()
     );
@@ -371,18 +377,18 @@ fn test_simple_string_to_uint() {
     let no_args_test = r#"(string-to-uint?)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into()
     );
 
     let wrong_type_error_test = r#"(string-to-uint? 1)"#;
     assert_eq!(
         execute_v2(wrong_type_error_test).unwrap_err(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(Value::Int(1))
+            Value::Int(1).to_error_string()
         )
         .into()
     );
@@ -405,19 +411,18 @@ fn test_simple_int_to_ascii() {
     let no_args_test = r#"(int-to-ascii)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into()
     );
 
     let wrong_type_error_test = r#"(int-to-ascii "1")"#;
     assert_eq!(
         execute_v2(wrong_type_error_test).unwrap_err(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "1".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "1".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -440,19 +445,18 @@ fn test_simple_int_to_utf8() {
     let no_args_test = r#"(int-to-utf8)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into()
     );
 
     let wrong_type_error_test = r#"(int-to-utf8 "1")"#;
     assert_eq!(
         execute_v2(wrong_type_error_test).unwrap_err(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "1".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "1".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -585,7 +589,176 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
         "(to-ascii? 0x{})",
         "ff".repeat(MAX_TO_ASCII_BUFFER_LEN as usize + 1)
     );
-    let result = execute_with_parameters(response_to_ascii, version, epoch, false);
+    let result = execute_with_parameters(&oversized_buffer_to_ascii, version, epoch, false);
     // This should fail at analysis time since the value is too big
     assert!(result.is_err());
+}
+
+#[apply(test_clarity_versions)]
+fn test_from_consensus_buff_unexpected_serialization_epoch_gate(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) {
+    // `from-consensus-buff?` is only available in Clarity 2 and later
+    if version < ClarityVersion::Clarity2 {
+        return;
+    }
+
+    let invalid_principal = "0x05200000000000000000000000000000000000000000";
+    let program = format!("(from-consensus-buff? principal {invalid_principal})");
+
+    let result = execute_with_parameters(&program, version, epoch, false);
+
+    if epoch.treats_unexpected_serialization_as_none() {
+        let value = result
+            .expect("Epoch34 should allow from-consensus-buff? to succeed")
+            .expect("from-consensus-buff? should return a value");
+        assert_eq!(value, Value::none());
+        return;
+    }
+    let err = result.expect_err("Epoch33 should treat unexpected serialization as an error");
+    assert_eq!(
+        err,
+        RuntimeCheckErrorKind::Unreachable("UnexpectedSerialization".into()).into()
+    );
+}
+
+fn evaluate_to_ascii(snippet: &str) -> Value {
+    execute_versioned(snippet, ClarityVersion::latest())
+        .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
+        .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"))
+}
+
+proptest! {
+    #[test]
+    fn prop_to_ascii_from_ints(int_value in any::<i128>()) {
+        let snippet = format!("(to-ascii? {int_value})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(int_value.to_string().into_bytes())
+            .expect("int string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_uints(uint_value in any::<u128>()) {
+        let snippet = format!("(to-ascii? u{uint_value})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(format!("u{uint_value}").into_bytes())
+            .expect("uint string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_bools(bool_value in any::<bool>()) {
+        let literal = if bool_value { "true" } else { "false" };
+        let snippet = format!("(to-ascii? {literal})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(literal.as_bytes().to_vec())
+            .expect("bool string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_standard_principals(principal in standard_principal_strategy()) {
+        let literal = format!("'{}", principal);
+        let snippet = format!("(to-ascii? {literal})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(principal.to_string().into_bytes())
+            .expect("principal string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_contract_principals(
+        issuer in standard_principal_strategy(),
+        contract_name in contract_name_strategy(),
+    ) {
+        let contract_name_str = contract_name.to_string();
+        let literal = format!("'{}.{}", issuer, contract_name_str);
+        let snippet = format!("(to-ascii? {literal})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(
+            format!("{}.{}", issuer, contract_name_str).into_bytes()
+        )
+        .expect("contract principal string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_buffers(buffer in to_ascii_buffer_snippet_strategy()) {
+        let snippet = format!("(to-ascii? {buffer})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(buffer.to_string().into_bytes())
+            .expect("buffer string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_ascii_utf8_strings(utf8_string in utf8_string_ascii_only_snippet_strategy()) {
+        let snippet = format!("(to-ascii? {utf8_string})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let ascii_snippet = &utf8_string[1..]; // Remove the u prefix
+        let expected_inner = execute_versioned(ascii_snippet, ClarityVersion::latest())
+            .unwrap_or_else(|e| panic!("Execution failed for `{ascii_snippet}`: {e:?}"))
+            .unwrap_or_else(|| panic!("Execution returned no value for `{ascii_snippet}`"));
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_utf8_strings(utf8_string in utf8_string_snippet_strategy()) {
+        let snippet = format!("(to-ascii? {utf8_string})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let literal_value = execute_versioned(&utf8_string, ClarityVersion::latest())
+            .unwrap_or_else(|e| panic!("Execution failed for literal `{utf8_string}`: {e:?}"))
+            .unwrap_or_else(|| panic!("Execution returned no value for literal `{utf8_string}`"));
+
+        let utf8_chars = match &literal_value {
+            Value::Sequence(SequenceData::String(CharType::UTF8(data))) => data.data.clone(),
+            _ => panic!("Expected UTF-8 string literal, got `{literal_value:?}`"),
+        };
+        let is_ascii = utf8_chars
+            .iter()
+            .all(|char_bytes| char_bytes.len() == 1 && char_bytes[0].is_ascii());
+
+        if is_ascii {
+            let ascii_bytes: Vec<u8> = utf8_chars
+                .iter()
+                .map(|char_bytes| char_bytes[0])
+                .collect();
+            match Value::string_ascii_from_bytes(ascii_bytes) {
+                Ok(expected_inner) => {
+                    let expected = Value::okay(expected_inner)
+                        .expect("response wrapping should succeed");
+                    prop_assert_eq!(expected, evaluation);
+                }
+                Err(_) => {
+                    prop_assert_eq!(Value::err_uint(1), evaluation);
+                }
+            }
+        } else {
+            prop_assert_eq!(Value::err_uint(1), evaluation);
+        }
+    }
 }

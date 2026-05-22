@@ -212,7 +212,7 @@ pub struct NakamotoTenureEventId {
 
 /// Nakamto tenure event.  Something happened to the tenure stream, and this struct encodes it (be
 /// it a new tenure was started, or the current tenure was extended).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct NakamotoTenureEvent {
     /// consensus hash of start-tenure block
     pub tenure_id_consensus_hash: ConsensusHash,
@@ -231,6 +231,22 @@ pub struct NakamotoTenureEvent {
     pub coinbase_height: u64,
     /// number of blocks this tenure confirms
     pub num_blocks_confirmed: u32,
+}
+
+/// NB This PartialEq implementation is necessary because TenureChangeCause does not implement
+/// PartialEq, in order to ensure that every possible extension mode is considered where
+/// appropriate.
+impl PartialEq for NakamotoTenureEvent {
+    fn eq(&self, other: &Self) -> bool {
+        self.tenure_id_consensus_hash == other.tenure_id_consensus_hash
+            && self.prev_tenure_id_consensus_hash == other.prev_tenure_id_consensus_hash
+            && self.burn_view_consensus_hash == other.burn_view_consensus_hash
+            && self.cause.is_eq(&other.cause)
+            && self.block_hash == other.block_hash
+            && self.block_id == other.block_id
+            && self.coinbase_height == other.coinbase_height
+            && self.num_blocks_confirmed == other.num_blocks_confirmed
+    }
 }
 
 impl FromRow<NakamotoTenureEvent> for NakamotoTenureEvent {
@@ -696,7 +712,12 @@ impl NakamotoChainState {
                         return Ok(None);
                     }
                 }
-                TenureChangeCause::Extended => {
+                TenureChangeCause::Extended
+                | TenureChangeCause::ExtendedRuntime
+                | TenureChangeCause::ExtendedReadCount
+                | TenureChangeCause::ExtendedReadLength
+                | TenureChangeCause::ExtendedWriteCount
+                | TenureChangeCause::ExtendedWriteLength => {
                     // prev and current tenure consensus hashes must be identical
                     if prev_sn.consensus_hash != tenure_sn.consensus_hash {
                         warn!("Invalid tenure-change extension: parent snapshot is not the same as the current tenure snapshot"; "tenure_consensus_hash" => %tenure_payload.tenure_consensus_hash, "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
@@ -765,7 +786,12 @@ impl NakamotoChainState {
                     return Ok(None);
                 }
             }
-            TenureChangeCause::Extended => {
+            TenureChangeCause::Extended
+            | TenureChangeCause::ExtendedRuntime
+            | TenureChangeCause::ExtendedReadCount
+            | TenureChangeCause::ExtendedReadLength
+            | TenureChangeCause::ExtendedWriteCount
+            | TenureChangeCause::ExtendedWriteLength => {
                 // tenure extensions don't begin a new tenure (since the miner isn't changing), so
                 // the tenure consensus hash must be the same as the previous tenure consensus hash
                 if tenure_payload.tenure_consensus_hash != tenure_payload.prev_tenure_consensus_hash
@@ -825,7 +851,12 @@ impl NakamotoChainState {
                     .checked_add(1)
                     .expect("FATAL: too many tenures")
             }
-            TenureChangeCause::Extended => {
+            TenureChangeCause::Extended
+            | TenureChangeCause::ExtendedRuntime
+            | TenureChangeCause::ExtendedReadCount
+            | TenureChangeCause::ExtendedReadLength
+            | TenureChangeCause::ExtendedWriteCount
+            | TenureChangeCause::ExtendedWriteLength => {
                 // tenure height does not advance
                 parent_coinbase_height
             }

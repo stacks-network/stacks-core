@@ -122,26 +122,24 @@ export class Stub {
           (stackerAddress) =>
             this.stackers.get(stackerAddress)!.delegatedUntilBurnHt !==
               undefined &&
-            this.stackers.get(stackerAddress)!.delegatedUntilBurnHt as number <
-              burnBlockHeight,
+            (this.stackers.get(stackerAddress)!
+              .delegatedUntilBurnHt as number) < burnBlockHeight,
         );
 
-        // Get the operator's pool stackers that no longer have partially commited
+        // Get the operator's pool stackers that no longer have partially committed
         // STX for the next reward cycle by comparing their unlock height to
         // the next reward cycle's first block (only if the wallet is an operator).
-        const stackersToRemoveAmountToCommit = wallet.lockedAddresses.filter((
-          stackerAddress,
-        ) =>
-          this.stackers.get(stackerAddress)!.unlockHeight <=
-            burnBlockHeight + REWARD_CYCLE_LENGTH
+        const stackersToRemoveAmountToCommit = wallet.lockedAddresses.filter(
+          (stackerAddress) =>
+            this.stackers.get(stackerAddress)!.unlockHeight <=
+            burnBlockHeight + REWARD_CYCLE_LENGTH,
         );
 
         // Get the operator's ex-pool stackers by comparing their unlockHeight to
         // the current burn block height (only if the wallet is an operator).
         const expiredStackers = wallet.lockedAddresses.filter(
           (stackerAddress) =>
-            this.stackers.get(stackerAddress)!.unlockHeight <=
-              burnBlockHeight,
+            this.stackers.get(stackerAddress)!.unlockHeight <= burnBlockHeight,
         );
 
         // For each remaining pool stacker (if any), increase the operator's
@@ -167,7 +165,7 @@ export class Stub {
           wallet.lockedAddresses.splice(expStackerIndex, 1);
         });
 
-        // For each pool stacker that no longer have partially commited STX for
+        // For each pool stacker that no longer have partially committed STX for
         // the next reward cycle, decrement the operator's amountToCommit
         // (partial-stacked) by the stacker's amountLocked.
         stackersToRemoveAmountToCommit.forEach((expStacker) => {
@@ -176,9 +174,7 @@ export class Stub {
         });
 
         // Check the wallet's stack expiry and update the state accordingly.
-        if (
-          wallet.unlockHeight > 0 && wallet.unlockHeight <= burnBlockHeight
-        ) {
+        if (wallet.unlockHeight > 0 && wallet.unlockHeight <= burnBlockHeight) {
           wallet.isStacking = false;
           wallet.isStackingSolo = false;
           wallet.amountUnlocked += wallet.amountLocked;
@@ -248,8 +244,12 @@ export const logCommand = (...items: (string | undefined)[]) => {
   const prettyPrint = renderItems.map((content, index) =>
     // Check if the index is less than 2 (i.e., first two items).
     content
-      ? (index < 2 ? content.padEnd(halfColumns) : content.padEnd(columnWidth))
-      : (index < 2 ? "".padEnd(halfColumns) : "".padEnd(columnWidth))
+      ? index < 2
+        ? content.padEnd(halfColumns)
+        : content.padEnd(columnWidth)
+      : index < 2
+        ? "".padEnd(halfColumns)
+        : "".padEnd(columnWidth),
   );
   prettyPrint.push("\n");
 
@@ -269,16 +269,14 @@ export const isStackingMinimumCalculated = (model: Readonly<Stub>): boolean =>
  * @param stacker - the stacker's state at a given moment in time.
  * @returns boolean.
  */
-export const isStacking = (stacker: Stacker): boolean =>
-  stacker.isStacking;
+export const isStacking = (stacker: Stacker): boolean => stacker.isStacking;
 
 /**
  * Helper function that checks if a stacker has an active delegation.
  * @param stacker - the stacker's state at a given moment in time.
  * @returns boolean.
  */
-export const isDelegating = (stacker: Stacker): boolean =>
-  stacker.hasDelegated;
+export const isDelegating = (stacker: Stacker): boolean => stacker.hasDelegated;
 
 /**
  * Helper function that checks if the stacker is stacking using solo
@@ -413,10 +411,7 @@ export const isStackerInOperatorPool = (
 export const isStackerLockedByOperator = (
   operator: Stacker,
   stacker: Wallet,
-): boolean =>
-  operator.lockedAddresses.includes(
-    stacker.stxAddress,
-  );
+): boolean => operator.lockedAddresses.includes(stacker.stxAddress);
 
 /**
  * Helper function that checks if a given stacker's unlock height is
@@ -430,8 +425,8 @@ export const isStackerLockedByOperator = (
 export const isUnlockedWithinCurrentRC = (
   stackerWallet: Stacker,
   model: Readonly<Stub>,
-): boolean => (stackerWallet.unlockHeight <=
-  model.burnBlockHeight + REWARD_CYCLE_LENGTH);
+): boolean =>
+  stackerWallet.unlockHeight <= model.burnBlockHeight + REWARD_CYCLE_LENGTH;
 
 /**
  * Helper function that checks if the increase amount is within a given
@@ -493,9 +488,7 @@ export const isAllowedContractCaller = (
   stacker: Stacker,
   potentialAllowedStacker: Wallet,
 ): boolean =>
-  stacker.allowedContractCallers.includes(
-    potentialAllowedStacker.stxAddress,
-  );
+  stacker.allowedContractCallers.includes(potentialAllowedStacker.stxAddress);
 
 /**
  * Helper function that checks if a given contract caller has been allowed by

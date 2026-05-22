@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,12 +16,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use clarity_types::ClarityTypeError;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
-use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
+use crate::vm::{ClarityName, ClarityVersion, MAX_CONTEXT_DEPTH, SymbolicExpression};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeMap {
@@ -47,7 +48,7 @@ pub struct TypingContext<'a> {
     pub variable_types: HashMap<ClarityName, TypeSignature>,
     pub traits_references: HashMap<ClarityName, TraitIdentifier>,
     pub parent: Option<&'a TypingContext<'a>>,
-    pub depth: u16,
+    pub depth: u64,
 }
 
 impl TypeMap {
@@ -64,18 +65,22 @@ impl TypeMap {
         &mut self,
         expr: &SymbolicExpression,
         type_sig: TypeSignature,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 if map.insert(expr.id, type_sig).is_some() {
-                    Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+                    Err(StaticCheckError::new(
+                        StaticCheckErrorKind::TypeAlreadyAnnotatedFailure,
+                    ))
                 } else {
                     Ok(())
                 }
             }
             TypeMapDataType::Set(ref mut map) => {
                 if !map.insert(expr.id) {
-                    Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+                    Err(StaticCheckError::new(
+                        StaticCheckErrorKind::TypeAlreadyAnnotatedFailure,
+                    ))
                 } else {
                     Ok(())
                 }
@@ -97,7 +102,7 @@ impl TypeMap {
     ///
     /// [concretize]: TypeSignature::concretize
     /// [ListUnionType]: TypeSignature::ListUnionType
-    pub fn concretize(&mut self) -> Result<(), CheckError> {
+    pub fn concretize(&mut self) -> Result<(), ClarityTypeError> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 for ty in map.values_mut() {
@@ -122,9 +127,11 @@ impl TypingContext<'_> {
         }
     }
 
-    pub fn extend(&self) -> Result<TypingContext<'_>, CheckError> {
+    pub fn extend(&self) -> Result<TypingContext<'_>, StaticCheckError> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(CheckError::new(CheckErrors::MaxContextDepthReached))
+            Err(StaticCheckError::new(
+                StaticCheckErrorKind::MaxContextDepthReached,
+            ))
         } else {
             Ok(TypingContext {
                 epoch: self.epoch,

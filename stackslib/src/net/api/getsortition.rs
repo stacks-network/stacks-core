@@ -30,8 +30,9 @@ use crate::chainstate::nakamoto::{NakamotoChainState, StacksDBIndexed};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
-    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpBadRequest, HttpNotFound, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
@@ -358,6 +359,11 @@ impl RPCRequestHandler for GetSortitionHandler {
                 // nope -- error trying to check
                 let msg = format!("Failed to load snapshot for {:?}: {:?}\n", &self.query, &e);
                 warn!("{msg}");
+                if matches!(e, ChainError::DBError(DBError::BlockHeightOutOfRange)) {
+                    return StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new(msg))
+                        .try_into_contents()
+                        .map_err(NetError::from);
+                }
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
                     .try_into_contents()
                     .map_err(NetError::from);

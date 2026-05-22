@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,30 +19,31 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-pub use clarity_types::errors::StackTrace;
+use clarity_types::errors::{ParseError, ParseErrorKind};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::StacksBlockId;
 #[cfg(feature = "clarity-wasm")]
 use wasmtime::Engine;
 
+use super::EvalHook;
 use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::call_function;
-use super::EvalHook;
 use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
+use crate::vm::costs::{CostErrors, CostTracker, ExecutionCost, LimitedCostTracker, runtime_cost};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
-    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, StackTrace, VmExecutionError,
+    VmInternalError,
 };
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
@@ -52,28 +53,88 @@ use crate::vm::types::{
     TraitIdentifier, TypeSignature, Value,
 };
 use crate::vm::version::ClarityVersion;
-use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
+use crate::vm::{ValueRef, ast, eval, is_reserved, stx_transfer_consolidated};
 
-pub const MAX_CONTEXT_DEPTH: u16 = 256;
+pub const MAX_CONTEXT_DEPTH: u64 = 256;
+pub const MAX_EVENTS_BATCH: u64 = 50 * 1024 * 1024;
 
-// TODO:
-//    hide the environment's instance variables.
-//     we don't want many of these changing after instantiation.
-/// Environments pack a reference to the global context (which is basically the db),
-///   the current contract context, a call stack, the current sender, caller, and
-///   sponsor (if one exists).
-/// Essentially, the point of the Environment struct is to prevent all the eval functions
-///   from including all of these items in their method signatures individually. Because
-///   these different contexts can be mixed and matched (i.e., in a contract-call, you change
-///   contract context), a single "invocation" will end up creating multiple environment
-///   objects as context changes occur.
-pub struct Environment<'a, 'b> {
-    pub global_context: &'a mut GlobalContext<'b>,
+/// Immutable metadata describing a single contract invocation.
+///
+/// `InvocationContext` captures *who* is executing *which contract* under what authority.
+/// It contains the principals that define call semantics (`sender`, `caller`, `sponsor`)
+/// together with the active `ContractContext`.
+///
+/// A new `InvocationContext` is derived whenever a contract call changes authority
+/// (e.g., `contract-call?`, `as-contract`, or sponsor propagation). It is intentionally
+/// immutable so that nested calls cannot mutate the caller's view of authority.
+///
+/// This type does **not** contain mutable VM state (database, cost tracker, events, stack).
+/// Those live in [`ExecutionState`]. Lexical variables and scope live in [`LocalContext`].
+///
+/// Together:
+/// - `InvocationContext` → authority + contract binding
+/// - `ExecutionState`    → mutable runtime state
+/// - `LocalContext`      → lexical variables/scope
+pub struct InvocationContext<'a> {
+    /// The contract currently being executed.
     pub contract_context: &'a ContractContext,
-    pub call_stack: &'a mut CallStack,
+    /// The transaction sender for this invocation (tx origin or `as-contract` principal).
     pub sender: Option<PrincipalData>,
+    /// The immediate caller of the current contract (may differ from `sender` in nested calls).
     pub caller: Option<PrincipalData>,
+    /// The sponsor responsible for paying execution costs, if any.
     pub sponsor: Option<PrincipalData>,
+}
+
+impl InvocationContext<'_> {
+    /// Returns a derived invocation context executing *as* the given principal.
+    ///
+    /// Both `sender` and `caller` are set to `sender`
+    /// The sponsor and contract context are preserved.
+    pub fn with_principal(&self, sender: PrincipalData) -> Self {
+        InvocationContext {
+            contract_context: self.contract_context,
+            sender: Some(sender.clone()),
+            caller: Some(sender),
+            sponsor: self.sponsor.clone(),
+        }
+    }
+
+    /// Returns a derived invocation context with a different immediate caller.
+    ///
+    /// This models a nested contract call where authority flows from the same
+    /// transaction sender but the caller changes to the calling contract.
+    /// The sender, sponsor, and contract context are preserved.
+    pub fn with_caller(&self, caller: PrincipalData) -> Self {
+        InvocationContext {
+            contract_context: self.contract_context,
+            sender: self.sender.clone(),
+            caller: Some(caller),
+            sponsor: self.sponsor.clone(),
+        }
+    }
+}
+
+/// `ExecutionState` contains the parts of the VM environment that may change during
+/// evaluation: the global chainstate (`GlobalContext`) and the Clarity call stack.
+/// All database writes, event emission, cost tracking, and stack mutations occur
+/// through this structure.
+///
+/// Unlike [`InvocationContext`], this state is shared and mutated throughout the
+/// lifetime of a single invocation. Nested contract or function calls reborrow the
+/// same `ExecutionState` while deriving new `InvocationContext` and/or `LocalContext`
+/// values.
+///
+/// Separation of concerns:
+/// - `ExecutionState`    → mutable VM/runtime state
+/// - `InvocationContext` → authority + contract binding
+/// - `LocalContext`      → lexical variables/scope
+pub struct ExecutionState<'a, 'b> {
+    /// Global chainstate and database access for this execution.
+    pub global_context: &'a mut GlobalContext<'b>,
+
+    /// The Clarity call stack tracking nested function/contract calls.
+    pub call_stack: &'a mut CallStack,
 }
 
 pub struct OwnedEnvironment<'a> {
@@ -91,10 +152,10 @@ pub enum AssetMapEntry {
 }
 
 /**
-The AssetMap is used to track which assets have been transfered from whom
+The AssetMap is used to track which assets have been transferred from whom
 during the execution of a transaction.
 */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetMap {
     /// Sum of all STX transfers by principal
     stx_map: HashMap<PrincipalData, u128>,
@@ -226,7 +287,7 @@ pub enum ExecutionTimeTracker {
 */
 pub struct GlobalContext<'a> {
     asset_maps: Vec<AssetMap>,
-    pub event_batches: Vec<EventBatch>,
+    pub event_batches: Vec<(EventBatch, u64)>,
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
@@ -243,26 +304,40 @@ pub struct GlobalContext<'a> {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ContractContext {
+    /// The identifier of this contract
     pub contract_identifier: QualifiedContractIdentifier,
+    /// Despite being called `variables`, these are actually the constants defined in the contract
     pub variables: HashMap<ClarityName, Value>,
+    /// The functions defined in this contract, mapped by their name
     pub functions: HashMap<ClarityName, DefinedFunction>,
+    /// The traits defined in this contract, mapped by their name, to a map of the trait's function
+    /// signatures
     pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    /// The traits implemented by this contract
     pub implemented_traits: HashSet<TraitIdentifier>,
-    // tracks the names of NFTs, FTs, Maps, and Data Vars.
-    //  used for ensuring that they never are defined twice.
+    /// The names of NFTs, FTs, Maps, and Data Vars, used to ensure that they never are defined twice
     pub persisted_names: HashSet<ClarityName>,
-    // track metadata for contract defined storage
+    /// Key/value types for contract defined maps
     pub meta_data_map: HashMap<ClarityName, DataMapMetadata>,
+    /// Types for contract defined data variables
     pub meta_data_var: HashMap<ClarityName, DataVariableMetadata>,
+    /// Key types for contract defined non-fungible tokens
     pub meta_nft: HashMap<ClarityName, NonFungibleTokenMetadata>,
+    /// Total supply for contract defined fungible tokens
     pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
+    /// The total size of constants stored by this contract
     pub data_size: u64,
-    /// track the clarity version of the contract
+    /// The clarity version of this contract
     clarity_version: ClarityVersion,
     // @todo: @hugocaillard: remove pub
     // it's only used to know that the contract can be called with wasm
     // it should be epoch gated in the future
     pub wasm_module: Option<Vec<u8>>,
+    /// True while the contract is being deployed (inside `initialize_from_ast`).
+    /// Constants may only be used as `contract-call?` dispatch targets
+    /// after deployment, when their values are frozen.
+    #[serde(skip)]
+    pub is_deploying: bool,
 }
 
 pub struct LocalContext<'a> {
@@ -270,14 +345,14 @@ pub struct LocalContext<'a> {
     pub parent: Option<&'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
     pub callable_contracts: HashMap<ClarityName, CallableData>,
-    depth: u16,
+    depth: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
     set: HashSet<FunctionIdentifier>,
-    apply_depth: usize,
+    apply_depth: u64,
 }
 
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
@@ -299,29 +374,52 @@ impl AssetMap {
         }
     }
 
-    // This will get the next amount for a (principal, stx) entry in the stx table.
-    fn get_next_stx_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+    /// This will get the next amount for a (principal, stx) entry in the stx table.
+    fn get_next_stx_amount(
+        &self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> Result<u128, VmExecutionError> {
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - Every `stx-transfer?` or `stx-burn?` is validated against the sender’s
+        //   **unlocked balance** before being queued in `AssetMap`.
+        // - The unlocked balance is a subset of `stx-liquid-supply`.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self.stx_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+            .ok_or(RuntimeError::ArithmeticOverflow.into())
     }
 
-    // This will get the next amount for a (principal, stx) entry in the burn table.
-    fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+    /// This will get the next amount for a (principal, stx) entry in the burn table.
+    fn get_next_stx_burn_amount(
+        &self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> Result<u128, VmExecutionError> {
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - Every `stx-burn?` is validated against the sender’s **unlocked balance** first.
+        // - Unlocked balance is a subset of `stx-liquid-supply`, which is <= `u128::MAX`.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self.burn_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+            .ok_or(RuntimeError::ArithmeticOverflow.into())
     }
 
-    // This will get the next amount for a (principal, asset) entry in the asset table.
+    /// This will get the next amount for a (principal, asset) entry in the asset table.
     fn get_next_amount(
         &self,
         principal: &PrincipalData,
         asset: &AssetIdentifier,
         amount: u128,
-    ) -> Result<u128> {
+    ) -> Result<u128, VmExecutionError> {
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - The inner transaction must have **partially succeeded** to log any assets.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self
             .token_map
             .get(principal)
@@ -329,17 +427,25 @@ impl AssetMap {
             .unwrap_or(&0);
         current_amount
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+            .ok_or(RuntimeError::ArithmeticOverflow.into())
     }
 
-    pub fn add_stx_transfer(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
+    pub fn add_stx_transfer(
+        &mut self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> Result<(), VmExecutionError> {
         let next_amount = self.get_next_stx_amount(principal, amount)?;
         self.stx_map.insert(principal.clone(), next_amount);
 
         Ok(())
     }
 
-    pub fn add_stx_burn(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
+    pub fn add_stx_burn(
+        &mut self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> Result<(), VmExecutionError> {
         let next_amount = self.get_next_stx_burn_amount(principal, amount)?;
         self.burn_map.insert(principal.clone(), next_amount);
 
@@ -350,14 +456,14 @@ impl AssetMap {
         &mut self,
         principal: &PrincipalData,
         asset: AssetIdentifier,
-        transfered: Value,
+        transferred: Value,
     ) {
         let principal_map = self.asset_map.entry(principal.clone()).or_default();
 
         if let Some(map_entry) = principal_map.get_mut(&asset) {
-            map_entry.push(transfered);
+            map_entry.push(transferred);
         } else {
-            principal_map.insert(asset, vec![transfered]);
+            principal_map.insert(asset, vec![transferred]);
         }
     }
 
@@ -366,7 +472,7 @@ impl AssetMap {
         principal: &PrincipalData,
         asset: AssetIdentifier,
         amount: u128,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
         let principal_map = self.token_map.entry(principal.clone()).or_default();
@@ -384,7 +490,7 @@ impl AssetMap {
 
     // This will add any asset transfer data from other to self,
     //   aborting _all_ changes in the event of an error, leaving self unchanged
-    pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
+    pub fn commit_other(&mut self, mut other: AssetMap) -> Result<(), VmExecutionError> {
         let mut to_add = Vec::new();
         let mut stx_to_add = Vec::with_capacity(other.stx_map.len());
         let mut stx_burn_to_add = Vec::with_capacity(other.burn_map.len());
@@ -479,12 +585,12 @@ impl AssetMap {
         self.burn_map.get(principal).copied()
     }
 
-    pub fn get_stx_burned_total(&self) -> Result<u128> {
+    pub fn get_stx_burned_total(&self) -> Result<u128, VmExecutionError> {
         let mut total: u128 = 0;
         for principal in self.burn_map.keys() {
             total = total
                 .checked_add(*self.burn_map.get(principal).unwrap_or(&0u128))
-                .ok_or_else(|| InterpreterError::Expect("BURN OVERFLOW".into()))?;
+                .ok_or_else(|| VmInternalError::Expect("BURN OVERFLOW".into()))?;
         }
         Ok(total)
     }
@@ -538,7 +644,7 @@ impl fmt::Display for AssetMap {
         }
         for (principal, principal_map) in self.asset_map.iter() {
             for (asset, transfer) in principal_map.iter() {
-                write!(f, "{principal} transfered [")?;
+                write!(f, "{principal} transferred [")?;
                 for t in transfer {
                     write!(f, "{t}, ")?;
                 }
@@ -649,14 +755,18 @@ impl<'a> OwnedEnvironment<'a> {
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
         context: &'b ContractContext,
-    ) -> Environment<'b, 'a> {
-        Environment::new(
-            &mut self.context,
-            context,
-            &mut self.call_stack,
-            sender.clone(),
-            sender,
-            sponsor,
+    ) -> (ExecutionState<'b, 'a>, InvocationContext<'b>) {
+        (
+            ExecutionState {
+                global_context: &mut self.context,
+                call_stack: &mut self.call_stack,
+            },
+            InvocationContext {
+                contract_context: context,
+                sender: sender.clone(),
+                caller: sender,
+                sponsor,
+            },
         )
     }
 
@@ -668,20 +778,20 @@ impl<'a> OwnedEnvironment<'a> {
         f: F,
     ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
-        E: From<crate::vm::errors::Error>,
-        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
+        E: From<VmExecutionError>,
+        F: FnOnce(&mut ExecutionState, &InvocationContext) -> std::result::Result<A, E>,
     {
         assert!(self.context.is_top_level());
         self.begin();
 
         let result = {
-            let mut initial_context = initial_context.unwrap_or(ContractContext::new(
+            let initial_context = initial_context.unwrap_or(ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity1,
             ));
-            let mut exec_env =
-                self.get_exec_environment(Some(sender), sponsor, &mut initial_context);
-            f(&mut exec_env)
+            let (mut exec_state, invoke_ctx) =
+                self.get_exec_environment(Some(sender), sponsor, &initial_context);
+            f(&mut exec_state, &invoke_ctx)
         };
 
         match result {
@@ -704,16 +814,14 @@ impl<'a> OwnedEnvironment<'a> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
-        let mut store = crate::vm::database::MemoryBackingStore::new();
-        let mut analysis_db = store.as_analysis_db();
-        analysis_db.begin();
-
-        self.initialize_contract_with_db(
-            contract_identifier,
-            contract_content,
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
+        self.execute_in_env(
+            contract_identifier.issuer.clone().into(),
             sponsor,
-            &mut analysis_db,
+            None,
+            |exec_state, invoke_ctx| {
+                exec_state.initialize_contract(invoke_ctx, contract_identifier, contract_content)
+            },
         )
     }
 
@@ -739,19 +847,21 @@ impl<'a> OwnedEnvironment<'a> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
         analysis_db: &mut analysis::AnalysisDatabase,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
             None,
-            |exec_env| {
-                exec_env.initialize_contract_with_db(
+            |exec_state, invocation_context| {
+                exec_state.initialize_contract_with_db(
+                    invocation_context,
                     contract_identifier,
                     contract_content,
                     analysis_db,
                 )
             },
         )
+        .map_err(|e| e.into())
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -761,7 +871,7 @@ impl<'a> OwnedEnvironment<'a> {
         version: ClarityVersion,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -769,7 +879,9 @@ impl<'a> OwnedEnvironment<'a> {
                 QualifiedContractIdentifier::transient(),
                 version,
             )),
-            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
+            |exec_state, invoke_ctx| {
+                exec_state.initialize_contract(invoke_ctx, contract_identifier, contract_content)
+            },
         )
     }
 
@@ -797,7 +909,7 @@ impl<'a> OwnedEnvironment<'a> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
         analysis_db: &mut analysis::AnalysisDatabase,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -805,8 +917,9 @@ impl<'a> OwnedEnvironment<'a> {
                 QualifiedContractIdentifier::transient(),
                 version,
             )),
-            |exec_env| {
-                exec_env.initialize_contract_with_db(
+            |exec_state, invocation_context| {
+                exec_state.initialize_contract_with_db(
+                    invocation_context,
                     contract_identifier,
                     contract_content,
                     analysis_db,
@@ -823,7 +936,7 @@ impl<'a> OwnedEnvironment<'a> {
         contract_analysis: &ContractAnalysis,
         contract_string: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -831,8 +944,9 @@ impl<'a> OwnedEnvironment<'a> {
                 QualifiedContractIdentifier::transient(),
                 clarity_version,
             )),
-            |exec_env| {
-                exec_env.initialize_contract_from_ast(
+            |exec_state, invoke_ctx| {
+                exec_state.initialize_contract_from_ast(
+                    invoke_ctx,
                     contract_identifier,
                     clarity_version,
                     contract_content,
@@ -850,9 +964,9 @@ impl<'a> OwnedEnvironment<'a> {
         contract_identifier: QualifiedContractIdentifier,
         tx_name: &str,
         args: &[SymbolicExpression],
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(sender, sponsor, None, |exec_env| {
-            exec_env.execute_contract(&contract_identifier, tx_name, args, false)
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+        self.execute_in_env(sender, sponsor, None, |exec_state, invoke_ctx| {
+            exec_state.execute_contract(invoke_ctx, &contract_identifier, tx_name, args, false)
         })
     }
 
@@ -862,9 +976,9 @@ impl<'a> OwnedEnvironment<'a> {
         to: &PrincipalData,
         amount: u128,
         memo: &BuffData,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(from.clone(), None, None, |exec_env| {
-            exec_env.stx_transfer(from, to, amount, memo)
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+        self.execute_in_env(from.clone(), None, None, |exec_state, invoke_ctx| {
+            exec_state.stx_transfer(invoke_ctx, from, to, amount, memo)
         })
     }
 
@@ -874,12 +988,12 @@ impl<'a> OwnedEnvironment<'a> {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env::<_, _, crate::vm::errors::Error>(
+        self.execute_in_env::<_, _, VmExecutionError>(
             recipient.clone(),
             None,
             None,
-            |env| {
-                let mut snapshot = env
+            |exec_state, _invoke_ctx| {
+                let mut snapshot = exec_state
                     .global_context
                     .database
                     .get_stx_balance_snapshot(recipient)
@@ -888,12 +1002,13 @@ impl<'a> OwnedEnvironment<'a> {
                 snapshot.credit(amount).unwrap();
                 snapshot.save().unwrap();
 
-                env.global_context
+                exec_state
+                    .global_context
                     .database
                     .increment_ustx_liquid_supply(amount)
                     .unwrap();
 
-                let res: std::result::Result<(), crate::vm::errors::Error> = Ok(());
+                let res: std::result::Result<(), VmExecutionError> = Ok(());
                 res
             },
         )
@@ -904,12 +1019,12 @@ impl<'a> OwnedEnvironment<'a> {
     pub fn eval_raw(
         &mut self,
         program: &str,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
             None,
-            |exec_env| exec_env.eval_raw(program),
+            |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, program),
         )
     }
 
@@ -917,12 +1032,12 @@ impl<'a> OwnedEnvironment<'a> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         program: &str,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
             None,
-            |exec_env| exec_env.eval_read_only(contract, program),
+            |exec_state, invoke_ctx| exec_state.eval_read_only(invoke_ctx, contract, program),
         )
     }
 
@@ -930,10 +1045,10 @@ impl<'a> OwnedEnvironment<'a> {
         self.context.begin();
     }
 
-    pub fn commit(&mut self) -> Result<(AssetMap, EventBatch)> {
+    pub fn commit(&mut self) -> Result<(AssetMap, EventBatch), VmExecutionError> {
         let (asset_map, event_batch) = self.context.commit()?;
-        let asset_map = asset_map.ok_or(InterpreterError::FailedToConstructAssetTable)?;
-        let event_batch = event_batch.ok_or(InterpreterError::FailedToConstructEventBatch)?;
+        let asset_map = asset_map.ok_or(VmInternalError::FailedToConstructAssetTable)?;
+        let event_batch = event_batch.ok_or(VmInternalError::FailedToConstructEventBatch)?;
 
         Ok((asset_map, event_batch))
     }
@@ -964,7 +1079,7 @@ impl<'a> OwnedEnvironment<'a> {
     }
 }
 
-impl CostTracker for Environment<'_, '_> {
+impl CostTracker for ExecutionState<'_, '_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -1030,75 +1145,31 @@ impl CostTracker for GlobalContext<'_> {
     }
 }
 
-impl<'a, 'b> Environment<'a, 'b> {
-    /// Returns an Environment value & checks the types of the contract sender, caller, and sponsor
-    ///
-    /// # Panics
-    /// Panics if the Value types for sender (Principal), caller (Principal), or sponsor
-    /// (Optional Principal) are incorrect.
-    pub fn new(
-        global_context: &'a mut GlobalContext<'b>,
-        contract_context: &'a ContractContext,
-        call_stack: &'a mut CallStack,
-        sender: Option<PrincipalData>,
-        caller: Option<PrincipalData>,
-        sponsor: Option<PrincipalData>,
-    ) -> Environment<'a, 'b> {
-        Environment {
-            global_context,
-            contract_context,
-            call_stack,
-            sender,
-            caller,
-            sponsor,
-        }
-    }
-
-    /// Leaving sponsor value as is for this new context (as opposed to setting it to None)
-    pub fn nest_as_principal<'c>(&'c mut self, sender: PrincipalData) -> Environment<'c, 'b> {
-        Environment::new(
-            self.global_context,
-            self.contract_context,
-            self.call_stack,
-            Some(sender.clone()),
-            Some(sender),
-            self.sponsor.clone(),
-        )
-    }
-
-    pub fn nest_with_caller<'c>(&'c mut self, caller: PrincipalData) -> Environment<'c, 'b> {
-        Environment::new(
-            self.global_context,
-            self.contract_context,
-            self.call_stack,
-            self.sender.clone(),
-            Some(caller),
-            self.sponsor.clone(),
-        )
+impl<'a, 'b> ExecutionState<'a, 'b> {
+    /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
+    ///  has been evaluated and assessed, the contract-call! itself is executed "for free".
+    pub fn run_free<F, A>(&mut self, invoke_ctx: &InvocationContext, to_run: F) -> A
+    where
+        F: FnOnce(&mut ExecutionState, &InvocationContext) -> A,
+    {
+        let original_tracker = replace(
+            &mut self.global_context.cost_track,
+            LimitedCostTracker::new_free(),
+        );
+        // note: it is important that this method not return until original_tracker has been
+        //  restored. DO NOT use the try syntax (?).
+        let result = to_run(self, invoke_ctx);
+        self.global_context.cost_track = original_tracker;
+        result
     }
 
     pub fn eval_read_only(
         &mut self,
+        invoke_ctx: &InvocationContext,
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
-    ) -> Result<Value> {
-        let clarity_version = self.contract_context.clarity_version;
-
-        let parsed = ast::build_ast(
-            contract_identifier,
-            program,
-            self,
-            clarity_version,
-            self.global_context.epoch_id,
-        )?
-        .expressions;
-
-        if parsed.is_empty() {
-            return Err(RuntimeErrorType::ParseError(
-                "Expected a program of at least length 1".to_string(),
-            )
-            .into());
-        }
+    ) -> Result<Value, ClarityEvalError> {
+        let parsed = self.parse_nonempty_program(invoke_ctx, contract_identifier, program)?;
 
         self.global_context.begin();
 
@@ -1112,61 +1183,72 @@ impl<'a, 'b> Environment<'a, 'b> {
             })?;
 
         let result = {
-            let mut nested_env = Environment::new(
-                self.global_context,
-                &contract.contract_context,
-                self.call_stack,
-                self.sender.clone(),
-                self.caller.clone(),
-                self.sponsor.clone(),
-            );
+            let nested_view = InvocationContext {
+                contract_context: &contract.contract_context,
+                sender: invoke_ctx.sender.clone(),
+                caller: invoke_ctx.caller.clone(),
+                sponsor: invoke_ctx.sponsor.clone(),
+            };
             let local_context = LocalContext::new();
-            eval(&parsed[0], &mut nested_env, &local_context)
-        };
+            eval(&parsed[0], self, &nested_view, &local_context)
+                .and_then(|value| value.clone_with_cost(self))
+        }
+        .map_err(ClarityEvalError::from);
 
         self.global_context.roll_back()?;
-
         result
     }
 
-    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
-        let contract_id = QualifiedContractIdentifier::transient();
-        let clarity_version = self.contract_context.clarity_version;
+    pub fn eval_raw(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        program: &str,
+    ) -> Result<Value, ClarityEvalError> {
+        let parsed = self.parse_nonempty_program(
+            invoke_ctx,
+            &QualifiedContractIdentifier::transient(),
+            program,
+        )?;
+        let local_context = LocalContext::new();
+        eval(&parsed[0], self, invoke_ctx, &local_context)
+            .and_then(|value| value.clone_with_cost(self))
+            .map_err(ClarityEvalError::from)
+    }
 
-        let parsed = ast::build_ast(
-            &contract_id,
+    /// Parse `program` into a **non-empty** list of `SymbolicExpression`s.
+    ///
+    /// This is a wrapper around `ast::build_ast(..)` that enforces the invariant
+    /// that a parsed program must contain at least one top-level expression.
+    ///
+    /// # Errors
+    /// - Returns `Err` if the program fails to parse/build an AST.
+    /// - Returns `Err(UnexpectedParserFailure)` if parsing succeeds but yields *zero* expressions.
+    ///
+    /// # Notes
+    /// The empty-expression case should be unreachable for normal VM execution because
+    /// published/deployed contract code and transaction programs are validated earlier.
+    /// It exists as a defensive check for malformed input in tests, fuzzing, or internal
+    /// callers that bypass normal validation paths.
+    fn parse_nonempty_program(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        contract_identifier: &QualifiedContractIdentifier,
+        program: &str,
+    ) -> Result<Vec<SymbolicExpression>, ClarityEvalError> {
+        let expressions = ast::build_ast(
+            contract_identifier,
             program,
             self,
-            clarity_version,
+            invoke_ctx.contract_context.clarity_version,
             self.global_context.epoch_id,
         )?
         .expressions;
 
-        if parsed.is_empty() {
-            return Err(RuntimeErrorType::ParseError(
-                "Expected a program of at least length 1".to_string(),
-            )
-            .into());
+        if expressions.is_empty() {
+            return Err(ParseError::from(ParseErrorKind::UnexpectedParserFailure).into());
         }
-        let local_context = LocalContext::new();
-        eval(&parsed[0], self, &local_context)
-    }
 
-    /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
-    ///  has been evaluated and assessed, the contract-call! itself is executed "for free".
-    pub fn run_free<F, A>(&mut self, to_run: F) -> A
-    where
-        F: FnOnce(&mut Environment) -> A,
-    {
-        let original_tracker = replace(
-            &mut self.global_context.cost_track,
-            LimitedCostTracker::new_free(),
-        );
-        // note: it is important that this method not return until original_tracker has been
-        //  restored. DO NOT use the try syntax (?).
-        let result = to_run(self);
-        self.global_context.cost_track = original_tracker;
-        result
+        Ok(expressions)
     }
 
     /// This is the epoch of the block that this transaction is executing within.
@@ -1180,12 +1262,13 @@ impl<'a, 'b> Environment<'a, 'b> {
 
     pub fn execute_contract(
         &mut self,
+        invoke_ctx: &InvocationContext,
         contract: &QualifiedContractIdentifier,
         tx_name: &str,
         args: &[SymbolicExpression],
         read_only: bool,
-    ) -> Result<Value> {
-        self.inner_execute_contract(contract, tx_name, args, read_only, false)
+    ) -> Result<Value, VmExecutionError> {
+        self.inner_execute_contract(invoke_ctx, contract, tx_name, args, read_only, false)
     }
 
     /// This method is exposed for callers that need to invoke a private method directly.
@@ -1193,12 +1276,13 @@ impl<'a, 'b> Environment<'a, 'b> {
     /// on the pox-2 contract. This should not be called by user transaction processing.
     pub fn execute_contract_allow_private(
         &mut self,
+        invoke_ctx: &InvocationContext,
         contract: &QualifiedContractIdentifier,
         tx_name: &str,
         args: &[SymbolicExpression],
         read_only: bool,
-    ) -> Result<Value> {
-        self.inner_execute_contract(contract, tx_name, args, read_only, true)
+    ) -> Result<Value, VmExecutionError> {
+        self.inner_execute_contract(invoke_ctx, contract, tx_name, args, read_only, true)
     }
 
     /// This method handles actual execution of contract-calls on a contract.
@@ -1209,12 +1293,13 @@ impl<'a, 'b> Environment<'a, 'b> {
     ///  `Environment::execute_contract_allow_private`.
     fn inner_execute_contract(
         &mut self,
+        invoke_ctx: &InvocationContext,
         contract_identifier: &QualifiedContractIdentifier,
         tx_name: &str,
         args: &[SymbolicExpression],
         read_only: bool,
         allow_private: bool,
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         let contract_size = self
             .global_context
             .database
@@ -1227,17 +1312,17 @@ impl<'a, 'b> Environment<'a, 'b> {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
-                .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+                .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
             if !allow_private && !func.is_public() {
-                return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
-                return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(RuntimeCheckErrorKind::Unreachable(format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
             }
 
-            let args: Result<Vec<Value>> = args.iter()
+            let args: Result<Vec<Value>, VmExecutionError> = args.iter()
                 .map(|arg| {
                     let value = arg.match_atom_value()
-                        .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
+                        .ok_or_else(|| VmInternalError::InvariantViolation(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
                     // sanitize contract-call inputs in epochs >= 2.4
                     // testing todo: ensure sanitize_value() preserves trait callability!
                     let expected_type = TypeSignature::type_of(value)?;
@@ -1245,9 +1330,9 @@ impl<'a, 'b> Environment<'a, 'b> {
                         self.epoch(),
                         &expected_type,
                         value.clone(),
-                    ).ok_or_else(|| CheckErrors::TypeValueError(
+                    ).ok_or_else(|| RuntimeCheckErrorKind::TypeValueError(
                             Box::new(expected_type),
-                            Box::new(value.clone()),
+                            value.to_error_string(),
                         )
                     )?;
 
@@ -1259,10 +1344,10 @@ impl<'a, 'b> Environment<'a, 'b> {
 
             let func_identifier = func.get_identifier();
             if self.call_stack.contains(&func_identifier) {
-                return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+                return Err(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
+            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&contract.contract_context), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1270,8 +1355,8 @@ impl<'a, 'b> Environment<'a, 'b> {
                     if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
                         handler(
                             self.global_context,
-                            self.sender.as_ref(),
-                            self.sponsor.as_ref(),
+                            invoke_ctx.sender.as_ref(),
+                            invoke_ctx.sponsor.as_ref(),
                             contract_identifier,
                             tx_name,
                             &args,
@@ -1287,10 +1372,11 @@ impl<'a, 'b> Environment<'a, 'b> {
 
     pub fn execute_contract_from_wasm(
         &mut self,
+        invoke_ctx: &InvocationContext,
         contract_identifier: &QualifiedContractIdentifier,
         tx_name: &str,
         args: &[Value],
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         let contract_size = self
             .global_context
             .database
@@ -1303,18 +1389,18 @@ impl<'a, 'b> Environment<'a, 'b> {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
-                .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+                .ok_or_else(|| { VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) )})?;
             if !func.is_public() {
-                return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string())));
             }
 
             let func_identifier = func.get_identifier();
             if self.call_stack.contains(&func_identifier) {
-                return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+                return Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()])))
             }
             self.call_stack.insert(&func_identifier, true);
 
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), false);
+            let res = self.execute_function_as_transaction(invoke_ctx,&func, args, Some(&contract.contract_context), false);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1322,11 +1408,11 @@ impl<'a, 'b> Environment<'a, 'b> {
                     if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
                         handler(
                             self.global_context,
-                            self.sender.as_ref(),
-                            self.sponsor.as_ref(),
+                            invoke_ctx.sender.as_ref(),
+                            invoke_ctx.sponsor.as_ref(),
                             contract_identifier,
                             tx_name,
-                            &args,
+                            args,
                             &value
                         )?;
                     }
@@ -1339,11 +1425,12 @@ impl<'a, 'b> Environment<'a, 'b> {
 
     pub fn execute_function_as_transaction(
         &mut self,
+        invoke_ctx: &InvocationContext,
         function: &DefinedFunction,
         args: &[Value],
         next_contract_context: Option<&ContractContext>,
         allow_private: bool,
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         let make_read_only = function.is_read_only();
 
         if make_read_only {
@@ -1352,43 +1439,39 @@ impl<'a, 'b> Environment<'a, 'b> {
             self.global_context.begin();
         }
 
-        let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
+        let next_contract_context = next_contract_context.unwrap_or(invoke_ctx.contract_context);
 
         let result = {
             #[cfg(feature = "clarity-wasm")]
             if next_contract_context.wasm_module.is_some() {
                 call_function(
-                    &function.get_name(),
+                    function.get_name(),
                     args,
-                    &mut self.global_context,
-                    &next_contract_context,
-                    self.call_stack,
-                    self.sender.clone(),
-                    self.caller.clone(),
-                    self.sponsor.clone(),
-                )
-            } else {
-                let mut nested_env = Environment::new(
-                    &mut self.global_context,
+                    self.global_context,
                     next_contract_context,
                     self.call_stack,
-                    self.sender.clone(),
-                    self.caller.clone(),
-                    self.sponsor.clone(),
-                );
-                function.execute_apply(args, &mut nested_env)
+                    invoke_ctx.sender.clone(),
+                    invoke_ctx.caller.clone(),
+                    invoke_ctx.sponsor.clone(),
+                )
+            } else {
+                let nested_view = InvocationContext {
+                    contract_context: next_contract_context,
+                    sender: invoke_ctx.sender.clone(),
+                    caller: invoke_ctx.caller.clone(),
+                    sponsor: invoke_ctx.sponsor.clone(),
+                };
+                function.execute_apply(args, self, &nested_view)
             }
             #[cfg(not(feature = "clarity-wasm"))]
             {
-                let mut nested_env = Environment::new(
-                    &mut self.global_context,
-                    next_contract_context,
-                    self.call_stack,
-                    self.sender.clone(),
-                    self.caller.clone(),
-                    self.sponsor.clone(),
-                );
-                function.execute_apply(args, &mut nested_env)
+                let nested_view = InvocationContext {
+                    contract_context: next_contract_context,
+                    sender: invoke_ctx.sender.clone(),
+                    caller: invoke_ctx.caller.clone(),
+                    sponsor: invoke_ctx.sponsor.clone(),
+                };
+                function.execute_apply(args, self, &nested_view)
             }
         };
 
@@ -1400,12 +1483,13 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
     }
 
-    pub fn evaluate_at_block(
+    pub fn evaluate_at_block<'e>(
         &mut self,
         bhh: StacksBlockId,
-        closure: &SymbolicExpression,
-        local: &LocalContext,
-    ) -> Result<Value> {
+        closure: &'e SymbolicExpression,
+        invoke_ctx: &'e InvocationContext,
+        local: &'e LocalContext,
+    ) -> Result<ValueRef<'e>, VmExecutionError> {
         self.global_context.begin_read_only();
 
         let result = self
@@ -1413,12 +1497,12 @@ impl<'a, 'b> Environment<'a, 'b> {
             .database
             .set_block_hash(bhh, false)
             .and_then(|prior_bhh| {
-                let result = eval(closure, self, local);
+                let result = eval(closure, self, invoke_ctx, local);
                 self.global_context
                     .database
                     .set_block_hash(prior_bhh, true)
                     .map_err(|_| {
-                        InterpreterError::Expect(
+                        VmInternalError::Expect(
                         "ERROR: Failed to restore prior active block after time-shifted evaluation."
                             .into())
                     })?;
@@ -1437,14 +1521,21 @@ impl<'a, 'b> Environment<'a, 'b> {
     #[cfg(feature = "rusqlite")]
     pub fn initialize_contract(
         &mut self,
+        invoke_ctx: &InvocationContext,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
-    ) -> Result<()> {
+    ) -> Result<(), ClarityEvalError> {
         let mut store = crate::vm::database::MemoryBackingStore::new();
         let mut analysis_db = store.as_analysis_db();
         analysis_db.begin();
 
-        self.initialize_contract_with_db(contract_identifier, contract_content, &mut analysis_db)
+        self.initialize_contract_with_db(
+            invoke_ctx,
+            contract_identifier,
+            contract_content,
+            &mut analysis_db,
+        )
+        .map_err(|e| e.into())
     }
 
     /// Initializes a Clarity smart contract with a custom analysis database.
@@ -1470,11 +1561,12 @@ impl<'a, 'b> Environment<'a, 'b> {
     #[cfg(feature = "rusqlite")]
     pub fn initialize_contract_with_db(
         &mut self,
+        invoke_ctx: &InvocationContext,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         analysis_db: &mut analysis::AnalysisDatabase,
-    ) -> Result<()> {
-        let clarity_version = self.contract_context.clarity_version;
+    ) -> Result<(), VmExecutionError> {
+        let clarity_version = invoke_ctx.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast(
             &contract_identifier,
@@ -1482,7 +1574,8 @@ impl<'a, 'b> Environment<'a, 'b> {
             self,
             clarity_version,
             self.global_context.epoch_id,
-        )?;
+        )
+        .map_err(|e| -> RuntimeError { e.into() })?;
 
         let contract_analysis = analysis::run_analysis(
             &contract_identifier,
@@ -1499,9 +1592,11 @@ impl<'a, 'b> Environment<'a, 'b> {
             let err = *boxed_check_error.err;
             error!("Analysis step has failed: {err:?}");
             err
-        })?;
+        })
+        .map_err(|e| -> VmExecutionError { e.into() })?;
 
         self.initialize_contract_from_ast(
+            invoke_ctx,
             contract_identifier,
             clarity_version,
             &mut contract_ast,
@@ -1512,12 +1607,13 @@ impl<'a, 'b> Environment<'a, 'b> {
 
     pub fn initialize_contract_from_ast(
         &mut self,
+        invoke_ctx: &InvocationContext,
         contract_identifier: QualifiedContractIdentifier,
         contract_version: ClarityVersion,
         contract_content: &mut ContractAST,
         contract_analysis: &ContractAnalysis,
         contract_string: &str,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         self.global_context.begin();
 
         // wrap in a closure so that `?` can be caught and the global_context can roll_back()
@@ -1534,9 +1630,10 @@ impl<'a, 'b> Environment<'a, 'b> {
                 .database
                 .has_contract(&contract_identifier)
             {
-                return Err(
-                    CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into(),
-                );
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Contract already exists: {contract_identifier}"
+                ))
+                .into());
             }
 
             // first, store the contract _content hash_ in the data store.
@@ -1552,7 +1649,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 contract_identifier.clone(),
                 contract_content,
                 contract_analysis,
-                self.sponsor.clone(),
+                invoke_ctx.sponsor.clone(),
                 self.global_context,
                 contract_version,
             );
@@ -1586,22 +1683,27 @@ impl<'a, 'b> Environment<'a, 'b> {
     /// (miners should never build blocks that spend non-existent STX in a top-level token-transfer)
     pub fn stx_transfer(
         &mut self,
+        invoke_ctx: &InvocationContext,
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
         memo: &BuffData,
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         self.global_context.begin();
-        let result = stx_transfer_consolidated(self, from, to, amount, memo);
+        let result = stx_transfer_consolidated(self, invoke_ctx, from, to, amount, memo);
         match result {
-            Ok(value) => match value.clone().expect_result()? {
+            Ok(value) => match value
+                .clone()
+                .expect_result()
+                .map_err(|_| VmInternalError::Expect("Expected result".into()))?
+            {
                 Ok(_) => {
                     self.global_context.commit()?;
                     Ok(value)
                 }
                 Err(_) => {
                     self.global_context.roll_back()?;
-                    Err(InterpreterError::InsufficientBalance.into())
+                    Err(VmInternalError::InsufficientBalance.into())
                 }
             },
             Err(e) => {
@@ -1611,13 +1713,17 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
     }
 
-    pub fn run_as_transaction<F, O, E>(&mut self, f: F) -> std::result::Result<O, E>
+    pub fn run_as_transaction<F, O, E>(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        f: F,
+    ) -> std::result::Result<O, E>
     where
-        F: FnOnce(&mut Self) -> std::result::Result<O, E>,
-        E: From<crate::vm::errors::Error>,
+        F: FnOnce(&mut Self, &InvocationContext) -> std::result::Result<O, E>,
+        E: From<VmExecutionError>,
     {
         self.global_context.begin();
-        let result = f(self);
+        let result = f(self, invoke_ctx);
         match result {
             Ok(ret) => {
                 self.global_context.commit()?;
@@ -1630,31 +1736,53 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
     }
 
-    pub fn push_to_event_batch(&mut self, event: StacksTransactionEvent) {
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
+    fn push_to_event_batch(
+        &mut self,
+        event: StacksTransactionEvent,
+    ) -> Result<(), VmExecutionError> {
+        let size = if let StacksTransactionEvent::SmartContractEvent(ref ev) = event {
+            ev.value.size().map_err(|e| {
+                VmInternalError::Expect(format!("Could not calculate event size: {e}"))
+            })?
+        } else {
+            0
+        };
+        if let Some((batch, total_size)) = self.global_context.event_batches.last_mut() {
             batch.events.push(event);
+            *total_size = total_size.saturating_add(size.into());
+            if *total_size >= MAX_EVENTS_BATCH {
+                return Err(VmInternalError::Expect(
+                    "Event batch grew too large during execution".to_string(),
+                )
+                .into());
+            }
         }
+        Ok(())
     }
 
     pub fn construct_print_transaction_event(
-        contract_id: &QualifiedContractIdentifier,
-        value: &Value,
+        contract_id: QualifiedContractIdentifier,
+        value: Value,
     ) -> StacksTransactionEvent {
         let print_event = SmartContractEventData {
-            key: (contract_id.clone(), "print".to_string()),
-            value: value.clone(),
+            key: (contract_id, "print".to_string()),
+            value,
         };
 
         StacksTransactionEvent::SmartContractEvent(print_event)
     }
 
-    pub fn register_print_event(&mut self, value: &Value) -> Result<()> {
+    pub fn register_print_event(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        value: Value,
+    ) -> Result<(), VmExecutionError> {
         let event = Self::construct_print_transaction_event(
-            &self.contract_context.contract_identifier,
+            invoke_ctx.contract_context.contract_identifier.clone(),
             value,
         );
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1664,7 +1792,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         recipient: PrincipalData,
         amount: u128,
         memo: BuffData,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = STXTransferEventData {
             sender,
             recipient,
@@ -1673,15 +1801,19 @@ impl<'a, 'b> Environment<'a, 'b> {
         };
         let event = StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
-    pub fn register_stx_burn_event(&mut self, sender: PrincipalData, amount: u128) -> Result<()> {
+    pub fn register_stx_burn_event(
+        &mut self,
+        sender: PrincipalData,
+        amount: u128,
+    ) -> Result<(), VmExecutionError> {
         let event_data = STXBurnEventData { sender, amount };
         let event = StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1691,7 +1823,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         recipient: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = NFTTransferEventData {
             sender,
             recipient,
@@ -1700,7 +1832,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         };
         let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1709,7 +1841,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         recipient: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = NFTMintEventData {
             recipient,
             asset_identifier,
@@ -1717,7 +1849,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         };
         let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1726,7 +1858,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         sender: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = NFTBurnEventData {
             sender,
             asset_identifier,
@@ -1734,7 +1866,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         };
         let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1744,7 +1876,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         recipient: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = FTTransferEventData {
             sender,
             recipient,
@@ -1753,7 +1885,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         };
         let event = StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1762,7 +1894,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         recipient: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = FTMintEventData {
             recipient,
             asset_identifier,
@@ -1770,7 +1902,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         };
         let event = StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1779,7 +1911,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         sender: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = FTBurnEventData {
             sender,
             asset_identifier,
@@ -1787,7 +1919,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         };
         let event = StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 }
@@ -1831,16 +1963,16 @@ impl<'a> GlobalContext<'a> {
         }
     }
 
-    fn get_asset_map(&mut self) -> Result<&mut AssetMap> {
+    fn get_asset_map(&mut self) -> Result<&mut AssetMap, VmExecutionError> {
         self.asset_maps
             .last_mut()
-            .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
+            .ok_or_else(|| VmInternalError::Expect("Failed to obtain asset map".into()).into())
     }
 
-    pub fn get_readonly_asset_map(&mut self) -> Result<&AssetMap> {
+    pub fn get_readonly_asset_map(&mut self) -> Result<&AssetMap, VmExecutionError> {
         self.asset_maps
             .last()
-            .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
+            .ok_or_else(|| VmInternalError::Expect("Failed to obtain asset map".into()).into())
     }
 
     pub fn log_asset_transfer(
@@ -1848,14 +1980,14 @@ impl<'a> GlobalContext<'a> {
         sender: &PrincipalData,
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &ClarityName,
-        transfered: Value,
-    ) -> Result<()> {
+        transferred: Value,
+    ) -> Result<(), VmExecutionError> {
         let asset_identifier = AssetIdentifier {
             contract_identifier: contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
         self.get_asset_map()?
-            .add_asset_transfer(sender, asset_identifier, transfered);
+            .add_asset_transfer(sender, asset_identifier, transferred);
         Ok(())
     }
 
@@ -1864,32 +1996,44 @@ impl<'a> GlobalContext<'a> {
         sender: &PrincipalData,
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &ClarityName,
-        transfered: u128,
-    ) -> Result<()> {
+        transferred: u128,
+    ) -> Result<(), VmExecutionError> {
         let asset_identifier = AssetIdentifier {
             contract_identifier: contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
         self.get_asset_map()?
-            .add_token_transfer(sender, asset_identifier, transfered)
+            .add_token_transfer(sender, asset_identifier, transferred)
     }
 
-    pub fn log_stx_transfer(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
-        self.get_asset_map()?.add_stx_transfer(sender, transfered)
+    pub fn log_stx_transfer(
+        &mut self,
+        sender: &PrincipalData,
+        transferred: u128,
+    ) -> Result<(), VmExecutionError> {
+        self.get_asset_map()?.add_stx_transfer(sender, transferred)
     }
 
-    pub fn log_stx_burn(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
-        self.get_asset_map()?.add_stx_burn(sender, transfered)
+    pub fn log_stx_burn(
+        &mut self,
+        sender: &PrincipalData,
+        transferred: u128,
+    ) -> Result<(), VmExecutionError> {
+        self.get_asset_map()?.add_stx_burn(sender, transferred)
     }
 
-    pub fn log_stacking(&mut self, sender: &PrincipalData, amount: u128) -> Result<()> {
+    pub fn log_stacking(
+        &mut self,
+        sender: &PrincipalData,
+        amount: u128,
+    ) -> Result<(), VmExecutionError> {
         self.get_asset_map()?.add_stacking(sender, amount);
         Ok(())
     }
 
-    pub fn execute<F, T>(&mut self, f: F) -> Result<T>
+    pub fn execute<F, T>(&mut self, f: F) -> Result<T, VmExecutionError>
     where
-        F: FnOnce(&mut Self) -> Result<T>,
+        F: FnOnce(&mut Self) -> Result<T, VmExecutionError>,
     {
         self.begin();
         let result = f(self).or_else(|e| {
@@ -1911,8 +2055,8 @@ impl<'a> GlobalContext<'a> {
         f: F,
     ) -> std::result::Result<A, E>
     where
-        E: From<crate::vm::errors::Error>,
-        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
+        E: From<ClarityEvalError>,
+        F: FnOnce(&mut ExecutionState, &InvocationContext) -> std::result::Result<A, E>,
     {
         self.begin();
 
@@ -1920,17 +2064,19 @@ impl<'a> GlobalContext<'a> {
             // this right here is why it's dangerous to call this anywhere else.
             // the call stack gets reset to empyt each time!
             let mut callstack = CallStack::new();
-            let mut exec_env = Environment::new(
-                self,
-                &contract_context,
-                &mut callstack,
-                Some(sender.clone()),
-                Some(sender),
+            let mut exec_state = ExecutionState {
+                global_context: self,
+                call_stack: &mut callstack,
+            };
+            let invoke_ctx = InvocationContext {
+                contract_context: &contract_context,
+                sender: Some(sender.clone()),
+                caller: Some(sender),
                 sponsor,
-            );
-            f(&mut exec_env)
+            };
+            f(&mut exec_state, &invoke_ctx)
         };
-        self.roll_back()?;
+        self.roll_back().map_err(ClarityEvalError::from)?;
 
         match result {
             Ok(return_value) => Ok(return_value),
@@ -1945,7 +2091,12 @@ impl<'a> GlobalContext<'a> {
 
     pub fn begin(&mut self) {
         self.asset_maps.push(AssetMap::new());
-        self.event_batches.push(EventBatch::new());
+        let total_size = self
+            .event_batches
+            .last()
+            .map(|(_, total_size)| *total_size)
+            .unwrap_or(0);
+        self.event_batches.push((EventBatch::new(), total_size));
         self.database.begin();
         let read_only = self.is_read_only();
         self.read_only.push(read_only);
@@ -1953,19 +2104,24 @@ impl<'a> GlobalContext<'a> {
 
     pub fn begin_read_only(&mut self) {
         self.asset_maps.push(AssetMap::new());
-        self.event_batches.push(EventBatch::new());
+        let total_size = self
+            .event_batches
+            .last()
+            .map(|(_, total_size)| *total_size)
+            .unwrap_or(0);
+        self.event_batches.push((EventBatch::new(), total_size));
         self.database.begin();
         self.read_only.push(true);
     }
 
-    pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>)> {
+    pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>), VmExecutionError> {
         trace!("Calling commit");
         self.read_only.pop();
         let asset_map = self.asset_maps.pop().ok_or_else(|| {
-            InterpreterError::Expect("ERROR: Committed non-nested context.".into())
+            VmInternalError::Expect("ERROR: Committed non-nested context.".into())
         })?;
-        let mut event_batch = self.event_batches.pop().ok_or_else(|| {
-            InterpreterError::Expect("ERROR: Committed non-nested context.".into())
+        let (mut event_batch, new_total_size) = self.event_batches.pop().ok_or_else(|| {
+            VmInternalError::Expect("ERROR: Committed non-nested context.".into())
         })?;
 
         let out_map = match self.asset_maps.last_mut() {
@@ -1980,8 +2136,9 @@ impl<'a> GlobalContext<'a> {
         };
 
         let out_batch = match self.event_batches.last_mut() {
-            Some(tail_back) => {
+            Some((tail_back, total_size)) => {
                 tail_back.events.append(&mut event_batch.events);
+                *total_size = new_total_size;
                 None
             }
             None => Some(event_batch),
@@ -1991,18 +2148,18 @@ impl<'a> GlobalContext<'a> {
         Ok((out_map, out_batch))
     }
 
-    pub fn roll_back(&mut self) -> Result<()> {
+    pub fn roll_back(&mut self) -> Result<(), VmExecutionError> {
         let popped = self.asset_maps.pop();
         if popped.is_none() {
-            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
         let popped = self.read_only.pop();
         if popped.is_none() {
-            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
         let popped = self.event_batches.pop();
         if popped.is_none() {
-            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
 
         self.database.roll_back()
@@ -2013,9 +2170,9 @@ impl<'a> GlobalContext<'a> {
     // clarity = { version = "*", features = ["devtools"] }
     pub fn handle_tx_result(
         &mut self,
-        result: Result<Value>,
+        result: Result<Value, VmExecutionError>,
         allow_private: bool,
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         if let Ok(result) = result {
             if let Value::Response(data) = result {
                 if data.committed {
@@ -2028,8 +2185,9 @@ impl<'a> GlobalContext<'a> {
                 self.commit()?;
                 Ok(result)
             } else {
-                Err(CheckErrors::PublicFunctionMustReturnResponse(Box::new(
-                    TypeSignature::type_of(&result)?,
+                Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Public function must return response: {}",
+                    TypeSignature::type_of(&result)?
                 ))
                 .into())
             }
@@ -2069,6 +2227,7 @@ impl ContractContext {
             meta_nft: HashMap::new(),
             meta_ft: HashMap::new(),
             clarity_version,
+            is_deploying: false,
             wasm_module: None,
         }
     }
@@ -2079,16 +2238,17 @@ impl ContractContext {
     }
 
     #[cfg(feature = "clarity-wasm")]
-    pub fn with_wasm_module<T>(&self, f: impl Fn(&[u8]) -> Result<T>) -> Result<T> {
-        let wasm_module = self
-            .wasm_module
-            .as_ref()
-            .ok_or(crate::vm::errors::Error::Wasm(
-                crate::vm::errors::WasmError::ModuleNotFound,
-            ))?;
-        f(&wasm_module)
+    pub fn with_wasm_module<T>(
+        &self,
+        f: impl Fn(&[u8]) -> Result<T, VmExecutionError>,
+    ) -> Result<T, VmExecutionError> {
+        let wasm_module = self.wasm_module.as_ref().ok_or(VmExecutionError::Wasm(
+            crate::vm::errors::WasmError::ModuleNotFound,
+        ))?;
+        f(wasm_module)
     }
 
+    /// Lookup a contract constant by name
     pub fn lookup_variable(&self, name: &str) -> Option<&Value> {
         self.variables.get(name)
     }
@@ -2123,7 +2283,7 @@ impl ContractContext {
     /// Canonicalize the types for the specified epoch. Only functions and
     /// defined traits are exposed externally, so other types are not
     /// canonicalized.
-    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) -> Result<(), VmExecutionError> {
         for (_, function) in self.functions.iter_mut() {
             function.canonicalize_types(epoch);
         }
@@ -2133,6 +2293,20 @@ impl ContractContext {
                 *function = function.canonicalize(epoch);
             }
         }
+
+        // In pre-sanitized-variable epochs, sanitize all contract
+        // variables at load time so lookups can borrow directly.
+        if epoch.uses_pre_sanitized_variables() {
+            for (_, value) in self.variables.iter_mut() {
+                let owned = std::mem::replace(value, Value::none());
+                let (sanitized, _) =
+                    Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
+                        .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                *value = sanitized;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -2153,7 +2327,7 @@ impl<'a> LocalContext<'a> {
         }
     }
 
-    pub fn depth(&self) -> u16 {
+    pub fn depth(&self) -> u64 {
         self.depth
     }
 
@@ -2164,9 +2338,17 @@ impl<'a> LocalContext<'a> {
         }
     }
 
-    pub fn extend(&'a self) -> Result<LocalContext<'a>> {
+    pub fn extend(&'a self) -> Result<LocalContext<'a>, VmExecutionError> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(RuntimeErrorType::MaxContextDepthReached.into())
+            // `MaxContextDepthReached` in this function is **unreachable** in normal Clarity execution because:
+            // - Every function call in Clarity increments both the call stack depth and the local context depth.
+            // - The VM enforces the epoch-specific `MAX_CALL_STACK_DEPTH` **before** `MAX_CONTEXT_DEPTH` (256).
+            // - This means no contract can create more nested function calls than the epoch limit, preventing context depth from reaching 256.
+            // - Nested expressions (`let`, `begin`, `if`, etc.) increment context depth, but the Clarity parser enforces
+            //   `ExpressionStackDepthTooDeep` long before MAX_CONTEXT_DEPTH nested contexts can be written.
+            // - As a result, `MaxContextDepthReached` can only occur in artificial Rust-level tests calling `LocalContext::extend()`,
+            //   not in deployed contract execution.
+            Err(RuntimeError::MaxContextDepthReached.into())
         } else {
             Ok(LocalContext {
                 function_context: Some(self.function_context()),
@@ -2214,8 +2396,9 @@ impl CallStack {
         }
     }
 
-    pub fn depth(&self) -> usize {
-        self.stack.len() + self.apply_depth
+    pub fn depth(&self) -> u64 {
+        let stack_len = u64::try_from(self.stack.len()).unwrap_or(u64::MAX);
+        stack_len.saturating_add(self.apply_depth)
     }
 
     pub fn contains(&self, function: &FunctionIdentifier) -> bool {
@@ -2237,23 +2420,27 @@ impl CallStack {
         self.apply_depth -= 1;
     }
 
-    pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {
+    pub fn remove(
+        &mut self,
+        function: &FunctionIdentifier,
+        tracked: bool,
+    ) -> Result<(), VmExecutionError> {
         if let Some(removed) = self.stack.pop() {
             if removed != *function {
-                return Err(InterpreterError::InterpreterError(
+                return Err(VmInternalError::InvariantViolation(
                     "Tried to remove item from empty call stack.".to_string(),
                 )
                 .into());
             }
             if tracked && !self.set.remove(function) {
-                return Err(InterpreterError::InterpreterError(
+                return Err(VmInternalError::InvariantViolation(
                     "Tried to remove tracked function from call stack, but could not find in current context.".into()
                 )
                 .into());
             }
             Ok(())
         } else {
-            Err(InterpreterError::InterpreterError(
+            Err(VmInternalError::InvariantViolation(
                 "Tried to remove item from empty call stack.".to_string(),
             )
             .into())
@@ -2273,14 +2460,18 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::Hash160;
 
     use super::*;
     use crate::vm::callables::DefineType;
-    use crate::vm::tests::{test_epochs, tl_env_factory, TopLevelMemoryEnvironmentGenerator};
-    use crate::vm::types::signatures::CallableSubtype;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::tests::{
+        TopLevelMemoryEnvironmentGenerator, test_clarity_versions, test_epochs, tl_env_factory,
+    };
     use crate::vm::types::StandardPrincipalData;
+    use crate::vm::types::signatures::CallableSubtype;
 
     #[test]
     fn test_asset_map_abort() {
@@ -2441,12 +2632,12 @@ mod test {
         epoch: StacksEpochId,
         mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
     ) {
-        let mut env = tl_env_factory.get_env(epoch);
+        let mut exec_state = tl_env_factory.get_env(epoch);
         let u1 = StacksAddress::new(0, Hash160([1; 20])).unwrap();
         let u2 = StacksAddress::new(0, Hash160([2; 20])).unwrap();
         // insufficient balance must be a non-includable transaction. it must error here,
         //  not simply rollback the tx and squelch the error as includable.
-        let e = env
+        let e = exec_state
             .stx_transfer(
                 &PrincipalData::from(u1),
                 &PrincipalData::from(u2),
@@ -2454,7 +2645,7 @@ mod test {
                 &BuffData::empty(),
             )
             .unwrap_err();
-        assert_eq!(e.to_string(), "Interpreter(InsufficientBalance)");
+        assert_eq!(e.to_string(), "Internal(InsufficientBalance)");
     }
 
     #[test]
@@ -2498,7 +2689,9 @@ mod test {
             .defined_traits
             .insert("bar".into(), trait_functions);
 
-        contract_context.canonicalize_types(&StacksEpochId::Epoch21);
+        contract_context
+            .canonicalize_types(&StacksEpochId::Epoch21)
+            .unwrap();
 
         assert_eq!(
             contract_context.functions["foo"].get_arg_types()[0],
@@ -2514,5 +2707,214 @@ mod test {
                 .args[0],
             TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
+    }
+
+    #[test]
+    fn asset_map_arithmetic_overflows() {
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+        let t1 = AssetIdentifier {
+            contract_identifier: a_contract_id,
+            asset_name: "a".into(),
+        };
+
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+
+        // Token transfer: add u128::MAX followed by 1 to overflow
+        am1.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_token_transfer(&p1, t1.clone(), 1).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+
+        // STX burn: add u128::MAX followed by 1 to overflow
+        am1.add_stx_burn(&p1, u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_stx_burn(&p1, 1).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+
+        // STX transfer: add u128::MAX followed by 1 to overflow
+        am1.add_stx_transfer(&p1, u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_stx_transfer(&p1, 1).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+
+        // commit_other: merge two maps where sum exceeds u128::MAX
+        am2.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
+        assert!(matches!(
+            am1.commit_other(am2).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+    }
+
+    #[test]
+    fn eval_raw_empty_program() {
+        // Setup environment
+        let mut tl_env_factory = tl_env_factory();
+        let mut exec_state = tl_env_factory.get_env(StacksEpochId::latest());
+
+        // Call eval_read_only with an empty program
+        let program = ""; // empty program triggers parsed.is_empty()
+        let err = exec_state.eval_raw(program).unwrap_err();
+        let expected_err =
+            ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
+        assert_eq!(err, expected_err, "Expected a type parse failure");
+    }
+
+    #[test]
+    fn eval_read_only_empty_program() {
+        // Setup environment
+        let mut tl_env_factory = tl_env_factory();
+        let mut exec_state = tl_env_factory.get_env(StacksEpochId::latest());
+
+        // Construct a dummy contract context
+        let contract_id = QualifiedContractIdentifier::local("dummy-contract").unwrap();
+
+        // Call eval_read_only with an empty program
+        let program = ""; // empty program triggers parsed.is_empty()
+        let err = exec_state
+            .eval_read_only(&contract_id, program)
+            .unwrap_err();
+        let expected_err =
+            ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
+        assert_eq!(err, expected_err, "Expected a type parse failure");
+    }
+
+    #[test]
+    fn max_context_depth_exceeded() {
+        let root = LocalContext {
+            function_context: None,
+            parent: None,
+            callable_contracts: HashMap::new(),
+            variables: HashMap::new(),
+            depth: MAX_CONTEXT_DEPTH - 1,
+        };
+        // We should be able to extend once successfully.
+        let result = root.extend().unwrap();
+        // We are now at the MAX_CONTEXT_DEPTH and should fail.
+        let result_2 = result.extend();
+        assert!(matches!(
+            result_2,
+            Err(VmExecutionError::Runtime(
+                RuntimeError::MaxContextDepthReached,
+                _
+            ))
+        ));
+    }
+
+    #[apply(test_clarity_versions)]
+    fn vm_initialize_contract_already_exists(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) -> Result<(), VmExecutionError> {
+        // --- Setup VM ---
+
+        let mut store = crate::vm::database::MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch21, // any modern epoch
+        );
+
+        let mut call_stack = CallStack::new();
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
+
+        let clarity_version = invoke_ctx.contract_context.clarity_version;
+
+        let contract_id = QualifiedContractIdentifier::local("dup").unwrap();
+
+        let contract_src = "(define-public (ping) (ok u1))";
+
+        let mut ast =
+            ast::build_ast(&contract_id, contract_src, &mut exec_state, version, epoch).unwrap();
+
+        let contract_analysis = analysis::run_analysis(
+            &contract_id,
+            &ast.expressions,
+            &mut analysis_db,
+            true,
+            LimitedCostTracker::Free,
+            exec_state.global_context.epoch_id,
+            clarity_version,
+            true,
+        )
+        .map_err(|boxed_err| {
+            let (boxed_check_error, _cost_tracker) = *boxed_err;
+            let err = *boxed_check_error.err;
+            error!("Analysis step has failed: {err:?}");
+            err
+        })?;
+
+        // First initialization succeeds
+        exec_state
+            .initialize_contract_from_ast(
+                &invoke_ctx,
+                contract_id.clone(),
+                version,
+                &mut ast,
+                &contract_analysis,
+                contract_src,
+            )
+            .unwrap();
+
+        let contract_analysis = analysis::run_analysis(
+            &contract_id,
+            &ast.expressions,
+            &mut analysis_db,
+            true,
+            LimitedCostTracker::Free,
+            exec_state.global_context.epoch_id,
+            clarity_version,
+            true,
+        )
+        .map_err(|boxed_err| {
+            let (boxed_check_error, _cost_tracker) = *boxed_err;
+            let err = *boxed_check_error.err;
+            error!("Analysis step has failed: {err:?}");
+            err
+        })?;
+
+        // Second initialization hits ContractAlreadyExists
+        let err = exec_state
+            .initialize_contract_from_ast(
+                &invoke_ctx,
+                contract_id.clone(),
+                version,
+                &mut ast,
+                &contract_analysis,
+                contract_src,
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
+                "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".to_string()
+            ))
+        );
+        Ok(())
     }
 }

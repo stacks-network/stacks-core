@@ -6,9 +6,9 @@ set -o pipefail
 ##
 ## ** Recommend to run this script in screen or tmux **
 ##
-## We'll need ~217GB per slice, plus an extra ~4500GB for the chainstate archive and marf DB
-## as of 09/2025:
-##   for 10 slices, this is about 2.5TB
+## We'll need ~283GB per slice, plus an extra ~560GB for the marf DB and ~450GB for the chainstate (if not using a local chainstate)
+## as of 12/2025:
+##   for 10 slices, this is about 3.5TB
 
 NETWORK="mainnet"                               ## network to validate
 REPO_DIR="$HOME/stacks-core"                    ## where to build the source
@@ -129,35 +129,39 @@ configure_validation_slices() {
 }
 
 ## setup the tmux sessions and create the logdir for storing output
-setup_validation() {
-    ## if there is an existing folder, rm it
-    if [ -d "${LOG_DIR}" ];then
-        echo "Removing logdir ${LOG_DIR}"
-        rm -rf "${LOG_DIR}"
-    fi
-    ## create LOG_DIR to store output files
-    if  [ ! -d "${LOG_DIR}" ]; then
-        echo "Creating logdir ${LOG_DIR}"
-        mkdir -p "${LOG_DIR}"
-    fi
-    ## if tmux session "${TMUX_SESSION}" exists, kill it and start anew
-    if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
-        echo "Killing existing tmux session: ${TMUX_SESSION}"
-        eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
-    fi
-    local slice_counter=0
+setup_logs() {
+	## if there is an existing folder, rm it
+	if [ -d "${LOG_DIR}" ];then
+		echo "Removing logdir ${LOG_DIR}"
+		rm -rf "${LOG_DIR}"
+	fi
+	## create LOG_DIR to store output files
+	if  [ ! -d "${LOG_DIR}" ]; then
+		echo "Creating logdir ${LOG_DIR}"
+		mkdir -p "${LOG_DIR}"
+	fi
 
-    ## create tmux session named ${TMUX_SESSION} with a window named slice0
-    tmux new-session -d -s ${TMUX_SESSION} -n slice${slice_counter} || {
-        echo "${COLRED}Error${COLRESET} creating tmux session ${COLYELLOW}${TMUX_SESSION}${COLRESET}"
-        exit 1
-    }
+}
 
-    if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
-        echo "${COLRED}Error${COLRESET}: chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
-        exit 1
-    fi
-    return 0
+setup_tmux() {
+	## if tmux session "$TMUX_SESSION" exists, kill it and start anew
+	if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
+		echo "Killing existing tmux session: ${TMUX_SESSION}"
+		eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
+	fi
+	local slice_counter=0
+
+	## create tmux session named ${TMUX_SESSION} with a window named slice0
+	tmux new-session -d -s ${TMUX_SESSION} -n slice${slice_counter} || {
+		echo "${COLRED}Error${COLRESET} creating tmux session ${COLYELLOW}${TMUX_SESSION}${COLRESET}"
+		exit 1
+	}
+
+	if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
+		echo "${COLRED}Error${COLRESET}: chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
+		exit 1
+	fi
+	return 0
 }
 
 ## run the block validation
@@ -165,16 +169,19 @@ start_validation() {
     local mode=$1
     local total_blocks=0
     local starting_block=0
-    local inspect_command
     local slice_counter=0
+    local range_command=""
+    local log_append=""
+    local inspect_bin="${REPO_DIR}/target/release/stacks-inspect"
+    local inspect_config="${REPO_DIR}/stackslib/conf/${NETWORK}-follower-conf.toml"
+    local inspect_prefix="${inspect_bin} --config ${inspect_config} validate-block"
+
     case "$mode" in
         nakamoto)
             ## nakamoto blocks
             echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
-            local log_append="_${mode}"
-            inspect_command="validate-naka-block"
-            ## get the total number of nakamoto blocks in db
-            total_blocks=$(echo "select count(*) from nakamoto_block_headers" | sqlite3 "${SLICE_DIR}"0/chainstate/vm/index.sqlite)
+            log_append="_${mode}"
+            range_command="naka-index-range"
             starting_block=0 # for the block counter, start at this block
             ## use these values if `--testing` arg is provided (only validate 1_000 blocks)
             ${TESTING} && total_blocks=301883
@@ -183,16 +190,29 @@ start_validation() {
         *)
             ## pre-nakamoto blocks
             echo "Mode: ${COLYELLOW}pre-nakamoto${COLRESET}"
-            local log_append=""
-            inspect_command="validate-block"
-            ## get the total number of blocks (with orphans) in db
-            total_blocks=$(echo "select count(*) from staging_blocks where orphaned = 0" | sqlite3 "${SLICE_DIR}"0/chainstate/vm/index.sqlite)
+            log_append=""
+            range_command="index-range"
             starting_block=0 # for the block counter, start at this block
             ## use these values if `--testing` arg is provided (only validate 1_000 blocks) Note:  2.5 epoch is at 153106
-            ${TESTING} && total_blocks=153000
-            ${TESTING} && starting_block=152000
+            ${TESTING} && total_blocks=162200
+            ${TESTING} && starting_block=161200
             ;;
     esac
+
+    # get the total number of blocks by running the command without args
+    if [ "${total_blocks}" -eq 0 ]; then
+        local count_output
+        local count_cmd="${inspect_prefix} ${SLICE_DIR}0 ${range_command}"
+        if ! count_output=$(${count_cmd} 2>/dev/null); then
+            echo "${COLRED}Error${COLRESET} retrieving total number of blocks from chainstate"
+            exit 1
+        fi
+        total_blocks=$(printf '%s\n' "${count_output}" | awk '/Total available entries: / {print $4}')
+        if [ -z "${total_blocks}" ]; then
+            echo "${COLRED}Error${COLRESET} parsing block count from stacks-inspect output"
+            exit 1
+        fi
+    fi
     local block_diff=$((total_blocks - starting_block)) ## how many blocks are being validated
     local slices=$((CORES - RESERVED))                  ## how many validation slices to use
     local slice_blocks=$((block_diff / slices))         ## how many blocks to validate per slice
@@ -218,9 +238,10 @@ start_validation() {
                 }
             fi
         fi
+        local slice_path="${SLICE_DIR}${slice_counter}"
         local log_file="${LOG_DIR}/slice${slice_counter}${log_append}.log"
         local log=" | tee -a ${log_file}"
-        local cmd="${REPO_DIR}/target/release/stacks-inspect --config ${REPO_DIR}/stackslib/conf/${NETWORK}-follower-conf.toml ${inspect_command}  ${SLICE_DIR}${slice_counter} index-range $start_block_count $end_block_count 2>/dev/null"
+        local cmd="${inspect_prefix} ${slice_path} ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
         echo "  Creating tmux window: ${COLGREEN}${TMUX_SESSION}:slice${slice_counter}${COLRESET} :: Blocks: ${COLYELLOW}${start_block_count}-${end_block_count}${COLRESET} || Logging to: ${log_file}"
         echo "Command: ${cmd}" > "${log_file}" ## log the command being run for the slice
         echo "Validating indexed blocks: ${start_block_count}-${end_block_count} (out of ${total_blocks})" >> "${log_file}"
@@ -511,7 +532,8 @@ tput reset
 echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
 build_stacks_inspect        ## comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
 configure_validation_slices ## comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
-setup_validation            ## configure logdir and tmux sessions
+setup_logs                  ## configure logdir
+setup_tmux                  ## configure tmux sessions
 start_validation            ## validate pre-nakamoto blocks (2.x)
 start_validation nakamoto   ## validate nakamoto blocks
 store_results               ## store aggregated results of validation

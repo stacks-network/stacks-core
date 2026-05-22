@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,11 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::CheckErrors;
+use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::errors::Error::Unchecked;
+use clarity::vm::errors::ClarityEvalError;
+use clarity::vm::errors::VmExecutionError::{self, RuntimeCheck};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
@@ -220,11 +221,13 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                     &tip,
                     |clarity_tx| {
                         let epoch = clarity_tx.get_epoch();
-                        let cost_track = clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                            LimitedCostTracker::new_mid_block(
-                                mainnet, chain_id, cost_limit, clarity_db, epoch,
-                            )
-                        })?;
+                        let cost_track = clarity_tx
+                            .with_clarity_db_readonly(|clarity_db| {
+                                LimitedCostTracker::new_mid_block(
+                                    mainnet, chain_id, cost_limit, clarity_db, epoch,
+                                )
+                            })
+                            .map_err(VmExecutionError::from)?;
 
                         clarity_tx.with_readonly_clarity_env(
                             mainnet,
@@ -232,19 +235,22 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             sender,
                             sponsor,
                             cost_track,
-                            |env| {
+                            |exec_state, invoke_ctx| {
                                 // we want to execute any function as long as no actual writes are made as
                                 // opposed to be limited to purely calling `define-read-only` functions,
                                 // so use `read_only = false`.  This broadens the number of functions that
                                 // can be called, and also circumvents limitations on `define-read-only`
                                 // functions that can not use `contrac-call?`, even when calling other
                                 // read-only functions
-                                env.execute_contract(
-                                    &contract_identifier,
-                                    function.as_str(),
-                                    &args,
-                                    false,
-                                )
+                                exec_state
+                                    .execute_contract(
+                                        invoke_ctx,
+                                        &contract_identifier,
+                                        function.as_str(),
+                                        &args,
+                                        false,
+                                    )
+                                    .map_err(ClarityEvalError::from)
                             },
                         )
                     },
@@ -265,15 +271,14 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 }
             }
             Ok(Some(Err(e))) => match e {
-                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
-                    if actual_cost.write_count > 0 =>
-                {
-                    CallReadOnlyResponse {
-                        okay: false,
-                        result: None,
-                        cause: Some("NotReadOnly".to_string()),
-                    }
-                }
+                ClarityEvalError::Vm(RuntimeCheck(RuntimeCheckErrorKind::CostBalanceExceeded(
+                    actual_cost,
+                    _,
+                ))) if actual_cost.write_count > 0 => CallReadOnlyResponse {
+                    okay: false,
+                    result: None,
+                    cause: Some("NotReadOnly".to_string()),
+                },
                 _ => CallReadOnlyResponse {
                     okay: false,
                     result: None,

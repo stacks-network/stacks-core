@@ -1,3 +1,6 @@
 {
-  "is_implemented": true
+    "summary": "Trait implementation check",
+    "value": {
+        "is_implemented": true
+    }
 }

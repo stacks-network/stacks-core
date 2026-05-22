@@ -12,6 +12,7 @@ members = [
     "stacks-signer",
     "stacks-node",
     "contrib/stacks-inspect",
+    "contrib/clarity-cli",
     "contrib/stacks-cli"
 ]
 

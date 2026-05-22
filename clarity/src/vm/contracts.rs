@@ -21,7 +21,7 @@ use crate::vm::ast::ContractAST;
 #[cfg(feature = "clarity-wasm")]
 use crate::vm::clarity_wasm::initialize_contract;
 use crate::vm::contexts::{ContractContext, GlobalContext};
-use crate::vm::errors::InterpreterResult as Result;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::eval_all;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::version::ClarityVersion;
@@ -41,8 +41,9 @@ impl Contract {
         sponsor: Option<PrincipalData>,
         global_context: &mut GlobalContext,
         version: ClarityVersion,
-    ) -> Result<Contract> {
+    ) -> Result<Contract, VmExecutionError> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
+        contract_context.is_deploying = true;
 
         #[cfg(feature = "clarity-wasm")]
         if let Some(wasm_module) = contract.wasm_module.take() {
@@ -75,10 +76,11 @@ impl Contract {
             sponsor,
         )?;
 
+        contract_context.is_deploying = false;
         Ok(Contract { contract_context })
     }
 
-    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
-        self.contract_context.canonicalize_types(epoch);
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) -> Result<(), VmExecutionError> {
+        self.contract_context.canonicalize_types(epoch)
     }
 }

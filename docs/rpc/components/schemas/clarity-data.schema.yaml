@@ -9,5 +9,5 @@ properties:
     pattern: "^0x[0-9a-f]+$"
   proof:
     type: string
-    description: Hex-encoded 0x prefixed string of the Merkle proof for the data
-    pattern: "^0x[0-9a-f]+$"
+    description: Hex-encoded 0x prefixed string of the Merkle proof for the data. Empty string if proof not requested.
+    pattern: "^(0x[0-9a-f]+)?$"

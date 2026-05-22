@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,90 +13,110 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result, SyntaxBindingErrorType,
+    RuntimeCheckErrorKind, SyntaxBindingErrorType, VmExecutionError, VmInternalError,
+    check_argument_count, check_arguments_at_least,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, TypeSignature, Value};
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{LocalContext, eval};
 
 pub fn tuple_cons(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     //    (tuple (arg-name value)
     //           (arg-name value))
     use super::parse_eval_bindings;
 
     check_arguments_at_least(1, args)?;
 
-    let bindings = parse_eval_bindings(args, SyntaxBindingErrorType::TupleCons, env, context)?;
-    runtime_cost(ClarityCostFunction::TupleCons, env, bindings.len())?;
+    let bindings = parse_eval_bindings(
+        args,
+        SyntaxBindingErrorType::TupleCons,
+        exec_state,
+        invoke_ctx,
+        context,
+    )?;
+    runtime_cost(ClarityCostFunction::TupleCons, exec_state, bindings.len())?;
 
-    TupleData::from_data(bindings).map(Value::from)
+    Ok(TupleData::from_data(bindings).map(Value::from)?)
 }
 
 pub fn tuple_get(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (get arg-name (tuple ...))
     //    if the tuple argument is an option type, then return option(field-name).
     check_argument_count(2, args)?;
 
-    let arg_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let arg_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
+            "Expected name".to_string(),
+        ))?;
 
-    let value = eval(&args[1], env, context)?;
+    let value = eval(&args[1], exec_state, invoke_ctx, context)?;
 
-    match value {
+    match value.clone_with_cost(exec_state)? {
         Value::Optional(opt_data) => {
             match opt_data.data {
                 Some(data) => {
                     if let Value::Tuple(tuple_data) = *data {
-                        runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
+                        runtime_cost(ClarityCostFunction::TupleGet, exec_state, tuple_data.len())?;
                         Ok(Value::some(tuple_data.get_owned(arg_name)?).map_err(|_| {
-                            InterpreterError::Expect(
+                            VmInternalError::Expect(
                                 "Tuple contents should *always* fit in a some wrapper".into(),
                             )
                         })?)
                     } else {
-                        Err(
-                            CheckErrors::ExpectedTuple(Box::new(TypeSignature::type_of(&data)?))
-                                .into(),
-                        )
+                        Err(RuntimeCheckErrorKind::Unreachable(format!(
+                            "Expected tuple: {}",
+                            TypeSignature::type_of(&data)?
+                        ))
+                        .into())
                     }
                 }
                 None => Ok(Value::none()), // just pass through none-types.
             }
         }
         Value::Tuple(tuple_data) => {
-            runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
-            tuple_data.get_owned(arg_name)
+            runtime_cost(ClarityCostFunction::TupleGet, exec_state, tuple_data.len())?;
+            Ok(tuple_data.get_owned(arg_name)?)
         }
-        _ => Err(CheckErrors::ExpectedTuple(Box::new(TypeSignature::type_of(&value)?)).into()),
+        other_value => Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected tuple: {}",
+            TypeSignature::type_of(&other_value)?
+        ))
+        .into()),
     }
 }
 
-pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
+pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError> {
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
-        _ => Err(CheckErrors::ExpectedTuple(Box::new(
-            TypeSignature::type_of(&base)?,
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected tuple: {}",
+            TypeSignature::type_of(&base)?
         ))),
     }?;
 
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
-        _ => Err(CheckErrors::ExpectedTuple(Box::new(
-            TypeSignature::type_of(&update)?,
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected tuple: {}",
+            TypeSignature::type_of(&update)?
         ))),
     }?;
 
-    let combined = TupleData::shallow_merge(initial_values, new_values)?;
+    let combined = TupleData::shallow_merge(initial_values, new_values);
     Ok(Value::Tuple(combined))
 }

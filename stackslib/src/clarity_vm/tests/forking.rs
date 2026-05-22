@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,10 +13,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use clarity::vm::analysis::errors::CheckErrors;
+use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
+use clarity::vm::errors::{ClarityEvalError, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
@@ -75,7 +74,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal().unwrap();
         let placeholder_context =
@@ -83,9 +82,10 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let (mut exec_state, invoke_ctx) =
+                owned_env.get_exec_environment(None, None, &placeholder_context);
             let command = "(var-get datum)";
-            let value = env.eval_read_only(&c, command).unwrap();
+            let value = exec_state.eval_read_only(&invoke_ctx, &c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -99,27 +99,46 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         epoch,
         initialize,
         |x| {
-            assert_eq!(
-                branch(x, version, 1, "working").unwrap(),
-                Value::okay(Value::Int(1)).unwrap()
-            );
-            assert_eq!(
-                branch(x, version, 1, "broken").unwrap(),
-                Value::okay(Value::Int(1)).unwrap()
-            );
-            assert_eq!(
-                branch(x, version, 10, "working").unwrap(),
-                Value::okay(Value::Int(1)).unwrap()
-            );
-            // make this test fail: this assertion _should_ be
-            //  true, but at-block is broken. when a context
-            //  switches to an at-block context, _any_ of the db
-            //  wrapping that the Clarity VM does needs to be
-            //  ignored.
-            assert_eq!(
-                branch(x, version, 10, "broken").unwrap(),
-                Value::okay(Value::Int(1)).unwrap()
-            );
+            if epoch.supports_at_block() {
+                assert_eq!(
+                    branch(x, version, 1, "working").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+                assert_eq!(
+                    branch(x, version, 1, "broken").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+                assert_eq!(
+                    branch(x, version, 10, "working").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+                // make this test fail: this assertion _should_ be
+                //  true, but at-block is broken. when a context
+                //  switches to an at-block context, _any_ of the db
+                //  wrapping that the Clarity VM does needs to be
+                //  ignored.
+                assert_eq!(
+                    branch(x, version, 10, "broken").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+            } else {
+                assert_eq!(
+                    branch(x, version, 1, "working").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+                assert_eq!(
+                    branch(x, version, 1, "broken").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+                assert_eq!(
+                    branch(x, version, 1, "working").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+                assert_eq!(
+                    branch(x, version, 1, "broken").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+            }
         },
         |_x| {},
         |_x| {},
@@ -152,7 +171,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal().unwrap();
         let placeholder_context =
@@ -160,9 +179,10 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let (mut exec_state, invoke_ctx) =
+                owned_env.get_exec_environment(None, None, &placeholder_context);
             let command = "(var-get datum)";
-            let value = env.eval_read_only(&c, command).unwrap();
+            let value = exec_state.eval_read_only(&invoke_ctx, &c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -184,21 +204,32 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         |x| {
             let resp = branch(x, version, 1, "reset").unwrap_err();
             eprintln!("{}", resp);
-            match resp {
-                Error::Runtime(x, _) => assert_eq!(
-                    x,
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                        vec![2; 32].as_slice()
-                    ))
-                ),
-                _ => panic!("Unexpected error"),
+            if epoch.supports_at_block() {
+                match resp {
+                    VmExecutionError::Runtime(x, _) => assert_eq!(
+                        x,
+                        RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(
+                            vec![2; 32].as_slice()
+                        ))
+                    ),
+                    _ => panic!("Unexpected error"),
+                }
+            } else {
+                assert_eq!(resp, RuntimeCheckErrorKind::AtBlockUnavailable.into());
             }
         },
         |x| {
-            assert_eq!(
-                branch(x, version, 10, "reset").unwrap(),
-                Value::okay(Value::Int(11)).unwrap()
-            );
+            if epoch.supports_at_block() {
+                assert_eq!(
+                    branch(x, version, 10, "reset").unwrap(),
+                    Value::okay(Value::Int(11)).unwrap()
+                );
+            } else {
+                assert_eq!(
+                    branch(x, version, 10, "reset").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+            }
         },
     );
 }
@@ -222,7 +253,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
         owned_env.initialize_contract(c_a, contract, None).unwrap();
     }
 
-    fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
+    fn initialize_2(owned_env: &mut OwnedEnvironment) -> ClarityEvalError {
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract = "(define-private (problematic-cc)
@@ -246,13 +277,17 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
         |_| {},
         |env| {
             let err = initialize_2(env);
-            assert_eq!(
-                err,
-                CheckErrors::NoSuchContract(
-                    "S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()
-                )
-                .into()
-            );
+            if epoch.supports_at_block() {
+                assert_eq!(
+                    err,
+                    RuntimeCheckErrorKind::NoSuchContract(
+                        "S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()
+                    )
+                    .into()
+                );
+            } else {
+                assert_eq!(err, RuntimeCheckErrorKind::AtBlockUnavailable.into());
+            }
         },
     );
 }
@@ -371,9 +406,12 @@ fn branched_execution(
     eprintln!("Branched execution...");
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         let command = format!("(get-balance {})", p1_str);
-        let balance = env.eval_read_only(&contract_identifier, &command).unwrap();
+        let balance = exec_state
+            .eval_read_only(&invoke_ctx, &contract_identifier, &command)
+            .unwrap();
         let expected = if expect_success { 10 } else { 0 };
         assert_eq!(balance, Value::UInt(expected));
     }

@@ -386,6 +386,25 @@ A test should be marked `#[ignore]` if:
   | `bitcoind`      | tests requiring bitcoin daemon               |
   | `flaky`         | tests that exhibit flaky behavior            |
 
+- **Consensus tests use `insta` to record snapshots** and then compare results across runs to ensure that there are no accidental consensus changes.
+1. Install `insta`:
+
+```bash
+cargo install cargo-insta
+```
+
+2. Run snapshot tests with `insta`:
+
+```bash
+cargo insta test -p stackslib --unreferenced=delete -- chainstate::tests --include-ignored
+```
+
+3. Review/accept snapshot updates:
+
+```bash
+cargo insta review
+```
+
 ## Formatting
 
 PRs will be checked against `rustfmt` and will _fail_ if not properly formatted.
@@ -498,10 +517,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///
     /// # Errors
     ///
-    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only
+    /// - Returns RuntimeCheckErrorKind::WriteAttemptedInReadOnly if there is a read-only
     ///   violation, i.e. if some function marked read-only attempts to modify
     ///   the chainstate.
-    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), CheckError>
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticCheckError>
 ```
 
 This comment is considered positive because it explains the contract of the function in pseudo-code. Someone who understands the constructs mentioned could, e.g., write a test for this method from this description.

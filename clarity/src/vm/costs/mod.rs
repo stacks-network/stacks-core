@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,20 +28,20 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckErrors, RuntimeErrorType};
+use super::errors::{RuntimeCheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
-use crate::vm::contexts::{ContractContext, GlobalContext};
+use crate::vm::contexts::{ContractContext, ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::InterpreterResult;
+use crate::vm::database::clarity_store::NullBackingStore;
+use crate::vm::errors::VmExecutionError;
+use crate::vm::types::Value::UInt;
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::TupleTypeSignature;
-use crate::vm::types::Value::UInt;
 use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
-use crate::vm::{CallStack, ClarityName, Environment, LocalContext, SymbolicExpression, Value};
+use crate::vm::{CallStack, ClarityName, LocalContext, SymbolicExpression, Value};
 pub mod constants;
 pub mod cost_functions;
 #[allow(unused_variables)]
@@ -91,9 +91,9 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
 }
 
 macro_rules! finally_drop_memory {
-    ( $env: expr, $used_mem:expr; $exec:expr ) => {{
+    ( $gc: expr, $used_mem:expr; $exec:expr ) => {{
         let result = (|| $exec)();
-        $env.drop_memory($used_mem)?;
+        $gc.drop_memory($used_mem)?;
         result
     }};
 }
@@ -215,8 +215,11 @@ impl DefaultVersion {
         };
         r.map_err(|e| {
             let e = match e {
-                crate::vm::errors::Error::Runtime(RuntimeErrorType::NotImplemented, _) => {
-                    CheckErrors::UndefinedFunction(cost_function_ref.function_name.clone()).into()
+                VmExecutionError::Runtime(RuntimeError::NotImplemented, _) => {
+                    RuntimeCheckErrorKind::UndefinedFunction(
+                        cost_function_ref.function_name.clone(),
+                    )
+                    .into()
                 }
                 other => other,
             };
@@ -355,7 +358,7 @@ impl LimitedCostTracker {
         match self {
             Self::Free => panic!("Cannot get contract call circuits on free tracker"),
             Self::Limited(TrackerData {
-                ref contract_call_circuits,
+                contract_call_circuits,
                 ..
             }) => contract_call_circuits.clone(),
         }
@@ -366,7 +369,7 @@ impl LimitedCostTracker {
         match self {
             Self::Free => panic!("Cannot get cost function references on free tracker"),
             Self::Limited(TrackerData {
-                ref cost_function_references,
+                cost_function_references,
                 ..
             }) => cost_function_references.clone(),
         }
@@ -848,9 +851,52 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
-            StacksEpochId::Epoch33 => COSTS_4_NAME.to_string(),
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => COSTS_4_NAME.to_string(),
         };
         Ok(result)
+    }
+
+    /// Create a [`LimitedCostTracker`] given an epoch id and an execution cost limit for testing purpose
+    ///
+    /// Autoconfigure itself loading all clarity const functions without the need of passing a clarity database
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_with_limit(epoch_id: StacksEpochId, limit: ExecutionCost) -> LimitedCostTracker {
+        use stacks_common::consts::CHAIN_ID_TESTNET;
+
+        let contract_name = LimitedCostTracker::default_cost_contract_for_epoch(epoch_id)
+            .expect("Failed retrieving cost contract!");
+        let boot_costs_id = boot_code_id(&contract_name, false);
+
+        let version = DefaultVersion::try_from(false, &boot_costs_id)
+            .expect("Failed defining default version!");
+
+        let mut cost_functions = HashMap::new();
+        for each in ClarityCostFunction::ALL {
+            let evaluator = ClarityCostFunctionEvaluator::Default(
+                ClarityCostFunctionReference {
+                    contract_id: boot_costs_id.clone(),
+                    function_name: each.get_name(),
+                },
+                each.clone(),
+                version,
+            );
+            cost_functions.insert(each, evaluator);
+        }
+
+        let cost_tracker = TrackerData {
+            cost_function_references: cost_functions,
+            cost_contracts: HashMap::new(),
+            contract_call_circuits: HashMap::new(),
+            limit,
+            memory_limit: CLARITY_MEMORY_LIMIT,
+            total: ExecutionCost::ZERO,
+            memory: 0,
+            epoch: epoch_id,
+            mainnet: false,
+            chain_id: CHAIN_ID_TESTNET,
+        };
+
+        LimitedCostTracker::Limited(cost_tracker)
     }
 }
 
@@ -977,7 +1023,7 @@ impl LimitedCostTracker {
     pub fn set_total(&mut self, total: ExecutionCost) {
         // used by the miner to "undo" the cost of a transaction when trying to pack a block.
         match self {
-            Self::Limited(ref mut data) => data.total = total,
+            Self::Limited(data) => data.total = total,
             Self::Free => panic!("Cannot set total on free tracker"),
         }
     }
@@ -1004,10 +1050,10 @@ impl LimitedCostTracker {
 
 pub fn parse_cost(
     cost_function_name: &str,
-    eval_result: InterpreterResult<Option<Value>>,
+    eval_result: Result<Value, VmExecutionError>,
 ) -> Result<ExecutionCost, CostErrors> {
     match eval_result {
-        Ok(Some(Value::Tuple(data))) => {
+        Ok(Value::Tuple(data)) => {
             let results = (
                 data.data_map.get("write_length"),
                 data.data_map.get("write_count"),
@@ -1035,11 +1081,8 @@ pub fn parse_cost(
                 )),
             }
         }
-        Ok(Some(_)) => Err(CostErrors::CostComputationFailed(
+        Ok(_) => Err(CostErrors::CostComputationFailed(
             "Clarity cost function returned something other than a Cost tuple".to_string(),
-        )),
-        Ok(None) => Err(CostErrors::CostComputationFailed(
-            "Clarity cost function returned nothing".to_string(),
         )),
         Err(e) => Err(CostErrors::CostComputationFailed(format!(
             "Error evaluating result of cost function {cost_function_name}: {e}"
@@ -1089,19 +1132,19 @@ pub fn compute_cost(
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
         let publisher: PrincipalData = cost_contract.contract_identifier.issuer.clone().into();
-        let mut env = Environment::new(
+        let mut env = ExecutionState {
             global_context,
-            cost_contract,
-            &mut call_stack,
-            Some(publisher.clone()),
-            Some(publisher.clone()),
-            None,
-        );
-
-        let result = super::eval(&function_invocation, &mut env, &context)?;
-        Ok(Some(result))
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: cost_contract,
+            sender: Some(publisher.clone()),
+            caller: Some(publisher.clone()),
+            sponsor: None,
+        };
+        super::eval(&function_invocation, &mut env, &invoke_ctx, &context)
+            .and_then(|v| v.clone_with_cost(&mut env))
     });
-
     parse_cost(&cost_function_reference.to_string(), eval_result)
 }
 
@@ -1149,7 +1192,7 @@ impl CostTracker for LimitedCostTracker {
                 // tracker is free, return zero!
                 Ok(ExecutionCost::ZERO)
             }
-            Self::Limited(ref mut data) => {
+            Self::Limited(data) => {
                 if cost_function == ClarityCostFunction::Unimplemented {
                     return Err(CostErrors::Expect(
                         "Used unimplemented cost function".into(),
@@ -1177,25 +1220,25 @@ impl CostTracker for LimitedCostTracker {
     fn add_cost(&mut self, cost: ExecutionCost) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
-            Self::Limited(ref mut data) => add_cost(data, cost),
+            Self::Limited(data) => add_cost(data, cost),
         }
     }
     fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
-            Self::Limited(ref mut data) => add_memory(data, memory),
+            Self::Limited(data) => add_memory(data, memory),
         }
     }
     fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
-            Self::Limited(ref mut data) => drop_memory(data, memory),
+            Self::Limited(data) => drop_memory(data, memory),
         }
     }
     fn reset_memory(&mut self) {
         match self {
             Self::Free => {}
-            Self::Limited(ref mut data) => {
+            Self::Limited(data) => {
                 data.memory = 0;
             }
         }

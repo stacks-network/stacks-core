@@ -52,8 +52,8 @@ impl SortitionState {
         local_address: &StacksAddress,
         timeout: Duration,
     ) -> Result<bool, SignerChainstateError> {
-        // if we've already signed a block in this tenure, the miner can't have timed out.
-        let has_block = signer_db.has_signed_block_in_tenure(sortition)?;
+        // if we've already approved/signed a block in this tenure, the miner can't have timed out.
+        let has_block = signer_db.has_approved_block_in_tenure(sortition)?;
         if has_block {
             return Ok(false);
         }
@@ -170,6 +170,7 @@ impl GlobalStateView {
             Self::validate_tenure_change_payload(
                 tenure_change,
                 block,
+                parent_tenure_id,
                 signer_db,
                 client,
                 &self.config,
@@ -188,13 +189,37 @@ impl GlobalStateView {
             }
         }
 
-        if let Some(tenure_extend) = block.get_tenure_extend_tx_payload() {
-            // in tenure extends, we need to check:
+        // is there an unsupported tenure extend type?
+        if let Some(tenure_extend) = block.get_tenure_extend_tx_payload().filter(|extend| {
+            !(extend.cause.is_full_extend() || extend.cause.is_read_count_extend())
+        }) {
+            warn!(
+                "Miner block proposal contains a tenure extend with an unsupported cause";
+                "tenure_extend_cause" => %tenure_extend.cause,
+            );
+            return Err(RejectReason::InvalidTenureExtend);
+        }
+
+        // is there a full tenure extend in this block?
+        if let Some(tenure_extend) = block
+            .get_tenure_extend_tx_payload()
+            .filter(|extend| extend.cause.is_full_extend())
+        {
+            // in full tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
             // (3) if we are in replay, an extend is allowed
-            let changed_burn_view = &tenure_extend.burn_view_consensus_hash != tenure_id;
-            let extend_timestamp = signer_db.calculate_tenure_extend_timestamp(
+            let tenure_tip = client.get_tenure_tip(tenure_id)
+                .map_err(|e| {
+                    warn!("Could not load current tenure tip while evaluating a tenure-extend; cannot approve."; "err" => %e);
+                    RejectReason::InvalidTenureExtend
+                })?;
+            let Some(current_burn_view) = tenure_tip.burn_view else {
+                warn!("Tenure-extend attempted in tenure without burn-view.");
+                return Err(RejectReason::InvalidTenureExtend);
+            };
+            let changed_burn_view = tenure_extend.burn_view_consensus_hash != current_burn_view;
+            let extend_timestamp = signer_db.calculate_full_extend_timestamp(
                 self.config.tenure_idle_timeout,
                 block,
                 false,
@@ -217,6 +242,54 @@ impl GlobalStateView {
             }
         }
 
+        // is there a read-count tenure extend in this block?
+        if let Some(tenure_extend) = block
+            .get_tenure_extend_tx_payload()
+            .filter(|extend| extend.cause.is_read_count_extend())
+        {
+            // burn view changes are not allowed during read-count tenure extends
+            let tenure_tip = client.get_tenure_tip(tenure_id)
+                .map_err(|e| {
+                    warn!("Could not load current tenure tip while evaluating a tenure-extend; cannot approve."; "err" => %e);
+                    RejectReason::InvalidTenureExtend
+                })?;
+            let Some(current_burn_view) = tenure_tip.burn_view else {
+                warn!("Tenure-extend attempted in tenure without burn-view.");
+                return Err(RejectReason::InvalidTenureExtend);
+            };
+            let changed_burn_view = tenure_extend.burn_view_consensus_hash != current_burn_view;
+            if changed_burn_view {
+                warn!(
+                    "Miner block proposal contains a read-count extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
+                    "changed_burn_view" => changed_burn_view,
+                );
+                return Err(RejectReason::InvalidTenureExtend);
+            }
+            let extend_timestamp = signer_db.calculate_read_count_extend_timestamp(
+                self.config.read_count_idle_timeout,
+                block,
+                false,
+            );
+            let epoch_time = get_epoch_time_secs();
+            let enough_time_passed = epoch_time >= extend_timestamp;
+            let is_in_replay = self.signer_state.tx_replay_set.is_some();
+            if !enough_time_passed && !is_in_replay {
+                warn!(
+                    "Miner block proposal contains a read-count extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
+                    "extend_timestamp" => extend_timestamp,
+                    "epoch_time" => epoch_time,
+                    "is_in_replay" => is_in_replay,
+                    "changed_burn_view" => changed_burn_view,
+                    "enough_time_passed" => enough_time_passed,
+                );
+                return Err(RejectReason::InvalidTenureExtend);
+            }
+        }
+
         Ok(())
     }
 
@@ -226,10 +299,23 @@ impl GlobalStateView {
     fn validate_tenure_change_payload(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
+        parent_tenure_id: &ConsensusHash,
         signer_db: &mut SignerDb,
         client: &StacksClient,
         config: &ProposalEvalConfig,
     ) -> Result<(), RejectReason> {
+        // Check that the tenure change's prev_tenure matches the signer's known parent tenure.
+        if &tenure_change.prev_tenure_consensus_hash != parent_tenure_id {
+            warn!(
+                "Block commit parent tenure mismatch: the block commit's parent_block_ptr does not correspond to the actual parent tenure";
+                "committed_parent_tenure" => %parent_tenure_id,
+                "actual_parent_tenure" => %tenure_change.prev_tenure_consensus_hash,
+                "consensus_hash" => %block.header.consensus_hash,
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
+            );
+            return Err(RejectReason::InvalidParentBlock);
+        }
+
         // Ensure that the tenure change block confirms the expected parent block
         let confirms_expected_parent = SortitionData::check_tenure_change_confirms_parent(
             tenure_change,

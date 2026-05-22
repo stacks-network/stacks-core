@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -39,8 +39,6 @@ pub mod analysis;
 pub mod docs;
 pub mod version;
 
-pub mod coverage;
-
 pub mod events;
 
 #[cfg(feature = "rusqlite")]
@@ -56,7 +54,7 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
-pub use clarity_types::MAX_CALL_STACK_DEPTH;
+pub use clarity_types::max_call_stack_depth_for_epoch;
 use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
 
@@ -64,21 +62,19 @@ use self::analysis::ContractAnalysis;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
-use self::events::StacksTransactionEvent;
 use crate::vm::callables::CallableType;
-pub use crate::vm::contexts::{
-    CallStack, ContractContext, Environment, LocalContext, MAX_CONTEXT_DEPTH,
-};
-use crate::vm::contexts::{ExecutionTimeTracker, GlobalContext};
+pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
+use crate::vm::contexts::{ExecutionState, ExecutionTimeTracker, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer,
+    CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
-use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
-};
+#[cfg(any(test, feature = "testing"))]
+use crate::vm::errors::ClarityEvalError;
+use crate::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
+use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
 pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::representations::{
@@ -87,6 +83,37 @@ pub use crate::vm::representations::{
 pub use crate::vm::types::Value;
 use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
+
+/// A wrapper for variable value references that prevents accidental cloning.
+/// Only explicit clone_with_cost is allowed. Do not implement Clone or Copy for this type.
+#[derive(Debug, PartialEq)]
+pub enum ValueRef<'a> {
+    Borrowed(&'a Value),
+    Owned(Value),
+}
+
+impl AsRef<Value> for ValueRef<'_> {
+    fn as_ref(&self) -> &Value {
+        match self {
+            ValueRef::Borrowed(r) => r,
+            ValueRef::Owned(o) => o,
+        }
+    }
+}
+impl<'a> ValueRef<'a> {
+    pub fn clone_with_cost<T: CostTracker>(
+        self,
+        tracker: &mut T,
+    ) -> Result<Value, VmExecutionError> {
+        match self {
+            ValueRef::Borrowed(r) => {
+                runtime_cost(ClarityCostFunction::LookupVariableSize, tracker, r.size()?)?;
+                Ok(r.clone())
+            }
+            ValueRef::Owned(o) => Ok(o),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ParsedContract {
@@ -143,168 +170,205 @@ impl CostSynthesis {
 }
 
 /// EvalHook defines an interface for hooks to execute during evaluation.
+/// NOTE: Used in the Clarinet repo.
 pub trait EvalHook {
     // Called before the expression is evaluated
     fn will_begin_eval(
         &mut self,
-        _env: &mut Environment,
+        _env: &mut ExecutionState,
+        _invoke_ctx: &InvocationContext,
         _context: &LocalContext,
         _expr: &SymbolicExpression,
     );
 
     // Called after the expression is evaluated
-    fn did_finish_eval(
+    fn did_finish_eval<'a>(
         &mut self,
-        _env: &mut Environment,
-        _context: &LocalContext,
+        _env: &mut ExecutionState,
+        _invoke_ctx: &'a InvocationContext,
+        _context: &'a LocalContext,
         _expr: &SymbolicExpression,
-        _res: &core::result::Result<Value, crate::vm::errors::Error>,
+        _res: &core::result::Result<ValueRef<'a>, crate::vm::errors::VmExecutionError>,
     );
 
     // Called upon completion of the execution
     fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
-fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
+fn lookup_variable<'a>(
+    name: &str,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &'a InvocationContext,
+    context: &'a LocalContext,
+) -> Result<ValueRef<'a>, VmExecutionError> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
-        Err(InterpreterError::BadSymbolicRepresentation(format!(
+        return Err(VmInternalError::BadSymbolicRepresentation(format!(
             "Unexpected variable name: {name}"
         ))
-        .into())
-    } else if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
-        Ok(value)
-    } else {
-        runtime_cost(
-            ClarityCostFunction::LookupVariableDepth,
-            env,
-            context.depth(),
-        )?;
-        if let Some(value) = context.lookup_variable(name) {
-            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-            Ok(value.clone())
-        } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
-            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-            let (value, _) =
-                Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
-            Ok(value)
-        } else if let Some(callable_data) = context.lookup_callable_contract(name) {
-            if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
-                Ok(callable_data.contract_identifier.clone().into())
-            } else {
-                Ok(Value::CallableContract(callable_data.clone()))
-            }
+        .into());
+    }
+    if let Some(value) = variables::lookup_reserved_variable(name, exec_state, invoke_ctx)? {
+        return Ok(ValueRef::Owned(value));
+    };
+    runtime_cost(
+        ClarityCostFunction::LookupVariableDepth,
+        exec_state,
+        context.depth(),
+    )?;
+    if let Some(value) = context.lookup_variable(name) {
+        let value = ValueRef::Borrowed(value);
+        if exec_state.epoch().uses_pre_sanitized_variables() {
+            // If the epoch supports value refs, we can return a borrowed reference to the variable without cloning.
+            return Ok(value);
         } else {
-            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+            // Epochs that don't support borrowed refs must clone and pay the cost every time.
+            return Ok(ValueRef::Owned(value.clone_with_cost(exec_state)?));
         }
     }
+    if let Some(value) = invoke_ctx.contract_context.lookup_variable(name) {
+        let value = ValueRef::Borrowed(value);
+        if exec_state.epoch().uses_pre_sanitized_variables() {
+            // Variables were sanitized at load time by canonicalize_types.
+            // Borrow directly.
+            return Ok(value);
+        }
+        // Variables were not sanitized at load time, so we need to sanitize them
+        // now before returning and pay for the clone.
+        let value = value.clone_with_cost(exec_state)?;
+        let (value, _) =
+            Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
+                .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+        return Ok(ValueRef::Owned(value));
+    }
+    if let Some(callable_data) = context.lookup_callable_contract(name) {
+        let value = if invoke_ctx.contract_context.get_clarity_version() < &ClarityVersion::Clarity2
+        {
+            callable_data.contract_identifier.clone().into()
+        } else {
+            Value::CallableContract(callable_data.clone())
+        };
+        return Ok(ValueRef::Owned(value));
+    }
+    Err(RuntimeCheckErrorKind::Unreachable(format!("Undefined variable: {name}")).into())
 }
 
-pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
-    runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
+pub fn lookup_function(
+    name: &str,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<CallableType, VmExecutionError> {
+    runtime_cost(ClarityCostFunction::LookupFunction, exec_state, 0)?;
 
-    if let Some(result) =
-        functions::lookup_reserved_functions(name, env.contract_context.get_clarity_version())
-    {
+    if let Some(result) = functions::lookup_reserved_functions(
+        name,
+        invoke_ctx.contract_context.get_clarity_version(),
+    ) {
         Ok(result)
     } else {
-        let user_function = env
+        let user_function = invoke_ctx
             .contract_context
             .lookup_function(name)
-            .ok_or(CheckErrors::UndefinedFunction(name.to_string()))?;
+            .ok_or(RuntimeCheckErrorKind::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))
     }
 }
 
-fn add_stack_trace(result: &mut Result<Value>, env: &Environment) {
-    if let Err(Error::Runtime(_, ref mut stack_trace)) = result {
-        if stack_trace.is_none() {
-            stack_trace.replace(env.call_stack.make_stack_trace());
-        }
+fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, exec_state: &mut ExecutionState) {
+    if let Err(VmExecutionError::Runtime(_, stack_trace)) = result
+        && stack_trace.is_none()
+    {
+        stack_trace.replace(exec_state.call_stack.make_stack_trace());
     }
 }
 
 pub fn apply(
     function: &CallableType,
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     let identifier = function.get_identifier();
     // Aaron: in non-debug executions, we shouldn't track a full call-stack.
     //        only enough to do recursion detection.
 
     // do recursion check on user functions.
     let track_recursion = matches!(function, CallableType::UserFunction(_));
-    if track_recursion && env.call_stack.contains(&identifier) {
-        return Err(CheckErrors::CircularReference(vec![identifier.to_string()]).into());
+    if track_recursion && exec_state.call_stack.contains(&identifier) {
+        return Err(RuntimeCheckErrorKind::CircularReference(vec![identifier.to_string()]).into());
     }
 
-    if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
-        return Err(RuntimeErrorType::MaxStackDepthReached.into());
+    if exec_state.call_stack.depth() >= max_call_stack_depth_for_epoch(*exec_state.epoch()) {
+        return Err(RuntimeError::MaxStackDepthReached.into());
     }
 
     if let CallableType::SpecialFunction(_, function) = function {
-        env.call_stack.insert(&identifier, track_recursion);
-        let mut resp = function(args, env, context);
-        add_stack_trace(&mut resp, env);
-        env.call_stack.remove(&identifier, track_recursion)?;
+        exec_state.call_stack.insert(&identifier, track_recursion);
+        let mut resp = function(args, exec_state, invoke_ctx, context);
+        add_stack_trace(&mut resp, exec_state);
+        exec_state.call_stack.remove(&identifier, track_recursion)?;
         resp
     } else {
         let mut used_memory = 0;
         let mut evaluated_args = Vec::with_capacity(args.len());
-        env.call_stack.incr_apply_depth();
+        exec_state.call_stack.incr_apply_depth();
         for arg_x in args.iter() {
-            let arg_value = match eval(arg_x, env, context) {
+            let arg_value = match eval(arg_x, exec_state, invoke_ctx, context)
+                .and_then(|v| v.clone_with_cost(exec_state))
+            {
                 Ok(x) => x,
                 Err(e) => {
-                    env.drop_memory(used_memory)?;
-                    env.call_stack.decr_apply_depth();
+                    exec_state.drop_memory(used_memory)?;
+                    exec_state.call_stack.decr_apply_depth();
                     return Err(e);
                 }
             };
             let arg_use = arg_value.get_memory_use()?;
-            match env.add_memory(arg_use) {
+            match exec_state.add_memory(arg_use) {
                 Ok(_x) => {}
                 Err(e) => {
-                    env.drop_memory(used_memory)?;
-                    env.call_stack.decr_apply_depth();
-                    return Err(Error::from(e));
+                    exec_state.drop_memory(used_memory)?;
+                    exec_state.call_stack.decr_apply_depth();
+                    return Err(VmExecutionError::from(e));
                 }
             };
-            used_memory += arg_value.get_memory_use()?;
+            used_memory += arg_use;
             evaluated_args.push(arg_value);
         }
-        env.call_stack.decr_apply_depth();
+        exec_state.call_stack.decr_apply_depth();
 
-        env.call_stack.insert(&identifier, track_recursion);
+        exec_state.call_stack.insert(&identifier, track_recursion);
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
-                runtime_cost(cost_function.clone(), env, evaluated_args.len())
-                    .map_err(Error::from)
-                    .and_then(|_| function.apply(evaluated_args, env))
+                runtime_cost(cost_function.clone(), exec_state, evaluated_args.len())
+                    .map_err(VmExecutionError::from)
+                    .and_then(|_| function.apply(evaluated_args, exec_state, invoke_ctx))
             }
             CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
-                let cost_input = if env.epoch() >= &StacksEpochId::Epoch2_05 {
+                let cost_input = if exec_state.epoch() >= &StacksEpochId::Epoch2_05 {
                     cost_input_handle(evaluated_args.as_slice())?
                 } else {
                     evaluated_args.len() as u64
                 };
-                runtime_cost(cost_function.clone(), env, cost_input)
-                    .map_err(Error::from)
-                    .and_then(|_| function.apply(evaluated_args, env))
+                runtime_cost(cost_function.clone(), exec_state, cost_input)
+                    .map_err(VmExecutionError::from)
+                    .and_then(|_| function.apply(evaluated_args, exec_state, invoke_ctx))
             }
-            CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
-            _ => return Err(InterpreterError::Expect("Should be unreachable.".into()).into()),
+            CallableType::UserFunction(function) => {
+                function.apply(&evaluated_args, exec_state, invoke_ctx)
+            }
+            _ => return Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
         };
-        add_stack_trace(&mut resp, env);
-        env.drop_memory(used_memory)?;
-        env.call_stack.remove(&identifier, track_recursion)?;
+        add_stack_trace(&mut resp, exec_state);
+        exec_state.drop_memory(used_memory)?;
+        exec_state.call_stack.remove(&identifier, track_recursion)?;
         resp
     }
 }
 
-fn check_max_execution_time_expired(global_context: &GlobalContext) -> Result<()> {
+fn check_max_execution_time_expired(
+    global_context: &GlobalContext,
+) -> Result<(), VmExecutionError> {
     match global_context.execution_time_tracker {
         ExecutionTimeTracker::NoTracking => Ok(()),
         ExecutionTimeTracker::MaxTime {
@@ -320,51 +384,58 @@ fn check_max_execution_time_expired(global_context: &GlobalContext) -> Result<()
     }
 }
 
-pub fn eval(
-    exp: &SymbolicExpression,
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
+pub fn eval<'a>(
+    exp: &'a SymbolicExpression,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &'a InvocationContext,
+    context: &'a LocalContext,
+) -> Result<ValueRef<'a>, VmExecutionError> {
     use crate::vm::representations::SymbolicExpressionType::{
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    check_max_execution_time_expired(env.global_context)?;
+    check_max_execution_time_expired(exec_state.global_context)?;
 
-    if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
+    if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
-            hook.will_begin_eval(env, context, exp);
+            hook.will_begin_eval(exec_state, invoke_ctx, context, exp);
         }
-        env.global_context.eval_hooks = Some(eval_hooks);
+        exec_state.global_context.eval_hooks = Some(eval_hooks);
     }
 
-    let res = match exp.expr {
-        AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
-        Atom(ref value) => lookup_variable(value, context, env),
-        List(ref children) => {
-            let (function_variable, rest) = children
-                .split_first()
-                .ok_or(CheckErrors::NonFunctionApplication)?;
+    let res = match &exp.expr {
+        AtomValue(value) | LiteralValue(value) => Ok(ValueRef::Owned(value.clone())),
+        Atom(value) => lookup_variable(value, exec_state, invoke_ctx, context),
+        List(children) => {
+            let (function_variable, rest) =
+                children
+                    .split_first()
+                    .ok_or(RuntimeCheckErrorKind::Unreachable(
+                        "Non functional application".to_string(),
+                    ))?;
 
-            let function_name = function_variable
-                .match_atom()
-                .ok_or(CheckErrors::BadFunctionName)?;
-            let f = lookup_function(function_name, env)?;
-            apply(&f, rest, env, context)
+            let function_name =
+                function_variable
+                    .match_atom()
+                    .ok_or(RuntimeCheckErrorKind::Unreachable(
+                        "Bad function name".to_string(),
+                    ))?;
+            let f = lookup_function(function_name, exec_state, invoke_ctx)?;
+            apply(&f, rest, exec_state, invoke_ctx, context).map(ValueRef::Owned)
         }
         TraitReference(_, _) | Field(_) => {
-            return Err(InterpreterError::BadSymbolicRepresentation(
+            return Err(VmInternalError::BadSymbolicRepresentation(
                 "Unexpected trait reference".into(),
             )
-            .into())
+            .into());
         }
     };
 
-    if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
+    if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
-            hook.did_finish_eval(env, context, exp, &res);
+            hook.did_finish_eval(exec_state, invoke_ctx, context, exp, &res);
         }
-        env.global_context.eval_hooks = Some(eval_hooks);
+        exec_state.global_context.eval_hooks = Some(eval_hooks);
     }
 
     res
@@ -383,7 +454,7 @@ pub fn eval_all(
     contract_context: &mut ContractContext,
     global_context: &mut GlobalContext,
     sponsor: Option<PrincipalData>,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>, VmExecutionError> {
     let mut last_executed = None;
     let context = LocalContext::new();
     let mut total_memory_use = 0;
@@ -394,9 +465,17 @@ pub fn eval_all(
         for exp in expressions {
             let try_define = global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
-                let mut env = Environment::new(
-                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
-                functions::define::evaluate_define(exp, &mut env)
+                let mut exec_state = ExecutionState {
+                    global_context: context,
+                    call_stack: &mut call_stack,
+                };
+                let invoke_ctx = InvocationContext {
+                    contract_context,
+                    sender: Some(publisher.clone()),
+                    caller: Some(publisher.clone()),
+                    sponsor: sponsor.clone(),
+                };
+                functions::define::evaluate_define(exp, &mut exec_state, &invoke_ctx)
             })?;
             match try_define {
                 DefineResult::Variable(name, value) => {
@@ -417,9 +496,9 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(value_type.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
-                    global_context.add_memory(value.size()? as u64)?;
+                    global_context.add_memory(value.size()?.into())?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
                     global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.epoch_id)?;
@@ -433,9 +512,9 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(key_type.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
                     global_context.add_memory(value_type.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type)?;
 
@@ -446,7 +525,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(TypeSignature::UIntType.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply)?;
 
@@ -457,7 +536,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(asset_type.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type)?;
 
@@ -474,10 +553,17 @@ pub fn eval_all(
                     // not a define function, evaluate normally.
                     global_context.execute(|global_context| {
                         let mut call_stack = CallStack::new();
-                        let mut env = Environment::new(
-                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
-
-                        let result = eval(exp, &mut env, &context)?;
+                        let mut exec_state = ExecutionState {
+                            global_context,
+                            call_stack: &mut call_stack,
+                        };
+                        let invoke_ctx = InvocationContext {
+                            contract_context,
+                            sender: Some(publisher.clone()),
+                            caller: Some(publisher.clone()),
+                            sponsor: sponsor.clone(),
+                        };
+                        let result = eval(exp, &mut exec_state, &invoke_ctx, &context)?.clone_with_cost(&mut exec_state)?;
                         last_executed = Some(result);
                         Ok(())
                     })?;
@@ -495,7 +581,10 @@ pub fn eval_all(
 /// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
 /// that the result is the same before returning the result
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
+pub fn execute_on_network(
+    program: &str,
+    use_mainnet: bool,
+) -> Result<Option<Value>, ClarityEvalError> {
     let epoch_200_result = execute_with_parameters(
         program,
         ClarityVersion::Clarity2,
@@ -516,23 +605,27 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
     epoch_205_result
 }
 
-/// Runs `program` in a test environment with the provided parameters.
+/// Runs `program` in a test environment with the provided parameters and calls
+/// the provided functions before and after execution.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_with_parameters_and_call_in_global_context<F>(
+pub fn execute_with_parameters_and_call_in_global_context<F, G>(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     use_mainnet: bool,
-    mut global_context_function: F,
-) -> Result<Option<Value>>
+    sender: clarity_types::types::StandardPrincipalData,
+    mut before_function: F,
+    mut after_function: G,
+) -> Result<Option<Value>, ClarityEvalError>
 where
-    F: FnMut(&mut GlobalContext) -> Result<()>,
+    F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
+    G: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
 {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::tests::test_only_mainnet_to_chain_id;
     use crate::vm::types::QualifiedContractIdentifier;
 
-    let contract_id = QualifiedContractIdentifier::transient();
+    let contract_id = QualifiedContractIdentifier::new(sender, "contract".into());
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
@@ -544,12 +637,24 @@ where
         LimitedCostTracker::new_free(),
         epoch,
     );
-    global_context.execute(|g| {
-        global_context_function(g)?;
-        let parsed =
-            ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
-        eval_all(&parsed, &mut contract_context, g, None)
-    })
+
+    let parsed = ast::build_ast(
+        &contract_id,
+        program,
+        &mut global_context.cost_track,
+        clarity_version,
+        epoch,
+    )?
+    .expressions;
+
+    global_context
+        .execute(|g| {
+            before_function(g)?;
+            let res = eval_all(&parsed, &mut contract_context, g, None);
+            after_function(g)?;
+            res
+        })
+        .map_err(ClarityEvalError::from)
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -558,25 +663,30 @@ pub fn execute_with_parameters(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     use_mainnet: bool,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters_and_call_in_global_context(
         program,
         clarity_version,
         epoch,
         use_mainnet,
+        clarity_types::types::StandardPrincipalData::transient(),
+        |_| Ok(()),
         |_| Ok(()),
     )
 }
 
 /// Execute for test with `version`, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
+pub fn execute_against_version(
+    program: &str,
+    version: ClarityVersion,
+) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
 }
 
 /// Execute for test in Clarity1, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute(program: &str) -> Result<Option<Value>> {
+pub fn execute(program: &str) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters(
         program,
         ClarityVersion::Clarity1,
@@ -590,22 +700,24 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 pub fn execute_with_limited_execution_time(
     program: &str,
     max_execution_time: std::time::Duration,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters_and_call_in_global_context(
         program,
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch20,
         false,
+        clarity_types::types::StandardPrincipalData::transient(),
         |g| {
             g.set_max_execution_time(max_execution_time);
             Ok(())
         },
+        |_| Ok(()),
     )
 }
 
 /// Execute for test in Clarity2, Epoch21, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_v2(program: &str) -> Result<Option<Value>> {
+pub fn execute_v2(program: &str) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters(
         program,
         ClarityVersion::Clarity2,
@@ -621,12 +733,13 @@ mod test {
 
     use super::ClarityVersion;
     use crate::vm::callables::{DefineType, DefinedFunction};
+    use crate::vm::contexts::{ExecutionState, InvocationContext};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
     use crate::vm::{
-        eval, CallStack, ContractContext, Environment, GlobalContext, LocalContext,
-        SymbolicExpression, Value,
+        CallStack, ContractContext, GlobalContext, LocalContext, SymbolicExpression, Value,
+        ValueRef, eval,
     };
 
     #[test]
@@ -681,14 +794,19 @@ mod test {
             .insert("do_work".into(), user_function);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
+        assert_eq!(
+            Ok(ValueRef::Owned(Value::Int(64))),
+            eval(&content[0], &mut exec_state, &invoke_ctx, &context)
         );
-        assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
     }
 }

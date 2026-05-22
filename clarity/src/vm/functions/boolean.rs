@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,37 +14,37 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::contexts::{Environment, LocalContext};
+use crate::vm::contexts::{ExecutionState, InvocationContext, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_arguments_at_least, CheckErrors, InterpreterResult as Result};
+use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_arguments_at_least};
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TypeSignature, Value};
 
-fn type_force_bool(value: &Value) -> Result<bool> {
+fn type_force_bool(value: &Value) -> Result<bool, RuntimeCheckErrorKind> {
     match *value {
         Value::Bool(boolean) => Ok(boolean),
-        _ => Err(CheckErrors::TypeValueError(
+        _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(value.clone()),
-        )
-        .into()),
+            value.to_error_string(),
+        )),
     }
 }
 
 pub fn special_or(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(1, args)?;
 
-    runtime_cost(ClarityCostFunction::Or, env, args.len())?;
+    runtime_cost(ClarityCostFunction::Or, exec_state, args.len())?;
 
     for arg in args.iter() {
-        let evaluated = eval(arg, env, context)?;
-        let result = type_force_bool(&evaluated)?;
+        let evaluated = eval(arg, exec_state, invoke_ctx, context)?;
+        let result = type_force_bool(evaluated.as_ref())?;
         if result {
             return Ok(Value::Bool(true));
         }
@@ -55,16 +55,17 @@ pub fn special_or(
 
 pub fn special_and(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(1, args)?;
 
-    runtime_cost(ClarityCostFunction::And, env, args.len())?;
+    runtime_cost(ClarityCostFunction::And, exec_state, args.len())?;
 
     for arg in args.iter() {
-        let evaluated = eval(arg, env, context)?;
-        let result = type_force_bool(&evaluated)?;
+        let evaluated = eval(arg, exec_state, invoke_ctx, context)?;
+        let result = type_force_bool(evaluated.as_ref())?;
         if !result {
             return Ok(Value::Bool(false));
         }
@@ -73,7 +74,7 @@ pub fn special_and(
     Ok(Value::Bool(true))
 }
 
-pub fn native_not(input: Value) -> Result<Value> {
+pub fn native_not(input: Value) -> Result<Value, VmExecutionError> {
     let value = type_force_bool(&input)?;
     Ok(Value::Bool(!value))
 }

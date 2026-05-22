@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,11 +20,12 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
+use stacks_common::types::StacksEpochId;
 
-use crate::vm::ast::errors::{ParseErrors, ParseResult};
+use crate::vm::ClarityVersion;
+use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
 use crate::vm::representations::{PreSymbolicExpressionType, SymbolicExpression};
-use crate::vm::ClarityVersion;
 
 pub struct SugarExpander {
     issuer: StandardPrincipalData,
@@ -33,7 +34,11 @@ pub struct SugarExpander {
 }
 
 impl BuildASTPass for SugarExpander {
-    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
+    fn run_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+        _epoch: StacksEpochId,
+    ) -> ParseResult<()> {
         let pass = SugarExpander::new(contract_ast.contract_identifier.issuer.clone());
         pass.run(contract_ast)?;
         Ok(())
@@ -102,7 +107,7 @@ impl SugarExpander {
                             "tuple"
                                 .to_string()
                                 .try_into()
-                                .map_err(|_| ParseErrors::InterpreterFailure)?,
+                                .map_err(|_| ParseErrorKind::InterpreterFailure)?,
                         ),
                     );
                     SymbolicExpression::list(pairs)
@@ -129,7 +134,7 @@ impl SugarExpander {
                     if let Some(trait_reference) = contract_ast.get_referenced_trait(&name) {
                         SymbolicExpression::trait_reference(name, trait_reference.clone())
                     } else {
-                        return Err(ParseErrors::TraitReferenceUnknown(name.to_string()).into());
+                        return Err(ParseErrorKind::TraitReferenceUnknown(name.to_string()).into());
                     }
                 }
                 #[cfg(not(feature = "developer-mode"))]
@@ -165,10 +170,10 @@ impl SugarExpander {
 
         #[cfg(feature = "developer-mode")]
         // If there were comments after the last expression, attach them.
-        if !comments.is_empty() {
-            if let Some(expr) = expressions.last_mut() {
-                expr.post_comments = comments;
-            }
+        if !comments.is_empty()
+            && let Some(expr) = expressions.last_mut()
+        {
+            expr.post_comments = comments;
         }
         Ok(expressions)
     }
@@ -176,11 +181,11 @@ impl SugarExpander {
 
 #[cfg(test)]
 mod test {
+    use crate::vm::Value;
     use crate::vm::ast::sugar_expander::SugarExpander;
     use crate::vm::ast::types::ContractAST;
     use crate::vm::representations::{ContractName, PreSymbolicExpression, SymbolicExpression};
     use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
-    use crate::vm::Value;
 
     fn make_pre_atom(
         x: &str,

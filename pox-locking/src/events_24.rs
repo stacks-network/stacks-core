@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::errors::Error as ClarityError;
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
 #[cfg(any(test, feature = "testing"))]
@@ -343,7 +343,7 @@ pub fn synthesize_pox_2_or_3_event_info(
     sender_opt: Option<&PrincipalData>,
     function_name: &str,
     args: &[Value],
-) -> Result<Option<Value>, ClarityError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     let sender = match sender_opt {
         Some(sender) => sender,
         None => {
@@ -384,24 +384,22 @@ pub fn synthesize_pox_2_or_3_event_info(
             sender.clone(),
             None,
             pox_2_contract.contract_context,
-            |env| {
-                let base_event_info =
-                    env.eval_read_only(contract_id, &code_snippet)
-                        .map_err(|e| {
-                            error!(
+            |exec_state, invoke_ctx| {
+                let base_event_info = exec_state
+                    .eval_read_only(invoke_ctx, contract_id, &code_snippet)
+                    .map_err(|e| {
+                        error!(
                             "Failed to run event-info code snippet for '{function_name}': {e:?}"
                         );
-                            e
-                        })?;
+                        e
+                    })?;
 
-                let data_event_info =
-                    env.eval_read_only(contract_id, &data_snippet)
-                        .map_err(|e| {
-                            error!(
-                                "Failed to run data-info code snippet for '{function_name}': {e:?}"
-                            );
-                            e
-                        })?;
+                let data_event_info = exec_state
+                    .eval_read_only(invoke_ctx, contract_id, &data_snippet)
+                    .map_err(|e| {
+                        error!("Failed to run data-info code snippet for '{function_name}': {e:?}");
+                        e
+                    })?;
 
                 // merge them
                 let base_event_tuple = base_event_info
@@ -410,25 +408,18 @@ pub fn synthesize_pox_2_or_3_event_info(
                 let data_tuple = data_event_info
                     .expect_tuple()
                     .expect("FATAL: unexpected clarity value");
-                let event_tuple =
-                    TupleData::shallow_merge(base_event_tuple, data_tuple).map_err(|e| {
-                        error!("Failed to merge data-info and event-info: {e:?}");
-                        e
-                    })?;
+                let event_tuple = TupleData::shallow_merge(base_event_tuple, data_tuple);
 
                 Ok(Value::Tuple(event_tuple))
             },
         )
-        .map_err(|e: ClarityError| {
-            error!("Failed to synthesize PoX event: {:?}", &e);
+        .map_err(|e: ClarityEvalError| {
+            error!("Failed to synthesize PoX event: {e:?}");
             e
         })?;
 
     test_debug!(
-        "Synthesized PoX event info for '{}''s call to '{}': {:?}",
-        sender,
-        function_name,
-        &event_info
+        "Synthesized PoX event info for '{sender}''s call to '{function_name}': {event_info:?}"
     );
     Ok(Some(event_info))
 }

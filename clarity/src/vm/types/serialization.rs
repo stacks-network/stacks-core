@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,12 +17,12 @@
 use std::str;
 
 pub use clarity_types::types::serialization::{
-    SerializationError, TypePrefix, NONE_SERIALIZATION_LEN,
+    NONE_SERIALIZATION_LEN, SerializationError, TypePrefix,
 };
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-use crate::vm::errors::{Error as ClarityError, InterpreterError};
+use crate::vm::errors::{VmExecutionError, VmInternalError};
 
 impl ClaritySerializable for u32 {
     fn serialize(&self) -> String {
@@ -31,13 +31,13 @@ impl ClaritySerializable for u32 {
 }
 
 impl ClarityDeserializable<u32> for u32 {
-    fn deserialize(input: &str) -> Result<Self, ClarityError> {
+    fn deserialize(input: &str) -> Result<Self, VmExecutionError> {
         let bytes = hex_bytes(input).map_err(|_| {
-            InterpreterError::Expect("u32 deserialization: failed decoding bytes.".into())
+            VmInternalError::Expect("u32 deserialization: failed decoding bytes.".into())
         })?;
         assert_eq!(bytes.len(), 4);
         Ok(u32::from_be_bytes(bytes[0..4].try_into().map_err(
-            |_| InterpreterError::Expect("u32 deserialization: failed reading.".into()),
+            |_| VmInternalError::Expect("u32 deserialization: failed reading.".into()),
         )?))
     }
 }
@@ -52,9 +52,9 @@ pub mod tests {
 
     use super::super::*;
     use super::SerializationError;
+    use crate::vm::ClarityVersion;
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
     use crate::vm::tests::test_clarity_versions;
-    use crate::vm::ClarityVersion;
 
     fn test_deser_ser(v: Value) {
         assert_eq!(
@@ -102,12 +102,9 @@ pub mod tests {
 
     #[apply(test_clarity_versions)]
     fn test_lists(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-        let list_list_int = Value::list_from(vec![Value::list_from(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(3),
+        let list_list_int = Value::list_from(vec![
+            Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap(),
         ])
-        .unwrap()])
         .unwrap();
 
         // Should be legal!

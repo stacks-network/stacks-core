@@ -3,23 +3,27 @@
     "target": "ESNext",
     "useDefineForClassFields": true,
     "module": "ESNext",
-    "lib": ["ESNext"],
+    "lib": [
+      "ESNext"
+    ],
     "skipLibCheck": true,
-
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-
     "strict": true,
     "noImplicitAny": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
+  "exclude": [
+    // this is a deno test file from clarinet v1
+    "tests/bns/name_register_test.ts"
+  ],
   "include": [
-    "node_modules/@hirosystems/clarinet-sdk/vitest-helpers/src",
+    "node_modules/@stacks/clarinet-sdk/vitest-helpers/src",
     "tests"
   ]
 }

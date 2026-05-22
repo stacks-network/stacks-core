@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::TupleData;
@@ -50,6 +51,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConn,
     NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
     NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
+    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -57,7 +59,9 @@ use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::marf::{
+    test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
+};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -65,8 +69,8 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
 };
 use crate::clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
-    Error as clarity_error, PreCommitClarityBlock,
+    ClarityBlockConnection, ClarityConnection, ClarityError, ClarityInstance,
+    ClarityReadOnlyConnection, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
@@ -184,6 +188,9 @@ pub struct StacksHeaderInfo {
     /// The burnchain tip that is passed to Clarity while processing this block.
     /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x blocks
     pub burn_view: Option<ConsensusHash>,
+    /// Total tenure size (reset at every tenure extend) in bytes
+    /// Not consensus-critical (may differ between nodes)
+    pub total_tenure_size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -282,8 +289,8 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => (1..=11).contains(&version_u32),
-            StacksEpochId::Epoch2_05 => (2..=11).contains(&version_u32),
+            StacksEpochId::Epoch20 => (1..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
+            StacksEpochId::Epoch2_05 => (2..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
@@ -292,7 +299,8 @@ impl DBConfig {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => (3..=11).contains(&version_u32),
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
         }
     }
 }
@@ -361,6 +369,7 @@ impl StacksHeaderInfo {
             burn_header_timestamp: 0,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         }
     }
 
@@ -381,6 +390,7 @@ impl StacksHeaderInfo {
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         }
     }
 
@@ -453,6 +463,13 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             return Err(db_error::ParseError);
         }
 
+        let total_tenure_size = {
+            match header_type {
+                HeaderTypeNames::Epoch2 => 0,
+                HeaderTypeNames::Nakamoto => u64::from_column(row, "total_tenure_size")?,
+            }
+        };
+
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
@@ -464,6 +481,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_timestamp,
             anchored_block_size,
             burn_view,
+            total_tenure_size,
         })
     }
 }
@@ -544,7 +562,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     pub fn commit_mined_block(
         self,
         block_hash: &StacksBlockId,
-    ) -> Result<ExecutionCost, clarity_error> {
+    ) -> Result<ExecutionCost, ClarityError> {
         Ok(self.block.commit_mined_block(block_hash)?.get_total())
     }
 
@@ -651,7 +669,8 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "11";
+pub const CHAINSTATE_VERSION: &str = "13";
+pub const CHAINSTATE_VERSION_NUMBER: u32 = 13;
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -986,8 +1005,9 @@ impl StacksChainState {
         chain_id: u32,
         marf_path: &str,
         migrate: bool,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<MARF<StacksBlockId>, Error> {
-        let mut marf = StacksChainState::open_index(marf_path)?;
+        let mut marf = StacksChainState::open_index(marf_path, marf_opts)?;
         let mut dbtx = StacksDBTx::new(&mut marf, ());
 
         {
@@ -1022,7 +1042,7 @@ impl StacksChainState {
             .ok_or_else(|| db_error::ParseError)?
             .to_string();
 
-        let marf = StacksChainState::open_index(&index_path)?;
+        let marf = StacksChainState::open_index(&index_path, None)?;
         StacksChainState::load_db_config(marf.sqlite_conn())
     }
 
@@ -1148,6 +1168,22 @@ impl StacksChainState {
                         tx.execute_batch(cmd)?;
                     }
                 }
+                "11" => {
+                    info!(
+                        "Migrating chainstate schema from version 11 to 12: add index for nakamoto_block_headers"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_7.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "12" => {
+                    info!(
+                        "Migrating chainstate schema from version 12 to 13: add total_tenure_size field"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_8.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
                 _ => {
                     error!(
                         "Invalid chain state database: expected version = {}, got {}",
@@ -1173,14 +1209,15 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         index_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<MARF<StacksBlockId>, Error> {
         let create_flag = fs::metadata(index_path).is_err();
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path, true)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path, true, marf_opts.clone())
         } else {
-            let mut marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path, marf_opts)?;
             if !Self::need_schema_migrations(marf.sqlite_conn(), mainnet, chain_id)? {
                 return Ok(marf);
             }
@@ -1204,9 +1241,9 @@ impl StacksChainState {
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path, false)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path, false, None)
         } else {
-            let mut marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path, None)?;
 
             // do we need to apply a schema change?
             let db_config = StacksChainState::load_db_config(marf.sqlite_conn())
@@ -1219,10 +1256,26 @@ impl StacksChainState {
         }
     }
 
-    pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
+    /// Open or create the chainstate MARF index database and its associated blobs file.
+    ///
+    /// This function opens the SQLite-based MARF index at `marf_path`. If the index
+    /// database or its corresponding blobs file does not exist, they will be created.
+    ///
+    /// # Arguments
+    /// * `marf_path` - Path to the MARF SQLite index database.
+    /// * `marf_opts` - Configuration options for opening the MARF.
+    ///
+    /// # Behavior
+    /// Given a `marf_path` such as `chainstate/vm/clarity/index.sqlite`,
+    /// the related blobs file will be `chainstate/vm/clarity/index.sqlite.blobs`.
+    pub fn open_index(
+        marf_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MARF<StacksBlockId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
-        let mut open_opts = MARFOpenOpts::default();
+        let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         open_opts.external_blobs = true;
+        test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(marf_path, open_opts).map_err(db_error::IndexError)?;
         Ok(marf)
     }
@@ -1778,8 +1831,12 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let state_index =
-            StacksChainState::open_db(self.mainnet, self.chain_id, &header_index_root)?;
+        let state_index = StacksChainState::open_db(
+            self.mainnet,
+            self.chain_id,
+            &header_index_root,
+            self.marf_opts.clone(),
+        )?;
         Ok(state_index.into_sqlite_conn())
     }
 
@@ -1865,7 +1922,8 @@ impl StacksChainState {
 
         let init_required = fs::metadata(&clarity_state_index_marf).is_err();
 
-        let state_index = StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
+        let state_index =
+            StacksChainState::open_db(mainnet, chain_id, &header_index_root, marf_opts.clone())?;
 
         let vm_state = MarfedKV::open(
             &clarity_state_index_root,
@@ -1938,9 +1996,7 @@ impl StacksChainState {
 
     /// Simultaneously begin a transaction against both the headers and blocks.
     /// Used when considering a new block to append the chain state.
-    pub fn chainstate_tx_begin(
-        &mut self,
-    ) -> Result<(ChainstateTx<'_>, &mut ClarityInstance), Error> {
+    pub fn chainstate_tx_begin(&mut self) -> (ChainstateTx<'_>, &mut ClarityInstance) {
         let config = self.config();
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
@@ -1949,7 +2005,7 @@ impl StacksChainState {
         let chainstate_tx =
             ChainstateTx::new(inner_tx, blocks_path, self.root_path.clone(), config);
 
-        Ok((chainstate_tx, clarity_instance))
+        (chainstate_tx, clarity_instance)
     }
 
     // NOTE: used for testing in the stacks testnet code.
@@ -1978,7 +2034,7 @@ impl StacksChainState {
         parent_id_bhh: &StacksBlockId,
         contract: &QualifiedContractIdentifier,
         code: &str,
-    ) -> Result<Value, clarity_error> {
+    ) -> Result<Value, ClarityError> {
         self.clarity_state.eval_read_only(
             parent_id_bhh,
             &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
@@ -1998,7 +2054,7 @@ impl StacksChainState {
         contract: &QualifiedContractIdentifier,
         function: &str,
         args: &[Value],
-    ) -> Result<Value, clarity_error> {
+    ) -> Result<Value, ClarityError> {
         let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
         let mut conn = self.clarity_state.read_only_connection_checked(
             parent_id_bhh,
@@ -2017,13 +2073,15 @@ impl StacksChainState {
             contract.clone().into(),
             None,
             LimitedCostTracker::Free,
-            |env| {
-                env.execute_contract(
-                    contract, function, &args,
-                    // read-only is set to `false` so that non-read-only functions
-                    //  can be executed. any transformation is rolled back.
-                    false,
-                )
+            |exec_state, invoke_ctx| {
+                exec_state
+                    .execute_contract(
+                        invoke_ctx, contract, function, &args,
+                        // read-only is set to `false` so that non-read-only functions
+                        //  can be executed. any transformation is rolled back.
+                        false,
+                    )
+                    .map_err(ClarityEvalError::from)
             },
         )?;
 
@@ -2772,6 +2830,7 @@ impl StacksChainState {
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: anchor_block_size,
             burn_view: None,
+            total_tenure_size: 0,
         };
 
         StacksChainState::insert_stacks_block_header(

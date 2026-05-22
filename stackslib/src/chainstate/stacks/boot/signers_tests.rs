@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::tests::symbols_from_values;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityName, ContractName, Value};
@@ -472,13 +473,16 @@ pub fn readonly_call_with_sortdb(
                         PrincipalData::from(boot_code_addr(false)),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| {
-                            env.execute_contract_allow_private(
-                                &boot_code_id(&boot_contract, false),
-                                &function_name,
-                                &symbols_from_values(args),
-                                true,
-                            )
+                        |exec_state, invoke_ctx| {
+                            exec_state
+                                .execute_contract_allow_private(
+                                    &invoke_ctx,
+                                    &boot_code_id(&boot_contract, false),
+                                    &function_name,
+                                    &symbols_from_values(args),
+                                    true,
+                                )
+                                .map_err(ClarityEvalError::from)
                         },
                     )
                     .unwrap()

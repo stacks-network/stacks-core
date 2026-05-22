@@ -14,9 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
-
 use std::io::Cursor;
 
 use super::*;
@@ -3998,7 +3995,7 @@ fn read_write_node4_hashes() {
     }
 
     // no final child
-    child_hashes.push(TrieHash::from_data(&[]));
+    child_hashes.push(TrieHash::EMPTY);
 
     let node4_ptr = trie_io.last_ptr().unwrap();
     let node4_hash = get_node_hash(&node4, &child_hashes, &mut trie_io);
@@ -4042,7 +4039,7 @@ fn read_write_node16_hashes() {
     }
 
     // no final child
-    child_hashes.push(TrieHash::from_data(&[]));
+    child_hashes.push(TrieHash::EMPTY);
 
     let node16_ptr = trie_io.last_ptr().unwrap();
     let node16_hash = get_node_hash(&node16, &child_hashes, &mut trie_io);
@@ -4088,7 +4085,7 @@ fn read_write_node48_hashes() {
     }
 
     // no final child
-    child_hashes.push(TrieHash::from_data(&[]));
+    child_hashes.push(TrieHash::EMPTY);
 
     let node48_ptr = trie_io.last_ptr().unwrap();
     let node48_hash = get_node_hash(&node48, &child_hashes, &mut trie_io);
@@ -4134,7 +4131,7 @@ fn read_write_node256_hashes() {
     }
 
     // no final child
-    child_hashes.push(TrieHash::from_data(&[]));
+    child_hashes.push(TrieHash::EMPTY);
 
     let node256_ptr = trie_io.last_ptr().unwrap();
     let node256_hash = get_node_hash(&node256, &child_hashes, &mut trie_io);
@@ -5042,4 +5039,28 @@ fn trie_cursor_walk_32() {
     assert!(c.eonp(&c.node().unwrap()));
 
     dump_trie(&mut trie_io);
+}
+
+#[test]
+fn trie_ptr_compressed_size_for_id() {
+    let normal_node_id = TrieNodeID::Node4 as u8;
+    assert_eq!(
+        TRIEPTR_SIZE_COMPRESSED,
+        TriePtr::compressed_size_for_id(normal_node_id)
+    );
+
+    let backptr_node_id = set_backptr(normal_node_id);
+    assert_eq!(
+        TRIEPTR_SIZE,
+        TriePtr::compressed_size_for_id(backptr_node_id)
+    );
+}
+
+#[test]
+fn trie_ptr_compressed_size() {
+    let normal_node = TriePtr::new(TrieNodeID::Node4 as u8, 0x00, 0);
+    assert_eq!(TRIEPTR_SIZE_COMPRESSED, normal_node.compressed_size());
+
+    let backptr_node = TriePtr::new_backptr(TrieNodeID::Node4 as u8, 0x00, 0, 1);
+    assert_eq!(TRIEPTR_SIZE, backptr_node.compressed_size());
 }

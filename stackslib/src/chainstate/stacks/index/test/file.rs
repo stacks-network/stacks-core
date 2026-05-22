@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,7 +19,6 @@ use std::fs;
 use rusqlite::{Connection, OpenFlags};
 
 use super::*;
-use crate::chainstate::stacks::index::cache::test::make_test_insert_data;
 use crate::chainstate::stacks::index::file::*;
 use crate::chainstate::stacks::index::*;
 use crate::util_lib::db::*;

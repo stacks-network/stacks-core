@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,15 +21,18 @@ use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlo
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::serde_serializers::prefix_hex_codec;
+use url::form_urlencoded;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -37,10 +40,290 @@ use crate::net::http::{
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 
+#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
+struct BlockReplayProfiler {
+    perf_event_cpu_instructions: Option<perf_event::Counter>,
+    perf_event_cpu_cycles: Option<perf_event::Counter>,
+    perf_event_cpu_ref_cycles: Option<perf_event::Counter>,
+}
+
+#[cfg(not(all(feature = "profiler", target_os = "linux", target_arch = "x86_64")))]
+struct BlockReplayProfiler();
+
+#[derive(Default)]
+pub struct BlockReplayProfilerResult {
+    cpu_instructions: Option<u64>,
+    cpu_cycles: Option<u64>,
+    cpu_ref_cycles: Option<u64>,
+}
+
+#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
+impl BlockReplayProfiler {
+    fn new() -> Self {
+        let mut perf_event_cpu_instructions: Option<perf_event::Counter> = None;
+        let mut perf_event_cpu_cycles: Option<perf_event::Counter> = None;
+        let mut perf_event_cpu_ref_cycles: Option<perf_event::Counter> = None;
+
+        if let Ok(mut perf_event_cpu_instructions_result) =
+            perf_event::Builder::new(perf_event::events::Hardware::INSTRUCTIONS).build()
+        {
+            if perf_event_cpu_instructions_result.enable().is_ok() {
+                perf_event_cpu_instructions = Some(perf_event_cpu_instructions_result);
+            }
+        }
+
+        if let Ok(mut perf_event_cpu_cycles_result) =
+            perf_event::Builder::new(perf_event::events::Hardware::CPU_CYCLES).build()
+        {
+            if perf_event_cpu_cycles_result.enable().is_ok() {
+                perf_event_cpu_cycles = Some(perf_event_cpu_cycles_result);
+            }
+        }
+
+        if let Ok(mut perf_event_cpu_ref_cycles_result) =
+            perf_event::Builder::new(perf_event::events::Hardware::REF_CPU_CYCLES).build()
+        {
+            if perf_event_cpu_ref_cycles_result.enable().is_ok() {
+                perf_event_cpu_ref_cycles = Some(perf_event_cpu_ref_cycles_result);
+            }
+        }
+
+        Self {
+            perf_event_cpu_instructions,
+            perf_event_cpu_cycles,
+            perf_event_cpu_ref_cycles,
+        }
+    }
+
+    fn collect(self) -> BlockReplayProfilerResult {
+        let mut cpu_instructions: Option<u64> = None;
+        let mut cpu_cycles: Option<u64> = None;
+        let mut cpu_ref_cycles: Option<u64> = None;
+
+        if let Some(mut perf_event_cpu_instructions) = self.perf_event_cpu_instructions {
+            if perf_event_cpu_instructions.disable().is_ok() {
+                if let Ok(value) = perf_event_cpu_instructions.read() {
+                    cpu_instructions = Some(value);
+                }
+            }
+        }
+
+        if let Some(mut perf_event_cpu_cycles) = self.perf_event_cpu_cycles {
+            if perf_event_cpu_cycles.disable().is_ok() {
+                if let Ok(value) = perf_event_cpu_cycles.read() {
+                    cpu_cycles = Some(value);
+                }
+            }
+        }
+
+        if let Some(mut perf_event_cpu_ref_cycles) = self.perf_event_cpu_ref_cycles {
+            if perf_event_cpu_ref_cycles.disable().is_ok() {
+                if let Ok(value) = perf_event_cpu_ref_cycles.read() {
+                    cpu_ref_cycles = Some(value);
+                }
+            }
+        }
+
+        BlockReplayProfilerResult {
+            cpu_instructions,
+            cpu_cycles,
+            cpu_ref_cycles,
+        }
+    }
+}
+
+#[cfg(not(all(feature = "profiler", target_os = "linux", target_arch = "x86_64")))]
+impl BlockReplayProfiler {
+    fn new() -> Self {
+        warn!("BlockReplay Profiler is not available in this build.");
+        Self {}
+    }
+    fn collect(self) -> BlockReplayProfilerResult {
+        BlockReplayProfilerResult::default()
+    }
+}
+
 #[derive(Clone)]
 pub struct RPCNakamotoBlockReplayRequestHandler {
     pub block_id: Option<StacksBlockId>,
     pub auth: Option<String>,
+    pub profiler: bool,
+}
+
+pub fn remine_nakamoto_block<F0, F1>(
+    block_id: &StacksBlockId,
+    sortdb: &SortitionDB,
+    chainstate: &mut StacksChainState,
+    enable_profiler: bool,
+    get_transactions: F0,
+    before_mining: F1,
+) -> Result<RPCReplayedBlock, ChainError>
+where
+    F0: FnOnce(&NakamotoBlock) -> Vec<StacksTransaction>,
+    F1: FnOnce(&mut ClarityTx) -> Result<(), ChainError>,
+{
+    let Some((tenure_id, parent_block_id)) = chainstate
+        .nakamoto_blocks_db()
+        .get_tenure_and_parent_block_id(block_id)?
+    else {
+        return Err(ChainError::NoSuchBlockError);
+    };
+
+    let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
+    let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
+    let rowid = db_conn
+        .conn()
+        .get_nakamoto_block_rowid(&block_id)?
+        .ok_or(ChainError::NoSuchBlockError)?;
+
+    let mut blob_fd = match db_conn.open_nakamoto_block(rowid, false).map_err(|e| {
+        let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
+        warn!("{}", &msg);
+        msg
+    }) {
+        Ok(blob_fd) => blob_fd,
+        Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
+    };
+
+    let block = match NakamotoBlock::consensus_deserialize(&mut blob_fd).map_err(|e| {
+        let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
+        warn!("{}", &msg);
+        msg
+    }) {
+        Ok(block) => block,
+        Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
+    };
+
+    let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
+        Ok(burn_dbconn) => burn_dbconn,
+        Err(_) => return Err(ChainError::NoSuchBlockError),
+    };
+
+    let tenure_change = block
+        .txs
+        .iter()
+        .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
+    let coinbase = block
+        .txs
+        .iter()
+        .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
+    let tenure_cause = tenure_change
+        .and_then(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(tc.into()),
+            _ => None,
+        })
+        .unwrap_or(MinerTenureInfoCause::NoTenureChange);
+
+    let parent_stacks_header_opt =
+        NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)?;
+
+    let Some(parent_stacks_header) = parent_stacks_header_opt else {
+        return Err(ChainError::InvalidStacksBlock(
+            "Invalid Parent Block".into(),
+        ));
+    };
+
+    let mut builder = match NakamotoBlockBuilder::new(
+        &parent_stacks_header,
+        &block.header.consensus_hash,
+        block.header.burn_spent,
+        tenure_change,
+        coinbase,
+        block.header.pox_treatment.len(),
+        None,
+        None,
+        Some(block.header.timestamp),
+        u64::from(DEFAULT_MAX_TENURE_BYTES),
+    ) {
+        Ok(builder) => builder,
+        Err(e) => return Err(e),
+    };
+
+    let mut miner_tenure_info =
+        match builder.load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause) {
+            Ok(miner_tenure_info) => miner_tenure_info,
+            Err(e) => return Err(e),
+        };
+
+    let burn_chain_height = miner_tenure_info.burn_tip_height;
+    let mut tenure_tx = match builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info) {
+        Ok(tenure_tx) => tenure_tx,
+        Err(e) => return Err(e),
+    };
+
+    before_mining(&mut tenure_tx)?;
+
+    let mut block_fees: u128 = 0;
+    let mut txs_receipts = vec![];
+
+    let transactions = get_transactions(&block);
+
+    for (i, tx) in transactions.iter().enumerate() {
+        let tx_len = tx.tx_len();
+
+        let mut profiler: Option<BlockReplayProfiler> = None;
+        let mut profiler_result = BlockReplayProfilerResult::default();
+
+        if enable_profiler {
+            profiler = Some(BlockReplayProfiler::new());
+        }
+
+        let mut total_receipts = 0;
+
+        let tx_result = builder.try_mine_tx_with_len(
+            &mut tenure_tx,
+            tx,
+            tx_len,
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            None,
+            &mut total_receipts,
+        );
+
+        if let Some(profiler) = profiler {
+            profiler_result = profiler.collect();
+        }
+
+        let err = match tx_result {
+            TransactionResult::Success(tx_result) => {
+                txs_receipts.push((tx_result.receipt, profiler_result));
+                Ok(())
+            }
+            TransactionResult::ProcessingError(e) => {
+                Err(format!("Error processing tx {}: {}", i, e.error))
+            }
+            TransactionResult::Skipped(e) => Err(format!("Skipped tx {}: {}", i, e.error)),
+            TransactionResult::Problematic(e) => Err(format!("Problematic tx {}: {}", i, e.error)),
+        };
+        if let Err(reason) = err {
+            let txid = tx.txid();
+            return Err(ChainError::InvalidStacksTransaction(
+                format!("Unable to process transaction {txid}: {reason}").into(),
+                false,
+            ));
+        }
+
+        block_fees += tx.get_tx_fee() as u128;
+    }
+
+    let mut replayed_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
+
+    // copy values that will contribute to the block_hash that cannot be the same in the new replayed block
+    replayed_block.header.timestamp = block.header.timestamp;
+    replayed_block.header.state_index_root = block.header.state_index_root;
+    replayed_block.header.miner_signature = block.header.miner_signature;
+    replayed_block.header.pox_treatment = block.header.pox_treatment;
+
+    tenure_tx.rollback_block();
+
+    let mut rpc_replayed_block =
+        RPCReplayedBlock::from_block(&replayed_block, block_fees, tenure_id, parent_block_id);
+
+    for (receipt, profiler_result) in &txs_receipts {
+        let transaction = RPCReplayedBlockTransaction::from_receipt(receipt, &profiler_result);
+        rpc_replayed_block.transactions.push(transaction);
+    }
+
+    Ok(rpc_replayed_block)
 }
 
 impl RPCNakamotoBlockReplayRequestHandler {
@@ -48,6 +331,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
         Self {
             block_id: None,
             auth,
+            profiler: false,
         }
     }
 
@@ -60,141 +344,24 @@ impl RPCNakamotoBlockReplayRequestHandler {
             return Err(ChainError::InvalidStacksBlock("block_id is None".into()));
         };
 
-        let Some((tenure_id, parent_block_id)) = chainstate
-            .nakamoto_blocks_db()
-            .get_tenure_and_parent_block_id(&block_id)?
-        else {
-            return Err(ChainError::NoSuchBlockError);
-        };
+        let mut tx_merkle_root: Option<Sha512Trunc256Sum> = None;
 
-        let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
-        let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
-        let rowid = db_conn
-            .conn()
-            .get_nakamoto_block_rowid(&block_id)?
-            .ok_or(ChainError::NoSuchBlockError)?;
+        let mut rpc_replayed_block = remine_nakamoto_block(
+            block_id,
+            sortdb,
+            chainstate,
+            self.profiler,
+            |block| {
+                tx_merkle_root = Some(block.header.tx_merkle_root.clone());
+                block.txs.clone()
+            },
+            |_| Ok(()),
+        )?;
 
-        let mut blob_fd = match db_conn.open_nakamoto_block(rowid, false).map_err(|e| {
-            let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
-            warn!("{}", &msg);
-            msg
-        }) {
-            Ok(blob_fd) => blob_fd,
-            Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
-        };
-
-        let block = match NakamotoBlock::consensus_deserialize(&mut blob_fd).map_err(|e| {
-            let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
-            warn!("{}", &msg);
-            msg
-        }) {
-            Ok(block) => block,
-            Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
-        };
-
-        let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
-            Ok(burn_dbconn) => burn_dbconn,
-            Err(_) => return Err(ChainError::NoSuchBlockError),
-        };
-
-        let tenure_change = block
-            .txs
-            .iter()
-            .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
-        let coinbase = block
-            .txs
-            .iter()
-            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-        let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-            TransactionPayload::TenureChange(tc) => Some(tc.cause),
-            _ => None,
-        });
-
-        let parent_stacks_header_opt =
-            match NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id) {
-                Ok(parent_stacks_header_opt) => parent_stacks_header_opt,
-                Err(e) => return Err(e),
-            };
-
-        let Some(parent_stacks_header) = parent_stacks_header_opt else {
-            return Err(ChainError::InvalidStacksBlock(
-                "Invalid Parent Block".into(),
-            ));
-        };
-
-        let mut builder = match NakamotoBlockBuilder::new(
-            &parent_stacks_header,
-            &block.header.consensus_hash,
-            block.header.burn_spent,
-            tenure_change,
-            coinbase,
-            block.header.pox_treatment.len(),
-            None,
-            None,
-        ) {
-            Ok(builder) => builder,
-            Err(e) => return Err(e),
-        };
-
-        let mut miner_tenure_info =
-            match builder.load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause) {
-                Ok(miner_tenure_info) => miner_tenure_info,
-                Err(e) => return Err(e),
-            };
-
-        let burn_chain_height = miner_tenure_info.burn_tip_height;
-        let mut tenure_tx = match builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info) {
-            Ok(tenure_tx) => tenure_tx,
-            Err(e) => return Err(e),
-        };
-
-        let mut block_fees: u128 = 0;
-        let mut txs_receipts = vec![];
-
-        for (i, tx) in block.txs.iter().enumerate() {
-            let tx_len = tx.tx_len();
-
-            let tx_result = builder.try_mine_tx_with_len(
-                &mut tenure_tx,
-                tx,
-                tx_len,
-                &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
-            );
-            let err = match tx_result {
-                TransactionResult::Success(tx_result) => {
-                    txs_receipts.push(tx_result.receipt);
-                    Ok(())
-                }
-                _ => Err(format!("Problematic tx {i}")),
-            };
-            if let Err(reason) = err {
-                let txid = tx.txid();
-                return Err(ChainError::InvalidStacksTransaction(
-                    format!("Unable to replay transaction {txid}: {reason}").into(),
-                    false,
-                ));
-            }
-
-            block_fees += tx.get_tx_fee() as u128;
+        if let Some(tx_merkle_root) = tx_merkle_root {
+            rpc_replayed_block.valid_merkle_root =
+                tx_merkle_root == rpc_replayed_block.tx_merkle_root;
         }
-
-        let replayed_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
-
-        tenure_tx.rollback_block();
-
-        let tx_merkle_root = block.header.tx_merkle_root.clone();
-
-        let mut rpc_replayed_block =
-            RPCReplayedBlock::from_block(block, block_fees, tenure_id, parent_block_id);
-
-        for receipt in &txs_receipts {
-            let transaction = RPCReplayedBlockTransaction::from_receipt(receipt);
-            rpc_replayed_block.transactions.push(transaction);
-        }
-
-        rpc_replayed_block.valid_merkle_root =
-            tx_merkle_root == replayed_block.header.tx_merkle_root;
 
         Ok(rpc_replayed_block)
     }
@@ -212,26 +379,44 @@ pub struct RPCReplayedBlockTransaction {
     pub hex: String,
     /// result of transaction execution (clarity value)
     pub result: Value,
+    /// result of the transaction execution (hex string)
+    #[serde(with = "prefix_hex_codec")]
+    pub result_hex: Value,
     /// amount of burned stx
     pub stx_burned: u128,
     /// execution cost infos
     pub execution_cost: ExecutionCost,
     /// generated events
     pub events: Vec<serde_json::Value>,
+    /// Whether the tx was aborted by a post-condition
+    pub post_condition_aborted: bool,
+    /// optional vm error
+    pub vm_error: Option<String>,
+    /// profiling data based on linux perf_events
+    pub cpu_instructions: Option<u64>,
+    pub cpu_cycles: Option<u64>,
+    pub cpu_ref_cycles: Option<u64>,
 }
 
 impl RPCReplayedBlockTransaction {
-    pub fn from_receipt(receipt: &StacksTransactionReceipt) -> Self {
-        let events = receipt
-            .events
-            .iter()
-            .enumerate()
-            .map(|(event_index, event)| {
-                event
-                    .json_serialize(event_index, &receipt.transaction.txid(), true)
-                    .unwrap()
-            })
-            .collect();
+    pub fn from_receipt(
+        receipt: &StacksTransactionReceipt,
+        profiler_result: &BlockReplayProfilerResult,
+    ) -> Self {
+        let events = if receipt.post_condition_aborted {
+            vec![]
+        } else {
+            receipt
+                .events
+                .iter()
+                .enumerate()
+                .map(|(event_index, event)| {
+                    event
+                        .json_serialize(event_index, &receipt.transaction.txid(), true)
+                        .unwrap()
+                })
+                .collect()
+        };
 
         let transaction_data = match &receipt.transaction {
             TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
@@ -239,6 +424,11 @@ impl RPCReplayedBlockTransaction {
         };
 
         let txid = receipt.transaction.txid();
+        let mut serialized_result = vec![];
+        receipt
+            .result
+            .serialize_write(&mut serialized_result)
+            .expect("failed to serialize transaction result");
 
         Self {
             txid,
@@ -246,9 +436,15 @@ impl RPCReplayedBlockTransaction {
             data: transaction_data,
             hex: receipt.transaction.serialize_to_dbstring(),
             result: receipt.result.clone(),
+            result_hex: receipt.result.clone(),
             stx_burned: receipt.stx_burned,
             execution_cost: receipt.execution_cost.clone(),
             events,
+            post_condition_aborted: receipt.post_condition_aborted,
+            vm_error: receipt.vm_error.clone(),
+            cpu_instructions: profiler_result.cpu_instructions,
+            cpu_cycles: profiler_result.cpu_cycles,
+            cpu_ref_cycles: profiler_result.cpu_ref_cycles,
         }
     }
 }
@@ -285,7 +481,7 @@ pub struct RPCReplayedBlock {
 
 impl RPCReplayedBlock {
     pub fn from_block(
-        block: NakamotoBlock,
+        block: &NakamotoBlock,
         block_fees: u128,
         tenure_id: ConsensusHash,
         parent_block_id: StacksBlockId,
@@ -300,11 +496,11 @@ impl RPCReplayedBlock {
             parent_block_id,
             consensus_hash: tenure_id,
             fees: block_fees,
-            tx_merkle_root: block.header.tx_merkle_root,
+            tx_merkle_root: block.header.tx_merkle_root.clone(),
             state_index_root: block.header.state_index_root,
             timestamp: block.header.timestamp,
-            miner_signature: block.header.miner_signature,
-            signer_signature: block.header.signer_signature,
+            miner_signature: block.header.miner_signature.clone(),
+            signer_signature: block.header.signer_signature.clone(),
             transactions: vec![],
             valid_merkle_root: false,
         }
@@ -361,6 +557,17 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
             .map_err(|_| Error::DecodeError("Invalid path: unparseable block id".to_string()))?;
 
         self.block_id = Some(block_id);
+
+        if let Some(query_string) = query {
+            for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
+                if key == "profiler" {
+                    if value == "1" {
+                        self.profiler = true;
+                    }
+                    break;
+                }
+            }
+        }
 
         Ok(HttpRequestContents::new().query_string(query))
     }
@@ -423,6 +630,23 @@ impl StacksHttpRequest {
             "GET".into(),
             format!("/v3/blocks/replay/{block_id}"),
             HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
+    }
+
+    pub fn new_block_replay_with_profiler(
+        host: PeerHost,
+        block_id: &StacksBlockId,
+        profiler: bool,
+    ) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            host,
+            "GET".into(),
+            format!("/v3/blocks/replay/{block_id}"),
+            HttpRequestContents::new().query_arg(
+                "profiler".into(),
+                if profiler { "1".into() } else { "0".into() },
+            ),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }

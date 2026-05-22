@@ -5,11 +5,111 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## Unreleased
+## [3.4.0.0.1]
+
+### Fixed
+
+- Fix a bug that could cause genesis sync to stall forever due to a slow path in computing the canonical Stacks tip getting triggerred when the Stacks tip is significantly behind the sortition tip.
+- Validate PoX addresses.
+- Fix the 3.4 activation height in sample testnet configs.
+
+## [3.4.0.0.0]
+
+### Added
+
+- Set the epoch 3.4 activation height to 943,333 per SIP-039 and finalize all settings for epoch 3.4 and Clarity version 5.
+- Added post-condition enhancements for epoch 3.4 (SIP-040): `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
+- Disabled `at-block` starting from Epoch 3.4 (see SIP-042). New contracts referencing `at-block` are rejected during static analysis. Existing contracts that invoke it will fail at runtime with an `AtBlockUnavailable` error.
+
+### Changed
+
+- `/v3/blocks/simulate/{block_id}` and `/v3/block/replay ` no longer emit transaction events for post condition aborted transactions.
+- `EventDispatcher` no longer emits transaction events for post condition aborted transactions.
+
+## [3.3.0.0.6]
+
+### Added
+
+- Setup for epoch 3.4 and Clarity version 5. Epoch 3.4 is currently set to activate at Bitcoin height 3,400,000 (very far in the future) until an activation height is selected. Clarity will activate with epoch 3.4.
+- Implemented the updated behavior for `secp256r1-verify`, effective in Clarity 5, in which the `message-hash` is no longer hashed again. See SIP-035 for details.
+- Increased allowed stack depth from 64 to 128, effective in epoch 3.4
+- Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
+- Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
+- Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
+
+### Fixed
+
+- Improved the cost-tracking for `from-consensus-buff?`, effective in epoch 3.4, so that when an empty buffer is passed, users will see a `none` result, rather than a confusing runtime error.
+- Resolved several cases where a mock-miner would stop mining
+- /v2/pox endpoint now returns the `pox_ustx_threshold` stored in the reward set instead of a live computed value, which incorrectly accounts for STX locked during the prepare phase, after the reward set has been set.
+- Signer protocol version negotiation now properly handles downgrades based on majority consensus, not just upgrades
+- The sortition DB now tracks canonical Stacks tip by its burn view, allowing it to recover from a chain freeze if the Bitcoin block upon which the ongoing tenure is based is orphened before the last tenure block is processed.
+
+### Changed
+
+- `EventDispatcher` no longer emits transaction events for post condition aborted transactions.
+
+## [3.3.0.0.5]
+
+### Added
+
+- New endpoint `/v3/blocks/simulate/{block_id}` allows to simulate the execution of a specific block with a brand new set of transactions
+- Improved block validation in `stacks-inspect`.
+
+### Changed
+
+- Removed `validate-naka-block` option in `stacks-inspect`, merging it with `validate-block` so that users do not need to differentiate between the two.
+
+## [3.3.0.0.4]
+
+### Added
+
+- New `/v3/tenures/tip_metadata` endpoint for returning some metadata along with the normal tenure tip information.
+
+## [3.3.0.0.3]
+
+### Added
+
+- In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
+
+### Fixed
+
+- When mining, do not try to extend (or initiate) a tenure that did not commit to the ongoing chain tip (see #6744)
+- When mock-mining, retry when hitting the `ParentNotFound` error. This can happen at the beginning of a new tenure, but should resolve with retries.
+- Updated the documentation for `secp256r1-verify` to match the implementation. The message hash passed to `secp256r1-verify` is SHA256 hashed again before verifying the signature.
+
+## [3.3.0.0.2]
+
+### Added
+
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
+- Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
+- Added miner support for generating read-count tenure extends
+  - Added `read_count_extend_cost_threshold` config option (in the miner config) which specifies the percentage of the block budget that must be used before attempting a time-based tenure extend. Defaults to 25%.
+
+### Fixed
+
+- Correctly produce the receipt for the `costs-4` contract, which was deployed on epoch 3.3 activation. Users who consume node events and want to fill in the missing receipt (e.g. the Hiro API) will need to revert their chainstate to before the 3.3 activation and then resume sync to receive the previously missing event.
+
+## [3.3.0.0.1]
+
+- Add indexes to `nakamoto_block_headers` to fix a performance regression. Node may take a few minutes to restart during the upgrade while the new indexes are created.
+
+## [3.3.0.0.0]
+
+### Added
+
+- Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
+- New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
+- Activation height selected and set for epoch 3.3 at Bitcoin block 923,222
 
 ### Changed
 
 - Renamed Clarity 4's new `block-time` to `stacks-block-time`
+- Improve cost-tracking for type-checking function arguments in epoch 3.3 (see [#6425](https://github.com/stacks-network/stacks-core/issues/6425))
+- Replaced `libsecp256k1` with `k256` and `p256` from RustCrypto and removed separate Wasm implementations.
+- Added limits in the type-checker for the number of parameters in functions (maximum 256), and the number of methods in traits (maximum 256). These limits are enforced starting in Epoch 3.3.
 
 ## [3.2.0.0.2]
 
@@ -279,6 +379,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 ### Changed
+
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
 - Add index to `metadata_table` in Clarity DB on `blockhash`
@@ -292,24 +393,26 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 ### Changed
-- Fixes  a few bugs in the relayer and networking stack
+
+- Fixes a few bugs in the relayer and networking stack
   - detects and deprioritizes unhealthy replicas
   - fixes an issue in the p2p stack which was preventing it from caching the reward set.
 
 ## [3.0.0.0.1]
 
 ### Changed
+
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
 - Various test fixes for CI (5353, 5368, 5372, 5371, 5380, 5378, 5387, 5396, 5390, 5394)
 - Various log fixes:
-    - don't say proceeding to mine blocks if not a miner
-    - misc. warns downgraded to debugs
+  - don't say proceeding to mine blocks if not a miner
+  - misc. warns downgraded to debugs
 - 5391: Update default block proposal timeout to 10 minutes
 - 5406: After block rejection, miner pauses
 - Docs fixes
-    - Fix signer docs link
-    - Specify burn block in clarity docs
+  - Fix signer docs link
+  - Specify burn block in clarity docs
 
 ## [3.0.0.0.0]
 

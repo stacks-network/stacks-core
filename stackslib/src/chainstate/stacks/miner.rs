@@ -22,9 +22,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
 
-use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -50,7 +49,8 @@ use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
-use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use crate::clarity_vm::clarity::{ClarityError, ClarityInstance};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -242,6 +242,7 @@ pub struct BlockBuilderSettings {
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
     pub max_execution_time: Option<std::time::Duration>,
+    pub max_tenure_bytes: u64,
 }
 
 impl BlockBuilderSettings {
@@ -254,6 +255,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
         }
     }
 
@@ -266,6 +268,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
         }
     }
 }
@@ -655,25 +658,21 @@ impl TransactionResult {
                 }
                 // recover original ClarityError
                 ClarityRuntimeTxError::Acceptable { error, .. } => {
-                    if let clarity_error::Parse(ref parse_err) = error {
+                    if let ClarityError::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
-                        match *parse_err.err {
-                            ParseErrors::ExpressionStackDepthTooDeep
-                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
-                                info!("Problematic transaction failed AST depth check"; "txid" => %tx.txid());
-                                return (true, Error::ClarityError(error));
-                            }
-                            _ => {}
+                        if parse_err.rejectable_in_epoch(epoch_id) {
+                            info!("Problematic transaction failed parse checks"; "txid" => %tx.txid());
+                            return (true, Error::ClarityError(error));
                         }
                     }
                     Error::ClarityError(error)
                 }
                 ClarityRuntimeTxError::CostError(cost, budget) => {
-                    Error::ClarityError(clarity_error::CostError(cost, budget))
+                    Error::ClarityError(ClarityError::CostError(cost, budget))
                 }
                 ClarityRuntimeTxError::AnalysisError(e) => {
-                    let clarity_err = Error::ClarityError(clarity_error::Interpreter(
-                        InterpreterError::Unchecked(e),
+                    let clarity_err = Error::ClarityError(ClarityError::Interpreter(
+                        VmExecutionError::RuntimeCheck(e),
                     ));
                     if epoch_id < StacksEpochId::Epoch21 {
                         // this would invalidate the block, so it's problematic
@@ -688,7 +687,7 @@ impl TransactionResult {
                     assets_modified,
                     tx_events,
                     reason,
-                } => Error::ClarityError(clarity_error::AbortedByCallback {
+                } => Error::ClarityError(ClarityError::AbortedByCallback {
                     output: output.map(Box::new),
                     assets_modified: Box::new(assets_modified),
                     tx_events,
@@ -723,6 +722,7 @@ pub trait BlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         max_execution_time: Option<std::time::Duration>,
+        total_receipts_size: &mut u64,
     ) -> TransactionResult;
 
     /// Append a transaction if doing so won't exceed the epoch data size.
@@ -732,6 +732,7 @@ pub trait BlockBuilder {
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
         max_execution_time: Option<std::time::Duration>,
+        total_receipts_size: &mut u64,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
         match self.try_mine_tx_with_len(
@@ -740,6 +741,7 @@ pub trait BlockBuilder {
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             max_execution_time,
+            total_receipts_size,
         ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
             TransactionResult::Skipped(TransactionSkipped { error, .. })
@@ -1536,6 +1538,7 @@ impl StacksBlockBuilder {
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
@@ -1925,7 +1928,7 @@ impl StacksBlockBuilder {
         let mainnet = chainstate.config().mainnet;
 
         // data won't be committed, so do a concurrent transaction
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin()?;
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
 
         Ok(MinerEpochInfo {
             chainstate_tx,
@@ -2038,7 +2041,7 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, None) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, None, &mut 0) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2197,10 +2200,17 @@ impl StacksBlockBuilder {
     ) -> Result<(bool, Vec<TransactionEvent>), Error> {
         let mut tx_events = Vec::new();
 
+        let mut receipts_total = 0;
+
         for initial_tx in initial_txs.iter() {
             tx_events.push(
                 builder
-                    .try_mine_tx(epoch_tx, initial_tx, settings.max_execution_time)?
+                    .try_mine_tx(
+                        epoch_tx,
+                        initial_tx,
+                        settings.max_execution_time,
+                        &mut receipts_total,
+                    )?
                     .convert_to_event(),
             );
         }
@@ -2233,6 +2243,7 @@ impl StacksBlockBuilder {
                 tip_height,
                 settings,
                 event_observer,
+                receipts_total,
             )
         } else {
             info!("Miner: constructing block with replay transactions");
@@ -2241,6 +2252,7 @@ impl StacksBlockBuilder {
                 builder,
                 tip_height,
                 replay_transactions,
+                receipts_total,
             );
             Ok((txs, false))
         };
@@ -2404,6 +2416,7 @@ impl BlockBuilder for StacksBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         _max_execution_time: Option<std::time::Duration>,
+        _total_receipt_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
@@ -2542,6 +2555,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
     tip_height: u64,
     settings: BlockBuilderSettings,
     event_observer: Option<&dyn MemPoolEventDispatcher>,
+    initial_receipts_total: u64,
 ) -> Result<(Vec<TransactionEvent>, bool), Error> {
     let mut tx_events = vec![];
     let max_miner_time_ms = settings.max_miner_time_ms;
@@ -2566,6 +2580,8 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
 
     debug!("Block transaction selection begins (parent height = {tip_height})");
     let mut loop_result: Result<(), Error> = Ok(());
+
+    let mut receipts_total = initial_receipts_total;
     while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
         let mut num_considered = 0;
 
@@ -2651,6 +2667,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     txinfo.metadata.len,
                     &block_limit_hit,
                     settings.max_execution_time,
+                    &mut receipts_total,
                 );
 
                 let result_event = tx_result.convert_to_event();
@@ -2802,6 +2819,7 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
     builder: &mut B,
     tip_height: u64,
     replay_transactions: &[StacksTransaction],
+    initial_receipts_total: u64,
 ) -> Vec<TransactionEvent> {
     let mut tx_events = vec![];
 
@@ -2809,6 +2827,7 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
     let mut num_considered = 0;
 
     debug!("Replay block transaction selection begins (parent height = {tip_height})");
+    let mut receipts_total = initial_receipts_total;
     for replay_tx in replay_transactions {
         fault_injection_stall_tx();
         if fault_injection_should_skip_replay_tx(replay_tx.txid()) {
@@ -2822,6 +2841,7 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
             replay_tx.tx_len(),
             &BlockLimitFunction::NO_LIMIT_HIT,
             None,
+            &mut receipts_total,
         );
         let tx_event = tx_result.convert_to_event();
         match tx_result {

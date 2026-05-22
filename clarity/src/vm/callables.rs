@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,21 +20,20 @@ use clarity_types::representations::ClarityName;
 pub use clarity_types::types::FunctionIdentifier;
 use stacks_common::types::StacksEpochId;
 
-use super::costs::{CostErrors, CostOverflowingMath};
-use super::errors::InterpreterError;
-use super::types::signatures::CallableSubtype;
 use super::ClarityVersion;
-use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::contexts::ContractContext;
+use super::costs::{CostErrors, CostOverflowingMath};
+use super::errors::VmInternalError;
+use super::types::signatures::CallableSubtype;
+use crate::vm::contexts::{ContractContext, ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
+use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_argument_count};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
     SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
 };
-use crate::vm::{eval, Environment, LocalContext, Value};
+use crate::vm::{LocalContext, Value, eval};
 
 #[allow(clippy::type_complexity, clippy::large_enum_variant)]
 pub enum CallableType {
@@ -47,11 +46,16 @@ pub enum CallableType {
         &'static str,
         NativeHandle,
         ClarityCostFunction,
-        &'static dyn Fn(&[Value]) -> Result<u64>,
+        &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>,
     ),
     SpecialFunction(
         &'static str,
-        &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>,
+        &'static dyn Fn(
+            &[SymbolicExpression],
+            &mut ExecutionState,
+            &InvocationContext,
+            &LocalContext,
+        ) -> Result<Value, VmExecutionError>,
     ),
 }
 
@@ -80,39 +84,51 @@ pub struct DefinedFunction {
 /// implementing a native function. Each variant handles
 /// different expected number of arguments.
 pub enum NativeHandle {
-    SingleArg(&'static dyn Fn(Value) -> Result<Value>),
-    DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
-    MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>),
-    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> Result<Value>),
+    SingleArg(&'static dyn Fn(Value) -> Result<Value, VmExecutionError>),
+    DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value, VmExecutionError>),
+    MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value, VmExecutionError>),
+    #[allow(clippy::type_complexity)]
+    MoreArgEnv(
+        &'static dyn Fn(
+            Vec<Value>,
+            &mut ExecutionState,
+            &InvocationContext,
+        ) -> Result<Value, VmExecutionError>,
+    ),
 }
 
 impl NativeHandle {
-    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> Result<Value> {
+    pub fn apply(
+        &self,
+        mut args: Vec<Value>,
+        exec_state: &mut ExecutionState,
+        invoke_ctx: &InvocationContext,
+    ) -> Result<Value, VmExecutionError> {
         match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
                 function(
                     args.pop()
-                        .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?,
+                        .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?,
                 )
             }
             Self::DoubleArg(function) => {
                 check_argument_count(2, &args)?;
                 let second = args
                     .pop()
-                    .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?;
+                    .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?;
                 let first = args
                     .pop()
-                    .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?;
+                    .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?;
                 function(first, second)
             }
             Self::MoreArg(function) => function(args),
-            Self::MoreArgEnv(function) => function(args, env),
+            Self::MoreArgEnv(function) => function(args, exec_state, invoke_ctx),
         }
     }
 }
 
-pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
+pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64, VmExecutionError> {
     args.iter()
         .try_fold(0, |sum, value| {
             (value
@@ -120,7 +136,7 @@ pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
                 .map_err(|e| CostErrors::Expect(format!("{e:?}")))? as u64)
                 .cost_overflow_add(sum)
         })
-        .map_err(Error::from)
+        .map_err(VmExecutionError::from)
 }
 
 impl DefinedFunction {
@@ -145,24 +161,39 @@ impl DefinedFunction {
         }
     }
 
-    pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    pub fn execute_apply(
+        &self,
+        args: &[Value],
+        exec_state: &mut ExecutionState,
+        invoke_ctx: &InvocationContext,
+    ) -> Result<Value, VmExecutionError> {
         runtime_cost(
             ClarityCostFunction::UserFunctionApplication,
-            env,
+            exec_state,
             self.arguments.len(),
         )?;
 
-        for arg_type in self.arg_types.iter() {
-            runtime_cost(
-                ClarityCostFunction::InnerTypeCheckCost,
-                env,
-                arg_type.size()?,
-            )?;
+        if exec_state.epoch().uses_arg_size_for_cost() {
+            for arg in args.iter() {
+                runtime_cost(
+                    ClarityCostFunction::InnerTypeCheckCost,
+                    exec_state,
+                    arg.size()?,
+                )?;
+            }
+        } else {
+            for arg_type in self.arg_types.iter() {
+                runtime_cost(
+                    ClarityCostFunction::InnerTypeCheckCost,
+                    exec_state,
+                    arg_type.size()?,
+                )?;
+            }
         }
 
         let mut context = LocalContext::new();
         if args.len() != self.arguments.len() {
-            Err(CheckErrors::IncorrectArgumentCount(
+            Err(RuntimeCheckErrorKind::IncorrectArgumentCount(
                 self.arguments.len(),
                 args.len(),
             ))?
@@ -179,13 +210,13 @@ impl DefinedFunction {
             let ((name, type_sig), value) = arg;
 
             // Clarity 1 behavior
-            if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
+            if *invoke_ctx.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
                 match (type_sig, value) {
                     // Epoch < 2.1 uses TraitReferenceType
                     (
                         TypeSignature::TraitReferenceType(trait_identifier),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    ) if *env.epoch() < StacksEpochId::Epoch21 => {
+                    ) if *exec_state.epoch() < StacksEpochId::Epoch21 => {
                         // Argument is a trait reference, probably leading to a dynamic contract call
                         // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                         // The code fetching and checking the trait is implemented in the contract_call eval function.
@@ -201,7 +232,7 @@ impl DefinedFunction {
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    ) if *env.epoch() >= StacksEpochId::Epoch21 => {
+                    ) if *exec_state.epoch() >= StacksEpochId::Epoch21 => {
                         // Argument is a trait reference, probably leading to a dynamic contract call
                         // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                         // The code fetching and checking the trait is implemented in the contract_call eval function.
@@ -232,10 +263,10 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(env.epoch(), value)? {
-                            return Err(CheckErrors::TypeValueError(
+                        if !type_sig.admits(exec_state.epoch(), value)? {
+                            return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
-                                Box::new(value.clone()),
+                                value.to_error_string(),
                             )
                             .into());
                         }
@@ -244,7 +275,9 @@ impl DefinedFunction {
                             .insert(name.clone(), value.clone())
                             .is_some()
                         {
-                            return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                            return Err(
+                                RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()).into()
+                            );
                         }
                     }
                 }
@@ -277,10 +310,10 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(env.epoch(), &cast_value)? {
-                            return Err(CheckErrors::TypeValueError(
+                        if !type_sig.admits(exec_state.epoch(), &cast_value)? {
+                            return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
-                                Box::new(cast_value),
+                                cast_value.to_error_string(),
                             )
                             .into());
                         }
@@ -288,19 +321,19 @@ impl DefinedFunction {
                 }
 
                 if context.variables.insert(name.clone(), cast_value).is_some() {
-                    return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                    return Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()).into());
                 }
             }
         }
 
-        let result = eval(&self.body, env, &context);
+        let result = eval(&self.body, exec_state, invoke_ctx, &context);
 
         // if the error wasn't actually an error, but a function return,
         //    pull that out and return it.
         match result {
-            Ok(r) => Ok(r),
+            Ok(r) => Ok(r.clone_with_cost(exec_state)?),
             Err(e) => match e {
-                Error::ShortReturn(v) => Ok(v.into()),
+                VmExecutionError::EarlyReturn(v) => Ok(v.into()),
                 _ => Err(e),
             },
         }
@@ -311,24 +344,28 @@ impl DefinedFunction {
         epoch: &StacksEpochId,
         contract_defining_trait: &ContractContext,
         trait_identifier: &TraitIdentifier,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let trait_name = trait_identifier.name.to_string();
         let constraining_trait = contract_defining_trait
             .lookup_trait_definition(&trait_name)
-            .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+            .ok_or(RuntimeCheckErrorKind::TraitReferenceUnknown(
+                trait_name.to_string(),
+            ))?;
         let expected_sig =
             constraining_trait
                 .get(&self.name)
-                .ok_or(CheckErrors::TraitMethodUnknown(
+                .ok_or(RuntimeCheckErrorKind::TraitMethodUnknown(
                     trait_name.to_string(),
                     self.name.to_string(),
                 ))?;
 
         let args = self.arg_types.to_vec();
         if !expected_sig.check_args_trait_compliance(epoch, args)? {
-            return Err(
-                CheckErrors::BadTraitImplementation(trait_name, self.name.to_string()).into(),
-            );
+            return Err(RuntimeCheckErrorKind::BadTraitImplementation(
+                trait_name,
+                self.name.to_string(),
+            )
+            .into());
         }
 
         Ok(())
@@ -338,11 +375,20 @@ impl DefinedFunction {
         self.define_type == DefineType::ReadOnly
     }
 
-    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    pub fn apply(
+        &self,
+        args: &[Value],
+        exec_state: &mut ExecutionState,
+        invoke_ctx: &InvocationContext,
+    ) -> Result<Value, VmExecutionError> {
         match self.define_type {
-            DefineType::Private => self.execute_apply(args, env),
-            DefineType::Public => env.execute_function_as_transaction(self, args, None, false),
-            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None, false),
+            DefineType::Private => self.execute_apply(args, exec_state, invoke_ctx),
+            DefineType::Public => {
+                exec_state.execute_function_as_transaction(invoke_ctx, self, args, None, false)
+            }
+            DefineType::ReadOnly => {
+                exec_state.execute_function_as_transaction(invoke_ctx, self, args, None, false)
+            }
         }
     }
 
@@ -407,7 +453,10 @@ impl CallableType {
 // recursing into compound types. This function does not check for legality of
 // these casts, as that is done in the type-checker. Note: depth of recursion
 // should be capped by earlier checks on the types/values.
-fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
+fn clarity2_implicit_cast(
+    type_sig: &TypeSignature,
+    value: &Value,
+) -> Result<Value, VmExecutionError> {
     Ok(match (type_sig, value) {
         (
             TypeSignature::OptionalType(inner_type),
@@ -467,9 +516,9 @@ fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Val
                     Some(ty) => ty,
                     None => {
                         // This should be unreachable if the type-checker has already run successfully
-                        return Err(CheckErrors::TypeValueError(
+                        return Err(RuntimeCheckErrorKind::TypeValueError(
                             Box::new(type_sig.clone()),
-                            Box::new(value.clone()),
+                            value.to_error_string(),
                         )
                         .into());
                     }

@@ -372,7 +372,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
         for (i, ptr) in node.ptrs().iter().enumerate() {
             if ptr.id() == TrieNodeID::Empty as u8 {
-                hashes.push(TrieHash::from_data(&[]));
+                hashes.push(TrieHash::EMPTY);
             } else if ptr.chr() != chr {
                 let hash = all_hashes.get(i).ok_or_else(|| {
                     Error::CorruptionError("Hash array smaller than node ptrs".into())
@@ -418,7 +418,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let proof_node = match node {
             TrieNodeType::Leaf(ref data) => TrieMerkleProofType::Leaf((prev_chr, data.clone())),
             TrieNodeType::Node4(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 3];
+                let mut hash_slice = [TrieHash::EMPTY; 3];
                 let copy_data = hashes
                     .get(..3)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
@@ -431,7 +431,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node16(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 15];
+                let mut hash_slice = [TrieHash::EMPTY; 15];
                 let copy_data = hashes
                     .get(..15)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
@@ -444,7 +444,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node48(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 47];
+                let mut hash_slice = [TrieHash::EMPTY; 47];
                 let copy_data = hashes
                     .get(..47)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
@@ -457,7 +457,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node256(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 255];
+                let mut hash_slice = [TrieHash::EMPTY; 255];
                 let copy_data = hashes
                     .get(..255)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;

@@ -24,7 +24,7 @@ use std::time::SystemTime;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
-use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
+use blockstack_lib::chainstate::stacks::events::{BurnBlockEvent, StackerDBChunksEvent};
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use blockstack_lib::version_string;
@@ -184,8 +184,8 @@ pub enum SignerEvent<T: SignerEventTrait> {
     SignerMessages {
         /// The signer set to which the message belongs (either 0 or 1)
         signer_set: u32,
-        /// Each message of type `T` is paired with the `StacksPublicKey` of the slot from which it was retreived
-        messages: Vec<(StacksPublicKey, T)>,
+        /// Each message of type `T` is paired with the `slot_id` and `StacksPublicKey` of the slot from which it was retrieved
+        messages: Vec<(u32, StacksPublicKey, T)>,
         /// the time at which this event was received by the signer's event processor
         received_time: SystemTime,
     },
@@ -536,11 +536,12 @@ impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
                 return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
             };
             // signer-XXX-YYY boot contract
-            let messages: Vec<(StacksPublicKey, T)> = event
+            let messages: Vec<_> = event
                 .modified_slots
                 .iter()
                 .filter_map(|chunk| {
                     Some((
+                        chunk.slot_id,
                         chunk.recover_pk().ok()?,
                         read_next::<T, _>(&mut &chunk.data[..]).ok()?,
                     ))
@@ -566,28 +567,6 @@ impl<T: SignerEventTrait> TryFrom<BlockValidateResponse> for SignerEvent<T> {
             block_validate_response,
         ))
     }
-}
-
-/// Burn block JSON payload from the event receiver
-#[derive(Debug, Deserialize, Clone)]
-pub struct BurnBlockEvent {
-    /// The hash of the burn block
-    #[serde(with = "prefix_hex")]
-    pub burn_block_hash: BurnchainHeaderHash,
-    /// The height of the burn block
-    pub burn_block_height: u64,
-    /// The reward recipients
-    pub reward_recipients: Vec<serde_json::Value>,
-    /// The reward slot holders
-    pub reward_slot_holders: Vec<String>,
-    /// The amount of burn
-    pub burn_amount: u64,
-    /// The consensus hash of the burn block
-    #[serde(with = "prefix_hex")]
-    pub consensus_hash: ConsensusHash,
-    /// The parent burn block hash
-    #[serde(with = "prefix_hex")]
-    pub parent_burn_block_hash: BurnchainHeaderHash,
 }
 
 impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {

@@ -6,95 +6,69 @@
       "request": "launch",
       "name": "executable 'stacks-node'",
       "cargo": {
-        "args": [
-          "build",
-          "--bin=stacks-node"
-        ],
+        "args": ["build", "--bin=stacks-node"],
         "filter": {
-          "kind": "bin"
-        }
+          "kind": "bin",
+        },
       },
-      "args": [
-        "mockamoto"
-      ],
-      "cwd": "${workspaceFolder}"
+      "args": ["mockamoto"],
+      "cwd": "${workspaceFolder}",
     },
     {
       "type": "lldb",
       "request": "launch",
       "name": "executable 'clarity-cli'",
       "cargo": {
-        "args": [
-          "build",
-          "--bin=clarity-cli",
-          "--package=stackslib"
-        ],
+        "args": ["build", "--bin=clarity-cli", "--package=clarity-cli"],
         "filter": {
           "name": "clarity-cli",
-          "kind": "bin"
-        }
+          "kind": "bin",
+        },
       },
       "args": [],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
     },
     {
       "type": "lldb",
       "request": "launch",
       "name": "executable 'blockstack-cli'",
       "cargo": {
-        "args": [
-          "build",
-          "--bin=blockstack-cli",
-          "--package=stackslib"
-        ],
+        "args": ["build", "--bin=blockstack-cli", "--package=stackslib"],
         "filter": {
           "name": "blockstack-cli",
-          "kind": "bin"
-        }
+          "kind": "bin",
+        },
       },
-      "args": [
-        "generate-sk"
-      ],
-      "cwd": "${workspaceFolder}"
+      "args": ["generate-sk"],
+      "cwd": "${workspaceFolder}",
     },
     {
       "type": "lldb",
       "request": "launch",
       "name": "executable 'stacks-node' -- mocknet",
       "cargo": {
-        "args": [
-          "build",
-          "--bin=stacks-node",
-          "--package=stacks-node"
-        ],
+        "args": ["build", "--bin=stacks-node", "--package=stacks-node"],
         "filter": {
           "name": "stacks-node",
-          "kind": "bin"
-        }
+          "kind": "bin",
+        },
       },
-      "args": [
-        "mocknet"
-      ],
-      "cwd": "${workspaceFolder}"
+      "args": ["mocknet"],
+      "cwd": "${workspaceFolder}",
     },
     {
       "type": "lldb",
       "request": "launch",
       "name": "unit tests in library 'stackslib'",
       "cargo": {
-        "args": [
-          "test",
-          "--no-run",
-          "--lib",
-          "--package=stackslib"
-        ],
+        "args": ["test", "--no-run", "--lib", "--package=stackslib"],
         "filter": {
           "name": "stackslib",
-          "kind": "lib"
-        }
+          "kind": "lib",
+        },
       },
       "args": [],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
     },
     {
       "type": "lldb",
@@ -105,15 +79,15 @@
           "test",
           "--no-run",
           "--bin=stacks-inspect",
-          "--package=stackslib"
+          "--package=stackslib",
         ],
         "filter": {
           "name": "stacks-inspect",
-          "kind": "bin"
-        }
+          "kind": "bin",
+        },
       },
       "args": [],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
     },
     {
       "type": "lldb",
@@ -124,15 +98,15 @@
           "test",
           "--no-run",
           "--bin=clarity-cli",
-          "--package=stackslib"
+          "--package=stackslib",
         ],
         "filter": {
           "name": "clarity-cli",
-          "kind": "bin"
-        }
+          "kind": "bin",
+        },
       },
       "args": [],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
     },
     {
       "type": "lldb",
@@ -143,15 +117,15 @@
           "test",
           "--no-run",
           "--bin=blockstack-cli",
-          "--package=stackslib"
+          "--package=stackslib",
         ],
         "filter": {
           "name": "blockstack-cli",
-          "kind": "bin"
-        }
+          "kind": "bin",
+        },
       },
       "args": [],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
     },
     {
       "type": "lldb",
@@ -162,15 +136,15 @@
           "test",
           "--no-run",
           "--bin=stacks-node",
-          "--package=stacks-node"
+          "--package=stacks-node",
         ],
         "filter": {
           "name": "stacks-node",
-          "kind": "bin"
-        }
+          "kind": "bin",
+        },
       },
       "args": [],
-      "cwd": "${workspaceFolder}"
-    }
-  ]
+      "cwd": "${workspaceFolder}",
+    },
+  ],
 }

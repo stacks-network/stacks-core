@@ -20,10 +20,6 @@ serde = "1"
 stacks-common = { path = "../stacks-common" }
 clarity = { path = "../clarity" }
 
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
-
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
 

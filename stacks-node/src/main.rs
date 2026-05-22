@@ -79,7 +79,13 @@ fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCan
         Some(config.node.get_marf_opts()),
     )
     .unwrap();
-    let mut sortdb = SortitionDB::open(&burn_db_path, false, burnchain.pox_constants).unwrap();
+    let mut sortdb = SortitionDB::open(
+        &burn_db_path,
+        false,
+        burnchain.pox_constants,
+        Some(config.node.get_marf_opts()),
+    )
+    .unwrap();
 
     let max_depth = config.miner.max_reorg_depth;
 
@@ -120,8 +126,13 @@ fn cli_get_miner_spend(
         Some(config.node.get_marf_opts()),
     )
     .unwrap();
-    let mut sortdb =
-        SortitionDB::open(&burn_db_path, true, burnchain.pox_constants.clone()).unwrap();
+    let mut sortdb = SortitionDB::open(
+        &burn_db_path,
+        true,
+        burnchain.pox_constants.clone(),
+        Some(config.node.get_marf_opts()),
+    )
+    .unwrap();
     let tip = if let Some(at_burnchain_height) = at_burnchain_height {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let ih = sortdb.index_handle(&tip.sortition_id);
@@ -157,8 +168,13 @@ fn cli_get_miner_spend(
         mine_start.unwrap_or(tip.block_height),
         at_burnchain_height,
         |burn_block_height| {
-            let sortdb =
-                SortitionDB::open(&burn_db_path, true, burnchain.pox_constants.clone()).unwrap();
+            let sortdb = SortitionDB::open(
+                &burn_db_path,
+                true,
+                burnchain.pox_constants.clone(),
+                Some(config.node.get_marf_opts()),
+            )
+            .unwrap();
             let Some(miner_stats) = config.get_miner_stats() else {
                 return 0.0;
             };

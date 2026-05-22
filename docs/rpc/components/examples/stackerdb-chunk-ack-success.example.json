@@ -1,11 +1,14 @@
 {
-    "accepted": true,
-    "reason": null,
-    "metadata": {
-        "slot_id": 1,
-        "slot_version": 2,
-        "data_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "signature": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01"
-    },
-    "code": null
+    "summary": "StackerDB chunk acknowledgment success",
+    "value": {
+        "accepted": true,
+        "reason": null,
+        "metadata": {
+            "slot_id": 1,
+            "slot_version": 2,
+            "data_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "signature": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01"
+        },
+        "code": null
+    }
 }

@@ -325,6 +325,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             block_proposal_validation_timeout: self.config.block_proposal_validation_timeout,
             tenure_idle_timeout: self.config.tenure_idle_timeout,
             tenure_idle_timeout_buffer: self.config.tenure_idle_timeout_buffer,
+            read_count_idle_timeout: self.config.read_count_idle_timeout,
             block_proposal_max_age_secs: self.config.block_proposal_max_age_secs,
             reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,

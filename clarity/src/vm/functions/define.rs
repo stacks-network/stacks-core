@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,17 +17,17 @@
 use std::collections::BTreeMap;
 
 use crate::vm::callables::{DefineType, DefinedFunction};
-use crate::vm::contexts::{ContractContext, Environment, LocalContext};
+use crate::vm::contexts::{ContractContext, ExecutionState, InvocationContext, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
-    SyntaxBindingErrorType,
+    CommonCheckErrorKind, RuntimeCheckErrorKind, SyntaxBindingErrorType, VmExecutionError,
+    check_argument_count, check_arguments_at_least,
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
-    parse_name_type_pairs, TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value,
+    TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value, parse_name_type_pairs,
 };
 
 define_named_enum!(DefineFunctions {
@@ -95,64 +95,86 @@ pub enum DefineFunctionsParsed<'a> {
     },
 }
 
+#[derive(Debug)]
 pub enum DefineResult {
+    /// `define-constant`
     Variable(ClarityName, Value),
+    /// `define-private`, `define-public`, `define-read-only`
     Function(ClarityName, DefinedFunction),
+    /// `define-map`
     Map(ClarityName, TypeSignature, TypeSignature),
+    /// `define-data-var`
     PersistedVariable(ClarityName, TypeSignature, Value),
+    /// `define-fungible-token`
     FungibleToken(ClarityName, Option<u128>),
+    /// `define-non-fungible-token`
     NonFungibleAsset(ClarityName, TypeSignature),
+    /// `define-trait`
     Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
+    /// `use-trait`
     UseTrait(ClarityName, TraitIdentifier),
+    /// `impl-trait`
     ImplTrait(TraitIdentifier),
+    /// Not a define statement
     NoDefine,
 }
 
-fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
+fn check_legal_define(
+    name: &str,
+    contract_context: &ContractContext,
+) -> Result<(), RuntimeCheckErrorKind> {
     if contract_context.is_name_used(name) {
-        Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
+        Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()))
     } else {
         Ok(())
     }
 }
 
+/// Handle a define-constant statement, which defines a named constant.
 fn handle_define_variable(
     variable: &ClarityName,
     expression: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<DefineResult, VmExecutionError> {
     // is the variable name legal?
-    check_legal_define(variable, env.contract_context)?;
+    check_legal_define(variable, invoke_ctx.contract_context)?;
     let context = LocalContext::new();
-    let value = eval(expression, env, &context)?;
+    let value = eval(expression, exec_state, invoke_ctx, &context)?.clone_with_cost(exec_state)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
 fn handle_define_function(
     signature: &[SymbolicExpression],
     expression: &SymbolicExpression,
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     define_type: DefineType,
-) -> Result<DefineResult> {
-    let (function_symbol, arg_symbols) = signature
-        .split_first()
-        .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+) -> Result<DefineResult, VmExecutionError> {
+    let (function_symbol, arg_symbols) =
+        signature
+            .split_first()
+            .ok_or(RuntimeCheckErrorKind::Unreachable(
+                "Define function bad signature".to_string(),
+            ))?;
 
     let function_name = function_symbol
         .match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
+            "Expected name".to_string(),
+        ))?;
 
-    check_legal_define(function_name, env.contract_context)?;
+    check_legal_define(function_name, invoke_ctx.contract_context)?;
 
-    let arguments = parse_name_type_pairs::<_, CheckErrors>(
-        *env.epoch(),
+    let arguments = parse_name_type_pairs::<_, RuntimeCheckErrorKind>(
+        *exec_state.epoch(),
         arg_symbols,
         SyntaxBindingErrorType::Eval,
-        env,
+        exec_state,
     )?;
 
     for (argument, _) in arguments.iter() {
-        check_legal_define(argument, env.contract_context)?;
+        check_legal_define(argument, invoke_ctx.contract_context)?;
     }
 
     let function = DefinedFunction::new(
@@ -160,7 +182,7 @@ fn handle_define_function(
         expression.clone(),
         define_type,
         function_name,
-        &env.contract_context.contract_identifier.to_string(),
+        &invoke_ctx.contract_context.contract_identifier.to_string(),
         None,
     );
 
@@ -171,14 +193,16 @@ fn handle_define_persisted_variable(
     variable_str: &ClarityName,
     value_type: &SymbolicExpression,
     value: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
-    check_legal_define(variable_str, env.contract_context)?;
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<DefineResult, VmExecutionError> {
+    check_legal_define(variable_str, invoke_ctx.contract_context)?;
 
-    let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
+    let value_type_signature =
+        TypeSignature::parse_type_repr(*exec_state.epoch(), value_type, exec_state)?;
 
     let context = LocalContext::new();
-    let value = eval(value, env, &context)?;
+    let value = eval(value, exec_state, invoke_ctx, &context)?.clone_with_cost(exec_state)?;
 
     Ok(DefineResult::PersistedVariable(
         variable_str.clone(),
@@ -190,11 +214,13 @@ fn handle_define_persisted_variable(
 fn handle_define_nonfungible_asset(
     asset_name: &ClarityName,
     key_type: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
-    check_legal_define(asset_name, env.contract_context)?;
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<DefineResult, VmExecutionError> {
+    check_legal_define(asset_name, invoke_ctx.contract_context)?;
 
-    let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
+    let key_type_signature =
+        TypeSignature::parse_type_repr(*exec_state.epoch(), key_type, exec_state)?;
 
     Ok(DefineResult::NonFungibleAsset(
         asset_name.clone(),
@@ -205,22 +231,23 @@ fn handle_define_nonfungible_asset(
 fn handle_define_fungible_token(
     asset_name: &ClarityName,
     total_supply: Option<&SymbolicExpression>,
-    env: &mut Environment,
-) -> Result<DefineResult> {
-    check_legal_define(asset_name, env.contract_context)?;
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<DefineResult, VmExecutionError> {
+    check_legal_define(asset_name, invoke_ctx.contract_context)?;
 
     if let Some(total_supply_expr) = total_supply {
         let context = LocalContext::new();
-        let total_supply_value = eval(total_supply_expr, env, &context)?;
-        if let Value::UInt(total_supply_int) = total_supply_value {
+        let total_supply_value = eval(total_supply_expr, exec_state, invoke_ctx, &context)?;
+        if let Value::UInt(total_supply_int) = total_supply_value.as_ref() {
             Ok(DefineResult::FungibleToken(
                 asset_name.clone(),
-                Some(total_supply_int),
+                Some(*total_supply_int),
             ))
         } else {
-            Err(CheckErrors::TypeValueError(
+            Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                Box::new(total_supply_value),
+                total_supply_value.as_ref().to_error_string(),
             )
             .into())
         }
@@ -233,12 +260,15 @@ fn handle_define_map(
     map_str: &ClarityName,
     key_type: &SymbolicExpression,
     value_type: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
-    check_legal_define(map_str, env.contract_context)?;
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<DefineResult, VmExecutionError> {
+    check_legal_define(map_str, invoke_ctx.contract_context)?;
 
-    let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
-    let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
+    let key_type_signature =
+        TypeSignature::parse_type_repr(*exec_state.epoch(), key_type, exec_state)?;
+    let value_type_signature =
+        TypeSignature::parse_type_repr(*exec_state.epoch(), value_type, exec_state)?;
 
     Ok(DefineResult::Map(
         map_str.clone(),
@@ -250,15 +280,16 @@ fn handle_define_map(
 fn handle_define_trait(
     name: &ClarityName,
     functions: &[SymbolicExpression],
-    env: &mut Environment,
-) -> Result<DefineResult> {
-    check_legal_define(name, env.contract_context)?;
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<DefineResult, VmExecutionError> {
+    check_legal_define(name, invoke_ctx.contract_context)?;
 
     let trait_signature = TypeSignature::parse_trait_type_repr(
         functions,
-        env,
-        *env.epoch(),
-        *env.contract_context.get_clarity_version(),
+        exec_state,
+        *exec_state.epoch(),
+        *invoke_ctx.contract_context.get_clarity_version(),
     )?;
 
     Ok(DefineResult::Trait(name.clone(), trait_signature))
@@ -289,7 +320,7 @@ impl<'a> DefineFunctionsParsed<'a> {
     /// a define-statement, returns None if the supplied expression is not a define.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
-    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
+    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CommonCheckErrorKind> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None),
@@ -297,7 +328,9 @@ impl<'a> DefineFunctionsParsed<'a> {
         let result = match define_type {
             DefineFunctions::Constant => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Constant {
                     name,
                     value: &args[1],
@@ -307,7 +340,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PrivateFunction {
                     signature,
                     body: &args[1],
@@ -317,7 +350,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::ReadOnlyFunction {
                     signature,
                     body: &args[1],
@@ -327,7 +360,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PublicFunction {
                     signature,
                     body: &args[1],
@@ -335,7 +368,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::NonFungibleToken => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::NonFungibleToken {
                     name,
                     nft_type: &args[1],
@@ -343,7 +378,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::FungibleToken => {
                 check_arguments_at_least(1, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 if args.len() == 1 {
                     DefineFunctionsParsed::UnboundedFungibleToken { name }
                 } else if args.len() == 2 {
@@ -352,12 +389,14 @@ impl<'a> DefineFunctionsParsed<'a> {
                         max_supply: &args[1],
                     }
                 } else {
-                    return Err(CheckErrors::IncorrectArgumentCount(1, args.len()));
+                    return Err(CommonCheckErrorKind::IncorrectArgumentCount(1, args.len()));
                 }
             }
             DefineFunctions::Map => {
                 check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Map {
                     name,
                     key_type: &args[1],
@@ -366,7 +405,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::PersistedVariable => {
                 check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::PersistedVariable {
                     name,
                     data_type: &args[1],
@@ -375,7 +416,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::Trait => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Trait {
                     name,
                     functions: &args[1..],
@@ -383,22 +426,24 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::UseTrait => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 match &args[1].expr {
-                    Field(ref field) => DefineFunctionsParsed::UseTrait {
+                    Field(field) => DefineFunctionsParsed::UseTrait {
                         name,
                         trait_identifier: field,
                     },
-                    _ => return Err(CheckErrors::ExpectedTraitIdentifier),
+                    _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
                 }
             }
             DefineFunctions::ImplTrait => {
                 check_argument_count(1, args)?;
                 match &args[0].expr {
-                    Field(ref field) => DefineFunctionsParsed::ImplTrait {
+                    Field(field) => DefineFunctionsParsed::ImplTrait {
                         trait_identifier: field,
                     },
-                    _ => return Err(CheckErrors::ExpectedTraitIdentifier),
+                    _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
                 }
             }
         };
@@ -408,43 +453,48 @@ impl<'a> DefineFunctionsParsed<'a> {
 
 pub fn evaluate_define(
     expression: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<DefineResult, VmExecutionError> {
     if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
         match define_type {
             DefineFunctionsParsed::Constant { name, value } => {
-                handle_define_variable(name, value, env)
+                handle_define_variable(name, value, exec_state, invoke_ctx)
             }
             DefineFunctionsParsed::PrivateFunction { signature, body } => {
-                handle_define_function(signature, body, env, DefineType::Private)
+                handle_define_function(signature, body, exec_state, invoke_ctx, DefineType::Private)
             }
-            DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
-                handle_define_function(signature, body, env, DefineType::ReadOnly)
-            }
+            DefineFunctionsParsed::ReadOnlyFunction { signature, body } => handle_define_function(
+                signature,
+                body,
+                exec_state,
+                invoke_ctx,
+                DefineType::ReadOnly,
+            ),
             DefineFunctionsParsed::PublicFunction { signature, body } => {
-                handle_define_function(signature, body, env, DefineType::Public)
+                handle_define_function(signature, body, exec_state, invoke_ctx, DefineType::Public)
             }
             DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
-                handle_define_nonfungible_asset(name, nft_type, env)
+                handle_define_nonfungible_asset(name, nft_type, exec_state, invoke_ctx)
             }
             DefineFunctionsParsed::BoundedFungibleToken { name, max_supply } => {
-                handle_define_fungible_token(name, Some(max_supply), env)
+                handle_define_fungible_token(name, Some(max_supply), exec_state, invoke_ctx)
             }
             DefineFunctionsParsed::UnboundedFungibleToken { name } => {
-                handle_define_fungible_token(name, None, env)
+                handle_define_fungible_token(name, None, exec_state, invoke_ctx)
             }
             DefineFunctionsParsed::Map {
                 name,
                 key_type,
                 value_type,
-            } => handle_define_map(name, key_type, value_type, env),
+            } => handle_define_map(name, key_type, value_type, exec_state, invoke_ctx),
             DefineFunctionsParsed::PersistedVariable {
                 name,
                 data_type,
                 initial,
-            } => handle_define_persisted_variable(name, data_type, initial, env),
+            } => handle_define_persisted_variable(name, data_type, initial, exec_state, invoke_ctx),
             DefineFunctionsParsed::Trait { name, functions } => {
-                handle_define_trait(name, functions, env)
+                handle_define_trait(name, functions, exec_state, invoke_ctx)
             }
             DefineFunctionsParsed::UseTrait {
                 name,
@@ -456,5 +506,149 @@ pub fn evaluate_define(
         }
     } else {
         Ok(DefineResult::NoDefine)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use clarity_types::Value;
+    use clarity_types::errors::RuntimeCheckErrorKind;
+    use clarity_types::representations::SymbolicExpression;
+    use clarity_types::types::QualifiedContractIdentifier;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::StacksEpochId;
+
+    use crate::vm::analysis::type_checker::v2_1::MAX_FUNCTION_PARAMETERS;
+    use crate::vm::callables::DefineType;
+    use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::errors::VmExecutionError;
+    use crate::vm::functions::define::{handle_define_function, handle_define_trait};
+    use crate::vm::tests::test_clarity_versions;
+    use crate::vm::{CallStack, ClarityVersion, ContractContext, LocalContext};
+
+    #[apply(test_clarity_versions)]
+    fn bad_syntax_binding_define_function(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        // ---- BAD SIGNATURE ----
+        // Instead of ((x uint)), we pass (x)
+        let bad_signature = vec![
+            SymbolicExpression::atom("f".into()),
+            SymbolicExpression::atom("x".into()), // NOT a (name type) list
+        ];
+
+        let body = SymbolicExpression::atom_value(Value::UInt(1));
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
+
+        let err = handle_define_function(
+            &bad_signature,
+            &body,
+            &mut exec_state,
+            &invoke_ctx,
+            DefineType::Public,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
+                "Bad syntax binding: NotList(Eval, 0)".to_string()
+            )),
+            err,
+        );
+    }
+
+    #[apply(test_clarity_versions)]
+    fn handle_define_trait_too_many_function_parameters(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        if epoch < StacksEpochId::Epoch33 {
+            return;
+        }
+        // Build a trait method with MORE than MAX_FUNCTION_PARAMETERS arguments
+        // (f (uint uint uint ... ) (response uint uint))
+        let too_many_args =
+            vec![SymbolicExpression::atom("uint".into()); MAX_FUNCTION_PARAMETERS + 1];
+
+        let method = SymbolicExpression::list(vec![
+            SymbolicExpression::atom("f".into()),
+            SymbolicExpression::list(too_many_args),
+            SymbolicExpression::list(vec![
+                SymbolicExpression::atom("response".into()),
+                SymbolicExpression::atom("uint".into()),
+                SymbolicExpression::atom("uint".into()),
+            ]),
+        ]);
+
+        // This is the `( (f (...) (response ...)) )` wrapper
+        let trait_body = vec![SymbolicExpression::list(vec![method])];
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let mut call_stack = CallStack::new();
+
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
+
+        let err = handle_define_trait(
+            &"bad-trait".into(),
+            &trait_body,
+            &mut exec_state,
+            &invoke_ctx,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
+                "Too many function params: found 257, allowed 256".to_string()
+            )),
+            err
+        );
     }
 }

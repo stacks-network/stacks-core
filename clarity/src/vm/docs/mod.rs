@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,13 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
-use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
-use crate::vm::functions::define::DefineFunctions;
+use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctions;
 use crate::vm::types::{FixedFunction, FunctionType};
 use crate::vm::variables::NativeVariables;
-use crate::vm::ClarityVersion;
 
 #[cfg(feature = "rusqlite")]
 pub mod contracts;
@@ -102,8 +102,7 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     description: "Returns the current block height of the Stacks blockchain in Clarity 1 and 2.
 Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
 In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
-    example:
-        "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
+    example: "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -130,8 +129,7 @@ const CURRENT_CONTRACT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "current-contract",
     output_type: "principal",
     description: "Returns the principal of the current contract.",
-    example:
-        "(print current-contract) ;; Will print out the Stacks address of the current contract",
+    example: "(print current-contract) ;; Will print out the Stacks address of the current contract",
 };
 
 const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -192,8 +190,7 @@ const REGTEST_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "is-in-regtest",
     output_type: "bool",
     description: "Returns whether or not the code is running in a regression test",
-    example:
-        "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
+    example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
 };
 
 const MAINNET_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -568,8 +565,7 @@ const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-xor ${1:expr-1} ${2:expr-2}",
     signature: "(bit-xor i1 i2...)",
-    description:
-        "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
+    description: "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
     example: "(bit-xor 1 2) ;; Returns 3
 (bit-xor 120 280) ;; Returns 352
 (bit-xor -128 64) ;; Returns -64
@@ -595,8 +591,7 @@ const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-or ${1:expr-1} ${2:expr-2}",
     signature: "(bit-or i1 i2...)",
-    description:
-        "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
+    description: "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
     example: "(bit-or 4 8) ;; Returns 12
 (bit-or 1 2 4) ;; Returns 7
 (bit-or 64 -32 -16) ;; Returns -16
@@ -767,12 +762,12 @@ the `<`-comparable types are expanded to include `string-ascii`, `string-utf8` a
 
 pub fn get_input_type_string(function_type: &FunctionType) -> String {
     match function_type {
-        FunctionType::Variadic(ref in_type, _) => format!("{in_type}, ..."),
-        FunctionType::Fixed(FixedFunction { ref args, .. }) => {
+        FunctionType::Variadic(in_type, _) => format!("{in_type}, ..."),
+        FunctionType::Fixed(FixedFunction { args, .. }) => {
             let in_types: Vec<String> = args.iter().map(|x| format!("{}", x.signature)).collect();
             in_types.join(", ")
         }
-        FunctionType::UnionArgs(ref in_types, _) => {
+        FunctionType::UnionArgs(in_types, _) => {
             let in_types: Vec<String> = in_types.iter().map(|x| format!("{x}")).collect();
             in_types.join(" | ")
         }
@@ -781,7 +776,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
             "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
         },
-        FunctionType::Binary(ref left_sig, ref right_sig, _) => {
+        FunctionType::Binary(left_sig, right_sig, _) => {
             let mut in_types: Vec<String> = Vec::new();
             match left_sig {
                 FunctionArgSignature::Single(left) => {
@@ -819,14 +814,14 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
 #[allow(clippy::panic)]
 pub fn get_output_type_string(function_type: &FunctionType) -> String {
     match function_type {
-        FunctionType::Variadic(_, ref out_type) => format!("{out_type}"),
-        FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{returns}"),
-        FunctionType::UnionArgs(_, ref out_type) => format!("{out_type}"),
+        FunctionType::Variadic(_, out_type) => format!("{out_type}"),
+        FunctionType::Fixed(FixedFunction { returns, .. }) => format!("{returns}"),
+        FunctionType::UnionArgs(_, out_type) => format!("{out_type}"),
         FunctionType::ArithmeticVariadic
         | FunctionType::ArithmeticUnary
         | FunctionType::ArithmeticBinary => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
-        FunctionType::Binary(left, right, ref out_sig) => match out_sig {
+        FunctionType::Binary(left, right, out_sig) => match out_sig {
             FunctionReturnsSignature::Fixed(out_type) => format!("{out_type}"),
             FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
                 let arg_sig = match pos {
@@ -851,7 +846,7 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
 }
 
 pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Option<String> {
-    if let FunctionType::Fixed(FixedFunction { ref args, .. }) = function_type {
+    if let FunctionType::Fixed(FixedFunction { args, .. }) = function_type {
         let in_names: Vec<String> = args.iter().map(|x| x.name.to_string()).collect();
         let arg_examples = in_names.join(" ");
         Some(format!(
@@ -1369,8 +1364,8 @@ const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
     snippet: "secp256k1-recover? ${1:message-hash} ${2:signature}",
     output_type: "(response (buff 33) uint)",
     signature: "(secp256k1-recover? message-hash signature)",
-    description: "The `secp256k1-recover?` function recovers the public key used to sign the message whose sha256 is `message-hash`
-with the provided `signature`. The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.
+    description: "The `secp256k1-recover?` function recovers the public key used to sign the hash, `message-hash`, typically
+a sha256 hash, with the provided `signature`. The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.
 On success, it returns the public key as a 33-byte buffer. This function may fail with one of the following error codes:
 
 * `(err u1)` - the signature does not match the message hash
@@ -1388,8 +1383,9 @@ const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
     signature: "(secp256k1-verify message-hash signature public-key)",
     description: "The `secp256k1-verify` function verifies that the provided signature of the message-hash
 was signed with the private key that generated the public key.
-The `message-hash` is the `sha256` of the message.
-The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.",
+The `message-hash` is typically the `sha256` of a message.
+The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.
+High-S signatures are rejected to enforce the canonical low-S form and prevent malleable signatures.",
     example: "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
  0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
@@ -1399,6 +1395,27 @@ The signature includes 64 bytes plus an optional additional recovery id (00..03)
 (secp256k1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
  0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
  0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns false"
+};
+
+const SECP256R1VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 64), (buff 33)",
+    snippet: "secp256r1-verify ${1:message-hash} ${2:signature} ${3:public-key})",
+    output_type: "bool",
+    signature: "(secp256r1-verify message-hash signature public-key)",
+    description: "The `secp256r1-verify` function verifies that the provided signature of the message-hash
+was signed with the private key that generated the public key.
+In Clarity 4, the `message-hash` is SHA256 hashed again internally before verification (i.e. double SHA256)
+but in Clarity 5 and later, the `message-hash` is used directly without additional hashing.
+`message-hash` is typically the `sha256` of a message and `signature` is the raw 64-byte signature.
+High-S signatures are allowed.
+Note that this is NOT the Bitcoin (or default Stacks) signature scheme, secp256k1, but rather the
+NIST P-256 curve (also known as secp256r1).",
+    example: "(secp256r1-verify 0x44acf6b7e36c1342c2c5897204fe09504e1e2efb1a900377dbc4e7a6a133ec56
+    0xf3ac8061b514795b8843e3d6629527ed2afd6b1f6a555a7acabb5e6f79c8c2ac8bf77819ca05a6b2786c76262bf7371cef97b218e96f175a3ccdda2acc058903
+    0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns true
+(secp256r1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
+    0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+    0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns false"
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
@@ -1454,7 +1471,9 @@ const AT_BLOCK: SpecialAPI = SpecialAPI {
     snippet: "at-block ${1:id-header-hash} ${2:expr}",
     output_type: "A",
     signature: "(at-block id-block-hash expr)",
-    description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
+    description: "Removed in Epoch 3.4 (see SIP-042).
+
+The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
 block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
 
 Note: The block identifying hash must be a hash returned by the `id-header-hash` block information
@@ -1466,7 +1485,7 @@ The function returns the result of evaluating `expr`.
     example: "
 (define-data-var data int 1)
 (at-block 0x0000000000000000000000000000000000000000000000000000000000000000 block-height) ;; Returns u0
-(at-block (unwrap-panic (get-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
+(at-block (unwrap-panic (get-stacks-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
@@ -1582,8 +1601,7 @@ If the supplied argument is an `(ok ...)` value,
 };
 
 const MATCH_API: SpecialAPI = SpecialAPI {
-    input_type:
-        "(optional A) name expression expression | (response A B) name expression name expression",
+    input_type: "(optional A) name expression expression | (response A B) name expression name expression",
     snippet: "match ${1:algebraic-expr} ${2:some-binding-name} ${3:some-branch} ${4:none-branch}",
     output_type: "C",
     signature: "(match opt-input some-binding-name some-branch none-branch) |
@@ -2194,7 +2212,7 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(ft-mint? token-name amount recipient)",
     description: "`ft-mint?` is used to increase the token balance for the `recipient` principal for a token
-type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
+type defined using `define-fungible-token`. The increased token balance is _not_ transferred from another principal, but
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfully mint, it
@@ -2326,7 +2344,7 @@ const BURN_TOKEN: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(ft-burn? token-name amount sender)",
     description: "`ft-burn?` is used to decrease the token balance for the `sender` principal for a token
-type defined using `define-fungible-token`. The decreased token balance is _not_ transfered to another principal, but
+type defined using `define-fungible-token`. The decreased token balance is _not_ transferred to another principal, but
 rather destroyed, reducing the circulating supply.
 
 On a successful burn, it returns `(ok true)`. The burn may fail with error code:
@@ -2881,6 +2899,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AllowanceWithNft => make_for_special(&ALLOWANCE_WITH_NFT, function),
         AllowanceWithStacking => make_for_special(&ALLOWANCE_WITH_STACKING, function),
         AllowanceAll => make_for_special(&ALLOWANCE_WITH_ALL, function),
+        Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
     }
 }
 
@@ -2993,11 +3012,11 @@ pub fn make_json_api_reference() -> String {
 mod test {
     use clarity_types::types::StandardPrincipalData;
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::StacksEpochId;
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
-    use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
@@ -3013,8 +3032,8 @@ mod test {
         FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     };
     use crate::vm::{
-        ast, eval_all, execute, ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker,
-        StacksEpoch, Value,
+        ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker, StacksEpoch, Value,
+        ast, eval_all, execute,
     };
 
     struct DocHeadersDB {}
@@ -3458,7 +3477,7 @@ mod test {
                     QualifiedContractIdentifier::local("tokens").unwrap().into(),
                     None,
                     None,
-                    |e| {
+                    |e, _invoke_ctx| {
                         let mut snapshot = e
                             .global_context
                             .database

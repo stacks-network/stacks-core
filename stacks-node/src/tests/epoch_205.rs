@@ -18,7 +18,7 @@ use stacks::core::test_util::{
 };
 use stacks::core::{
     self, EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
-    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
+    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
 };
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
@@ -53,6 +53,10 @@ fn test_exact_block_costs() {
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_205_transition_height + 100;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_205_transition_height + 100;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
     conf.node.mine_microblocks = true;
@@ -299,6 +303,10 @@ fn test_dynamic_db_method_costs() {
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_205_transition_height + 100;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_205_transition_height + 100;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -501,6 +509,10 @@ fn transition_empty_blocks() {
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_05 + 100;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_05 + 100;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 

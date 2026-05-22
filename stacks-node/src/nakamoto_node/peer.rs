@@ -162,8 +162,13 @@ impl PeerThread {
             .expect("FATAL: database failure opening mempool");
         let burn_db_path = config.get_burn_db_file_path();
 
-        let sortdb = SortitionDB::open(&burn_db_path, false, pox_constants)
-            .expect("FATAL: could not open sortition DB");
+        let sortdb = SortitionDB::open(
+            &burn_db_path,
+            false,
+            pox_constants,
+            Some(config.node.get_marf_opts()),
+        )
+        .expect("FATAL: could not open sortition DB");
 
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: could not open chainstate DB");

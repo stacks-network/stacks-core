@@ -25,7 +25,7 @@ fn walk_to_insertion_point(
     cursor: &mut TrieCursor<BlockHeaderHash>,
 ) -> (TriePtr, TrieNodeType, TrieHash) {
     let (mut node, root_hash) = Trie::read_root(f).unwrap();
-    let mut node_hash = TrieHash::from_empty_data();
+    let mut node_hash = TrieHash::EMPTY;
     let mut node_ptr = f.root_trieptr();
 
     for _ in 0..cursor.path.len() {
@@ -1676,7 +1676,7 @@ fn insert_1024_seq_mid() {
 #[ignore]
 fn insert_65536_random_deterministic() {
     // deterministic random insert of 65536 keys
-    let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+    let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
 
     insert_n_test(
         "/tmp/rust_marf_insert_65536_random_deterministic",
@@ -1697,7 +1697,7 @@ fn insert_65536_random_deterministic() {
 #[test]
 fn insert_1024_random_deterministic_merkle_proof() {
     // deterministic random insert of 1024 keys
-    let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+    let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
 
     insert_n_test(
         "/tmp/rust_marf_insert_1024_random_deterministic_merkle_proof",

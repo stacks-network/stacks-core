@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,8 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::BTreeMap;
+
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -24,6 +27,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::coordinator::OnChainRewardSetProvider;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
@@ -35,6 +39,7 @@ use crate::net::http::{
 use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
+use crate::net::p2p::CurrentRewardSet;
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
@@ -111,6 +116,7 @@ pub struct RPCPoxInfoData {
     pub current_cycle: RPCPoxCurrentCycleInfo,
     pub next_cycle: RPCPoxNextCycleInfo,
     pub epochs: Vec<RPCPoxEpoch>,
+    pub current_epoch: StacksEpochId,
 
     // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
@@ -130,6 +136,7 @@ impl RPCPoxInfoData {
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
         burnchain: &Burnchain,
+        current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
     ) -> Result<RPCPoxInfoData, NetError> {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
@@ -193,7 +200,17 @@ impl RPCPoxInfoData {
                         sender,
                         None,
                         cost_track,
-                        |env| env.execute_contract(&contract_identifier, function, &[], true),
+                        |exec_state, invoke_ctx| {
+                            exec_state
+                                .execute_contract(
+                                    invoke_ctx,
+                                    &contract_identifier,
+                                    function,
+                                    &[],
+                                    true,
+                                )
+                                .map_err(ClarityEvalError::from)
+                        },
                     )
                 },
             )
@@ -205,34 +222,39 @@ impl RPCPoxInfoData {
         };
 
         let first_burnchain_block_height = res
-            .get("first-burnchain-block-height")
-            .unwrap_or_else(|_| panic!("FATAL: no 'first-burnchain-block-height'"))
+            .get("first-burnchain-block-height")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let min_stacking_increment_ustx = res
-            .get("min-amount-ustx")
-            .unwrap_or_else(|_| panic!("FATAL: no 'min-amount-ustx'"))
+            .get("min-amount-ustx")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let prepare_cycle_length = res
-            .get("prepare-cycle-length")
-            .unwrap_or_else(|_| panic!("FATAL: no 'prepare-cycle-length'"))
+            .get("prepare-cycle-length")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let reward_cycle_length = res
-            .get("reward-cycle-length")
-            .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-length'"))
+            .get("reward-cycle-length")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let total_liquid_supply_ustx = res
-            .get("total-liquid-supply-ustx")
-            .unwrap_or_else(|_| panic!("FATAL: no 'total-liquid-supply-ustx'"))
+            .get("total-liquid-supply-ustx")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let has_rejection_data = pox_contract_name == POX_1_NAME
             || pox_contract_name == POX_2_NAME
@@ -240,21 +262,24 @@ impl RPCPoxInfoData {
 
         let (rejection_fraction, rejection_votes_left_required) = if has_rejection_data {
             let rejection_fraction = res
-                .get("rejection-fraction")
-                .unwrap_or_else(|_| panic!("FATAL: no 'rejection-fraction'"))
+                .get("rejection-fraction")?
                 .to_owned()
-                .expect_u128()? as u64;
+                .expect_u128()?
+                .try_into()
+                .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
             let current_rejection_votes = res
-                .get("current-rejection-votes")
-                .unwrap_or_else(|_| panic!("FATAL: no 'current-rejection-votes'"))
+                .get("current-rejection-votes")?
                 .to_owned()
-                .expect_u128()? as u64;
+                .expect_u128()?
+                .try_into()
+                .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
-            let total_required = (total_liquid_supply_ustx as u128 / 100)
+            let total_required: u64 = (total_liquid_supply_ustx as u128 / 100)
                 .checked_mul(rejection_fraction as u128)
                 .ok_or_else(|| NetError::DBError(DBError::Overflow))?
-                as u64;
+                .try_into()
+                .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
             let votes_left = total_required.saturating_sub(current_rejection_votes);
             (Some(rejection_fraction), Some(votes_left))
@@ -335,17 +360,37 @@ impl RPCPoxInfoData {
 
         let reward_slots = pox_consts.reward_slots() as u64;
 
-        let cur_cycle_threshold = StacksChainState::get_threshold_from_participation(
+        let cur_cycle_threshold_live = StacksChainState::get_threshold_from_participation(
             total_liquid_supply_ustx as u128,
             cur_cycle_stacked_ustx,
             reward_slots as u128,
         ) as u64;
 
-        let next_threshold = StacksChainState::get_threshold_from_participation(
+        let next_threshold_live = StacksChainState::get_threshold_from_participation(
             total_liquid_supply_ustx as u128,
             next_cycle_stacked_ustx,
             reward_slots as u128,
         ) as u64;
+
+        let cur_cycle_threshold = Self::get_persisted_cycle_threshold(
+            sortdb,
+            chainstate,
+            tip,
+            &burnchain_tip,
+            current_reward_sets,
+            reward_cycle_id,
+        )
+        .unwrap_or(cur_cycle_threshold_live);
+
+        let next_threshold = Self::get_persisted_cycle_threshold(
+            sortdb,
+            chainstate,
+            tip,
+            &burnchain_tip,
+            current_reward_sets,
+            reward_cycle_id + 1,
+        )
+        .unwrap_or(next_threshold_live);
 
         let pox_activation_threshold_ustx = (total_liquid_supply_ustx as u128)
             .checked_mul(pox_consts.pox_participation_threshold_pct as u128)
@@ -354,11 +399,21 @@ impl RPCPoxInfoData {
             as u64;
 
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
-        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())?
+        let epochs: Vec<RPCPoxEpoch> = SortitionDB::get_stacks_epochs(sortdb.conn())?
             .to_vec()
             .into_iter()
             .map(RPCPoxEpoch::from)
             .collect();
+        let burn_height = burnchain_tip.block_height;
+        let current_epoch = epochs
+            .iter()
+            .fold(StacksEpochId::Epoch10, |acc, epoch_data| {
+                if burn_height >= epoch_data.start_height {
+                    epoch_data.epoch_id
+                } else {
+                    acc
+                }
+            });
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
@@ -388,6 +443,7 @@ impl RPCPoxInfoData {
                 ustx_until_pox_rejection: rejection_votes_left_required,
             },
             epochs,
+            current_epoch,
             min_amount_ustx: next_threshold,
             prepare_cycle_length,
             reward_cycle_id,
@@ -424,6 +480,57 @@ impl RPCPoxInfoData {
                 },
             ],
         })
+    }
+
+    /// Load a reward cycle's threshold from stored reward set data, if available.
+    /// Falls back to `None` if the reward set has not been persisted yet.
+    fn get_persisted_cycle_threshold(
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        tip: &StacksBlockId,
+        burnchain_tip: &crate::chainstate::burn::BlockSnapshot,
+        current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
+        reward_cycle_id: u64,
+    ) -> Option<u64> {
+        // Fast-path: use in-memory reward set cache maintained by PeerNetwork.
+        if let Some(threshold) = current_reward_sets
+            .get(&reward_cycle_id)
+            .and_then(|reward_cycle| reward_cycle.reward_set())
+            .and_then(|reward_set| reward_set.pox_ustx_threshold)
+            .and_then(|threshold| u64::try_from(threshold).ok())
+        {
+            return Some(threshold);
+        }
+
+        let provider = OnChainRewardSetProvider::new();
+
+        // In Nakamoto, the reward set is persisted in chainstate as part of .signers updates.
+        if let Ok(reward_set) =
+            provider.read_reward_set_nakamoto(chainstate, reward_cycle_id, sortdb, tip, true)
+        {
+            if let Some(threshold) = reward_set
+                .pox_ustx_threshold
+                .and_then(|threshold| u64::try_from(threshold).ok())
+            {
+                return Some(threshold);
+            }
+        }
+
+        // In epoch2-era processing, reward set data is persisted in sortition DB.
+        if let Ok((reward_cycle_info, _)) = sortdb.get_preprocessed_reward_set_for_reward_cycle(
+            &burnchain_tip.sortition_id,
+            reward_cycle_id,
+        ) {
+            if let Some(threshold) = reward_cycle_info
+                .known_selected_anchor_block()
+                .and_then(|reward_set| reward_set.pox_ustx_threshold)
+                .and_then(|threshold| u64::try_from(threshold).ok())
+            {
+                return Some(threshold);
+            }
+        }
+
+        None
     }
 }
 
@@ -480,7 +587,13 @@ impl RPCRequestHandler for RPCPoxInfoRequestHandler {
 
         let pox_info_res =
             node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
-                RPCPoxInfoData::from_db(sortdb, chainstate, &tip, network.get_burnchain())
+                RPCPoxInfoData::from_db(
+                    sortdb,
+                    chainstate,
+                    &tip,
+                    network.get_burnchain(),
+                    &network.current_reward_sets,
+                )
             });
 
         let pox_info = match pox_info_res {
