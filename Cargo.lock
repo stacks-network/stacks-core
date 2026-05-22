@@ -4335,9 +4335,9 @@ name = "stacks-codec"
 version = "0.1.0"
 dependencies = [
  "clarity-types 0.0.1",
- "rstest",
  "serde",
  "stacks-common 0.0.1",
+ "variant_count",
 ]
 
 [[package]]

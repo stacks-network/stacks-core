@@ -18,11 +18,11 @@ edition = "2021"
 stacks-common = { path = "../stacks-common", default-features = false }
 clarity-types = { path = "../clarity-types", default-features = false }
 serde = { workspace = true, features = ["derive"] }
+variant_count = "1.1"
 
 [dev-dependencies]
 stacks-common = { path = "../stacks-common", default-features = false, features = ["testing"] }
 clarity-types = { path = "../clarity-types", default-features = false, features = ["testing"] }
-rstest = "0.17.0"
 
 [features]
 default = []

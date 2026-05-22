@@ -47,6 +47,7 @@ use stacks_common::util::hash::{Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::{MessageSignature, MESSAGE_SIGNATURE_ENCODED_SIZE};
 use stacks_common::util::vrf::VRFProof;
+use variant_count::VariantCount;
 
 use crate::strings::StacksString;
 
@@ -78,7 +79,7 @@ impl_byte_array_serde!(TokenTransferMemo);
 /// NB: `PartialEq` is _not_ implemented for this enum in order to ensure that callers use the
 /// instance methods to ascertain what kind of tenure change this is.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, VariantCount)]
 pub enum TenureChangeCause {
     /// A valid winning block-commit
     BlockFound = 0,
@@ -126,6 +127,19 @@ impl TryFrom<u8> for TenureChangeCause {
 }
 
 impl TenureChangeCause {
+    /// All variants of this enum, in declaration order. Kept in sync with the
+    /// enum definition by the `const _` assertion below; see also the comment
+    /// on `ClarityVersion::ALL`.
+    pub const ALL: &'static [TenureChangeCause] = &[
+        TenureChangeCause::BlockFound,
+        TenureChangeCause::Extended,
+        TenureChangeCause::ExtendedRuntime,
+        TenureChangeCause::ExtendedReadCount,
+        TenureChangeCause::ExtendedReadLength,
+        TenureChangeCause::ExtendedWriteCount,
+        TenureChangeCause::ExtendedWriteLength,
+    ];
+
     /// Does this tenure change cause require a sortition to be valid?
     pub fn expects_sortition(&self) -> bool {
         match self {
@@ -194,6 +208,10 @@ impl TenureChangeCause {
         }
     }
 }
+
+// Compile-time guard that `TenureChangeCause::ALL` stays in sync with the
+// enum's variants. See `ClarityVersion::ALL` in clarity-types for context.
+const _: () = assert!(TenureChangeCause::ALL.len() == TenureChangeCause::VARIANT_COUNT);
 
 /// Reasons why a `TenureChange` transaction can be bad
 pub enum TenureChangeError {
@@ -541,7 +559,7 @@ impl AssetInfoID {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, VariantCount)]
 pub enum FungibleConditionCode {
     SentEq = 0x01,
     SentGt = 0x02,
@@ -551,6 +569,16 @@ pub enum FungibleConditionCode {
 }
 
 impl FungibleConditionCode {
+    /// All variants of this enum, in declaration order. Kept in sync with the
+    /// enum definition by the `const _` assertion below.
+    pub const ALL: &'static [FungibleConditionCode] = &[
+        FungibleConditionCode::SentEq,
+        FungibleConditionCode::SentGt,
+        FungibleConditionCode::SentGe,
+        FungibleConditionCode::SentLt,
+        FungibleConditionCode::SentLe,
+    ];
+
     pub fn from_u8(b: u8) -> Option<FungibleConditionCode> {
         match b {
             0x01 => Some(FungibleConditionCode::SentEq),
@@ -572,6 +600,8 @@ impl FungibleConditionCode {
         }
     }
 }
+
+const _: () = assert!(FungibleConditionCode::ALL.len() == FungibleConditionCode::VARIANT_COUNT);
 
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
@@ -2132,7 +2162,7 @@ impl StacksMessageCodec for AssetInfo {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, VariantCount)]
 pub enum NonfungibleConditionCode {
     Sent = 0x10,
     NotSent = 0x11,
@@ -2140,6 +2170,14 @@ pub enum NonfungibleConditionCode {
 }
 
 impl NonfungibleConditionCode {
+    /// All variants of this enum, in declaration order. Kept in sync with the
+    /// enum definition by the `const _` assertion below.
+    pub const ALL: &'static [NonfungibleConditionCode] = &[
+        NonfungibleConditionCode::Sent,
+        NonfungibleConditionCode::NotSent,
+        NonfungibleConditionCode::MaybeSent,
+    ];
+
     pub fn from_u8(b: u8) -> Option<NonfungibleConditionCode> {
         match b {
             0x10 => Some(NonfungibleConditionCode::Sent),
@@ -2174,6 +2212,9 @@ impl NonfungibleConditionCode {
         }
     }
 }
+
+const _: () =
+    assert!(NonfungibleConditionCode::ALL.len() == NonfungibleConditionCode::VARIANT_COUNT);
 
 /// Post-condition principal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3292,7 +3333,6 @@ impl StacksTransaction {
 mod tests {
     use std::io::Cursor;
 
-    use rstest::rstest;
     use stacks_common::codec::testing::check_codec_and_corruption;
     use stacks_common::codec::{read_next, write_next};
     use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
@@ -3428,22 +3468,21 @@ mod tests {
 
     // -- TransactionPayload codec tests (moved from stackslib) -------------
 
-    #[rstest]
-    #[case::standard_address(
-        PrincipalData::from(StacksAddress::new(1, Hash160([0xff; 20])).unwrap())
-    )]
-    #[case::contract_address(
-        PrincipalData::from(QualifiedContractIdentifier {
+    #[test]
+    fn test_transaction_payload_token_transfer() {
+        let standard_addr =
+            PrincipalData::from(StacksAddress::new(1, Hash160([0xff; 20])).unwrap());
+        let contract_addr = PrincipalData::from(QualifiedContractIdentifier {
             issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
             name: ContractName::from_literal("foo-contract"),
-        })
-    )]
-    fn test_transaction_payload_token_transfer(#[case] addr: PrincipalData) {
-        let memo = TokenTransferMemo([1u8; 34]);
-        let amount = 123u64;
-        let payload = TransactionPayload::TokenTransfer(addr.clone(), amount, memo.clone());
-        let expected_bytes = create_token_transfer_bytes(&addr, amount, &memo);
-        check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
+        });
+        for addr in [standard_addr, contract_addr] {
+            let memo = TokenTransferMemo([1u8; 34]);
+            let amount = 123u64;
+            let payload = TransactionPayload::TokenTransfer(addr.clone(), amount, memo.clone());
+            let expected_bytes = create_token_transfer_bytes(&addr, amount, &memo);
+            check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
+        }
     }
 
     /// Iterates `ClarityVersion::ALL` rather than enumerating `#[case]` lines
@@ -4059,26 +4098,22 @@ mod tests {
     /// Every `FungibleConditionCode` discriminant survives a `from_u8 ∘ as u8`
     /// round-trip — these codes are serialized inline as raw bytes inside
     /// `TransactionPostCondition` rather than via their own codec impl.
-    #[rstest]
-    #[case(FungibleConditionCode::SentEq)]
-    #[case(FungibleConditionCode::SentGt)]
-    #[case(FungibleConditionCode::SentGe)]
-    #[case(FungibleConditionCode::SentLt)]
-    #[case(FungibleConditionCode::SentLe)]
-    fn fungible_condition_code_from_u8_roundtrip(#[case] code: FungibleConditionCode) {
-        let byte = code as u8;
-        let decoded = FungibleConditionCode::from_u8(byte).unwrap();
-        assert_eq!(decoded, code);
+    #[test]
+    fn fungible_condition_code_from_u8_roundtrip() {
+        for &code in FungibleConditionCode::ALL {
+            let byte = code as u8;
+            let decoded = FungibleConditionCode::from_u8(byte).unwrap();
+            assert_eq!(decoded, code);
+        }
     }
 
-    #[rstest]
-    #[case(NonfungibleConditionCode::Sent)]
-    #[case(NonfungibleConditionCode::NotSent)]
-    #[case(NonfungibleConditionCode::MaybeSent)]
-    fn nonfungible_condition_code_from_u8_roundtrip(#[case] code: NonfungibleConditionCode) {
-        let byte = code as u8;
-        let decoded = NonfungibleConditionCode::from_u8(byte).unwrap();
-        assert_eq!(decoded, code);
+    #[test]
+    fn nonfungible_condition_code_from_u8_roundtrip() {
+        for &code in NonfungibleConditionCode::ALL {
+            let byte = code as u8;
+            let decoded = NonfungibleConditionCode::from_u8(byte).unwrap();
+            assert_eq!(decoded, code);
+        }
     }
 
     /// Every `TenureChangeCause` discriminant roundtrips through serialize and
@@ -4086,27 +4121,24 @@ mod tests {
     /// `TransactionPayload::TenureChange` case in `codec_all_transactions`.
     /// `TenureChangeCause` intentionally does not implement `PartialEq`, so the
     /// equality check uses the type's explicit `is_eq`.
-    #[rstest]
-    #[case(TenureChangeCause::BlockFound)]
-    #[case(TenureChangeCause::Extended)]
-    #[case(TenureChangeCause::ExtendedRuntime)]
-    #[case(TenureChangeCause::ExtendedReadCount)]
-    #[case(TenureChangeCause::ExtendedReadLength)]
-    #[case(TenureChangeCause::ExtendedWriteCount)]
-    #[case(TenureChangeCause::ExtendedWriteLength)]
-    fn tenure_change_cause_codec(#[case] cause: TenureChangeCause) {
-        let mut buf = vec![];
-        cause.consensus_serialize(&mut buf).unwrap();
-        assert_eq!(buf, vec![cause.as_u8()]);
-        let decoded = TenureChangeCause::consensus_deserialize(&mut &buf[..]).unwrap();
-        assert!(decoded.is_eq(&cause));
+    #[test]
+    fn tenure_change_cause_codec() {
+        for &cause in TenureChangeCause::ALL {
+            let mut buf = vec![];
+            cause.consensus_serialize(&mut buf).unwrap();
+            assert_eq!(buf, vec![cause.as_u8()]);
+            let decoded = TenureChangeCause::consensus_deserialize(&mut &buf[..]).unwrap();
+            assert!(decoded.is_eq(&cause));
+        }
     }
 
     #[test]
     fn tenure_change_cause_rejects_unknown_byte() {
-        // The highest defined variant is ExtendedWriteLength (6). Bytes >= 7
-        // should fail to deserialize.
-        for invalid in [7u8, 0xff] {
+        // Bytes at or beyond the variant count must fail. `VARIANT_COUNT`
+        // tracks the enum automatically, so this bound stays accurate as
+        // variants are added.
+        let first_invalid = TenureChangeCause::VARIANT_COUNT as u8;
+        for invalid in [first_invalid, 0xff] {
             let buf = [invalid];
             assert!(TenureChangeCause::consensus_deserialize(&mut &buf[..]).is_err());
         }
