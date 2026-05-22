@@ -705,6 +705,16 @@ fn test_variadic_concat_string_ascii() {
 }
 
 #[test]
+fn test_variadic_concat_string_utf8() {
+    // Existing test_string_utf8_concat builds the same emoji from 5 binary
+    // concats — here we do it in one variadic call to verify the v600 path
+    // preserves UTF-8 semantics.
+    let variadic = "(concat u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\")";
+    let expected = Value::string_utf8_from_bytes("🤦🏼‍♂️".into()).unwrap();
+    assert_eq!(expected, execute_v6(variadic).unwrap().unwrap());
+}
+
+#[test]
 fn test_variadic_concat_list() {
     let expected = Value::list_from(vec![
         Value::Int(1),
@@ -718,6 +728,40 @@ fn test_variadic_concat_list() {
     assert_eq!(
         expected,
         execute_v6("(concat (list 1 2) (list 3 4) (list 5 6))")
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_nested_list() {
+    // Lists of lists exercise the recursive `least_supertype` path during
+    // type checking and the recursive sequence-concat at runtime.
+    let expected = Value::list_from(vec![
+        Value::list_from(vec![Value::Int(1)]).unwrap(),
+        Value::list_from(vec![Value::Int(2)]).unwrap(),
+        Value::list_from(vec![Value::Int(3)]).unwrap(),
+    ])
+    .unwrap();
+    assert_eq!(
+        expected,
+        execute_v6("(concat (list (list 1)) (list (list 2)) (list (list 3)))")
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_empty_sequences() {
+    // Empty sequences in any position should be transparent. This regression-
+    // guards the fold against any path that special-cases empty inputs.
+    assert_eq!(
+        Value::buff_from(vec![0x01, 0x02]).unwrap(),
+        execute_v6("(concat 0x 0x01 0x 0x02 0x)").unwrap().unwrap()
+    );
+    assert_eq!(
+        Value::list_from(vec![Value::Int(1), Value::Int(2)]).unwrap(),
+        execute_v6("(concat (list) (list 1) (list) (list 2) (list))")
             .unwrap()
             .unwrap()
     );

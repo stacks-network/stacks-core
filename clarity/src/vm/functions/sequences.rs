@@ -309,8 +309,7 @@ pub fn special_append(
 ///
 /// - [`special_concat_v200`]: Epoch 2.0 (legacy size-based cost)
 /// - [`special_concat_v205`]: Epoch 2.05 .. 3.4 (per-element cost, exactly 2 args)
-/// - [`special_concat_v600`]: Epoch 4.0+ (variadic for Clarity 6 contracts; falls
-///   back to v205 behavior for older-version contracts on this epoch)
+/// - [`special_concat_v600`]: Epoch 4.0+ (Clarity 6 variadic `concat`)
 pub fn special_concat(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,

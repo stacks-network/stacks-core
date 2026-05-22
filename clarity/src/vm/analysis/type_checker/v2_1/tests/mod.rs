@@ -2168,7 +2168,13 @@ fn test_variadic_concat_type_check() {
             "(concat \"Hi \" \"Stacks\" \" World!\")",
             "(string-ascii 16)",
         ),
+        ("(concat u\"a\" u\"bc\" u\"d\")", "(string-utf8 4)"),
         ("(concat (list 1) (list 2 3) (list 4))", "(list 4 int)"),
+        // Many args stress-test: the fold should keep summing max_len.
+        (
+            "(concat 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08)",
+            "(buff 8)",
+        ),
     ];
     for (snippet, expected) in v6_pairs {
         let got = type_check_helper_version(
@@ -2188,11 +2194,34 @@ fn test_variadic_concat_type_check() {
     )
     .unwrap();
     assert_eq!("(list 2 int)", &format!("{list_supertype}"));
+
+    // Nested list element types are propagated through `least_supertype`
+    let nested = type_check_helper_version(
+        "(concat (list (list 1)) (list (list 2)) (list (list 3)))",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap();
+    assert_eq!("(list 3 (list 1 int))", &format!("{nested}"));
 }
 
 #[test]
 fn test_variadic_concat_pre_clarity_6_rejected() {
-    // Older versions of `check_special_concat` keep the strict 2-arg signature.
+    // Older versions of `check_special_concat` keep the strict 2-arg signature
+    // and must reject every arg count other than exactly 2. The expected error
+    // variant differs by version: pre-Clarity-6 uses `IncorrectArgumentCount`
+    // for *all* off-arity calls (including the too-few side), while Clarity 6+
+    // returns `RequiresAtLeastArguments` for too-few only — covered separately
+    // in `test_variadic_concat_arity_rejected` and `test_native_concat`.
+    let snippets_and_expected = [
+        ("(concat)", StaticCheckErrorKind::IncorrectArgumentCount(2, 0)),
+        ("(concat 0xaa)", StaticCheckErrorKind::IncorrectArgumentCount(2, 1)),
+        (
+            "(concat 0x01 0x02 0x03)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
+        ),
+    ];
+
     for version in ClarityVersion::ALL
         .iter()
         .copied()
@@ -2207,12 +2236,13 @@ fn test_variadic_concat_pre_clarity_6_rejected() {
             ClarityVersion::Clarity5 => StacksEpochId::Epoch34,
             ClarityVersion::Clarity6 => unreachable!(),
         };
-        let err = type_check_helper_version("(concat 0x01 0x02 0x03)", version, epoch).unwrap_err();
-        assert_eq!(
-            StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
-            *err.err,
-            "expected strict 2-arg rejection at {version}/{epoch}"
-        );
+        for (snippet, expected) in &snippets_and_expected {
+            let err = type_check_helper_version(snippet, version, epoch).unwrap_err();
+            assert_eq!(
+                *expected, *err.err,
+                "expected strict 2-arg rejection at {version}/{epoch} for `{snippet}`"
+            );
+        }
     }
 }
 
