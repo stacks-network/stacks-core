@@ -46,65 +46,65 @@
 macro_rules! measure {
     // Name, Tag, Rate, count_only, Block
     ($name:literal, $tag:expr, rate: $rate:literal, count_only, $block:block) => {{
-        let _guard = $crate::span!($name, $tag, rate: $rate, count_only);
+        let __profiler_guard = $crate::span!($name, $tag, rate: $rate, count_only);
         $block
     }};
 
     // Name, Rate, count_only, Block
     ($name:literal, rate: $rate:literal, count_only, $block:block) => {{
-        let _guard = $crate::span!($name, rate: $rate, count_only);
+        let __profiler_guard = $crate::span!($name, rate: $rate, count_only);
         $block
     }};
 
     // Name, Tag, Rate, suppress, Block
     ($name:literal, $tag:expr, rate: $rate:literal, suppress, $block:block) => {{
-        let _guard = $crate::span!($name, $tag, rate: $rate, suppress);
+        let __profiler_guard = $crate::span!($name, $tag, rate: $rate, suppress);
         $block
     }};
 
     // Name, Rate, suppress, Block
     ($name:literal, rate: $rate:literal, suppress, $block:block) => {{
-        let _guard = $crate::span!($name, rate: $rate, suppress);
+        let __profiler_guard = $crate::span!($name, rate: $rate, suppress);
         $block
     }};
 
     // Name, Tag, Rate, Block
     ($name:literal, $tag:expr, rate: $rate:literal, $block:block) => {{
-        let _guard = $crate::span!($name, $tag, rate: $rate);
+        let __profiler_guard = $crate::span!($name, $tag, rate: $rate);
         $block
     }};
 
     // Name, Rate, Block
     ($name:literal, rate: $rate:literal, $block:block) => {{
-        let _guard = $crate::span!($name, rate: $rate);
+        let __profiler_guard = $crate::span!($name, rate: $rate);
         $block
     }};
 
     // Name, Tag, Block
     ($name:literal, $tag:expr, $block:block) => {{
-        let _guard = $crate::span!($name, $tag);
+        let __profiler_guard = $crate::span!($name, $tag);
         $block
     }};
 
     // Name, Block
     ($name:literal, $block:block) => {{
-        let _guard = $crate::span!($name);
+        let __profiler_guard = $crate::span!($name);
         $block
     }};
 
     // Trap (Name, Rate)
     ($name:literal, rate: $rate:literal) => {
-        let _guard = $crate::span!($name, rate: $rate);
+        let __profiler_guard = $crate::span!($name, rate: $rate);
     };
 
     // Trap (Name)
     ($name:literal) => {
-        let _guard = $crate::span!($name);
+        let __profiler_guard = $crate::span!($name);
     };
 
     // Anonymous Block
     ($block:block) => {{
-        let _guard = $crate::span!("scope");
+        let __profiler_guard = $crate::span!("scope");
         $block
     }};
 
