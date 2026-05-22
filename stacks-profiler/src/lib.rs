@@ -46,7 +46,7 @@
 //!     // ... timed ...
 //! });
 //!
-//! let results = Profiler::take_results();
+//! let results = Profiler::take_results().expect("take profiler results");
 //! for root in &results {
 //!     root.print_tree();
 //! }
@@ -64,6 +64,7 @@
 //! between await points instead.
 
 use std::cell::{Cell, RefCell};
+use std::fmt;
 use std::marker::PhantomData;
 use std::panic::Location;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -206,6 +207,35 @@ pub struct ProfileStats {
     /// Aggregated counters (see [`counter_add!`](counter_add)).
     pub counters: Vec<Counter>,
 }
+
+/// Error returned when profile results cannot be drained into a tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TakeResultsError {
+    /// Results were requested while spans are still active on this thread.
+    ActiveSpans { active: usize },
+    /// A root or child pointed at a node id outside the arena.
+    MissingNode { node_id: u32 },
+    /// A node was reachable more than once, which would make materialization ambiguous.
+    DuplicateNode { node_id: u32 },
+}
+
+impl fmt::Display for TakeResultsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TakeResultsError::ActiveSpans { active } => {
+                write!(f, "take_results called with {active} active span(s)")
+            }
+            TakeResultsError::MissingNode { node_id } => {
+                write!(f, "profile tree references missing node {node_id}")
+            }
+            TakeResultsError::DuplicateNode { node_id } => {
+                write!(f, "profile tree references node {node_id} more than once")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TakeResultsError {}
 
 impl ProfileStats {
     /// Span name (e.g., `"execute_tx"`).
@@ -547,9 +577,11 @@ impl Profiler {
 
     /// Drain the calling thread's profile tree (one entry per root span) and reset state.
     ///
-    /// Debug-asserts that no spans are currently active.
+    /// Returns an error if spans are still active or the internal arena cannot be materialized
+    /// into a tree. Active-span errors leave state intact so callers can drop the guard and retry;
+    /// arena materialization errors discard the broken state while returning the error.
     #[inline]
-    pub fn take_results() -> Vec<ProfileStats> {
+    pub fn take_results() -> Result<Vec<ProfileStats>, TakeResultsError> {
         STATE.with(|cell| cell.borrow_mut().take_results_and_reset())
     }
 

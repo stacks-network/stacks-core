@@ -45,7 +45,7 @@ fn main() {
     }
 
     // Extract and print
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
     println!("\n=== basics ===\n");
     for root in &results {
         root.print_tree();

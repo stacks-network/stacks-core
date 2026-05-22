@@ -18,7 +18,7 @@
 
 use std::time::Instant;
 
-use crate::{Counter, ProfileStats, Record, SpanId, Tag};
+use crate::{Counter, ProfileStats, Record, SpanId, Tag, TakeResultsError};
 
 /// Index into the per-thread node arena (`ThreadState::nodes`).
 pub type NodeId = u32;
@@ -195,17 +195,24 @@ impl ThreadState {
     }
 
     /// Convert the arena into a tree of [`ProfileStats`], consuming nodes in place.
-    fn materialize_node(nodes: &mut Vec<Option<Node>>, node_id: NodeId) -> ProfileStats {
-        let node = nodes[node_id as usize]
-            .take()
-            .expect("node already materialized or missing");
+    fn materialize_node(
+        nodes: &mut [Option<Node>],
+        node_id: NodeId,
+    ) -> Result<ProfileStats, TakeResultsError> {
+        let Some(slot) = nodes.get_mut(node_id as usize) else {
+            return Err(TakeResultsError::MissingNode { node_id });
+        };
+
+        let Some(node) = slot.take() else {
+            return Err(TakeResultsError::DuplicateNode { node_id });
+        };
 
         let mut children = Vec::with_capacity(node.children.len());
         for &child_id in &node.children {
-            children.push(Self::materialize_node(nodes, child_id));
+            children.push(Self::materialize_node(nodes, child_id)?);
         }
 
-        ProfileStats {
+        Ok(ProfileStats {
             id: node.id,
             tag: node.tag,
             wall_time_ns: node.wall_time_ns,
@@ -215,15 +222,16 @@ impl ThreadState {
             sampled_count: node.sampled_count,
             records: node.records,
             counters: node.counters,
-        }
+        })
     }
 
     /// Drain the arena into a `Vec<ProfileStats>` tree and reset state.
-    pub fn take_results_and_reset(&mut self) -> Vec<ProfileStats> {
-        debug_assert!(
-            self.stack.is_empty(),
-            "take_results called while spans are still active"
-        );
+    pub fn take_results_and_reset(&mut self) -> Result<Vec<ProfileStats>, TakeResultsError> {
+        if !self.stack.is_empty() {
+            return Err(TakeResultsError::ActiveSpans {
+                active: self.stack.len(),
+            });
+        }
 
         let nodes = std::mem::take(&mut self.nodes);
         let roots = std::mem::take(&mut self.roots);
@@ -232,13 +240,13 @@ impl ThreadState {
 
         let mut out = Vec::with_capacity(roots.len());
         for root in roots {
-            out.push(Self::materialize_node(&mut nodes_opt, root));
+            out.push(Self::materialize_node(&mut nodes_opt, root)?);
         }
 
         self.stack.clear();
         self.roots_last_child = None;
 
-        out
+        Ok(out)
     }
 
     /// Discard all accumulated nodes and reset the arena.

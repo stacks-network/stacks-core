@@ -84,7 +84,7 @@ fn main() {
         save_results();
     }
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
 
     println!("\n=== cpu_vs_wait ===");
     println!("(Wait-bound spans are highlighted in RED)\n");

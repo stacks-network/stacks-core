@@ -2,7 +2,7 @@ use std::hint::black_box;
 use std::time::Duration;
 use std::{panic, thread};
 
-use stacks_profiler::{Profiler, profile, span};
+use stacks_profiler::{Profiler, TakeResultsError, profile, span};
 
 fn find_child<'a>(
     node: &'a stacks_profiler::ProfileStats,
@@ -22,7 +22,7 @@ fn test_basic_nesting() {
         });
     });
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
 
     assert_eq!(results.len(), 1, "Should have 1 root");
     let root = &results[0];
@@ -31,6 +31,21 @@ fn test_basic_nesting() {
     assert_eq!(root.children.len(), 1, "Root should have 1 child");
     let child = &root.children[0];
     assert_eq!(child.id.name, "Child");
+}
+
+#[test]
+fn test_take_results_errors_with_active_spans() {
+    Profiler::clear();
+
+    let guard = span!("StillActive");
+    let err = Profiler::take_results().expect_err("active span should prevent result drain");
+    assert_eq!(err, TakeResultsError::ActiveSpans { active: 1 });
+
+    drop(guard);
+
+    let results = Profiler::take_results().expect("take profiler results");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name(), "StillActive");
 }
 
 #[test]
@@ -51,7 +66,7 @@ fn test_macro_variations() {
     let res = stacks_profiler::measure!("Expression", { 5 + 5 });
     assert_eq!(res, 10);
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].name(), "Statement");
     assert_eq!(results[1].name(), "scope");
@@ -70,7 +85,7 @@ fn test_multi_threading_isolation() {
             thread::sleep(Duration::from_millis(10));
         }
         // Return the results to the main thread
-        Profiler::take_results()
+        Profiler::take_results().expect("take profiler results")
     });
 
     // Do work on main thread simultaneously
@@ -80,7 +95,7 @@ fn test_multi_threading_isolation() {
     } // Guard drops here, finishing the span
 
     let thread_results = t.join().expect("Thread failed");
-    let main_results = Profiler::take_results();
+    let main_results = Profiler::take_results().expect("take profiler results");
 
     // Verify thread results
     assert_eq!(thread_results.len(), 1, "Thread should have 1 result");
@@ -109,7 +124,7 @@ fn test_panic_safety() {
         let _span = stacks_profiler::span!("Recovered");
     } // Guard drops here, finishing the span
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
 
     // Logic:
     // 1. "WillPanic" started.
@@ -134,7 +149,7 @@ fn test_recursion() {
 
     recursive_func(3);
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
     assert_eq!(results.len(), 1);
 
     let mut current = &results[0];
@@ -159,7 +174,7 @@ fn test_zero_time_safety() {
         let _guard = stacks_profiler::span!("Fast");
     }
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
 
     // Because all calls happen at the same file/line, they are aggregated.
     assert_eq!(
@@ -203,7 +218,7 @@ fn test_sampling_rate_accuracy() {
     }
 
     // Get stats
-    let stats = Profiler::take_results();
+    let stats = Profiler::take_results().expect("take profiler results");
 
     // Find our span
     let root = stats
@@ -233,7 +248,7 @@ fn test_suppression_prevents_wrong_parent_attachment() {
         }
     });
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
     assert_eq!(results.len(), 1, "Should have exactly one root");
     let root = &results[0];
     assert_eq!(root.name(), "RootSuppress");
@@ -275,7 +290,7 @@ fn test_count_only_preserves_hierarchy_and_counts() {
         }
     });
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
     assert_eq!(results.len(), 1, "Should have exactly one root");
     let root = &results[0];
     assert_eq!(root.name(), "RootCountOnly");

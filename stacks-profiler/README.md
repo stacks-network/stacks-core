@@ -187,15 +187,15 @@ let _g = stacks_profiler::span!("hot", rate: 100, suppress);
 
 ### Retrieving Results
 
-#### `Profiler::take_results() -> Vec<ProfileStats>`
+#### `Profiler::take_results() -> Result<Vec<ProfileStats>, TakeResultsError>`
 
 Drains the calling thread's profile tree and returns it. Each entry is a
-root span. The thread-local state is reset afterward.
+root span. The thread-local state is reset afterward if materialization succeeds.
 
 ```rust
 use stacks_profiler::Profiler;
 
-let results = Profiler::take_results();
+let results = Profiler::take_results().expect("take profiler results");
 
 for root in &results {
     // Pretty-print to stdout (colourised tree with records & counters)

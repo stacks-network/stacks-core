@@ -70,7 +70,7 @@ fn main() {
         }
     }
 
-    let results = Profiler::take_results();
+    let results = Profiler::take_results().expect("take profiler results");
 
     println!("\n=== aggregation ===\n");
     for root in &results {
