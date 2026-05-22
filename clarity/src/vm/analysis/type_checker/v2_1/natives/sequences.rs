@@ -17,6 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::{
     StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_argument_count,
     check_arguments_at_least,
@@ -263,64 +264,85 @@ pub fn check_special_concat(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_argument_count(2, args)?;
-
-    let lhs_type = checker.type_check(&args[0], context)?;
-    let rhs_type = checker.type_check(&args[1], context)?;
+    // Clarity 6 makes `concat` variadic. Earlier versions require exactly 2 args.
+    if context.clarity_version >= ClarityVersion::Clarity6 {
+        check_arguments_at_least(2, args)?;
+    } else {
+        check_argument_count(2, args)?;
+    }
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
-    analysis_typecheck_cost(checker, &lhs_type, &rhs_type)?;
+    // Type-check the first arg, then fold the remaining args into the accumulator.
+    // The 2-arg case behaves identically to the previous implementation.
+    let mut acc_type = checker.type_check(&args[0], context)?;
 
-    let res = match (&lhs_type, &rhs_type) {
-        (TypeSignature::SequenceType(lhs_seq), TypeSignature::SequenceType(rhs_seq)) => {
-            match (lhs_seq, rhs_seq) {
-                (ListType(lhs_list), ListType(rhs_list)) => {
-                    let (lhs_entry_type, lhs_max_len) =
-                        (lhs_list.get_list_item_type(), lhs_list.get_max_len());
-                    let (rhs_entry_type, rhs_max_len) =
-                        (rhs_list.get_list_item_type(), rhs_list.get_max_len());
+    for arg in &args[1..] {
+        let rhs_type = checker.type_check(arg, context)?;
+        analysis_typecheck_cost(checker, &acc_type, &rhs_type)?;
+        acc_type = combine_concat_types(&acc_type, &rhs_type)?;
+    }
 
-                    let list_entry_type = TypeSignature::least_supertype(
-                        &StacksEpochId::Epoch21,
-                        lhs_entry_type,
-                        rhs_entry_type,
-                    )?;
-                    let new_len = lhs_max_len
-                        .checked_add(rhs_max_len)
-                        .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::list_of(list_entry_type, new_len)?
-                }
-                (BufferType(lhs_len), BufferType(rhs_len)) => {
-                    let size: u32 = u32::from(lhs_len)
-                        .checked_add(u32::from(rhs_len))
-                        .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(BufferType(size.try_into()?))
-                }
-                (StringType(ASCII(lhs_len)), StringType(ASCII(rhs_len))) => {
-                    let size: u32 = u32::from(lhs_len)
-                        .checked_add(u32::from(rhs_len))
-                        .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(StringType(ASCII(size.try_into()?)))
-                }
-                (StringType(UTF8(lhs_len)), StringType(UTF8(rhs_len))) => {
-                    let size: u32 = u32::from(lhs_len)
-                        .checked_add(u32::from(rhs_len))
-                        .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(StringType(UTF8(size.try_into()?)))
-                }
-                (_, _) => {
-                    return Err(StaticCheckErrorKind::TypeError(
-                        Box::new(lhs_type.clone()),
-                        Box::new(rhs_type.clone()),
-                    )
-                    .into());
-                }
-            }
-        }
-        _ => return Err(StaticCheckErrorKind::ExpectedSequence(Box::new(lhs_type.clone())).into()),
+    Ok(acc_type)
+}
+
+/// Combine two sequence types as if they were concatenated. Returns an error if
+/// either operand isn't a sequence, or if the two sequences have incompatible
+/// element types (e.g. buffer vs. string).
+fn combine_concat_types(
+    lhs_type: &TypeSignature,
+    rhs_type: &TypeSignature,
+) -> Result<TypeSignature, StaticCheckError> {
+    let (TypeSignature::SequenceType(lhs_seq), TypeSignature::SequenceType(rhs_seq)) =
+        (lhs_type, rhs_type)
+    else {
+        return Err(StaticCheckErrorKind::ExpectedSequence(Box::new(lhs_type.clone())).into());
     };
-    Ok(res)
+
+    let result = match (lhs_seq, rhs_seq) {
+        (ListType(lhs_list), ListType(rhs_list)) => {
+            let (lhs_entry_type, lhs_max_len) =
+                (lhs_list.get_list_item_type(), lhs_list.get_max_len());
+            let (rhs_entry_type, rhs_max_len) =
+                (rhs_list.get_list_item_type(), rhs_list.get_max_len());
+
+            let list_entry_type = TypeSignature::least_supertype(
+                &StacksEpochId::Epoch21,
+                lhs_entry_type,
+                rhs_entry_type,
+            )?;
+            let new_len = lhs_max_len
+                .checked_add(rhs_max_len)
+                .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
+            TypeSignature::list_of(list_entry_type, new_len)?
+        }
+        (BufferType(lhs_len), BufferType(rhs_len)) => {
+            let size: u32 = u32::from(lhs_len)
+                .checked_add(u32::from(rhs_len))
+                .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
+            TypeSignature::SequenceType(BufferType(size.try_into()?))
+        }
+        (StringType(ASCII(lhs_len)), StringType(ASCII(rhs_len))) => {
+            let size: u32 = u32::from(lhs_len)
+                .checked_add(u32::from(rhs_len))
+                .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
+            TypeSignature::SequenceType(StringType(ASCII(size.try_into()?)))
+        }
+        (StringType(UTF8(lhs_len)), StringType(UTF8(rhs_len))) => {
+            let size: u32 = u32::from(lhs_len)
+                .checked_add(u32::from(rhs_len))
+                .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
+            TypeSignature::SequenceType(StringType(UTF8(size.try_into()?)))
+        }
+        (_, _) => {
+            return Err(StaticCheckErrorKind::TypeError(
+                Box::new(lhs_type.clone()),
+                Box::new(rhs_type.clone()),
+            )
+            .into());
+        }
+    };
+    Ok(result)
 }
 
 pub fn check_special_append(

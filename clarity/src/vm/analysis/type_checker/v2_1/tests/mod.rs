@@ -2105,10 +2105,13 @@ fn test_native_concat() {
         "(concat (list u0))",
     ];
 
+    // `type_check_helper` runs at the latest Clarity version, which is variadic
+    // for `concat` (Clarity 6+). The 1-arg case therefore produces
+    // `RequiresAtLeastArguments` rather than the strict `IncorrectArgumentCount`.
     let bad_expected = [
         StaticCheckErrorKind::TypeError(Box::new(IntType), Box::new(UIntType)),
         StaticCheckErrorKind::TypeError(Box::new(UIntType), Box::new(IntType)),
-        StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
+        StaticCheckErrorKind::RequiresAtLeastArguments(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
@@ -2151,6 +2154,82 @@ fn test_buff_concat() {
             &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
+}
+
+/// Variadic `concat` was introduced in Clarity 6 / Epoch 4.0. The type checker
+/// folds `least_supertype` across all args (for lists) and sums `max_len` for
+/// every sequence kind. Older Clarity versions must still reject more than 2
+/// arguments.
+#[test]
+fn test_variadic_concat_type_check() {
+    let v6_pairs = [
+        ("(concat 0x01 0x02 0x03)", "(buff 3)"),
+        (
+            "(concat \"Hi \" \"Stacks\" \" World!\")",
+            "(string-ascii 16)",
+        ),
+        ("(concat (list 1) (list 2 3) (list 4))", "(list 4 int)"),
+    ];
+    for (snippet, expected) in v6_pairs {
+        let got = type_check_helper_version(
+            snippet,
+            ClarityVersion::Clarity6,
+            StacksEpochId::Epoch40,
+        )
+        .unwrap();
+        assert_eq!(expected, &format!("{got}"), "snippet: {snippet}");
+    }
+
+    // List element types must be unifiable across all args
+    let list_supertype = type_check_helper_version(
+        "(concat (list) (list 2 3) (list))",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap();
+    assert_eq!("(list 2 int)", &format!("{list_supertype}"));
+}
+
+#[test]
+fn test_variadic_concat_pre_clarity_6_rejected() {
+    // Older versions of `check_special_concat` keep the strict 2-arg signature.
+    for version in ClarityVersion::ALL
+        .iter()
+        .copied()
+        .take_while(|v| *v < ClarityVersion::Clarity6)
+    {
+        // Pick a compatible epoch for each version.
+        let epoch = match version {
+            ClarityVersion::Clarity1 => StacksEpochId::Epoch20,
+            ClarityVersion::Clarity2 => StacksEpochId::Epoch21,
+            ClarityVersion::Clarity3 => StacksEpochId::Epoch30,
+            ClarityVersion::Clarity4 => StacksEpochId::Epoch33,
+            ClarityVersion::Clarity5 => StacksEpochId::Epoch34,
+            ClarityVersion::Clarity6 => unreachable!(),
+        };
+        let err = type_check_helper_version("(concat 0x01 0x02 0x03)", version, epoch).unwrap_err();
+        assert_eq!(
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
+            *err.err,
+            "expected strict 2-arg rejection at {version}/{epoch}"
+        );
+    }
+}
+
+#[test]
+fn test_variadic_concat_mixed_types_rejected() {
+    // Buffer mixed with string-ascii — third arg breaks the chain
+    let err = type_check_helper_version(
+        "(concat 0x01 0x02 \"hi\")",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap_err();
+    let err_str = format!("{:?}", err.err);
+    assert!(
+        err_str.contains("TypeError") || err_str.contains("ExpectedSequence"),
+        "expected a type error mixing buff and string, got: {err_str}"
+    );
 }
 
 #[test]

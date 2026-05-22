@@ -305,7 +305,37 @@ pub fn special_append(
     }
 }
 
-switch_on_global_epoch!(special_concat(special_concat_v200, special_concat_v205));
+/// Epoch-based dispatch for `concat`.
+///
+/// - [`special_concat_v200`]: Epoch 2.0 (legacy size-based cost)
+/// - [`special_concat_v205`]: Epoch 2.05 .. 3.4 (per-element cost, exactly 2 args)
+/// - [`special_concat_v600`]: Epoch 4.0+ (variadic for Clarity 6 contracts; falls
+///   back to v205 behavior for older-version contracts on this epoch)
+pub fn special_concat(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    match exec_state.epoch() {
+        StacksEpochId::Epoch10 => {
+            panic!("Executing Clarity method during Epoch 1.0, before Clarity")
+        }
+        StacksEpochId::Epoch20 => special_concat_v200(args, exec_state, invoke_ctx, context),
+        StacksEpochId::Epoch2_05
+        | StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25
+        | StacksEpochId::Epoch30
+        | StacksEpochId::Epoch31
+        | StacksEpochId::Epoch32
+        | StacksEpochId::Epoch33
+        | StacksEpochId::Epoch34 => special_concat_v205(args, exec_state, invoke_ctx, context),
+        StacksEpochId::Epoch40 => special_concat_v600(args, exec_state, invoke_ctx, context),
+    }
+}
 
 pub fn special_concat_v200(
     args: &[SymbolicExpression],
@@ -391,6 +421,64 @@ pub fn special_concat_v205(
             .into());
         }
     };
+
+    Ok(wrapped_seq)
+}
+
+/// Variadic `concat` introduced in Clarity 6 (Epoch 4.0+).
+///
+/// Accepts 2 or more sequence arguments and folds them left-to-right. Each
+/// fold step uses the same cost formula as `special_concat_v205`, so the
+/// variadic form costs the same as the equivalent nested-binary form — no
+/// arbitrage between `(concat a b c)` and `(concat (concat a b) c)`. The
+/// 2-argument case is byte-for-byte equivalent to v205.
+///
+/// The type checker (`check_special_concat`) rejects variadic calls from
+/// contracts at `ClarityVersion < Clarity6`, so at this epoch a Clarity 1-5
+/// contract will only ever reach this function with exactly two arguments.
+pub fn special_concat_v600(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_arguments_at_least(2, args)?;
+
+    let mut wrapped_seq =
+        eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+
+    for arg in &args[1..] {
+        let other_wrapped_seq =
+            eval(arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+
+        match (&mut wrapped_seq, other_wrapped_seq) {
+            (Value::Sequence(seq), Value::Sequence(other_seq)) => {
+                runtime_cost(
+                    ClarityCostFunction::Concat,
+                    exec_state,
+                    (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
+                )?;
+
+                seq.concat(exec_state.epoch(), other_seq)?
+            }
+            (Value::Sequence(seq_data), other_value) => {
+                runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
+                return Err(RuntimeCheckErrorKind::TypeValueError(
+                    Box::new(seq_data.type_signature()?),
+                    other_value.to_error_string(),
+                )
+                .into());
+            }
+            _ => {
+                runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Expected sequence: {}",
+                    TypeSignature::type_of(&wrapped_seq)?,
+                ))
+                .into());
+            }
+        };
+    }
 
     Ok(wrapped_seq)
 }

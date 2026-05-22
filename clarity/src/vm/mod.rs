@@ -844,6 +844,17 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>, ClarityEvalError> {
     )
 }
 
+/// Execute for test in Clarity6, Epoch40, testnet.
+#[cfg(any(test, feature = "testing"))]
+pub fn execute_v6(program: &str) -> Result<Option<Value>, ClarityEvalError> {
+    execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+}
+
 #[cfg(test)]
 mod test {
     use clarity_types::ClarityName;

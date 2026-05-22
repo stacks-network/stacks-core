@@ -24,7 +24,7 @@ use crate::vm::types::TypeSignature::{self, BoolType, IntType, SequenceType, UIn
 use crate::vm::types::signatures::SequenceSubtype::{self, BufferType, StringType};
 use crate::vm::types::signatures::StringSubtype::ASCII;
 use crate::vm::types::{BufferLength, ListTypeData, StringSubtype, StringUTF8Length, Value};
-use crate::vm::{ClarityVersion, execute, execute_v2};
+use crate::vm::{ClarityVersion, execute, execute_v2, execute_v6};
 
 #[test]
 fn test_simple_list_admission() {
@@ -668,6 +668,108 @@ fn test_simple_buff_concat() {
             )))
         )
         .into()
+    );
+}
+
+/// Variadic `concat` was introduced in Clarity 6 / Epoch 4.0. Earlier versions
+/// require exactly 2 arguments. These tests exercise both the new variadic
+/// runtime behavior and the version gate.
+#[test]
+fn test_variadic_concat_buff() {
+    // Variadic over buffers
+    assert_eq!(
+        Value::buff_from(vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap(),
+        execute_v6("(concat 0x01 0x02 0x03 0x04 0x05 0x06)")
+            .unwrap()
+            .unwrap()
+    );
+    assert_eq!(
+        Value::buff_from(vec![0xaa, 0xbb, 0xcc]).unwrap(),
+        execute_v6("(concat 0xaa 0xbb 0xcc)").unwrap().unwrap()
+    );
+    // 2-arg case is unchanged
+    assert_eq!(
+        Value::buff_from(vec![0x30, 0x31, 0x32, 0x33, 0x34]).unwrap(),
+        execute_v6("(concat 0x303132 0x3334)").unwrap().unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_string_ascii() {
+    assert_eq!(
+        execute_v6("(concat \"Hello \" \"Stacks \" \"World!\")")
+            .unwrap()
+            .unwrap(),
+        execute_v6("\"Hello Stacks World!\"").unwrap().unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_list() {
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(3),
+        Value::Int(4),
+        Value::Int(5),
+        Value::Int(6),
+    ])
+    .unwrap();
+    assert_eq!(
+        expected,
+        execute_v6("(concat (list 1 2) (list 3 4) (list 5 6))")
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_arity_rejected() {
+    // 0 args
+    let err = format!("{:?}", execute_v6("(concat)").unwrap_err());
+    assert!(
+        err.contains("Requires at least args: 2 got 0"),
+        "expected an arity error for (concat), got: {err}"
+    );
+
+    // 1 arg
+    let err = format!("{:?}", execute_v6("(concat 0xaa)").unwrap_err());
+    assert!(
+        err.contains("Requires at least args: 2 got 1"),
+        "expected an arity error for (concat x), got: {err}"
+    );
+}
+
+#[test]
+fn test_variadic_concat_mixed_types_rejected() {
+    // Concatenating a buffer onto a list shouldn't type-check.
+    let err = execute_v6("(concat 0x01 (list 2))").unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("TypeError")
+            || err_str.contains("ExpectedSequence")
+            || err_str.contains("Expected sequence"),
+        "expected a type error mixing buff and list, got: {err_str}"
+    );
+}
+
+#[test]
+fn test_variadic_concat_rejected_pre_clarity_6() {
+    // A Clarity 1 contract at any pre-Clarity-6 epoch should be rejected at
+    // analysis time when it passes more than two args to `concat`.
+    let err = execute("(concat 0x01 0x02 0x03)").unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("IncorrectArgumentCount") || err_str.contains("ArgumentCount"),
+        "expected an argument-count error, got: {err_str}"
+    );
+
+    // Same for Clarity 2 at Epoch 2.1.
+    let err = execute_v2("(concat 0x01 0x02 0x03)").unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("IncorrectArgumentCount") || err_str.contains("ArgumentCount"),
+        "expected an argument-count error under v2, got: {err_str}"
     );
 }
 
