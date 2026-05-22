@@ -769,13 +769,96 @@ fn test_ed25519_verify_valid_signature_returns_true() {
 }
 
 #[test]
-fn test_ed25519_verify_invalid_signature_returns_false() {
+fn test_ed25519_verify_empty_signature_returns_false() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&[]),
+        buff_literal(&pk.to_bytes())
+    );
+
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
+fn test_ed25519_verify_short_signature_returns_false() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&[0u8; 4]),
+        buff_literal(&pk.to_bytes())
+    );
+
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
+fn test_ed25519_verify_zero_signature_returns_false() {
     let sk = Ed25519PrivateKey::random();
     let pk = Ed25519PublicKey::from_private(&sk);
 
     let message = b"Hello World";
 
     let signature = MessageSignature::empty();
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&signature.to_bytes()),
+        buff_literal(&pk.to_bytes())
+    );
+
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
+fn test_ed25519_verify_invalid_signature_returns_false() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let signature = MessageSignature::from_raw(&[1u8; 64]);
 
     let program = format!(
         "(ed25519-verify {} {} {})",
