@@ -4575,8 +4575,7 @@ impl NakamotoChainState {
         tip_index_hash: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<StxBtcCycleRatio, ChainstateError> {
-        const SMOOTHING_WEIGHTS: [u32; 5] = [5, 4, 3, 2, 1];
-        let start_cycle = reward_cycle.saturating_sub((SMOOTHING_WEIGHTS.len() - 1) as u64);
+        let start_cycle = reward_cycle.saturating_sub((Self::SMOOTHING_WINDOW - 1) as u64);
 
         // Try loading from cache (returns empty maps if table doesn't exist yet).
         let (mut complete_cache, incomplete_cache) = Self::load_cached_cycle_totals(
@@ -4729,11 +4728,8 @@ impl NakamotoChainState {
             .map(|(cycle, cached)| (cycle, Self::raw_stx_btc_ratio(&cached.totals)))
             .collect();
         let stx_btc_ratio = ratio_by_cycle.get(&reward_cycle).copied().flatten();
-        let smoothed_stx_btc_ratio = Self::weighted_smoothed_stx_btc_ratio(
-            reward_cycle,
-            &ratio_by_cycle,
-            &SMOOTHING_WEIGHTS,
-        );
+        let smoothed_stx_btc_ratio =
+            Self::weighted_smoothed_stx_btc_ratio(reward_cycle, &ratio_by_cycle);
 
         Ok(StxBtcCycleRatio {
             reward_cycle,
@@ -4759,10 +4755,13 @@ impl NakamotoChainState {
         Some(totals.stx_earned_ustx / u128::from(totals.btc_spent_sats))
     }
 
+    /// Number of cycles in the smoothing window (current + 4 priors).
+    /// Must match the max priors accepted by `FixedPointU256::weighted_geometric_average`.
+    const SMOOTHING_WINDOW: usize = 5;
+
     fn weighted_smoothed_stx_btc_ratio(
         reward_cycle: u64,
         ratio_by_cycle: &HashMap<u64, Option<u128>>,
-        weights: &[u32],
     ) -> Option<u128> {
         // If the current cycle is undefined, keep the smoothed value undefined too.
         let current_ratio = ratio_by_cycle.get(&reward_cycle).copied().flatten()?;
@@ -4776,7 +4775,7 @@ impl NakamotoChainState {
 
         // Collect prior cycles that have data, in order (most recent first).
         let mut priors = vec![];
-        for offset in 1..weights.len() {
+        for offset in 1..Self::SMOOTHING_WINDOW {
             let offset_u64 = u64::try_from(offset).expect("FATAL: offset conversion failure");
             if offset_u64 > reward_cycle {
                 break;
@@ -4793,6 +4792,30 @@ impl NakamotoChainState {
 
         let result = FixedPointU256::<64>::weighted_geometric_average(&current_fp, &priors)?;
         Some(result.to_uint256_rounded().to_u128_saturating())
+    }
+
+    /// Compute the smoothed STX/BTC ratio for `reward_cycle` using only the cycle
+    /// cache table (no MARF or SortitionDB required).
+    ///
+    /// Returns `None` if the cache has no usable data for the requested cycle.
+    /// This is the expected case on first boot or before the cache is populated.
+    pub fn get_cached_smoothed_stx_btc_ratio(
+        conn: &Connection,
+        tip: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Option<u128> {
+        let start_cycle = reward_cycle.saturating_sub((Self::SMOOTHING_WINDOW - 1) as u64);
+
+        let (complete, _incomplete) =
+            Self::load_cached_cycle_totals(conn, start_cycle, reward_cycle, tip)
+                .unwrap_or_default();
+
+        let ratio_by_cycle: HashMap<u64, Option<u128>> = complete
+            .into_iter()
+            .map(|(cycle, cached)| (cycle, Self::raw_stx_btc_ratio(&cached.totals)))
+            .collect();
+
+        Self::weighted_smoothed_stx_btc_ratio(reward_cycle, &ratio_by_cycle)
     }
 
     /// Find all of the TXIDs of Stacks-on-burnchain operations processed in the given Stacks fork.
@@ -5392,6 +5415,19 @@ impl NakamotoChainState {
         // Handle signer stackerdb updates
         let signer_set_calc;
         if evaluated_epoch >= StacksEpochId::Epoch25 {
+            // Compute the smoothed STX/BTC ratio from the cache for the current
+            // reward cycle. This is used by the PoX-5 reward set calculation to
+            // set the minimum STX/BTC stacking ratio threshold.
+            let smoothed_stx_btc_ratio = pox_constants
+                .block_height_to_reward_cycle(first_block_height, burn_header_height.into())
+                .and_then(|cycle| {
+                    Self::get_cached_smoothed_stx_btc_ratio(
+                        chainstate_tx.sqlite(),
+                        &tip_index_hash,
+                        cycle,
+                    )
+                });
+
             signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
                 &mut clarity_tx,
                 sortition_dbconn,
@@ -5399,6 +5435,7 @@ impl NakamotoChainState {
                 pox_constants,
                 burn_header_height.into(),
                 coinbase_height,
+                smoothed_stx_btc_ratio,
             )?;
             tx_receipts.extend(StacksChainState::process_vote_for_aggregate_key_ops(
                 &mut clarity_tx,
@@ -6581,14 +6618,12 @@ mod stx_btc_ratio_tests {
     // weighted_smoothed_stx_btc_ratio
     // -----------------------------------------------------------------------
 
-    const WEIGHTS: [u32; 5] = [5, 4, 3, 2, 1];
-
     #[test]
     fn smoothed_none_when_current_cycle_missing() {
         // If the current cycle has no ratio, result is None regardless of other cycles
         let map = ratios(&[(10, None), (9, Some(100)), (8, Some(200))]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map),
             None
         );
     }
@@ -6598,7 +6633,7 @@ mod stx_btc_ratio_tests {
         // Only the current cycle has data; result should equal that ratio
         let map = ratios(&[(5, Some(1000))]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(5, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(5, &map),
             Some(1000)
         );
     }
@@ -6614,7 +6649,7 @@ mod stx_btc_ratio_tests {
             (6, Some(500)),
         ]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map),
             Some(500)
         );
     }
@@ -6624,7 +6659,7 @@ mod stx_btc_ratio_tests {
         // A single zero ratio zeros out the geometric mean
         let map = ratios(&[(10, Some(1000)), (9, Some(0)), (8, Some(1000))]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map),
             Some(0)
         );
     }
@@ -6635,7 +6670,7 @@ mod stx_btc_ratio_tests {
         // With only two equal values the result should still equal that value.
         let map = ratios(&[(10, Some(200)), (7, Some(200))]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map),
             Some(200)
         );
     }
@@ -6645,7 +6680,7 @@ mod stx_btc_ratio_tests {
         // Cycle 0 with data — no prior cycles possible. Should return the raw ratio.
         let map = ratios(&[(0, Some(42))]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(0, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(0, &map),
             Some(42)
         );
     }
@@ -6655,7 +6690,7 @@ mod stx_btc_ratio_tests {
         // Cycle 0 with no data.
         let map = ratios(&[(0, None)]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(0, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(0, &map),
             None
         );
     }
@@ -6673,7 +6708,7 @@ mod stx_btc_ratio_tests {
             (6, Some(large)),
         ]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map),
             Some(large)
         );
     }
@@ -6695,8 +6730,7 @@ mod stx_btc_ratio_tests {
             (7, Some(8000)),
             (6, Some(16000)),
         ]);
-        let result =
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS).unwrap();
+        let result = NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map).unwrap();
         // Allow a tolerance of ±1 for integer floor rounding.
         // Python: round((1000**5 * 2000**4 * 4000**3 * 8000**2 * 16000**1) ** (1.0/15)) = 2519
         assert!(
@@ -6709,7 +6743,7 @@ mod stx_btc_ratio_tests {
     fn smoothed_empty_map_returns_none() {
         let map: HashMap<u64, Option<u128>> = HashMap::new();
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map),
             None
         );
     }
@@ -6719,7 +6753,7 @@ mod stx_btc_ratio_tests {
         // Only current cycle has data; prior cycles all None.
         let map = ratios(&[(10, Some(777)), (9, None), (8, None), (7, None), (6, None)]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map),
             Some(777)
         );
     }
@@ -6729,7 +6763,7 @@ mod stx_btc_ratio_tests {
         // Edge case: ratio = 1 for all cycles.
         let map = ratios(&[(10, Some(1)), (9, Some(1)), (8, Some(1))]);
         assert_eq!(
-            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map),
             Some(1)
         );
     }

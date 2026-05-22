@@ -174,8 +174,13 @@ fn check_solo_reward_set_invariants(
 
     let total_ustx: u128 = entries.iter().map(|(e, _)| e.amount_ustx).sum();
 
-    let result =
-        NakamotoSigners::pox_5_make_reward_set(entries, pox_constants, &mut provider, prior_ratios);
+    let result = NakamotoSigners::pox_5_make_reward_set(
+        entries,
+        pox_constants,
+        &mut provider,
+        prior_ratios,
+        None,
+    );
     info!("Result: {result:?}");
 
     // The function should not error for valid solo entries
@@ -287,7 +292,7 @@ fn check_pool_aggregation_invariants(
         .collect();
 
     let result =
-        NakamotoSigners::pox_5_make_reward_set(all_entries, pox_constants, provider, vec![]);
+        NakamotoSigners::pox_5_make_reward_set(all_entries, pox_constants, provider, vec![], None);
 
     prop_assert!(
         result.is_ok(),
@@ -407,7 +412,7 @@ proptest! {
         ];
 
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
         let (reward_set, _) = result.unwrap();
@@ -464,7 +469,7 @@ proptest! {
         }
 
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
         let (reward_set, _) = result.unwrap();
@@ -519,7 +524,7 @@ proptest! {
 
         let entries = vec![(entry, vec![watched_output(sats)])];
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, prior_ratios.clone(),
+            entries, &pox_constants, &mut provider, prior_ratios.clone(), None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
         let (_, ratios_to_store) = result.unwrap();
@@ -592,7 +597,7 @@ proptest! {
         ];
 
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
         let (reward_set, _) = result.unwrap();
@@ -636,7 +641,7 @@ proptest! {
 
         let entries = vec![(entry, vec![watched_output(sats)])];
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
     }
@@ -668,7 +673,7 @@ proptest! {
 
         let entries = vec![(entry, vec![watched_output(sats)])];
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         // These entries may be dropped by d_min, but the function must not error
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
@@ -720,7 +725,7 @@ proptest! {
             (low_entry, vec![watched_output(low_sats)]),
         ];
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
     }
@@ -758,7 +763,7 @@ proptest! {
 
         let entries = vec![(entry, vec![watched_output(sats)])];
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, prior_ratios,
+            entries, &pox_constants, &mut provider, prior_ratios, None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
     }
@@ -791,7 +796,7 @@ proptest! {
 
         let entries = vec![(entry, vec![watched_output(sats)])];
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
     }
@@ -841,7 +846,7 @@ proptest! {
         }
 
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
     }
@@ -900,7 +905,7 @@ proptest! {
             (low_entry, vec![watched_output(low_sats)]),
         ];
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, prior_ratios,
+            entries, &pox_constants, &mut provider, prior_ratios, None,
         );
         prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
     }
@@ -941,7 +946,7 @@ proptest! {
         entries.extend(make_entry(12, 2));
 
         let result = NakamotoSigners::pox_5_make_reward_set(
-            entries, &pox_constants, &mut provider, vec![],
+            entries, &pox_constants, &mut provider, vec![], None,
         );
         prop_assert!(result.is_ok(), "Expected okay result: {result:?}");
         let (reward_set, _) = result.unwrap();

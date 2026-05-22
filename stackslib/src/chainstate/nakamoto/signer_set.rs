@@ -929,6 +929,7 @@ impl NakamotoSigners {
         last_computed_btc_height: u32,
         sortition_dbconn: &dyn SortitionDBRef,
         current_epoch: &StacksEpochId,
+        smoothed_stx_btc_ratio: Option<u128>,
     ) -> Result<SignerCalculation, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
@@ -1027,8 +1028,13 @@ impl NakamotoSigners {
         // compute the reward set, and then update the signers db
         let pox_contract_id = boot_code_id(pox_contract, is_mainnet);
         let mut pool_provider = ClarityPox5PoolInfoProvider::new(clarity, &pox_contract_id);
-        let (reward_set, new_ratios) =
-            Self::pox_5_make_reward_set(entries, pox_constants, &mut pool_provider, prior_ratios)?;
+        let (reward_set, new_ratios) = Self::pox_5_make_reward_set(
+            entries,
+            pox_constants,
+            &mut pool_provider,
+            prior_ratios,
+            smoothed_stx_btc_ratio,
+        )?;
 
         let new_ratios_clar: Result<Vec<_>, _> = new_ratios
             .into_iter()
@@ -1086,11 +1092,22 @@ impl NakamotoSigners {
         prior_ratio_percentiles: Vec<FixedPointU256<64>>,
         // will probably need other arguments here to get the windowed averages for
         //  STX/BTC price ratio, STX/BTC 95th percentile ratios
+        smoothed_stx_btc_ratio: Option<u128>,
     ) -> Result<(RewardSet, Vec<FixedPointU256<64>>), ChainstateError> {
         // f_min := minimum amount of STX which can be staked for a given BTC stake
         let max_supported_lock_cycles = 12;
         let f_min_denominator = Uint256::from_u64(100);
-        let price_ratio = FixedPointU256::<64>::from_u64(1);
+        let price_ratio = match smoothed_stx_btc_ratio {
+            Some(ratio) if ratio > 0 => FixedPointU256::<64>::from_u128(ratio),
+            _ => {
+                // TODO: a better default is needed here. This fallback is used on
+                // first boot and whenever the STX/BTC ratio cache has not yet been
+                // populated (e.g. the first prepare phase after epoch 3.5 activates).
+                // A ratio of 1 means d_min_t = 0.01, which is very permissive.
+                warn!("No smoothed STX/BTC ratio available; using default price_ratio = 1");
+                FixedPointU256::<64>::from_u64(1)
+            }
+        };
         // d_min_t := minimum allowed stx / btc ratio scaled by SCALING_FACTOR
         let d_min_t = price_ratio.div(f_min_denominator).unwrap();
         // p := BTC-weighted Percentile to Define D
@@ -1374,6 +1391,7 @@ impl NakamotoSigners {
         pox_constants: &PoxConstants,
         burn_tip_height: u32,
         coinbase_height: u64,
+        smoothed_stx_btc_ratio: Option<u128>,
     ) -> Result<Option<SignerCalculation>, ChainstateError> {
         let current_epoch = clarity_tx.get_epoch();
         if current_epoch < StacksEpochId::Epoch25 {
@@ -1499,6 +1517,7 @@ impl NakamotoSigners {
                     last_update_btc_height,
                     sortition_dbconn,
                     &current_epoch,
+                    smoothed_stx_btc_ratio,
                 ),
             })
             .map(Some)
@@ -1794,8 +1813,13 @@ mod tests {
             (entry2, vec![make_test_watched_output(1000000)]),
         ];
 
-        let result =
-            NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries,
+            &pox_constants,
+            &mut provider,
+            vec![],
+            None,
+        );
 
         assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
         let (reward_set, _new_ratios) = result.unwrap();
@@ -1864,8 +1888,13 @@ mod tests {
             (entry2, vec![make_test_watched_output(1000000)]),
         ];
 
-        let result =
-            NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries,
+            &pox_constants,
+            &mut provider,
+            vec![],
+            None,
+        );
 
         assert!(result.is_ok());
         let (reward_set, _new_ratios) = result.unwrap();
@@ -1936,8 +1965,13 @@ mod tests {
             (pool_entry, vec![make_test_watched_output(1000000)]),
         ];
 
-        let result =
-            NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries,
+            &pox_constants,
+            &mut provider,
+            vec![],
+            None,
+        );
 
         assert!(result.is_ok());
         let (reward_set, _new_ratios) = result.unwrap();
@@ -1975,8 +2009,13 @@ mod tests {
 
         let entries = vec![(pool_entry, vec![make_test_watched_output(1000000)])];
 
-        let result =
-            NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries,
+            &pox_constants,
+            &mut provider,
+            vec![],
+            None,
+        );
 
         // Should succeed but skip the missing pool entry
         assert!(result.is_ok());
