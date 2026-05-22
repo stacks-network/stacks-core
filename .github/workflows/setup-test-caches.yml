@@ -101,7 +101,7 @@ jobs:
       - name: Output GitHub Job Summary
         shell: bash
         run: |
-          echo "### Cache Status" >> $GITHUB_STEP_SUMMARY
+          echo "## Cache Status" >> $GITHUB_STEP_SUMMARY
           echo "| Cache | Exists |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Bitcoin | ${{ steps.bitcoin.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
