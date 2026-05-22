@@ -32,7 +32,7 @@ export CARGO_TERM_COLOR=always
 
 ## ── Check for required binaries ─────────────────────────────────────────────
 missing=0
-for cmd in apt-get rustup cargo; do
+for cmd in rustup cargo; do
     if ! command -v "${cmd}" > /dev/null 2>&1; then
         error "Missing required command: $(hl "${cmd}")"
         missing=1
