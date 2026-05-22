@@ -115,13 +115,13 @@ jobs:
           action: restore
           archive-file: ${{ inputs.archive-file }}
 
-      ############################################################################
-      ### Run proptests
-      ############################################################################
-
       # Pull bitcoin docker image
       - name: Pull bitcoind image (${{ matrix.bitcoin_version }})
         run: docker pull bitcoin/bitcoin:${{ matrix.bitcoin_version }}
+
+      ############################################################################
+      ### Run tests
+      ############################################################################
 
       # Run tests on the pulled bitcoin docker image
       - name: Run tests on bitcoind ${{ matrix.bitcoin_version }}

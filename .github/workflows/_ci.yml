@@ -247,7 +247,7 @@ jobs:
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      btc-version: 
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
 
   # --- Run P2P Tests --------------------------------------------------------
   tests-p2p:

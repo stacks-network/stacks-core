@@ -187,7 +187,10 @@ jobs:
       - name: Export Env Variables
         id: set-env
         run: |
-          echo "test_archive_file=${{ env.TEST_ARCHIVE_FILE }}" >> $GITHUB_OUTPUT
+          # Expand leading ~ to $HOME before saving to outputs
+          FILE="${{ env.TEST_ARCHIVE_FILE }}"
+  
+          echo "test_archive_file=${FILE/#\~/$HOME}" >> "$GITHUB_OUTPUT"
           echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
 
   # --- Setup reusable caches for tests ------------------------------------

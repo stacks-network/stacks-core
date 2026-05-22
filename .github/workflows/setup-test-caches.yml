@@ -194,7 +194,9 @@ jobs:
       - name: Build and Archive Tests
         shell: bash
         run: |
-          ARCHIVE_FILE=${{ inputs.archive-file }}
+          # Capture the achive file input, then expand the leading ~ to $HOME
+          INPUT_FILE="${{ inputs.archive-file }}"
+          ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
           export RUSTFLAGS="-C instrument-coverage" && \
           cargo nextest archive \
