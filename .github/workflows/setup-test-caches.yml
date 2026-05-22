@@ -200,13 +200,12 @@ jobs:
       - name: Build and Archive Tests
         shell: bash
         env:
-          RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+          RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold"
         run: |
           # Capture the archive file input, then expand the leading ~ to $HOME
           INPUT_FILE="${{ inputs.archive-file }}"
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
-          export RUSTFLAGS="-C instrument-coverage" && \
           cargo nextest archive \
             --workspace \
             --tests \
