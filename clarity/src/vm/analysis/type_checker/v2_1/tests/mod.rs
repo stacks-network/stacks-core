@@ -35,8 +35,8 @@ use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, Sequence
 use crate::vm::types::signatures::TypeSignature::OptionalType;
 use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
 use crate::vm::types::{
-    BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, TypeSignatureExt as _,
+    BufferLength, FixedFunction, FunctionType, MAX_VALUE_SIZE, QualifiedContractIdentifier,
+    TraitIdentifier, TypeSignature, TypeSignatureExt as _,
 };
 use crate::vm::{ClarityName, ClarityVersion, execute_v2};
 
@@ -2247,6 +2247,37 @@ fn test_variadic_concat_pre_clarity_6_rejected() {
             );
         }
     }
+}
+
+#[test]
+fn test_variadic_concat_buffer_max_length_exceeded() {
+    // The combined declared length of `ARG_COUNT × PER_ARG_LEN` must exceed
+    // `MAX_VALUE_SIZE`, so the type checker rejects this at compile time. A
+    // literal buffer of that size can't be written directly, so the args are
+    // passed via declared function-parameter types.
+    //
+    // The const_assert below guards against `MAX_VALUE_SIZE` ever growing
+    // past this test's combined size, which would silently turn this into a
+    // pass-without-asserting case.
+    const PER_ARG_LEN: u32 = 350_000;
+    const ARG_COUNT: u32 = 3;
+    const _: () = assert!(
+        PER_ARG_LEN * ARG_COUNT > MAX_VALUE_SIZE,
+        "PER_ARG_LEN * ARG_COUNT must exceed MAX_VALUE_SIZE; if MAX_VALUE_SIZE \
+         grew, bump these constants so this test still exercises the overflow"
+    );
+
+    let snippet = format!(
+        "(define-public (foo (a (buff {PER_ARG_LEN})) (b (buff {PER_ARG_LEN})) (c (buff {PER_ARG_LEN})))
+            (ok (concat a b c)))"
+    );
+    let err = type_check_helper_version(&snippet, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+        .unwrap_err();
+    assert!(
+        matches!(*err.err, StaticCheckErrorKind::ValueTooLarge),
+        "expected ValueTooLarge for an oversized variadic concat, got {:?}",
+        err.err
+    );
 }
 
 #[test]
