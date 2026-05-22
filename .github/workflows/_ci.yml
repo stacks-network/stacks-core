@@ -22,10 +22,6 @@ permissions:
 defaults:
   run:
     shell: bash
-    
-# Shared config
-.shared_config: &shared_config
-  runs-on: ubuntu-latest
 
 # Configure concurrency
 concurrency:
@@ -41,9 +37,10 @@ jobs:
   # --- Global Variables Setup ---------------------------------------------
   # Bridges global env variables to the jobs context so they are safely 
   # accessible by downstream reusable workflows.
+  # Also define default runs-on anchor.
   setup-env:
     name: "Setup: Global Variables"
-    <<: *shared_config
+    runs-on: &shared_config ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
       btc-version: ${{ steps.set-env.outputs.btc_version }}
@@ -67,7 +64,7 @@ jobs:
   # Required to pass for all subsequent jobs
   check-changelog:
     name: "Check: Changelog"
-    <<: *shared_config
+    runs-on: *shared_config
     permissions:
       contents: read
       pull-requests: read
@@ -96,7 +93,7 @@ jobs:
     name: "Check: Rust Formatting"
     needs:
       - check-changelog
-    <<: *shared_config
+    runs-on: *shared_config
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -127,7 +124,7 @@ jobs:
       - check-rustfmt
     if: >-
       github.event.repository.visibility == 'public'
-    <<: *shared_config
+    runs-on: *shared_config
     outputs:
       node_tag: ${{ steps.check-release.outputs.node_tag }}
       signer_tag: ${{ steps.check-release.outputs.signer_tag }}
@@ -307,7 +304,7 @@ jobs:
     if: >-
       github.event.repository.visibility == 'public'
     name: "Create: Code Coverage Report"
-    <<: *shared_config
+    runs-on: *shared_config
     needs:
       - tests-bitcoin
       - tests-epoch
