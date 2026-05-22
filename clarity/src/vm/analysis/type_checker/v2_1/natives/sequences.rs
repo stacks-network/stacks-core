@@ -273,8 +273,8 @@ pub fn check_special_concat(
 
     // The first two args follow the exact ordering of the original 2-arg
     // implementation: type-check both, then charge `AnalysisIterableFunc`,
-    // then the per-pair `analysis_typecheck_cost`. This keeps cost-charging
-    // byte-identical for Clarity 1-5 contracts.
+    // then `analysis_typecheck_cost`. This keeps cost-charging byte-identical
+    // for Clarity 1-5 contracts.
     let lhs_type = checker.type_check(&args[0], context)?;
     let rhs_type = checker.type_check(&args[1], context)?;
 
@@ -284,10 +284,14 @@ pub fn check_special_concat(
     let mut acc_type = combine_concat_types(&lhs_type, &rhs_type)?;
 
     // Any additional args (Clarity 6+ only — the arity check above rejects
-    // them otherwise) are folded into the accumulator.
+    // them otherwise) are folded into the accumulator. We deliberately do NOT
+    // call `analysis_typecheck_cost` per pair here: doing so would re-introduce
+    // the quadratic-in-N cost that the variadic runtime explicitly avoids.
+    // `combine_concat_types` does bounded work per call (depth-of-type-nesting,
+    // not list-length), and the per-arg `checker.type_check` cost already
+    // accounts for the new arg's complexity.
     for arg in &args[2..] {
         let rhs_type = checker.type_check(arg, context)?;
-        analysis_typecheck_cost(checker, &acc_type, &rhs_type)?;
         acc_type = combine_concat_types(&acc_type, &rhs_type)?;
     }
 

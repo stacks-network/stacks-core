@@ -709,7 +709,8 @@ fn test_variadic_concat_string_utf8() {
     // Existing test_string_utf8_concat builds the same emoji from 5 binary
     // concats — here we do it in one variadic call to verify the v600 path
     // preserves UTF-8 semantics.
-    let variadic = "(concat u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\")";
+    let variadic =
+        "(concat u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\")";
     let expected = Value::string_utf8_from_bytes("🤦🏼‍♂️".into()).unwrap();
     assert_eq!(expected, execute_v6(variadic).unwrap().unwrap());
 }
@@ -749,6 +750,19 @@ fn test_variadic_concat_nested_list() {
             .unwrap()
             .unwrap()
     );
+}
+
+#[test]
+fn test_variadic_concat_many_args() {
+    // 16 args — exercises the two-pass loop with a non-trivial N, including
+    // the pre-reserve path on the accumulator. With per-step cost charging
+    // this would have charged ~O(N^2) cost; with the two-pass linear-cost
+    // approach we charge O(total_len) once.
+    let snippet = "(concat \
+        0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 \
+        0x09 0x0a 0x0b 0x0c 0x0d 0x0e 0x0f 0x10)";
+    let expected = Value::buff_from((1u8..=16).collect()).unwrap();
+    assert_eq!(expected, execute_v6(snippet).unwrap().unwrap());
 }
 
 #[test]

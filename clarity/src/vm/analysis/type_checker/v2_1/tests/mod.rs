@@ -2177,12 +2177,9 @@ fn test_variadic_concat_type_check() {
         ),
     ];
     for (snippet, expected) in v6_pairs {
-        let got = type_check_helper_version(
-            snippet,
-            ClarityVersion::Clarity6,
-            StacksEpochId::Epoch40,
-        )
-        .unwrap();
+        let got =
+            type_check_helper_version(snippet, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+                .unwrap();
         assert_eq!(expected, &format!("{got}"), "snippet: {snippet}");
     }
 
@@ -2214,8 +2211,14 @@ fn test_variadic_concat_pre_clarity_6_rejected() {
     // returns `RequiresAtLeastArguments` for too-few only — covered separately
     // in `test_variadic_concat_arity_rejected` and `test_native_concat`.
     let snippets_and_expected = [
-        ("(concat)", StaticCheckErrorKind::IncorrectArgumentCount(2, 0)),
-        ("(concat 0xaa)", StaticCheckErrorKind::IncorrectArgumentCount(2, 1)),
+        (
+            "(concat)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 0),
+        ),
+        (
+            "(concat 0xaa)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
+        ),
         (
             "(concat 0x01 0x02 0x03)",
             StaticCheckErrorKind::IncorrectArgumentCount(2, 3),

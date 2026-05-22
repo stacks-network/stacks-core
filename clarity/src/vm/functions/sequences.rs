@@ -426,15 +426,42 @@ pub fn special_concat_v205(
 
 /// Variadic `concat` introduced in Clarity 6 (Epoch 4.0+).
 ///
-/// Accepts 2 or more sequence arguments and folds them left-to-right. Each
-/// fold step uses the same cost formula as `special_concat_v205`, so the
-/// variadic form costs the same as the equivalent nested-binary form — no
-/// arbitrage between `(concat a b c)` and `(concat (concat a b) c)`. The
-/// 2-argument case is byte-for-byte equivalent to v205.
+/// Accepts 2 or more sequence arguments and concatenates them in a single
+/// pass with linear cost. The 2-argument case is byte-for-byte equivalent
+/// to v205.
+///
+/// # Cost model
+///
+/// This deliberately departs from the per-step cost charged by v205. With
+/// the v205 formula applied per fold step, `(concat a b c d)` would charge
+/// `len(a)+len(b)` then `len(a+b)+len(c)` then `len(a+b+c)+len(d)` — roughly
+/// `O(N² · L)` in number of args. The runtime work is amortized linear, so
+/// that pricing over-charges users for work the runtime doesn't actually do.
+///
+/// The variadic form charges `total_len` once, which is linear in the size
+/// of the final sequence. Variadic `concat` is therefore strictly cheaper
+/// than the equivalent nested-binary form — that's intentional: it reflects
+/// the real work done and is one of the user-visible reasons to prefer the
+/// variadic form.
+///
+/// # Algorithm
+///
+/// Phase 1 evaluates every arg into a `Vec<Value>` while summing the total
+/// length. Phase 2 charges cost once, takes the first arg as the accumulator,
+/// pre-reserves capacity to fit the final result, and appends the remaining
+/// args. Pre-reservation means the underlying `Vec` does not reallocate as
+/// we concat — exactly one allocation per `special_concat_v600` call.
+///
+/// Peak memory during phase 1 is bounded by the type checker's sequence-
+/// length limits: every arg is ≤ `MAX_VALUE_SIZE`, and the type checker
+/// also bounds the *combined* length to that same ceiling, so we hold at
+/// most ~`MAX_VALUE_SIZE` bytes of args alive.
 ///
 /// The type checker (`check_special_concat`) rejects variadic calls from
 /// contracts at `ClarityVersion < Clarity6`, so at this epoch a Clarity 1-5
-/// contract will only ever reach this function with exactly two arguments.
+/// contract only ever reaches this function with exactly two arguments —
+/// in which case the two-pass form collapses to the same work and cost as
+/// v205.
 pub fn special_concat_v600(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -443,43 +470,62 @@ pub fn special_concat_v600(
 ) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(2, args)?;
 
-    let mut wrapped_seq =
-        eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+    // Phase 1: evaluate every arg, summing the total length. Bail with a
+    // clean error on the first non-sequence — defensive only, since the
+    // type checker already enforces this.
+    let mut values: Vec<Value> = Vec::with_capacity(args.len());
+    let mut total_len: u64 = 0;
+    for arg in args {
+        let value = eval(arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+        match &value {
+            Value::Sequence(seq) => {
+                total_len = total_len.cost_overflow_add(seq.len() as u64)?;
+            }
+            non_seq => {
+                runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Expected sequence: {}",
+                    TypeSignature::type_of(non_seq)?
+                ))
+                .into());
+            }
+        }
+        values.push(value);
+    }
 
-    for arg in &args[1..] {
-        let other_wrapped_seq =
-            eval(arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+    // Phase 2: charge cost once (linear in total_len), pre-allocate, append.
+    runtime_cost(ClarityCostFunction::Concat, exec_state, total_len)?;
 
-        match (&mut wrapped_seq, other_wrapped_seq) {
+    let mut values_iter = values.into_iter();
+    let mut result = values_iter
+        .next()
+        .expect("arity ≥ 2 guarantees at least one value");
+
+    if let Value::Sequence(seq) = &mut result {
+        let already = seq.len() as u64;
+        // saturating_sub: if `already == total_len` (a single empty append
+        // chain) we just reserve 0.
+        let extra = total_len.saturating_sub(already);
+        seq.reserve(extra as usize);
+    }
+
+    for other in values_iter {
+        match (&mut result, other) {
             (Value::Sequence(seq), Value::Sequence(other_seq)) => {
-                runtime_cost(
-                    ClarityCostFunction::Concat,
-                    exec_state,
-                    (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
-                )?;
-
-                seq.concat(exec_state.epoch(), other_seq)?
+                seq.concat(exec_state.epoch(), other_seq)?;
             }
             (Value::Sequence(seq_data), other_value) => {
-                runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(seq_data.type_signature()?),
                     other_value.to_error_string(),
                 )
                 .into());
             }
-            _ => {
-                runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
-                return Err(RuntimeCheckErrorKind::Unreachable(format!(
-                    "Expected sequence: {}",
-                    TypeSignature::type_of(&wrapped_seq)?,
-                ))
-                .into());
-            }
-        };
+            _ => unreachable!("first arg was validated as a sequence in phase 1"),
+        }
     }
 
-    Ok(wrapped_seq)
+    Ok(result)
 }
 
 pub fn special_as_max_len(
