@@ -2750,7 +2750,13 @@
 
 ;;; Lock script helpers
 
-;; Contruct an L1 lockup script
+;; Contruct an L1 lockup script.
+;;
+;; `unlock-bytes` and `early-unlock-bytes` are caller-supplied Bitcoin
+;; Script *subscripts* (e.g. `<pubkey> OP_CHECKSIG`, or an M-of-N
+;; CHECKMULTISIG template). They are concatenated inline into the
+;; witness script so that Bitcoin executes them as opcodes at spend
+;; time.
 (define-read-only (construct-lockup-script
         (staker principal)
         (unlock-burn-height uint)
@@ -2761,10 +2767,10 @@
         (concat 0x7563 ;; OP_DROP, OP_IF
             (concat (push-c-script-num unlock-burn-height)
                 (concat 0xb175 ;; OP_CHECKLOCKTIMEVERIFY, OP_DROP
-                    (concat (push-script-bytes unlock-bytes)
+                    (concat unlock-bytes
                         (concat 0x67 ;; OP_ELSE
-                            (concat (push-script-bytes early-unlock-bytes)
-                                (concat (push-script-bytes unlock-bytes) 0x68
+                            (concat early-unlock-bytes
+                                (concat unlock-bytes 0x68
                                     ;; OP_ENDIF
                                 ))
                         ))

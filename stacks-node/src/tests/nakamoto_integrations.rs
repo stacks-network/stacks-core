@@ -20363,6 +20363,8 @@ fn check_pox_5_register_for_bond_lifecycle() {
 ///   on the L1 path)
 /// - a second `register-for-bond` from the same staker fails with
 ///   `ERR_ALREADY_REGISTERED` (u9) and does not perturb the existing lock
+/// - after the on-chain timelock matures, the locked BTC is spendable
+///   *only* by the owner
 fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -20564,12 +20566,12 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     // ustx, so any `amount-ustx >= BTC_LOCKUP_SATS` clears the bond's STX
     // floor.
     //
-    // The `early-unlock-signers` buffer here is the script template that
-    // pox-5 stitches into the L1 timelock — the actual contents are opaque
-    // to the contract (which just hashes them); we use a recognizable
-    // sentinel so a mismatch shows up clearly in failure messages.
+    // For `early-unlock-signers` we use 32 bytes of `0x61` (OP_NOP),
+    // which parse cleanly as no-ops. The OP_ELSE branch they end up in
+    // isn't exercised by this test, so their runtime semantics don't
+    // matter — they only contribute to the P2WSH hash.
     const BTC_LOCKUP_SATS: u128 = 1_000_000;
-    let early_unlock_signers = vec![0xAAu8; 32];
+    let early_unlock_signers = vec![0x61u8; 32];
     let allowlist_entry = clarity::vm::Value::Tuple(
         clarity::vm::types::TupleData::from_data(vec![
             (
@@ -20610,9 +20612,26 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     .expect("Timed out waiting for setup-bond");
 
     // 2) Build a real L1 lockup proof for `register-for-bond`'s
-    // `(ok { outputs, unlock-bytes })` branch, but just use fake unlock-bytes
-    // for simplicity since the test doesn't actually execute the unlock.
-    let lockup_unlock_bytes = vec![0xBBu8; 32];
+    // `(ok { outputs, unlock-bytes })` branch.
+    //
+    // `unlock-bytes` is the Bitcoin Script subscript the OP_IF
+    // (timelock-matured) branch of `construct-lockup-script` executes
+    // after CLTV. We make it a `<pubkey> OP_CHECKSIG` fragment so the
+    // spend is gated on a real signature from `staker_unlock_sk`. The
+    // encoding is `<push 33> <compressed pubkey> <OP_CHECKSIG>` =
+    // `[0x21, …33 bytes…, 0xac]`, 35 bytes total.
+    let staker_unlock_sk = Secp256k1PrivateKey::random();
+    let staker_unlock_pk = Secp256k1PublicKey::from_private(&staker_unlock_sk);
+    let staker_unlock_pk_bytes = staker_unlock_pk.to_bytes_compressed();
+    assert_eq!(
+        staker_unlock_pk_bytes.len(),
+        33,
+        "compressed secp pubkey should be 33 bytes"
+    );
+    let mut lockup_unlock_bytes = Vec::with_capacity(1 + 33 + 1);
+    lockup_unlock_bytes.push(0x21); // OP_PUSHBYTES_33
+    lockup_unlock_bytes.extend_from_slice(&staker_unlock_pk_bytes);
+    lockup_unlock_bytes.push(0xac); // OP_CHECKSIG
 
     // (a) Compute the expected P2WSH script-pubkey by calling pox-5's own
     //     read-only `construct-lockup-output-script` — this returns the
@@ -20812,7 +20831,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
             ),
             (
                 ClarityName::try_from("unlock-bytes").unwrap(),
-                Value::buff_from(lockup_unlock_bytes).unwrap(),
+                Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
             ),
         ])
         .unwrap(),
@@ -20965,12 +20984,222 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         "failed duplicate register-for-bond must not change unlock-burn-height"
     );
 
+    // 5) Spend the L1 lockup once the on-chain timelock matures.
+    //
+    // The previous steps put `BTC_LOCKUP_SATS` into the canonical
+    // timelock P2WSH whose witness program is
+    // `sha256(construct-lockup-script(staker, unlock_burn_height,
+    // lockup_unlock_bytes, early_unlock_signers))`. Bitcoin will accept
+    // a spend of that UTXO once:
+    //   - the tx's `nLockTime >= unlock_burn_height` (so the
+    //     `OP_CHECKLOCKTIMEVERIFY` in the OP_IF branch passes),
+    //   - the spending block's height is also `>= nLockTime` (mempool's
+    //     non-final-tx check), AND
+    //   - the OP_IF branch's `<staker_unlock_pk> OP_CHECKSIG` (the
+    //     inlined `unlock_bytes`) accepts a witness signature for the
+    //     spend's BIP-143 sighash.
+    //
+    // We test both halves of that owner check:
+    //   (a) an *interloper* signs the spend with a fresh, random key
+    //       and tries to broadcast — Bitcoin must reject, because
+    //       OP_CHECKSIG on `staker_unlock_pk` won't accept their sig.
+    //   (b) the *owner* (the entity holding `staker_unlock_sk`) signs
+    //       and broadcasts — Bitcoin accepts; the UTXO drains into a
+    //       bondholder-controlled address.
+
+    // Fetch the canonical script bytes from pox-5 itself so the
+    // sha256(witness_last) we hand bitcoind matches exactly what pox-5
+    // derived the P2WSH from.
+    let timelock_script = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "construct-lockup-script",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::UInt(unlock_burn_height),
+            &Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
+            &Value::buff_from(early_unlock_signers.clone()).unwrap(),
+        ],
+    )
+    .result()
+    .expect("construct-lockup-script failed")
+    .expect_buff(usize::MAX)
+    .expect("construct-lockup-script should return a buff");
+
+    // Stop the Stacks side: the rest of this test only drives bitcoind
+    // directly to advance the burn chain past the timelock, and we don't
+    // want the Stacks miner trying to keep pace with that.
     coord_channel
         .lock()
         .expect("Mutex poisoned")
         .stop_chains_coordinator();
     run_loop_stopper.store(false, Ordering::SeqCst);
     run_loop_thread.join().unwrap();
+
+    // The sweep tx pays its output to a freshly generated bondholder
+    // address (so the wallet recognises the output as its own and we
+    // can assert the sweep landed via `gettransaction`).
+    let sweep_dest_addr = bondholder_rpc
+        .get_new_address(
+            BONDHOLDER_WALLET,
+            None,
+            Some(crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType::Bech32),
+        )
+        .expect("getnewaddress for sweep destination");
+    let sweep_dest_hash20 = match &sweep_dest_addr {
+        stacks::burnchains::bitcoin::address::BitcoinAddress::Segwit(
+            stacks::burnchains::bitcoin::address::SegwitBitcoinAddress::P2WPKH(_, h),
+        ) => *h,
+        other => panic!("expected P2WPKH bech32 sweep address, got {other:?}"),
+    };
+
+    // Mine empty Bitcoin blocks until the chain is past `unlock_burn_height`.
+    // The +1 makes sure the block that *includes* our sweep also lands at
+    // height >= nLockTime, which mempool requires for non-final txs.
+    let pre_sweep_btc_height = bondholder_rpc
+        .get_blockchain_info()
+        .expect("getblockchaininfo")
+        .blocks;
+    let filler_addr = bondholder_rpc
+        .get_new_address(
+            BONDHOLDER_WALLET,
+            None,
+            Some(crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType::Bech32),
+        )
+        .expect("getnewaddress for filler coinbase");
+    let unlock_burn_height_u64 =
+        u64::try_from(unlock_burn_height).expect("unlock_burn_height fits in u64");
+    let blocks_to_mine = (unlock_burn_height_u64 + 1).saturating_sub(pre_sweep_btc_height);
+    if blocks_to_mine > 0 {
+        bondholder_rpc
+            .generate_to_address(blocks_to_mine, &filler_addr)
+            .expect("advance bitcoin past unlock_burn_height");
+    }
+    info!(
+        "Bitcoin chain advanced past L1 unlock height; mined {blocks_to_mine} \
+         filler blocks (pre={pre_sweep_btc_height}, unlock={unlock_burn_height_u64})"
+    );
+
+    // Build a (signed) sweep tx for an arbitrary signer.
+    const SWEEP_FEE_SATS: u64 = 1_000;
+    assert!(
+        lockup_output_amount > SWEEP_FEE_SATS,
+        "lockup output {lockup_output_amount} sats must cover SWEEP_FEE_SATS={SWEEP_FEE_SATS}",
+    );
+    let sweep_value = lockup_output_amount - SWEEP_FEE_SATS;
+    let build_signed_sweep = |signer_sk: &Secp256k1PrivateKey| -> stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction {
+        let mut tx = stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction {
+            version: 2,
+            lock_time: u32::try_from(unlock_burn_height).expect("unlock_burn_height fits in u32"),
+            input: vec![
+                stacks_common::deps_common::bitcoin::blockdata::transaction::TxIn {
+                    previous_output:
+                        stacks_common::deps_common::bitcoin::blockdata::transaction::OutPoint {
+                            txid: lockup_tx_struct.txid(),
+                            vout: u32::try_from(lockup_output_index)
+                                .expect("lockup_output_index fits in u32"),
+                        },
+                    script_sig:
+                        stacks_common::deps_common::bitcoin::blockdata::script::Script::new(),
+                    // `0xfffffffe` < `0xffffffff` so the spend is
+                    // treated as non-final and CLTV actually runs.
+                    sequence: 0xffff_fffe,
+                    witness: vec![], // filled in below
+                },
+            ],
+            output: vec![
+                stacks::burnchains::bitcoin::address::SegwitBitcoinAddress::to_p2wpkh_tx_out(
+                    &sweep_dest_hash20,
+                    sweep_value,
+                ),
+            ],
+        };
+
+        // BIP-143 sighash over the BIP-143 preimage, with `script_code`
+        // set to the full witness script (no OP_CODESEPARATOR handling
+        // needed here).
+        let script_code = stacks_common::deps_common::bitcoin::blockdata::script::Script::from(
+            timelock_script.clone(),
+        );
+        let sig_hash_all: u32 = 0x01;
+        let sig_hash =
+            tx.segwit_signature_hash(0, &script_code, lockup_output_amount, sig_hash_all);
+
+        // `BurnchainOpSigner` is the existing helper that takes a
+        // Secp256k1PrivateKey and produces compact recoverable signatures;
+        // we convert to a standard DER signature for OP_CHECKSIG.
+        let mut signer = BurnchainOpSigner::new(signer_sk.clone());
+        let sig_der_serialized = signer
+            .sign_message(sig_hash.as_bytes())
+            .expect("sign sweep sighash")
+            .to_secp256k1_recoverable()
+            .expect("recoverable sig")
+            .to_standard()
+            .serialize_der();
+        // `serialize_der()` returns `SerializedSignature`, which is a
+        // fixed-capacity buffer view over the DER bytes; expand it into
+        // an owned Vec so we can append the SIGHASH_ALL byte.
+        let mut sig_with_sighash_flag: Vec<u8> = sig_der_serialized.to_vec();
+        sig_with_sighash_flag.push(sig_hash_all as u8);
+
+        tx.input[0].witness = vec![
+            // The signature for OP_CHECKSIG to verify against
+            // `staker_unlock_pk`. (Position 0 on the witness stack —
+            // i.e. *under* the branch flag — because P2WSH execution
+            // pushes witness items in order, so the *first* witness
+            // item ends up at the *bottom* of the stack.)
+            sig_with_sighash_flag,
+            // Selects the OP_IF (timelock-matured) branch of
+            // `construct-lockup-script`.
+            vec![0x01],
+            // The P2WSH witness program preimage — bitcoind checks
+            // sha256(this) == witness_program before executing it.
+            timelock_script.clone(),
+        ];
+
+        tx
+    };
+
+    // (a) Interloper attempt — random key, signature doesn't match
+    //     `staker_unlock_pk`. Mempool must reject.
+    let interloper_sk = Secp256k1PrivateKey::random();
+    let interloper_sweep_tx = build_signed_sweep(&interloper_sk);
+    let interloper_result =
+        bondholder_rpc.send_raw_transaction(&interloper_sweep_tx, Some(0.0), Some(1_000_000));
+    let interloper_err = interloper_result
+        .err()
+        .expect("interloper sweep must be rejected: the script's OP_CHECKSIG should fail");
+    info!(
+        "Interloper sweep rejected as expected (no valid signature for staker_unlock_pk): \
+         {interloper_err:?}"
+    );
+
+    // (b) Owner sweep — signed with the matching staker_unlock_sk.
+    let owner_sweep_tx = build_signed_sweep(&staker_unlock_sk);
+    let sweep_txid = bondholder_rpc
+        .send_raw_transaction(&owner_sweep_tx, Some(0.0), Some(1_000_000))
+        .expect("send_raw_transaction(owner sweep)");
+    info!("Broadcast L1 owner sweep tx after timelock: txid={sweep_txid}");
+
+    // Mine one more block to confirm the sweep, then assert from the
+    // bondholder wallet that it sees the incoming sweep.
+    bondholder_rpc
+        .generate_to_address(1, &filler_addr)
+        .expect("mine confirmation block for owner sweep tx");
+    let sweep_info = bondholder_rpc
+        .get_transaction(BONDHOLDER_WALLET, &sweep_txid)
+        .expect("gettransaction for owner sweep");
+    assert!(
+        sweep_info.confirmations >= 1,
+        "owner sweep tx should have at least one confirmation; got {}",
+        sweep_info.confirmations
+    );
+    info!(
+        "L1 lockup unlock-sweep confirmed: {sweep_value} sats moved out of the timelock P2WSH \
+         into a bondholder-controlled output ({} confirmation(s))",
+        sweep_info.confirmations
+    );
 }
 
 /// Read the `sbtc-token` stub's `get-balance` for `who`. Used by L1 lockup
