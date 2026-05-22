@@ -284,7 +284,7 @@ jobs:
       - name: List HEAD branch tests
         run: |
           cargo nextest list \
-            --archive-file $TEST_ARCHIVE_FILE \
+            --archive-file ${{ needs.setup-env.outputs.test-archive-file }} \
             -Tjson 2>/dev/null \
           | jq -r '
               .["rust-suites"]
@@ -413,7 +413,7 @@ jobs:
 
           set +e
           cargo nextest run \
-            --archive-file $TEST_ARCHIVE_FILE \
+            --archive-file ${{ needs.setup-env.outputs.test-archive-file }} \
             --fail-fast \
             --config-file /tmp/nextest-ci.toml
           exit_code=$?

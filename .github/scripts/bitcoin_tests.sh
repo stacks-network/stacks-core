@@ -75,8 +75,6 @@ tests::neon_integrations::run_with_custom_wallet
 tests::neon_integrations::test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf
 tests::neon_integrations::test_one_miner_build_anchor_blocks_on_same_chain_without_rbf
 tests::signer::v0::tenure_extend::tenure_extend_after_2_bad_commits
-tests::stackerdb::test_stackerdb_event_observer
-tests::stackerdb::test_stackerdb_load_store
 # Epoch tests are covered by the epoch-tests CI workflow, and don't need to run on every PR (for older epochs)
 tests::epoch_205::test_cost_limit_switch_version205
 tests::epoch_205::test_dynamic_db_method_costs
