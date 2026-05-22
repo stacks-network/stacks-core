@@ -163,6 +163,12 @@ jobs:
         uses: ./.github/actions/install-tool
         with:
           tools: nextest
+      
+      # Install mold linker (faster than default)      
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mold
 
       # Restore the cargo cache IF it exists
       - name: Restore Cargo Cache
@@ -193,6 +199,8 @@ jobs:
       # Build the nextest archive (which also builds our cargo file structure for caching)
       - name: Build and Archive Tests
         shell: bash
+        env:
+          RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
         run: |
           # Capture the achive file input, then expand the leading ~ to $HOME
           INPUT_FILE="${{ inputs.archive-file }}"
