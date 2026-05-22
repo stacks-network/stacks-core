@@ -64,8 +64,8 @@ fn carrying_mul<const N: usize>(a: &[u64; N], b: &[u64; N], checked: bool) -> Op
             }
             // products a[i]*b[j] where i+j >= N land beyond the output array
             if b[j] != 0 {
-                for i in (N - j)..N {
-                    if a[i] != 0 {
+                for val in a.iter().take(N).skip(N - j) {
+                    if *val != 0 {
                         return None;
                     }
                 }
@@ -78,8 +78,8 @@ fn carrying_mul<const N: usize>(a: &[u64; N], b: &[u64; N], checked: bool) -> Op
 /// Perform gradeschool multiplication using carrying_mul on a single word
 fn carrying_mul_u64<const N: usize>(mut a: [u64; N], b: u64) -> ([u64; N], u64) {
     let mut carry = 0;
-    for i in 0..N {
-        (a[i], carry) = a[i].carrying_mul(b, carry);
+    for val in a.iter_mut().take(N) {
+        (*val, carry) = val.carrying_mul(b, carry);
     }
     (a, carry)
 }
@@ -179,7 +179,7 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
     }
 
     /// Checked addition. Returns `None` on overflow.
-    pub fn add(self, other: &Self) -> Option<Self> {
+    pub fn checked_add(self, other: &Self) -> Option<Self> {
         let value = self.value.checked_add(&other.value)?;
         Some(Self { value })
     }
@@ -199,7 +199,7 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
     }
 
     /// Checked subtraction. Returns `None` on underflow.
-    pub fn sub(self, other: &Self) -> Option<Self> {
+    pub fn checked_sub(self, other: &Self) -> Option<Self> {
         let value = self.value.checked_sub(&other.value)?;
         Some(Self { value })
     }
@@ -246,7 +246,7 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
     /// Divide self by other and return the unscaled result.
     /// The resulting `Uint256` will have `SCALE` zero high-bits.
     pub fn div_and_drop_scale(&self, other: &Self) -> Option<Uint256> {
-        let Self { value } = self.div(other.value.clone())?;
+        let Self { value } = self.div(other.value)?;
         Some(value)
     }
 
@@ -281,6 +281,14 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
         out
     }
 
+    /// Drop the fractional bits and return the integer part as a `Uint256`,
+    /// rounding to the nearest integer (half rounds up).
+    pub fn to_uint256_rounded(&self) -> Uint256 {
+        let half = Uint256::from_u64(1) << (SCALE - 1) as usize;
+        let rounded = self.value.checked_add(&half).unwrap_or(self.value);
+        rounded >> SCALE as usize
+    }
+
     /// Find the `n`th root of self using binary search, trimming the scale to `self.scaling` on
     ///  iterations
     pub fn find_root_floor(&self, n: u32) -> Option<Self> {
@@ -297,20 +305,20 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
             if high <= low {
                 return Some(high.min(low));
             }
-            let guess = high.clone().add(&low)?.div(Uint256::from_u64(2))?;
+            let guess = high.clone().checked_add(&low)?.div(Uint256::from_u64(2))?;
             match guess.pow(n) {
                 None => {
                     // Overflow means guess is too large
-                    high = guess.sub(&Self::MINIMAL)?;
+                    high = guess.checked_sub(&Self::MINIMAL)?;
                 }
                 Some(value) if &value == self => {
                     return Some(guess);
                 }
                 Some(value) if &value > self => {
-                    high = guess.sub(&Self::MINIMAL)?;
+                    high = guess.checked_sub(&Self::MINIMAL)?;
                 }
                 Some(_) => {
-                    low = guess.add(&Self::MINIMAL)?;
+                    low = guess.checked_add(&Self::MINIMAL)?;
                 }
             }
         }
@@ -357,9 +365,9 @@ impl<const SCALE: u16> FixedPointU256<SCALE> {
             return None;
         }
         let r_sq = self.pow(2)?;
-        let one_minus_r = one.sub(self)?;
+        let one_minus_r = one.checked_sub(self)?;
         let one_minus_r_sq = one_minus_r.pow(2)?;
-        let denom = r_sq.clone().add(&one_minus_r_sq)?;
+        let denom = r_sq.clone().checked_add(&one_minus_r_sq)?;
         r_sq.div_and_scale(&denom)
     }
 }
@@ -429,6 +437,17 @@ macro_rules! construct_uint {
                 ret[0] = (init & 0xffffffffffffffffffffffffffffffff) as u64;
                 ret[1] = (init >> 64) as u64;
                 Self(ret)
+            }
+
+            /// Convert to `u128`, saturating at `u128::MAX` if the value
+            /// exceeds 128 bits.
+            pub fn to_u128_saturating(&self) -> u128 {
+                for i in 2..Self::N_WORDS {
+                    if self.0[i] != 0 {
+                        return u128::MAX;
+                    }
+                }
+                (u128::from(self.0[1]) << 64) | u128::from(self.0[0])
             }
 
             /// Return the maximum representable value (all bits set).
@@ -756,7 +775,7 @@ macro_rules! construct_uint {
                         val = self.0[d - word_shift] << bit_shift;
                     }
                     // Carry-in: high bits spilled from the next-lower source word
-                    if bit_shift > 0 && d >= word_shift + 1 {
+                    if bit_shift > 0 && d > word_shift {
                         val |= self.0[d - word_shift - 1] >> (64 - bit_shift);
                     }
                     self.0[d] = val;
@@ -1458,6 +1477,20 @@ mod tests {
             prop_assert_eq!(u.0[3], 0);
         }
 
+        /// from_u128 then to_u128_saturating roundtrips
+        #[test]
+        fn u256_to_u128_saturating_roundtrip(val in any::<u128>()) {
+            prop_assert_eq!(Uint256::from_u128(val).to_u128_saturating(), val);
+        }
+
+        /// to_u128_saturating saturates when upper limbs are set
+        #[test]
+        fn u256_to_u128_saturating_saturates(val in any::<u128>()) {
+            let mut u = Uint256::from_u128(val);
+            u.0[2] = 1;
+            prop_assert_eq!(u.to_u128_saturating(), u128::MAX);
+        }
+
         /// from_i64 roundtrips for non-negative values
         #[test]
         fn u256_from_i64_roundtrip(val in 0i64..i64::MAX) {
@@ -1562,18 +1595,21 @@ mod tests {
 
         /// Add<&Self> matches Add<Self>
         #[test]
+        #[allow(clippy::op_ref)]
         fn u256_add_ref_matches_owned(a in arb_uint256(), b in arb_uint256()) {
             prop_assert_eq!(a + &b, a + b);
         }
 
         /// Sub<&Self> matches Sub<Self>
         #[test]
+        #[allow(clippy::op_ref)]
         fn u256_sub_ref_matches_owned(a in arb_uint256(), b in arb_uint256()) {
             prop_assert_eq!(a - &b, a - b);
         }
 
         /// Mul<&Self> matches Mul<Self>
         #[test]
+        #[allow(clippy::op_ref)]
         fn u256_mul_ref_matches_owned(a in arb_uint256_small(), b in arb_uint256_small()) {
             prop_assert_eq!(a * &b, a * b);
         }
@@ -1943,7 +1979,7 @@ mod tests {
         rel_denom: u64,
     ) -> Result<(), proptest::test_runner::TestCaseError> {
         let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
-        let diff = hi.clone().sub(lo).unwrap_or(FP::ZERO);
+        let diff = hi.clone().checked_sub(lo).unwrap_or(FP::ZERO);
         // tolerance = max(a, b) * rel_numer / rel_denom, but at least 1 ULP
         let tolerance = hi
             .clone()
@@ -2100,11 +2136,11 @@ mod tests {
             let r = FP::from_u64(numer)
                 .div(Uint256::from_u64(1000))
                 .unwrap();
-            let one_minus_r = one.clone().sub(&r).unwrap();
+            let one_minus_r = one.clone().checked_sub(&r).unwrap();
 
             let s_r = r.sigmoid().expect("sigmoid(r) should succeed");
             let s_1r = one_minus_r.sigmoid().expect("sigmoid(1-r) should succeed");
-            let sum = s_r.add(&s_1r).expect("sum should not overflow");
+            let sum = s_r.checked_add(&s_1r).expect("sum should not overflow");
             assert_fp_approx_eq(&sum, &one, 1, 1000)?;
         }
 
@@ -2148,7 +2184,7 @@ mod tests {
             prop_assert!(result.is_some(), "sigmoid near 0 should succeed");
 
             let one = FP::from_u64(1);
-            let near_one = one.sub(&near_zero).unwrap();
+            let near_one = one.checked_sub(&near_zero).unwrap();
             let result = near_one.sigmoid();
             prop_assert!(result.is_some(), "sigmoid near 1 should succeed");
         }
@@ -2165,8 +2201,8 @@ mod tests {
         ) {
             let a = FP::from_u64(a_val);
             let b = FP::from_u64(b_val);
-            let ab = a.clone().add(&b).expect("should not overflow");
-            let ba = b.add(&a).expect("should not overflow");
+            let ab = a.clone().checked_add(&b).expect("should not overflow");
+            let ba = b.checked_add(&a).expect("should not overflow");
             prop_assert_eq!(ab, ba);
         }
 
@@ -2178,8 +2214,8 @@ mod tests {
         ) {
             let a = FP::from_u64(a_val);
             let b = FP::from_u64(b_val);
-            let result = a.clone().add(&b).expect("should not overflow")
-                .sub(&b).expect("sub should not underflow");
+            let result = a.clone().checked_add(&b).expect("should not overflow")
+                .checked_sub(&b).expect("sub should not underflow");
             prop_assert_eq!(result, a);
         }
 
@@ -2258,7 +2294,7 @@ mod tests {
             let b = FP::from_u128(val);
             // Two values >= u64::MAX shifted left by 64 will overflow 256 bits
             // This may or may not overflow depending on magnitude, but should never panic
-            let result = a.add(&b);
+            let result = a.checked_add(&b);
             // Just verify no panic; if it overflows, it should return None
             if let Some(sum) = &result {
                 prop_assert!(*sum >= FP::from_u128(val), "sum should be >= either operand");
@@ -2273,7 +2309,7 @@ mod tests {
         ) {
             let a = FP::from_u64(a_val);
             let b = FP::from_u64(b_val);
-            prop_assert!(a.sub(&b).is_none(), "smaller - larger should return None");
+            prop_assert!(a.checked_sub(&b).is_none(), "smaller - larger should return None");
         }
 
         /// div by zero returns None
@@ -2437,7 +2473,7 @@ mod tests {
             prop_assert_eq!(result, Uint256::from_u64(1));
         }
 
-        /// increment matches add: a.increment(b) yields the same value as a.add(b)
+        /// increment matches add: a.increment(b) yields the same value as a.checked_add(b)
         #[test]
         fn increment_matches_add(
             a_val in 1u64..u32::MAX as u64,
@@ -2445,7 +2481,7 @@ mod tests {
         ) {
             let a = FP::from_u64(a_val);
             let b = FP::from_u64(b_val);
-            let sum = a.clone().add(&b).expect("should not overflow");
+            let sum = a.clone().checked_add(&b).expect("should not overflow");
             let mut a_mut = a;
             a_mut.increment(&b).expect("should not overflow");
             prop_assert_eq!(a_mut, sum);
@@ -2559,5 +2595,91 @@ mod tests {
 
         let s_half = half.sigmoid().expect("sigmoid(0.5) should succeed");
         assert_fp_approx_eq(&s_half, &half, 1, 1000).unwrap();
+    }
+
+    // -------------------------------------------------------------------
+    // to_u128_saturating (Uint256) tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn u256_to_u128_saturating_zero() {
+        assert_eq!(Uint256::from_u64(0).to_u128_saturating(), 0u128);
+    }
+
+    #[test]
+    fn u256_to_u128_saturating_max_u128() {
+        assert_eq!(
+            Uint256::from_u128(u128::MAX).to_u128_saturating(),
+            u128::MAX
+        );
+    }
+
+    #[test]
+    fn u256_to_u128_saturating_overflow_limb2() {
+        let mut v = Uint256::from_u64(42);
+        v.0[2] = 1;
+        assert_eq!(v.to_u128_saturating(), u128::MAX);
+    }
+
+    #[test]
+    fn u256_to_u128_saturating_overflow_limb3() {
+        let mut v = Uint256::from_u64(0);
+        v.0[3] = 1;
+        assert_eq!(v.to_u128_saturating(), u128::MAX);
+    }
+
+    // -------------------------------------------------------------------
+    // to_uint256_rounded (FixedPointU256) tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn to_uint256_rounded_exact_integer() {
+        // An exact integer (e.g. 1000) should round to itself.
+        let fp = FP::from_u64(1000);
+        assert_eq!(fp.to_uint256_rounded(), Uint256::from_u64(1000));
+    }
+
+    #[test]
+    fn to_uint256_rounded_zero() {
+        assert_eq!(FP::ZERO.to_uint256_rounded(), Uint256::from_u64(0));
+    }
+
+    #[test]
+    fn to_uint256_rounded_just_below_integer() {
+        // 999 + (1 - MINIMAL) in fixed-point = one ULP below 1000.
+        // Should round up to 1000.
+        let one = FP::from_u64(1);
+        let almost_one = one.checked_sub(&FP::MINIMAL).unwrap();
+        let fp = FP::from_u64(999).checked_add(&almost_one).unwrap();
+        assert_eq!(fp.to_uint256_rounded(), Uint256::from_u64(1000));
+    }
+
+    #[test]
+    fn to_uint256_rounded_just_above_integer() {
+        // 1000 + MINIMAL (smallest fraction above 1000). Should round to 1000.
+        let fp = FP::from_u64(1000).checked_add(&FP::MINIMAL).unwrap();
+        assert_eq!(fp.to_uint256_rounded(), Uint256::from_u64(1000));
+    }
+
+    #[test]
+    fn to_uint256_rounded_half_rounds_up() {
+        // 0.5 in fixed-point should round up to 1.
+        let half = FP::from_u64(1).div(Uint256::from_u64(2)).unwrap();
+        assert_eq!(half.to_uint256_rounded(), Uint256::from_u64(1));
+    }
+
+    #[test]
+    fn to_uint256_rounded_below_half_rounds_down() {
+        // Just below 0.5: should round down to 0.
+        let half = FP::from_u64(1).div(Uint256::from_u64(2)).unwrap();
+        let below_half = half.checked_sub(&FP::MINIMAL).unwrap();
+        assert_eq!(below_half.to_uint256_rounded(), Uint256::from_u64(0));
+    }
+
+    #[test]
+    fn to_uint256_rounded_large_value() {
+        let val = u128::MAX >> 1; // large but won't overflow when shifted
+        let fp = FP::from_u128(val);
+        assert_eq!(fp.to_uint256_rounded(), Uint256::from_u128(val));
     }
 }

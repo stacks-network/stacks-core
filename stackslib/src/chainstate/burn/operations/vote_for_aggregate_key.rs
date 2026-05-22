@@ -262,6 +262,7 @@ mod tests {
                     bytes: Hash160([1; 20]),
                 }),
             }],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
@@ -315,6 +316,7 @@ mod tests {
                     bytes: Hash160([1; 20]),
                 }),
             }],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
@@ -357,6 +359,7 @@ mod tests {
                     bytes: Hash160([1; 20]),
                 }),
             }],
+            expected_btc_tx_fee: None,
         };
 
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();

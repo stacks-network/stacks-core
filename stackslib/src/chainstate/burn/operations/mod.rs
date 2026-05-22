@@ -254,6 +254,12 @@ pub struct LeaderBlockCommitOp {
     pub vtxindex: u32,                         // index in the block where this tx occurs
     pub block_height: u64,                     // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+    /// Optional expected BTC tx fee, in satoshis.
+    /// This is not the actual fee paid in the transaction, but rather an
+    /// estimate of the fee that should have been paid, based on the fee rate
+    /// of the block in which the burn transaction was included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_btc_tx_fee: Option<u64>,
 }
 
 fn default_treatment() -> Vec<Treatment> {

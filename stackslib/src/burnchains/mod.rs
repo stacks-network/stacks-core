@@ -239,6 +239,12 @@ impl BurnchainTransaction {
             BurnchainTransaction::Bitcoin(ref btc) => btc.data_amt,
         }
     }
+
+    pub fn get_tx_fee(&self) -> Option<u64> {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.expected_btc_tx_fee,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

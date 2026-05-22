@@ -470,6 +470,8 @@ mod tests {
             txid,
             input: (input_txid, 3),
             intended_sortition: SortitionId([0; 32]),
+            burn_fee: 0,
+            expected_btc_tx_fee: None,
         }
     }
 
@@ -518,6 +520,7 @@ mod tests {
                 BURN_BLOCK_MINED_AT_MODULUS as u8 - 1
             },
             burn_header_hash: BurnchainHeaderHash([0; 32]),
+            expected_btc_tx_fee: Some(1000),
         }
     }
 
@@ -912,6 +915,7 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
@@ -958,6 +962,7 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
@@ -1004,6 +1009,7 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
+            expected_btc_tx_fee: Some(1000),
         };
 
         /*

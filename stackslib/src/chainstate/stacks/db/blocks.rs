@@ -5184,6 +5184,9 @@ impl StacksChainState {
                 burn_tip_height.into(),
                 // this is the block height that the write occurs *during*
                 chain_tip.stacks_block_height + 1,
+                // Epoch 2.x blocks don't have the STX/BTC ratio cache; PoX-5
+                // is not active in epoch 2.x so this is never consumed.
+                None,
             )?;
         }
 

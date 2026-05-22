@@ -90,6 +90,7 @@ mod getsigner;
 mod getsortition;
 mod getstackerdbchunk;
 mod getstackerdbmetadata;
+mod getstxbtcratio;
 mod getstxtransfercost;
 mod gettenure;
 mod gettenureblocks;

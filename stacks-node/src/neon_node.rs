@@ -1100,6 +1100,7 @@ impl BlockMinerThread {
             burn_header_hash: BurnchainHeaderHash::zero(),
             burn_parent_modulus,
             commit_outs,
+            expected_btc_tx_fee: None,
         })
     }
 

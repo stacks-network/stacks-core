@@ -112,11 +112,20 @@ impl FromRow<MissedBlockCommit> for MissedBlockCommit {
         let input_json: String = row.get_unwrap("input");
         let input = serde_json::from_str(&input_json).map_err(db_error::SerializationError)?;
         let txid = Txid::from_column(row, "txid")?;
+        let burn_fee = u64::from_column(row, "burn_fee")?;
+        let expected_btc_tx_fee_str: Option<String> =
+            row.get("expected_btc_tx_fee").unwrap_or(None);
+        let expected_btc_tx_fee = expected_btc_tx_fee_str.map(|s| {
+            s.parse::<u64>()
+                .expect("CORRUPTION: expected_btc_tx_fee in missed_commits is not a u64")
+        });
 
         Ok(MissedBlockCommit {
             input,
             txid,
             intended_sortition,
+            burn_fee,
+            expected_btc_tx_fee,
         })
     }
 }
@@ -245,6 +254,8 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
         let memo_hex: String = row.get_unwrap("memo");
         let burn_fee_str: String = row.get_unwrap("burn_fee");
+        let expected_btc_tx_fee_str: Option<String> =
+            row.get("expected_btc_tx_fee").unwrap_or(None);
         let input_json: String = row.get_unwrap("input");
         let apparent_sender_json: String = row.get_unwrap("apparent_sender");
         let sunset_burn_str: String = row.get_unwrap("sunset_burn");
@@ -264,6 +275,12 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let burn_fee = burn_fee_str
             .parse::<u64>()
             .expect("DB Corruption: burn fee is not parseable as u64");
+
+        let expected_btc_tx_fee = expected_btc_tx_fee_str.map(|btc_tx_fee_str| {
+            btc_tx_fee_str
+                .parse::<u64>()
+                .expect("DB Corruption: btc tx fee is not parseable as u64")
+        });
 
         let sunset_burn = sunset_burn_str
             .parse::<u64>()
@@ -299,6 +316,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             block_height,
             burn_header_hash,
             treatment: punished,
+            expected_btc_tx_fee,
         };
         Ok(block_commit)
     }
@@ -490,7 +508,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: u32 = 12;
+pub const SORTITION_DB_VERSION: u32 = 13;
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -737,7 +755,7 @@ static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
     -- if they happen to have the same burn view as the given sortition.
     CREATE TABLE stacks_chain_tips_by_burn_view (
         sortition_id TEXT PRIMARY KEY,
-        consensus_hash TEXT NOT NULL, 
+        consensus_hash TEXT NOT NULL,
         burn_view_consensus_hash TEXT NOT NULL,
         block_hash TEXT NOT NULL,
         block_height INTEGER NOT NULL,
@@ -766,6 +784,12 @@ static SORTITION_DB_SCHEMA_12: &[&str] = &[
         ON watched_p2wsh_outputs(witness_script_hash);",
     "CREATE INDEX IF NOT EXISTS index_sortdb_watched_outputs_txid
         ON watched_p2wsh_outputs(txid);",
+];
+
+static SORTITION_DB_SCHEMA_13: &[&str] = &[
+    r#"ALTER TABLE block_commits ADD expected_btc_tx_fee TEXT DEFAULT NULL;"#,
+    r#"ALTER TABLE missed_commits ADD burn_fee INTEGER NOT NULL DEFAULT 0;"#,
+    r#"ALTER TABLE missed_commits ADD expected_btc_tx_fee TEXT DEFAULT NULL;"#,
 ];
 
 const SORTITION_DB_INDEXES: &[&str] = &[
@@ -3108,6 +3132,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_10(&db_tx)?;
         SortitionDB::apply_schema_11(&db_tx)?;
         SortitionDB::apply_schema_12(&db_tx)?;
+        SortitionDB::apply_schema_13(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3631,6 +3656,19 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_13(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_13 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["13"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3703,6 +3741,10 @@ impl SortitionDB {
                     } else if version == 11 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_12(tx.deref())?;
+                        tx.commit()?;
+                    } else if version == 12 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_13(tx.deref())?;
                         tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
@@ -6076,6 +6118,7 @@ impl SortitionHandleTx<'_> {
         // serialize apparent sender to JSON
         let apparent_sender_str = serde_json::to_string(&block_commit.apparent_sender)
             .map_err(db_error::SerializationError)?;
+        let btc_tx_fee_str = block_commit.expected_btc_tx_fee.map(|fee| fee.to_string());
 
         // find parent block commit's snapshot's sortition ID.
         // If the parent_block_ptr doesn't point to a valid snapshot, then store an empty
@@ -6103,6 +6146,7 @@ impl SortitionHandleTx<'_> {
             block_commit.key_vtxindex,
             to_hex(&block_commit.memo[..]),
             block_commit.burn_fee.to_string(),
+            btc_tx_fee_str,
             tx_input_str,
             sort_id,
             serde_json::to_value(&block_commit.commit_outs).unwrap(),
@@ -6112,8 +6156,8 @@ impl SortitionHandleTx<'_> {
             serde_json::to_string(&block_commit.treatment).unwrap(),
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, expected_btc_tx_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)", args)?;
 
         let parent_args = params![sort_id, block_commit.txid, parent_sortition_id];
 
@@ -6142,12 +6186,20 @@ impl SortitionHandleTx<'_> {
         // serialize tx input to JSON
         let tx_input_str =
             serde_json::to_string(&op.input).map_err(db_error::SerializationError)?;
+        let expected_btc_tx_fee_str = op.expected_btc_tx_fee.map(|fee| fee.to_string());
 
-        let args = params![op.txid, op.intended_sortition, tx_input_str];
+        let args = params![
+            op.txid,
+            op.intended_sortition,
+            tx_input_str,
+            u64_to_sql(op.burn_fee)?,
+            expected_btc_tx_fee_str,
+        ];
 
         self.execute(
-            "INSERT OR REPLACE INTO missed_commits (txid, intended_sortition_id, input) \
-                      VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO missed_commits \
+                      (txid, intended_sortition_id, input, burn_fee, expected_btc_tx_fee) \
+                      VALUES (?1, ?2, ?3, ?4, ?5)",
             args,
         )?;
         info!(
@@ -7691,6 +7743,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -8406,6 +8459,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -10653,6 +10707,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         // descends from genesis
@@ -10696,6 +10751,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 2) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x04; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         // descends from block_commit_1
@@ -10739,6 +10795,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 3) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x05; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         // descends from genesis_block_commit
@@ -10782,6 +10839,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 4) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x06; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -12543,5 +12601,102 @@ pub mod tests {
         let validated = result.unwrap();
         // The output should NOT be found because snapshot_1 is not in snapshot_2's fork
         assert_eq!(validated.len(), 0);
+    }
+
+    #[test]
+    fn schema_13_adds_column() {
+        let tmp = std::env::temp_dir().join(function_name!());
+
+        let first_block_header = {
+            let burnchain = Burnchain::regtest(tmp.to_str().unwrap());
+            let burnchain_db =
+                BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+
+            burnchain_db.get_canonical_chain_tip().unwrap()
+        };
+        let epochs = (*STACKS_EPOCHS_TESTNET).clone();
+        let db = SortitionDB::connect_test_with_epochs(
+            first_block_header.block_height,
+            &first_block_header.block_hash,
+            epochs,
+        )
+        .unwrap();
+
+        let mut stmt = db
+            .conn()
+            .prepare("PRAGMA table_info(block_commits)")
+            .unwrap();
+        let block_commit_cols: Vec<String> = stmt
+            .query_map(NO_PARAMS, |row| row.get(1))
+            .unwrap()
+            .map(|row_res| row_res.expect("FATAL: failed to decode block_commits column name"))
+            .collect();
+        assert!(block_commit_cols
+            .iter()
+            .any(|col| col == "expected_btc_tx_fee"));
+    }
+
+    /// Verify that `MissedBlockCommit` with the schema-13 fields (`burn_fee`,
+    /// `expected_btc_tx_fee`) round-trips correctly through `insert_missed_block_commit` and
+    /// `get_missed_commits_by_intended`.
+    #[test]
+    fn test_insert_missed_block_commit_roundtrip() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let first_block_height = 100u64;
+        let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+
+        // Create a snapshot whose SortitionId will be the `intended_sortition`.
+        let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0xaa; 32]), &[]);
+        let intended = snapshot.sortition_id.clone();
+
+        // Commit with both fee fields populated.
+        let commit_with_fees = MissedBlockCommit {
+            txid: Txid([0x01; 32]),
+            input: (Txid([0x02; 32]), 1),
+            intended_sortition: intended.clone(),
+            burn_fee: 12345,
+            expected_btc_tx_fee: Some(6789),
+        };
+
+        // Commit with `expected_btc_tx_fee` absent (None).
+        let commit_no_fee = MissedBlockCommit {
+            txid: Txid([0x03; 32]),
+            input: (Txid([0x04; 32]), 0),
+            intended_sortition: intended.clone(),
+            burn_fee: 42,
+            expected_btc_tx_fee: None,
+        };
+
+        // Insert both via a SortitionHandleTx.
+        {
+            let mut tx = SortitionHandleTx::begin(&mut db, &intended).unwrap();
+            tx.insert_missed_block_commit(&commit_with_fees).unwrap();
+            tx.insert_missed_block_commit(&commit_no_fee).unwrap();
+            tx.commit().unwrap();
+        }
+
+        // Read back and verify both structs survive the round-trip intact.
+        let mut results =
+            SortitionDB::get_missed_commits_by_intended(db.conn(), &intended).unwrap();
+        results.sort_by_key(|c| c.txid.clone());
+
+        assert_eq!(results.len(), 2);
+
+        // First result (txid [0x01; 32])
+        assert_eq!(results[0].txid, commit_with_fees.txid);
+        assert_eq!(results[0].input, commit_with_fees.input);
+        assert_eq!(results[0].intended_sortition, intended);
+        assert_eq!(results[0].burn_fee, 12345);
+        assert_eq!(results[0].expected_btc_tx_fee, Some(6789));
+
+        // Second result (txid [0x03; 32])
+        assert_eq!(results[1].txid, commit_no_fee.txid);
+        assert_eq!(results[1].input, commit_no_fee.input);
+        assert_eq!(results[1].intended_sortition, intended);
+        assert_eq!(results[1].burn_fee, 42);
+        assert_eq!(results[1].expected_btc_tx_fee, None);
     }
 }

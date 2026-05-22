@@ -117,6 +117,7 @@ impl LeaderBlockCommitOp {
             vtxindex: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         }
     }
 
@@ -157,6 +158,7 @@ impl LeaderBlockCommitOp {
 
             burn_header_hash: BurnchainHeaderHash::zero(),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         }
     }
 
@@ -447,6 +449,7 @@ impl LeaderBlockCommitOp {
             vtxindex: tx.vtxindex(),
             block_height,
             burn_header_hash: block_hash.clone(),
+            expected_btc_tx_fee: tx.get_tx_fee(),
         })
     }
 
@@ -512,6 +515,11 @@ pub struct MissedBlockCommit {
     pub txid: Txid,
     pub input: (Txid, u32),
     pub intended_sortition: SortitionId,
+    /// BTC burned (outputs sent to PoX addresses) by this commit, in satoshis.
+    pub burn_fee: u64,
+    /// Estimated Bitcoin transaction fee for this commit, in satoshis.
+    /// See [`LeaderBlockCommitOp::expected_btc_tx_fee`] for semantics.
+    pub expected_btc_tx_fee: Option<u64>,
 }
 
 impl MissedBlockCommit {
@@ -1094,6 +1102,8 @@ impl LeaderBlockCommitOp {
                 input: self.input.clone(),
                 txid: self.txid.clone(),
                 intended_sortition,
+                burn_fee: self.burn_fee,
+                expected_btc_tx_fee: self.expected_btc_tx_fee,
             };
 
             return Err(op_error::MissedBlockCommit(missed_data));
@@ -1231,6 +1241,7 @@ mod tests {
                     }),
                 },
             ],
+            expected_btc_tx_fee: None,
         });
 
         let mut burnchain = Burnchain::regtest("nope");
@@ -1298,6 +1309,7 @@ mod tests {
                     }),
                 },
             ],
+            expected_btc_tx_fee: None,
         });
 
         let mut burnchain = Burnchain::regtest("nope");
@@ -1374,6 +1386,7 @@ mod tests {
                     }),
                 },
             ],
+            expected_btc_tx_fee: None,
         });
 
         let mut burnchain = Burnchain::regtest("nope");
@@ -1428,6 +1441,7 @@ mod tests {
                     }),
                 },
             ],
+            expected_btc_tx_fee: None,
         });
 
         let mut burnchain = Burnchain::regtest("nope");
@@ -1505,6 +1519,7 @@ mod tests {
                     }),
                 },
             ],
+            expected_btc_tx_fee: None,
         });
 
         let mut burnchain = Burnchain::regtest("nope");
@@ -1549,6 +1564,7 @@ mod tests {
                     bytes: Hash160([1; 20]),
                 }),
             }],
+            expected_btc_tx_fee: None,
         });
 
         let mut burnchain = Burnchain::regtest("nope");
@@ -1602,6 +1618,7 @@ mod tests {
                     }),
                 },
             ],
+            expected_btc_tx_fee: None,
         });
 
         let mut burnchain = Burnchain::regtest("nope");
@@ -1679,6 +1696,7 @@ mod tests {
                     }),
                 },
             ],
+            expected_btc_tx_fee: None,
         });
 
         let mut burnchain = Burnchain::regtest("nope");
@@ -1740,7 +1758,9 @@ mod tests {
                     block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash,
-                    treatment: vec![],                })
+                    treatment: vec![],
+                    expected_btc_tx_fee: None,
+                })
             },
             OpFixture {
                 // invalid -- wrong opcode
@@ -1993,6 +2013,7 @@ mod tests {
             block_height: 125,
             burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_125_hash.clone(),
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut db = SortitionDB::connect_test_with_epochs(
@@ -2150,6 +2171,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Ok(()),
             },
@@ -2201,6 +2223,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Ok(()),
             },
@@ -2252,6 +2275,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Ok(()),
             },
@@ -2303,6 +2327,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Err(op_error::MissedBlockCommit(MissedBlockCommit {
                     input: (Txid([0; 32]), 0),
@@ -2316,6 +2341,8 @@ mod tests {
                     // miss distance from height 126 was 1, which corresponds to the hash at height
                     // 125 (intended modulus = ((124 % 5) + 1) % 5 = 0, actual = (126 % 5) = 1
                     intended_sortition: SortitionId(block_125_hash.0),
+                    burn_fee: 12345,
+                    expected_btc_tx_fee: Some(1000),
                 })),
             },
             CheckFixture {
@@ -2366,6 +2393,7 @@ mod tests {
                     block_height: 124,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 // miss distance from height 124 was 3, which corresponds to the hash at height
                 // 121 (intended modulus = (((125 % 5) + 1) % 5) = 1, actual modulus = 124 % 5 = 4
@@ -2532,6 +2560,7 @@ mod tests {
             block_height: 125,
             burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_125_hash.clone(),
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -2686,6 +2715,7 @@ mod tests {
                     block_height: 80,
                     burn_parent_modulus: (79 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Err(op_error::BlockCommitPredatesGenesis),
             },
@@ -2737,6 +2767,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Err(op_error::BlockCommitNoLeaderKey),
             },
@@ -2788,6 +2819,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Err(op_error::BlockCommitNoParent),
             },
@@ -2839,6 +2871,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Err(op_error::BlockCommitNoParent),
             },
@@ -2892,6 +2925,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Ok(()),
             },
@@ -2943,6 +2977,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Err(op_error::BlockCommitBadInput),
             },
@@ -2994,6 +3029,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Ok(()),
             },
@@ -3045,6 +3081,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Ok(()),
             },
@@ -3096,6 +3133,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    expected_btc_tx_fee: Some(1000),
                 },
                 res: Ok(()),
             },
@@ -3215,6 +3253,7 @@ mod tests {
             block_height: 128,
             burn_parent_modulus: (128 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x11; 32]),
+            expected_btc_tx_fee: Some(1000),
         };
 
         let anchor_block_hash = BlockHeaderHash([0xaa; 32]);
@@ -3551,6 +3590,7 @@ mod tests {
             block_height: first_block_height + 2,
             burn_parent_modulus: ((first_block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_post_2_05_valid = LeaderBlockCommitOp {
@@ -3581,6 +3621,7 @@ mod tests {
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_post_2_05_valid_bigger_epoch = LeaderBlockCommitOp {
@@ -3611,6 +3652,7 @@ mod tests {
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_post_2_05_invalid_bad_memo = LeaderBlockCommitOp {
@@ -3641,6 +3683,7 @@ mod tests {
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_post_2_05_invalid_no_memo = LeaderBlockCommitOp {
@@ -3671,6 +3714,7 @@ mod tests {
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_post_2_1_valid = LeaderBlockCommitOp {
@@ -3701,6 +3745,7 @@ mod tests {
             block_height: epoch_2_1_start,
             burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_post_2_1_valid_bigger_epoch = LeaderBlockCommitOp {
@@ -3731,6 +3776,7 @@ mod tests {
             block_height: epoch_2_1_start,
             burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_post_2_1_invalid_bad_memo = LeaderBlockCommitOp {
@@ -3761,6 +3807,7 @@ mod tests {
             block_height: epoch_2_1_start,
             burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let block_commit_post_2_1_invalid_no_memo = LeaderBlockCommitOp {
@@ -3791,6 +3838,7 @@ mod tests {
             block_height: epoch_2_1_start,
             burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            expected_btc_tx_fee: Some(1000),
         };
 
         let all_leader_key_ops = vec![leader_key];
