@@ -211,7 +211,7 @@ jobs:
             --tests \
             --locked \
             --features monitoring_prom \
-            --archive-file $ARCHIVE_FILE \
+            --archive-file "$ARCHIVE_FILE" \
             --zstd-level 22 # max compression
 
       # Save the nextest archive to cache
