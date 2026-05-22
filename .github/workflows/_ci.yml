@@ -22,6 +22,10 @@ permissions:
 defaults:
   run:
     shell: bash
+    
+# Shared config
+.shared_config: &shared_config
+  runs-on: ubuntu-latest
 
 # Configure concurrency
 concurrency:
@@ -39,10 +43,11 @@ jobs:
   # accessible by downstream reusable workflows.
   setup-env:
     name: "Setup: Global Variables"
-    runs-on: ubuntu-latest
+    <<: *shared_config
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
       btc-version: ${{ steps.set-env.outputs.btc_version }}
+      job-should-run: ${{ steps.set-env.outputs.job_should_run }}
     steps:
       - name: Export Env Variables
         id: set-env
@@ -53,13 +58,16 @@ jobs:
         
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
           echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
+          
+          # Check that evaluates if various jobs should run. Generally we care if it's a workflow dispatch, PR, or merge group.
+          echo "job_should_run=${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group' }}" >> $GITHUB_OUTPUT
   
   # --- Changelog check ------------------------------------------------------
   # Checks for changelog updates (or the 'No Changelog' label) on a PR
   # Required to pass for all subsequent jobs
   check-changelog:
     name: "Check: Changelog"
-    runs-on: ubuntu-latest
+    <<: *shared_config
     permissions:
       contents: read
       pull-requests: read
@@ -88,7 +96,7 @@ jobs:
     name: "Check: Rust Formatting"
     needs:
       - check-changelog
-    runs-on: ubuntu-latest
+    <<: *shared_config
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -118,9 +126,8 @@ jobs:
       - check-changelog
       - check-rustfmt
     if: >-
-      !cancelled() &&
       github.event.repository.visibility == 'public'
-    runs-on: ubuntu-latest
+    <<: *shared_config
     outputs:
       node_tag: ${{ steps.check-release.outputs.node_tag }}
       signer_tag: ${{ steps.check-release.outputs.signer_tag }}
@@ -150,11 +157,9 @@ jobs:
       - check-changelog
       - check-release
       - check-rustfmt
+      - setup-env
     if: >-
-      !cancelled() &&
-      (github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
+      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-cargo-hack.yml
 
   # --- Validate constants dumped by stacks-inspect --------------------------
@@ -164,11 +169,9 @@ jobs:
       - check-changelog
       - check-release
       - check-rustfmt
+      - setup-env
     if: >-
-      !cancelled() &&
-      (github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
+      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-constants.yml
 
   # --- Setup reusable caches for tests ------------------------------------
@@ -180,12 +183,9 @@ jobs:
       - check-rustfmt
       - setup-env
     if: >-
-      !cancelled() &&
-      (needs.check-release.outputs.is_node_release == 'true' ||
+      needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
+      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/setup-test-caches.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -201,12 +201,9 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      !cancelled() &&
-      (needs.check-release.outputs.is_node_release == 'true' ||
+      needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
+      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-stacks-core.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -221,12 +218,9 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      !cancelled() &&
-      (needs.check-release.outputs.is_node_release == 'true' ||
+      needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
+      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -240,14 +234,10 @@ jobs:
       - check-release
       - setup-test-caches
       - setup-env
-      
     if: >-
-      !cancelled() &&
-      (needs.check-release.outputs.is_node_release == 'true' ||
+      needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
+      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -263,12 +253,9 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      !cancelled() &&
-      (needs.check-release.outputs.is_node_release == 'true' ||
+      needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group')
+      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-p2p.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -284,10 +271,9 @@ jobs:
       - check-release
       - check-rustfmt
     if: >-
-      !cancelled() &&
       github.event.repository.visibility == 'public' &&
       (needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true')
+       needs.check-release.outputs.is_signer_release == 'true')
     permissions:
       contents: write      # required for github release
       id-token: write      # required for attestation
@@ -310,9 +296,8 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      !cancelled() &&
-      (needs.check-release.outputs.is_node_release == 'true' ||
-       needs.check-release.outputs.is_signer_release == 'true')
+      needs.check-release.outputs.is_node_release == 'true' ||
+      needs.check-release.outputs.is_signer_release == 'true'
     uses: ./.github/workflows/tests-epoch.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -320,13 +305,9 @@ jobs:
   # --- Create Code Coverage Report -------------------------------------------
   create-code-coverage-report:
     if: >-
-      always() &&
-      !cancelled() && 
-      !contains(needs.tests-stacks-core.result, 'skipped') && 
-      !contains(needs.tests-bitcoin.result, 'skipped') &&
       github.event.repository.visibility == 'public'
     name: "Create: Code Coverage Report"
-    runs-on: ubuntu-latest
+    <<: *shared_config
     needs:
       - tests-bitcoin
       - tests-epoch
