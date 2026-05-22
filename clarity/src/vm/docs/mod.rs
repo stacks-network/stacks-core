@@ -1036,19 +1036,26 @@ The `func` argument must be a literal function name.
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
-    input_type: "sequence_A, sequence_A",
+    input_type: "sequence_A, sequence_A, ...",
     snippet: "concat ${1:sequence-1} ${2:sequence-2}",
     output_type: "sequence_A",
-    signature: "(concat sequence1 sequence2)",
-    description: "The `concat` function takes two sequences of the same type,
+    signature: "(concat sequence1 sequence2 ...)",
+    description: "The `concat` function takes two or more sequences of the same type,
 and returns a concatenated sequence of the same type, with the resulting
-sequence_len = sequence1_len + sequence2_len.
+sequence_len equal to the sum of the input sequence lengths.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
+
+Prior to Clarity 6, `concat` accepts exactly two arguments. Beginning in
+Clarity 6, `concat` is variadic and accepts two or more arguments in a single
+call. The variadic form charges runtime cost proportional to the combined
+length of the inputs (rather than the quadratic-in-N cost of an equivalent
+nested-binary chain), so it is strictly cheaper than chaining binary calls.
 ",
     example: r#"
 (concat (list 1 2) (list 3 4)) ;; Returns (1 2 3 4)
 (concat "hello " "world") ;; Returns "hello world"
 (concat 0x0102 0x0304) ;; Returns 0x01020304
+(concat 0x01 0x02 0x03 0x04) ;; Returns 0x01020304
 "#,
 };
 
