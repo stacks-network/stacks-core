@@ -54,7 +54,7 @@ jobs:
         id: generate-cache-key
         shell: bash
         run: |
-          echo "cache-key=cache-cargo--${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml') }}" >> "$GITHUB_OUTPUT"
+          echo "cache-key=cache-cargo-for-archive-build--${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml') }}" >> "$GITHUB_OUTPUT"
 
   # Check which caches already exist before creating them
   check-caches:
@@ -211,8 +211,7 @@ jobs:
             --tests \
             --locked \
             --features monitoring_prom \
-            --archive-file "$ARCHIVE_FILE" \
-            --zstd-level 3 # optimal
+            --archive-file "$ARCHIVE_FILE"
 
       # Save the nextest archive to cache
       - name: Save Test Archive Cache
