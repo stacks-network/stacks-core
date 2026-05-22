@@ -157,3 +157,47 @@ impl std::fmt::Display for Tag {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{RecordValue, Tag};
+
+    #[test]
+    fn record_value_conversions_and_display() {
+        assert_eq!(RecordValue::from(7u64).to_string(), "7");
+        assert_eq!(RecordValue::from(-7i64).to_string(), "-7");
+        assert_eq!(RecordValue::from("hello").to_string(), "hello");
+        assert_eq!(
+            RecordValue::from(String::from("owned")).to_string(),
+            "owned"
+        );
+        assert_eq!(RecordValue::from(&[0xabu8, 0xcd][..]).to_string(), "0xabcd");
+    }
+
+    #[test]
+    fn tag_conversions_and_display() {
+        let tags = [
+            Tag::from(7u64),
+            Tag::from(7u32),
+            Tag::from(-7i64),
+            Tag::from(-7i32),
+            Tag::from(7usize),
+            Tag::from("static-tag"),
+        ];
+
+        assert_eq!(tags[0], Tag::U64(7));
+        assert_eq!(tags[1], Tag::U64(7));
+        assert_eq!(tags[2], Tag::I64(-7));
+        assert_eq!(tags[3], Tag::I64(-7));
+        assert_eq!(tags[4], Tag::Usize(7));
+        assert_eq!(tags[5], Tag::Str("static-tag"));
+        assert_eq!(
+            tags.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            vec!["7", "7", "-7", "-7", "7", "static-tag"]
+        );
+
+        let owned = Tag::from(String::from("owned-tag"));
+        assert_eq!(owned.to_string(), "owned-tag");
+        assert!(matches!(owned, Tag::Str("owned-tag")));
+    }
+}

@@ -1,8 +1,37 @@
 use std::hint::black_box;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 use std::{panic, thread};
 
-use stacks_profiler::{Profiler, TakeResultsError, profile, span};
+use stacks_profiler::{Profiler, RecordValue, Tag, TakeResultsError, profile, span};
+
+static RECORD_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_record_tests() -> MutexGuard<'static, ()> {
+    RECORD_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+struct RecordEnabledRestore;
+
+impl Drop for RecordEnabledRestore {
+    fn drop(&mut self) {
+        Profiler::enable_record();
+    }
+}
+
+struct NoopFormatter;
+
+impl stacks_profiler::print::TreeFormatter for NoopFormatter {
+    fn format_node<W: std::fmt::Write>(
+        &self,
+        _ctx: &stacks_profiler::print::NodeContext,
+        _writer: &mut W,
+    ) -> std::fmt::Result {
+        Ok(())
+    }
+}
 
 fn find_child<'a>(
     node: &'a stacks_profiler::ProfileStats,
@@ -31,6 +60,185 @@ fn test_basic_nesting() {
     assert_eq!(root.children.len(), 1, "Root should have 1 child");
     let child = &root.children[0];
     assert_eq!(child.id.name, "Child");
+}
+
+#[test]
+fn test_records_counters_and_profile_stats_accessors() {
+    let _lock = lock_record_tests();
+    let _restore = RecordEnabledRestore;
+
+    Profiler::clear();
+    Profiler::enable_record();
+
+    // No active span: these should be no-ops.
+    Profiler::record("no_span", RecordValue::from(1u64));
+    Profiler::counter_add("no_span", 1);
+
+    stacks_profiler::measure!("Accessors", "tag", {
+        stacks_profiler::record!("u64", 7u64);
+        stacks_profiler::record!("i64", -7i64);
+        stacks_profiler::record!("str", "value");
+        stacks_profiler::record!("string", String::from("owned"));
+        stacks_profiler::record!("bytes", &[0xabu8, 0xcd][..]);
+        stacks_profiler::counter_add!("saturating", u64::MAX);
+        stacks_profiler::counter_add!("saturating", 1);
+    });
+
+    let results = Profiler::take_results().expect("take profiler results");
+    assert_eq!(results.len(), 1);
+
+    let root = &results[0];
+    assert_eq!(root.name(), "Accessors");
+    assert_eq!(root.context(), Some(module_path!()));
+    assert!(root.source_file().ends_with("integration.rs"));
+    assert!(root.source_line() > 0);
+    assert_eq!(root.tag(), Some(&Tag::Str("tag")));
+    assert_eq!(root.count(), 1);
+    assert_eq!(root.wall_time().as_nanos(), root.wall_time_ns as u128);
+    assert_eq!(root.cpu_time().as_nanos(), root.cpu_time_ns as u128);
+    assert_eq!(root.wait_time().as_nanos(), root.wait_time_ns() as u128);
+    assert_eq!(root.wall_time_micros(), root.wall_time_ns / 1_000);
+    assert_eq!(root.cpu_time_micros(), root.cpu_time_ns / 1_000);
+    root.print_with(&NoopFormatter);
+    root.print_tree();
+
+    let rendered_records: Vec<_> = root
+        .records
+        .iter()
+        .map(|record| (record.key, record.value.to_string()))
+        .collect();
+    assert_eq!(
+        rendered_records,
+        vec![
+            ("u64", "7".to_string()),
+            ("i64", "-7".to_string()),
+            ("str", "value".to_string()),
+            ("string", "owned".to_string()),
+            ("bytes", "0xabcd".to_string()),
+        ]
+    );
+
+    assert_eq!(root.counters.len(), 1);
+    assert_eq!(root.counters[0].key, "saturating");
+    assert_eq!(root.counters[0].value, u64::MAX);
+}
+
+#[test]
+fn test_records_and_counters_respect_disabled_and_suppressed_states() {
+    let _lock = lock_record_tests();
+    let _restore = RecordEnabledRestore;
+
+    Profiler::clear();
+    Profiler::disable_record();
+    assert!(!Profiler::is_record_enabled());
+
+    stacks_profiler::measure!("DisabledRecord", {
+        stacks_profiler::record!("disabled_record", 1u64);
+        stacks_profiler::counter_add!("disabled_counter", 1);
+    });
+
+    Profiler::enable_record();
+    assert!(Profiler::is_record_enabled());
+
+    stacks_profiler::measure!("SuppressedRecordRoot", {
+        let _suppressed = span!("SuppressedRecordParent", rate: 100, suppress);
+        stacks_profiler::record!("suppressed_record", 1u64);
+        stacks_profiler::counter_add!("suppressed_counter", 1);
+    });
+
+    let results = Profiler::take_results().expect("take profiler results");
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].name(), "DisabledRecord");
+    assert!(results[0].records.is_empty());
+    assert!(results[0].counters.is_empty());
+    assert_eq!(results[1].name(), "SuppressedRecordRoot");
+    assert!(results[1].records.is_empty());
+    assert!(results[1].counters.is_empty());
+}
+
+#[test]
+fn test_non_consecutive_root_and_child_spans_reuse_existing_nodes() {
+    Profiler::clear();
+
+    for tag in ["a", "b", "a"] {
+        let _root = span!("RootScan", tag);
+    }
+
+    stacks_profiler::measure!("RootWithChildren", {
+        for tag in ["a", "b", "a"] {
+            let _child = span!("ChildScan", tag);
+        }
+    });
+
+    let results = Profiler::take_results().expect("take profiler results");
+    assert_eq!(
+        results
+            .iter()
+            .filter(|node| node.name() == "RootScan")
+            .count(),
+        2,
+        "different tags should create distinct root nodes"
+    );
+    let root_a = results
+        .iter()
+        .find(|node| node.name() == "RootScan" && node.tag() == Some(&Tag::Str("a")))
+        .expect("RootScan tag=a should exist");
+    assert_eq!(root_a.count(), 2);
+
+    let root_with_children = results
+        .iter()
+        .find(|node| node.name() == "RootWithChildren")
+        .expect("RootWithChildren should exist");
+    assert_eq!(
+        root_with_children
+            .children
+            .iter()
+            .filter(|node| node.name() == "ChildScan")
+            .count(),
+        2,
+        "different tags should create distinct child nodes"
+    );
+    let child_a = root_with_children
+        .children
+        .iter()
+        .find(|node| node.name() == "ChildScan" && node.tag() == Some(&Tag::Str("a")))
+        .expect("ChildScan tag=a should exist");
+    assert_eq!(child_a.count(), 2);
+}
+
+#[test]
+fn test_count_only_spans_skip_records_and_counters() {
+    let _lock = lock_record_tests();
+    let _restore = RecordEnabledRestore;
+
+    Profiler::clear();
+    Profiler::enable_record();
+
+    for iteration in 0..2 {
+        let _guard = span!("CountOnlyRecords", rate: 2, count_only);
+        stacks_profiler::record!("iteration", iteration as u64);
+        stacks_profiler::counter_add!("iterations", 1);
+    }
+
+    let results = Profiler::take_results().expect("take profiler results");
+    assert_eq!(results.len(), 1);
+
+    let root = &results[0];
+    assert_eq!(root.name(), "CountOnlyRecords");
+    assert_eq!(root.entered_count, 2);
+    assert_eq!(root.sampled_count, 1);
+    assert_eq!(
+        root.records.len(),
+        1,
+        "record! should be skipped for the count-only entry"
+    );
+    assert_eq!(root.records[0].value.to_string(), "0");
+    assert_eq!(
+        root.counters.len(),
+        1,
+        "counter_add! should be skipped for the count-only entry"
+    );
+    assert_eq!(root.counters[0].value, 1);
 }
 
 #[test]

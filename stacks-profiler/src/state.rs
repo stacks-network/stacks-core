@@ -204,7 +204,7 @@ impl ThreadState {
         };
 
         let Some(node) = slot.take() else {
-            return Err(TakeResultsError::DuplicateNode { node_id });
+            return Err(TakeResultsError::DuplicateNodeReference { node_id });
         };
 
         let mut children = Vec::with_capacity(node.children.len());
@@ -255,5 +255,60 @@ impl ThreadState {
         self.nodes.clear();
         self.roots.clear();
         self.roots_last_child = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Node, NodeId, ThreadState};
+    use crate::{SpanId, TakeResultsError};
+
+    static ROOT_ID: SpanId = SpanId {
+        name: "root",
+        context: Some("state_tests"),
+        file: "state.rs",
+        line: 1,
+    };
+
+    fn empty_node(id: &'static SpanId) -> Node {
+        Node {
+            id,
+            tag: None,
+            wall_time_ns: 0,
+            cpu_time_ns: 0,
+            entered_count: 0,
+            sampled_count: 0,
+            children: Vec::new(),
+            last_child: None,
+            records: Vec::new(),
+            counters: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn materialize_reports_missing_node() {
+        let mut nodes: Vec<Option<Node>> = Vec::new();
+        let err = ThreadState::materialize_node(&mut nodes, 7 as NodeId).unwrap_err();
+
+        assert_eq!(err, TakeResultsError::MissingNode { node_id: 7 });
+    }
+
+    #[test]
+    fn materialize_reports_duplicate_node() {
+        let mut nodes = vec![Some(empty_node(&ROOT_ID))];
+
+        let _ = ThreadState::materialize_node(&mut nodes, 0 as NodeId).unwrap();
+        let err = ThreadState::materialize_node(&mut nodes, 0 as NodeId).unwrap_err();
+
+        assert_eq!(err, TakeResultsError::DuplicateNodeReference { node_id: 0 });
+    }
+
+    #[test]
+    fn materialize_consumes_valid_node() {
+        let mut nodes = vec![Some(empty_node(&ROOT_ID))];
+        let stats = ThreadState::materialize_node(&mut nodes, 0 as NodeId).unwrap();
+
+        assert_eq!(stats.name(), "root");
+        assert!(nodes[0].is_none());
     }
 }

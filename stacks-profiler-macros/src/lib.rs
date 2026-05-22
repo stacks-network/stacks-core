@@ -229,3 +229,75 @@ pub fn profile(args: TokenStream, input: TokenStream) -> TokenStream {
 
     output.into()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{UnsampledBehavior, build_guard_creation, build_setup_block, unsampled_guard_expr};
+
+    #[test]
+    fn unsampled_guard_expr_matches_behavior() {
+        assert_eq!(
+            unsampled_guard_expr(UnsampledBehavior::None).to_string(),
+            "None"
+        );
+        assert!(
+            unsampled_guard_expr(UnsampledBehavior::Suppress)
+                .to_string()
+                .contains("begin_suppression")
+        );
+        assert!(
+            unsampled_guard_expr(UnsampledBehavior::CountOnly)
+                .to_string()
+                .contains("begin_count_only_span")
+        );
+    }
+
+    #[test]
+    fn guard_creation_without_sampling_is_always_timed() {
+        let tokens = build_guard_creation(None, UnsampledBehavior::None).to_string();
+
+        assert!(tokens.contains("__profiler_guard"));
+        assert!(tokens.contains("begin_timed_span"));
+        assert!(!tokens.contains("__PROFILER_SAMPLE_COUNTER"));
+    }
+
+    #[test]
+    fn guard_creation_with_rate_one_is_always_timed() {
+        let tokens = build_guard_creation(Some(1), UnsampledBehavior::Suppress).to_string();
+
+        assert!(tokens.contains("__profiler_guard"));
+        assert!(tokens.contains("begin_timed_span"));
+        assert!(!tokens.contains("__PROFILER_SAMPLE_COUNTER"));
+        assert!(!tokens.contains("begin_suppression"));
+    }
+
+    #[test]
+    fn guard_creation_uses_bitmask_for_power_of_two_sample_rate() {
+        let tokens = build_guard_creation(Some(8), UnsampledBehavior::Suppress).to_string();
+
+        assert!(tokens.contains("__PROFILER_SAMPLE_COUNTER"));
+        assert!(tokens.contains("fetch_add"));
+        assert!(tokens.contains("__n & 7"));
+        assert!(tokens.contains("begin_suppression"));
+    }
+
+    #[test]
+    fn guard_creation_uses_modulo_for_non_power_of_two_sample_rate() {
+        let tokens = build_guard_creation(Some(10), UnsampledBehavior::CountOnly).to_string();
+
+        assert!(tokens.contains("__PROFILER_SAMPLE_COUNTER"));
+        assert!(tokens.contains("__n % 10"));
+        assert!(tokens.contains("begin_count_only_span"));
+    }
+
+    #[test]
+    fn setup_block_uses_custom_or_auto_name() {
+        let custom = build_setup_block(Some("custom_span".to_string())).to_string();
+        assert!(custom.contains("custom_span"));
+        assert!(custom.contains("with_context"));
+
+        let auto = build_setup_block(None).to_string();
+        assert!(auto.contains("auto_name"));
+        assert!(auto.contains("__PROFILER_SPAN_ID"));
+    }
+}

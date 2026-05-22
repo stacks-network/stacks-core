@@ -216,7 +216,7 @@ pub enum TakeResultsError {
     /// A root or child pointed at a node id outside the arena.
     MissingNode { node_id: u32 },
     /// A node was reachable more than once, which would make materialization ambiguous.
-    DuplicateNode { node_id: u32 },
+    DuplicateNodeReference { node_id: u32 },
 }
 
 impl fmt::Display for TakeResultsError {
@@ -228,7 +228,7 @@ impl fmt::Display for TakeResultsError {
             TakeResultsError::MissingNode { node_id } => {
                 write!(f, "profile tree references missing node {node_id}")
             }
-            TakeResultsError::DuplicateNode { node_id } => {
+            TakeResultsError::DuplicateNodeReference { node_id } => {
                 write!(f, "profile tree references node {node_id} more than once")
             }
         }
@@ -633,5 +633,91 @@ impl Drop for ProfileGuard {
             GuardKind::CountOnlySpan => Profiler::end_count_only_span(),
             GuardKind::Suppression => Profiler::end_suppression(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Profiler, SpanId, TakeResultsError};
+
+    static NAME: &str = "span";
+    static OTHER_NAME: &str = "other";
+    static FILE: &str = "file.rs";
+    static OTHER_FILE: &str = "other.rs";
+    static CONTEXT: &str = "context";
+    static OTHER_CONTEXT: &str = "other_context";
+
+    fn span_id(
+        name: &'static str,
+        context: Option<&'static str>,
+        file: &'static str,
+        line: u32,
+    ) -> SpanId {
+        SpanId {
+            name,
+            context,
+            file,
+            line,
+        }
+    }
+
+    #[test]
+    fn span_id_equality_handles_pointer_fast_path_and_fallback() {
+        let fallback_name: &'static str = Box::leak(String::from("span").into_boxed_str());
+        let fallback_file: &'static str = Box::leak(String::from("file.rs").into_boxed_str());
+        let fallback_context: &'static str = Box::leak(String::from("context").into_boxed_str());
+
+        assert_eq!(
+            span_id(NAME, Some(CONTEXT), FILE, 1),
+            span_id(NAME, Some(CONTEXT), FILE, 1)
+        );
+        assert_eq!(span_id(NAME, None, FILE, 1), span_id(NAME, None, FILE, 1));
+        assert_ne!(
+            span_id(NAME, Some(CONTEXT), FILE, 1),
+            span_id(NAME, None, FILE, 1)
+        );
+        assert_eq!(
+            span_id(NAME, Some(CONTEXT), FILE, 1),
+            span_id(fallback_name, Some(fallback_context), fallback_file, 1)
+        );
+        assert_ne!(
+            span_id(NAME, Some(CONTEXT), FILE, 1),
+            span_id(OTHER_NAME, Some(CONTEXT), FILE, 1)
+        );
+        assert_ne!(
+            span_id(NAME, Some(CONTEXT), FILE, 1),
+            span_id(NAME, Some(CONTEXT), OTHER_FILE, 1)
+        );
+        assert_ne!(
+            span_id(NAME, Some(CONTEXT), FILE, 1),
+            span_id(NAME, Some(CONTEXT), FILE, 2)
+        );
+        assert_ne!(
+            span_id(NAME, Some(CONTEXT), FILE, 1),
+            span_id(NAME, Some(OTHER_CONTEXT), FILE, 1)
+        );
+    }
+
+    #[test]
+    fn take_results_error_display_messages() {
+        assert_eq!(
+            TakeResultsError::ActiveSpans { active: 2 }.to_string(),
+            "take_results called with 2 active span(s)"
+        );
+        assert_eq!(
+            TakeResultsError::MissingNode { node_id: 7 }.to_string(),
+            "profile tree references missing node 7"
+        );
+        assert_eq!(
+            TakeResultsError::DuplicateNodeReference { node_id: 7 }.to_string(),
+            "profile tree references node 7 more than once"
+        );
+    }
+
+    #[test]
+    fn hidden_end_helpers_tolerate_empty_stacks() {
+        Profiler::clear();
+        Profiler::end_timed_span();
+        Profiler::end_count_only_span();
     }
 }
