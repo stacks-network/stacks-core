@@ -165,7 +165,7 @@ jobs:
           tools: nextest
       
       # Install mold linker (faster than default)      
-      - name: Install mold linker
+      - name: Install mold Linker
         run: |
           sudo apt-get update
           sudo apt-get install -y mold
@@ -212,7 +212,7 @@ jobs:
             --locked \
             --features monitoring_prom \
             --archive-file "$ARCHIVE_FILE" \
-            --zstd-level 22 # max compression
+            --zstd-level 3 # optimal
 
       # Save the nextest archive to cache
       - name: Save Test Archive Cache
