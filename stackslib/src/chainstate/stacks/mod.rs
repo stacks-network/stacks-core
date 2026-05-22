@@ -57,6 +57,7 @@ pub mod db;
 pub mod events;
 pub mod index;
 pub mod miner;
+pub mod sbtc;
 pub mod transaction;
 
 #[cfg(test)]

@@ -1418,6 +1418,74 @@ NIST P-256 curve (also known as secp256r1).",
     0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns false"
 };
 
+const VERIFY_MERKLE_PROOF_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 32), uint, uint, (list 24 (buff 32))",
+    snippet: "verify-merkle-proof ${1:leaf-hash} ${2:root-hash} ${3:tx-index} ${4:tx-count} ${5:sibling-hashes}",
+    output_type: "bool",
+    signature: "(verify-merkle-proof leaf-hash root-hash tx-index tx-count sibling-hashes)",
+    description:
+        "The `verify-merkle-proof` function verifies a Bitcoin-style merkle inclusion proof
+using double-SHA-256 hashing with the \"duplicate the last node on odd-sized rows\" rule.
+
+Given a `leaf-hash` (typically a Bitcoin txid), the merkle `root-hash` of a block, the
+`tx-index` of the leaf within the tree (0-indexed), the `tx-count` of transactions in the
+block, and the list of `sibling-hashes` along the path from the leaf to the root, the
+function returns `true` iff hashing pairwise up the tree in the order described by
+`tx-index` produces `root-hash`.
+
+`tx-count` pins down the canonical Bitcoin tree shape and is required to defend against
+CVE-2012-2459-style attacks where an intermediate node in an odd-row-padded tree could
+otherwise be passed off as a leaf. The function rejects any proof whose path length doesn't
+match `ceil(log2(tx-count))` and any `tx-index` not less than `tx-count`.
+
+All 32-byte hashes (leaf, root, siblings) are passed in *internal* (raw) byte order, not
+the display (reversed) order conventionally used for Bitcoin txids and block hashes. The
+`txid` returned by `get-bitcoin-tx-output?` is already in internal byte order and can be
+passed directly as `leaf-hash`.
+
+Returns `false` for any malformed proof and `true` for a valid proof.",
+    example: "
+;; The Bitcoin genesis block contains a single tx, so its coinbase txid
+;; (in internal byte order) is also the block's merkle root. A proof
+;; with an empty sibling list verifies trivially.
+(verify-merkle-proof
+    0x3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a
+    0x3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a
+    u0
+    u1
+    (list)) ;; Returns true",
+};
+
+const GET_BITCOIN_TX_OUTPUT_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 1048576), uint",
+    snippet: "get-bitcoin-tx-output? ${1:tx-bytes} ${2:vout}",
+    output_type: "(response (tuple (script (buff 1024)) (amount uint) (txid (buff 32))) uint)",
+    signature: "(get-bitcoin-tx-output? tx-bytes vout)",
+    description: "The `get-bitcoin-tx-output?` function parses a serialized Bitcoin transaction
+(`tx-bytes`, with or without SegWit witness data) and returns the output at the given `vout`
+index, plus the canonical (non-witness) `txid` of the transaction.
+
+The returned `txid` is in *internal* byte order (the raw double-SHA-256 result), ready to be
+passed directly to `verify-merkle-proof` as the leaf hash. The `script` is the raw
+`scriptPubKey` bytes of the output — contracts can pattern-match these bytes to recognize
+P2WSH (`0x00 0x20 ...`), P2TR (`0x51 0x20 ...`), P2WPKH (`0x00 0x14 ...`), OP_RETURN
+(`0x6a ...`), or any other output script.
+
+Returns one of three error codes on failure:
+- `(err u1)` — `tx-bytes` did not deserialize as a Bitcoin transaction.
+- `(err u2)` — `vout` is out of range for this transaction.
+- `(err u3)` — the output's `scriptPubKey` exceeds the 1024-byte cap.
+
+This builtin is intended to be paired with `verify-merkle-proof` and the burn-block header
+data exposed by `get-burn-block-info?` to verify that a Bitcoin output exists on-chain
+without trusting the caller to have correctly hashed or stripped witness data from the tx.",
+    example: "
+;; Parse the Bitcoin genesis block coinbase tx and return its sole output.
+(get-bitcoin-tx-output? 0x01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000 u0)
+;; Returns (ok (tuple (amount u5000000000) (script 0x4104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac) (txid 0x3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a)))
+(get-bitcoin-tx-output? 0x00 u0) ;; Returns (err u1)",
+};
+
 const ED25519VERIFY_API: SpecialAPI = SpecialAPI {
     input_type: "(buff 1048576), (buff 64), (buff 32)",
     snippet: "ed25519-verify ${1:message} ${2:signature} ${3:public-key})",
@@ -1428,11 +1496,11 @@ was signed with the private key that generated the public key.
 The `message` can be up to 1 MiB in size. The `signature` is the raw 64-byte signature, and the `public-key` is the raw 32-byte public key.
 returns `true` if the signature is valid, and `false` otherwise.
 Note that validation is in strict mode, so non-canonical signatures will be rejected.",
-    example: "(ed25519-verify 0x68656c6c6f20776f726c64
-    0x7e8346b0d9ef1151608df9d436c646b9df23758b292e0df400032f2603417724a25997d81a95a8997a55252813589b9409893df1ec75249a5b6f38753232810e
-    0xec172b93ad5e563bf49683c1397357b1af93d4e937abda610c10ccc6112217c0) ;; Returns true
-(ed25519-verify 0x00000000000000000000000000000000000000 0x7e8346b0d9ef1151608df9d436c646b9df23758b292e0df400032f2603417724a25997d81a95a8997a55252813589b9409893df1ec75249a5b6f38753232810e
-    0xec172b93ad5e563bf49683c1397357b1af93d4e937abda610c10ccc6112217c0) ;; Returns false"
+    example: "(ed25519-verify 0xaf82
+    0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a
+    0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns true
+(ed25519-verify 0x00000000000000000000000000000000000000 0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a
+    0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns false"
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
@@ -2917,6 +2985,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AllowanceWithStacking => make_for_special(&ALLOWANCE_WITH_STACKING, function),
         AllowanceAll => make_for_special(&ALLOWANCE_WITH_ALL, function),
         Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
+        VerifyMerkleProof => make_for_special(&VERIFY_MERKLE_PROOF_API, function),
+        GetBitcoinTxOutput => make_for_special(&GET_BITCOIN_TX_OUTPUT_API, function),
         Ed25519Verify => make_for_special(&ED25519VERIFY_API, function),
     }
 }
@@ -3219,6 +3289,10 @@ mod test {
         }
 
         fn get_pox_4_activation_height(&self) -> u32 {
+            u32::MAX
+        }
+
+        fn get_pox_5_activation_height(&self) -> u32 {
             u32::MAX
         }
 

@@ -21,9 +21,8 @@ use super::ExecutionCost;
 /// overrides only `cost_contract_hash`.
 use super::cost_functions::CostValues;
 use super::costs_3::Costs3;
-use crate::vm::RuntimeError;
 use crate::vm::costs::cost_functions::linear;
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{RuntimeError, VmExecutionError};
 
 pub struct Costs4;
 
@@ -473,6 +472,14 @@ impl CostValues for Costs4 {
 
     fn cost_secp256r1verify(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Ok(ExecutionCost::runtime(51750))
+    }
+
+    fn cost_verify_merkle_proof(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Err(RuntimeError::NotImplemented.into())
+    }
+
+    fn cost_get_bitcoin_tx_output(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_ed25519verify(n: u64) -> Result<ExecutionCost, VmExecutionError> {

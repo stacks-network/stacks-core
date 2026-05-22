@@ -9697,7 +9697,7 @@ fn missed_slots_no_unlock() {
 
     for b in blocks.into_iter() {
         if let Some(ref reward_set_data) = b.reward_set_data {
-            let signers_set = reward_set_data.reward_set.signers.as_ref().unwrap();
+            let signers_set = reward_set_data.reward_set.signers().unwrap();
             assert_eq!(signers_set.len(), 1);
             assert_eq!(
                 StacksPublicKey::from_private(&alice).to_bytes_compressed(),
@@ -9706,13 +9706,14 @@ fn missed_slots_no_unlock() {
             let rewarded_addrs = HashSet::<_>::from_iter(
                 reward_set_data
                     .reward_set
-                    .rewarded_addresses
+                    .rewarded_addresses()
+                    .unwrap()
                     .iter()
                     .map(|a| a.to_burnchain_repr()),
             );
             assert_eq!(rewarded_addrs.len(), 1);
             assert_eq!(
-                reward_set_data.reward_set.rewarded_addresses[0].bytes(),
+                reward_set_data.reward_set.rewarded_addresses().unwrap()[0].bytes(),
                 alice_address.bytes().0.to_vec(),
             );
             reward_cycles_in_2_5 += 1;
@@ -9854,8 +9855,12 @@ fn no_lockups_2_5() {
     let blocks = observer.get_blocks();
     for b in blocks.into_iter() {
         if let Some(ref reward_set_data) = b.reward_set_data {
-            assert_eq!(reward_set_data.reward_set.signers, Some(vec![]));
-            assert!(reward_set_data.reward_set.rewarded_addresses.is_empty());
+            assert_eq!(reward_set_data.reward_set.signers().cloned(), Some(vec![]));
+            assert!(reward_set_data
+                .reward_set
+                .rewarded_addresses()
+                .unwrap()
+                .is_empty());
             eprintln!("{:?}", b.reward_set_data)
         }
     }
