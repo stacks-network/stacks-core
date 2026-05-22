@@ -33,6 +33,11 @@ export CARGO_TERM_COLOR=always
 ## ── Check for required binaries ─────────────────────────────────────────────
 missing=0
 for cmd in apt-get rustup cargo; do
+    # Skip the apt-get check if running on macOS
+    if [[ "$cmd" == "apt-get" && "$MATRIX_ARCH" == "macos" ]]; then
+        continue
+    fi
+
     if ! command -v "${cmd}" > /dev/null 2>&1; then
         error "Missing required command: $(hl "${cmd}")"
         missing=1
