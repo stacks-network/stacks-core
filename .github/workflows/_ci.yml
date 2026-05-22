@@ -126,10 +126,7 @@ jobs:
       github.event.repository.visibility == 'public'
     runs-on: *shared_config
     outputs:
-      node_tag: ${{ steps.check-release.outputs.node_tag }}
-      signer_tag: ${{ steps.check-release.outputs.signer_tag }}
-      is_node_release: ${{ steps.check-release.outputs.is_node_release }}
-      is_signer_release: ${{ steps.check-release.outputs.is_signer_release }}
+      is_release: ${{ steps.check-release.outputs.is_node_release || steps.check-release.outputs.is_signer_release }}
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -180,8 +177,7 @@ jobs:
       - check-rustfmt
       - setup-env
     if: >-
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true' ||
+      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/setup-test-caches.yml
     with:
@@ -198,8 +194,7 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true' ||
+      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-stacks-core.yml
     with:
@@ -215,8 +210,7 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true' ||
+      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin.yml
     with:
@@ -232,8 +226,7 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true' ||
+      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
@@ -250,8 +243,7 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true' ||
+      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-p2p.yml
     with:
@@ -269,8 +261,7 @@ jobs:
       - check-rustfmt
     if: >-
       github.event.repository.visibility == 'public' &&
-      (needs.check-release.outputs.is_node_release == 'true' ||
-       needs.check-release.outputs.is_signer_release == 'true')
+      needs.check-release.outputs.is_release == 'true'
     permissions:
       contents: write      # required for github release
       id-token: write      # required for attestation
@@ -293,8 +284,7 @@ jobs:
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true'
+      needs.check-release.outputs.is_release == 'true'
     uses: ./.github/workflows/tests-epoch.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}

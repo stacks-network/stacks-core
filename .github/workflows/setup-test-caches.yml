@@ -202,7 +202,7 @@ jobs:
         env:
           RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
         run: |
-          # Capture the achive file input, then expand the leading ~ to $HOME
+          # Capture the archive file input, then expand the leading ~ to $HOME
           INPUT_FILE="${{ inputs.archive-file }}"
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
@@ -212,7 +212,8 @@ jobs:
             --tests \
             --locked \
             --features monitoring_prom \
-            --archive-file $ARCHIVE_FILE
+            --archive-file $ARCHIVE_FILE \
+            --zstd-level 22 # max compression
 
       # Save the nextest archive to cache
       - name: Save Test Archive Cache
