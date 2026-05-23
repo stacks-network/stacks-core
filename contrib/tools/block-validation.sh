@@ -58,14 +58,10 @@ set_default_config() {
 # Derive configurations and resolved values from the user-supplied config
 apply_input_config() {
     # Input based configurations
-    if [ -z "${SCRATCH_DIR:-}" ]; then
-        SCRATCH_DIR="${WORK_DIR}/scratch"             # root folder for the validation slices
-    fi 
+    SCRATCH_DIR="${WORK_DIR}/scratch"                 # root folder for the validation slices
     # LOG_ROOT is the persistent parent that collects every run; LOG_DIR is this
     # run's timestamped subdir inside it (created fresh, never deleted afterwards).
-    if [ -z "${LOG_ROOT:-}" ]; then
-        LOG_ROOT="${WORK_DIR}/logs"
-    fi
+    LOG_ROOT="${WORK_DIR}/logs"
     local timestamp=$(date +%Y-%m-%d-%s)              # year-month-day-epoch
     LOG_DIR="${LOG_ROOT}/${timestamp}"
 
@@ -121,11 +117,9 @@ usage() {
     echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch2/3 boundary)"
     echo "                   ${COLCYAN}<start>+<count>${COLRESET} (count blocks starting at start, equivalent to <start>:<start+count-1>)"
     echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
-    echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${WORK_DIR}/scratch)"
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
     echo "        ${COLYELLOW}-r|--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; branch flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
     echo "        ${COLYELLOW}-c|--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
-    echo "        ${COLYELLOW}-l|--logdir${COLRESET}: parent folder for run logs; a TIMESTAMP subdir is created per run (default: ${WORK_DIR}/logs)"
     echo "        ${COLYELLOW}-p|--proc${COLRESET}: how many cpu cores to use for validation cappet at nproc (default: max(1, nproc/4))"
     echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME})"
     echo
@@ -827,12 +821,6 @@ parse_args() {
                 esac
                 shift
                 ;;
-            -s|--scratchdir)
-                # Filesystem location to store the chainstate slice data used by stacks-inspect
-                require_value "${1}" "${2:-}"
-                SCRATCH_DIR="${2}"
-                shift
-                ;;
             -n|--network)
                 # Required if not mainnet
                 require_value "${1}" "${2:-}"
@@ -857,12 +845,6 @@ parse_args() {
                 # Use a local chainstate
                 require_value "${1}" "${2:-}"
                 CHAIN_DIR="${2}"
-                shift
-                ;;
-            -l|--logdir)
-                # Parent folder that collects every run's logs (timestamped subdir per run)
-                require_value "${1}" "${2:-}"
-                LOG_ROOT="${2}"
                 shift
                 ;;
             -p|--proc)
