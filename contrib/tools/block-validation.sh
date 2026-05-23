@@ -45,7 +45,7 @@ COLRESET=$'\033[0m'   # reset color/formatting
 # Initialize user-overridable defaults. Anything the
 # user can set via a CLI flag has its default here.
 set_default_config() {
-    WORK_DIR="${HOME}"                         # root folder used for block validation and related artifacts
+    WORK_DIR="${HOME}/block-validation"        # root folder used for block validation and related artifacts
     CHAIN_DIR=""                               # path to local chainstate to use instead of snapshot download
     NETWORK="mainnet"                          # network to validate
     REPO_DIR=""                                # stacks-core checkout location; defaults to ${WORK_DIR}/stacks-core
@@ -109,7 +109,7 @@ usage() {
     echo
     echo "Usage:"
     echo "    ${COLBOLD}${0}${COLRESET}"
-    echo "        ${COLYELLOW}--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME})"
+    echo "        ${COLYELLOW}--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME}/block-validation)"
     echo "        ${COLYELLOW}--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
     echo "        ${COLYELLOW}--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; branch flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
     echo "        ${COLYELLOW}--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
