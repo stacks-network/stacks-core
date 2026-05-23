@@ -52,7 +52,7 @@ set_default_config() {
     BRANCH="develop"                           # default branch to build stacks-inspect from
     TRACK_BRANCH=1                             # 1: BRANCH tracking enabled; 0: use REPO_DIR as-is if set by flag.
     CORES=""                                   # cores to use for validation; resolved in apply_input_config
-    VALIDATE="full"                            # what to validate: scenario or block range
+    RANGE="full"                               # block range to validate: scenario or numeric range
 }
 
 # Derive configurations and resolved values from the user-supplied config
@@ -109,19 +109,19 @@ usage() {
     echo
     echo "Usage:"
     echo "    ${COLBOLD}${0}${COLRESET}"
-    echo "        ${COLYELLOW}--validate <mode>${COLRESET}: what to validate (default: full)"
+    echo "        ${COLYELLOW}--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME})"
+    echo "        ${COLYELLOW}--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
+    echo "        ${COLYELLOW}--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; branch flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
+    echo "        ${COLYELLOW}--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
+    echo "        ${COLYELLOW}--proc${COLRESET}: how many cpu cores to use for validation capped at nproc (default: max(1, nproc/4))"
+    echo "        ${COLYELLOW}--network${COLRESET}: run block validation against specific network (default: mainnet)"
+    echo "        ${COLYELLOW}--range <mode>${COLRESET}: block range to validate (default: full)"
     echo "            modes: ${COLCYAN}test${COLRESET} (fixed test block ranges for pre-nakamoto and nakamoto)"
     echo "                   ${COLCYAN}pre-nakamoto${COLRESET} (full Epoch 2 blocks)"
     echo "                   ${COLCYAN}nakamoto${COLRESET} (full Epoch 3+ blocks)"
     echo "                   ${COLCYAN}full${COLRESET} (pre-nakamoto + nakamoto blocks)"
     echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch2/3 boundary)"
     echo "                   ${COLCYAN}<start>+<count>${COLRESET} (count blocks starting at start, equivalent to <start>:<start+count-1>)"
-    echo "        ${COLYELLOW}--network${COLRESET}: run block validation against specific network (default: mainnet)"
-    echo "        ${COLYELLOW}--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
-    echo "        ${COLYELLOW}--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; branch flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
-    echo "        ${COLYELLOW}--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
-    echo "        ${COLYELLOW}--proc${COLRESET}: how many cpu cores to use for validation cappet at nproc (default: max(1, nproc/4))"
-    echo "        ${COLYELLOW}--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME})"
     echo
     echo "    ex: Full block validation with chainstate automatically downloaded"
     echo "        ${COLCYAN}${0} -w /data/workdir ${COLRESET}"
@@ -522,14 +522,14 @@ validate_block_range() {
     phase_end "${range_label}" "${range_start}"
 }
 
-# Translate the user-facing VALIDATE scenario into inclusive global block ranges,
+# Translate the user-facing RANGE scenario into inclusive global block ranges,
 # then hand each range to validate_block_range. This function deals only in the
-# continuous global block space; 
+# continuous global block space;
 # Convention (mainnet example with pre_total=185630):
 #   pre-naka : globals 0..185629    (inclusive, pre_total blocks)
 #   naka     : globals 185630..N    (inclusive, naka_total blocks)
 run_validation() {
-    case "${VALIDATE}" in
+    case "${RANGE}" in
         test)
             local pre_start pre_end
             if [ "${NETWORK}" == "testnet" ]; then
@@ -565,7 +565,7 @@ run_validation() {
             ;;
         *)
             local start end
-            if [[ "${VALIDATE}" =~ ^([0-9]+):([0-9]+)$ ]]; then
+            if [[ "${RANGE}" =~ ^([0-9]+):([0-9]+)$ ]]; then
                 # <start>:<end>  -- inclusive range
                 start=${BASH_REMATCH[1]}
                 end=${BASH_REMATCH[2]}
@@ -573,7 +573,7 @@ run_validation() {
                     echo "${COLRED}Error${COLRESET} Invalid range: start (${start}) > end (${end})"
                     exit 1
                 fi
-            elif [[ "${VALIDATE}" =~ ^([0-9]+)[+]([0-9]+)$ ]]; then
+            elif [[ "${RANGE}" =~ ^([0-9]+)[+]([0-9]+)$ ]]; then
                 # <start>+<count>  -- N blocks starting at start (count must be > 0)
                 start=${BASH_REMATCH[1]}
                 local count=${BASH_REMATCH[2]}
@@ -583,7 +583,7 @@ run_validation() {
                 fi
                 end=$((start + count - 1))
             else
-                echo "${COLRED}Error${COLRESET} Invalid VALIDATE value: '${VALIDATE}'"
+                echo "${COLRED}Error${COLRESET} Invalid --range value: '${RANGE}'"
                 exit 1
             fi
             
@@ -805,14 +805,14 @@ require_value() {
 parse_args() {
     while [ ${#} -gt 0 ]; do
         case ${1} in
-            --validate)
-                # What to validate; see usage for accepted values
+            --range)
+                # Block range to validate; see usage for accepted values
                 require_value "${1}" "${2:-}"
-                VALIDATE="${2}"
-                case "${VALIDATE}" in
+                RANGE="${2}"
+                case "${RANGE}" in
                     test|pre-nakamoto|nakamoto|full) ;;
                     *)
-                        if ! [[ "${VALIDATE}" =~ ^[0-9]+[:+][0-9]+$ ]]; then
+                        if ! [[ "${RANGE}" =~ ^[0-9]+[:+][0-9]+$ ]]; then
                             echo "ERROR: Invalid argument: ${1}"
                             usage
                             exit 1
