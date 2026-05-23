@@ -4,7 +4,8 @@ set -Eeuo pipefail
 #
 # block-validation.sh — parallelizable block validation using stacks-inspect.
 #
-# Builds stacks-inspect from a configurable branch, prepares one chainstate copy
+# Builds stacks-inspect from a configurable git revision (branch, tag, or commit
+# SHA), prepares one chainstate copy
 # per worker core (reflink when supported, otherwise a full copy), 
 # runs validate-block across all workers in parallel via
 # tmux windows, and aggregates per-slice results into a dedicate log file.
@@ -19,7 +20,7 @@ set -Eeuo pipefail
 #   ${WORK_DIR}/logs/<timestamp>/              per-run logs (slices + results)
 #
 # ** Caching (each step skips work when a prior artifact is reusable)
-#   - stacks-core/     : reused if present (updated when branch tracking is enabled)
+#   - stacks-core/     : reused if present (updated when rev tracking is enabled)
 #   - downloads/       : Hiro snapshot archive reused if already on disk (no redownload)
 #   - chain/           : reused if already extracted (no re-extract). 
 #   - scratch/         : slices reused when .scratch_meta matches the current environment
@@ -49,8 +50,8 @@ set_default_config() {
     CHAIN_DIR=""                               # path to local chainstate to use instead of snapshot download
     NETWORK="mainnet"                          # network to validate
     REPO_DIR=""                                # stacks-core checkout location; defaults to ${WORK_DIR}/stacks-core
-    BRANCH="develop"                           # default branch to build stacks-inspect from
-    TRACK_BRANCH=1                             # 1: BRANCH tracking enabled; 0: use REPO_DIR as-is if set by flag.
+    REPO_REV="develop"                         # default git revision (branch, tag, or commit) to build stacks-inspect from
+    TRACK_REV=1                                # 1: REPO_REV tracking enabled; 0: use REPO_DIR as-is if set by flag.
     CORES=""                                   # cores to use for validation; resolved in apply_input_config
     RANGE="full"                               # block range to validate: scenario or numeric range
 }
@@ -111,8 +112,8 @@ usage() {
     echo "    ${COLBOLD}${0}${COLRESET}"
     echo "        ${COLYELLOW}--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME}/block-validation)"
     echo "        ${COLYELLOW}--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
-    echo "        ${COLYELLOW}--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; branch flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
-    echo "        ${COLYELLOW}--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
+    echo "        ${COLYELLOW}--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; --rev flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
+    echo "        ${COLYELLOW}--rev${COLRESET}: git revision of stacks-core to build stacks-inspect from. Accepts a branch, tag, or commit SHA (short or full); branches are pulled to the latest, tags/commits land on a detached HEAD (default: develop)"
     echo "        ${COLYELLOW}--proc${COLRESET}: how many cpu cores to use for validation capped at nproc (default: max(1, nproc/4))"
     echo "        ${COLYELLOW}--network${COLRESET}: run block validation against specific network (default: mainnet)"
     echo "        ${COLYELLOW}--range <mode>${COLRESET}: block range to validate (default: full)"
@@ -124,7 +125,7 @@ usage() {
     echo "                   ${COLCYAN}<start>+<count>${COLRESET} (count blocks starting at start, equivalent to <start>:<start+count-1>)"
     echo
     echo "    ex: Full block validation with chainstate automatically downloaded"
-    echo "        ${COLCYAN}${0} -w /data/workdir ${COLRESET}"
+    echo "        ${COLCYAN}${0} --workdir /data/workdir ${COLRESET}"
     echo
 }
 
@@ -143,33 +144,62 @@ install_cargo() {
     return 0
 }
 
+# Resolve and check out ${REPO_REV} in the current directory. Accepts:
+#   - a branch name → switches to it and fast-forwards from origin
+#   - a tag         → detached HEAD at the tag (no pull)
+#   - a commit SHA  → detached HEAD at the commit (no pull); short or full
+# Call after fetching, so remote-only branches/tags are resolvable.
+checkout_rev() {
+    if git show-ref --verify --quiet "refs/remotes/origin/${REPO_REV}"; then
+        # Branch case: create/reset a local branch tracking origin/${REPO_REV}.
+        # `checkout -B` is force-create + reset to the upstream tip in one step.
+        echo "Checking out branch ${COLGREEN}${REPO_REV}${COLRESET} (tracking origin/${REPO_REV})"
+        git checkout -B "${REPO_REV}" "origin/${REPO_REV}" || {
+            echo "${COLRED}Error${COLRESET} checking out branch ${REPO_REV}"
+            exit 1
+        }
+    elif git rev-parse --verify --quiet "${REPO_REV}^{commit}" >/dev/null; then
+        # Tag or commit SHA (short/full): detach HEAD at the resolved commit.
+        echo "Checking out ${COLGREEN}${REPO_REV}${COLRESET} (detached HEAD — tag or commit)"
+        git checkout --detach "${REPO_REV}" || {
+            echo "${COLRED}Error${COLRESET} checking out ${REPO_REV}"
+            exit 1
+        }
+    else
+        echo "${COLRED}Error${COLRESET} revision '${REPO_REV}' not found in ${REPO_DIR} (not a branch, tag, or known commit)"
+        exit 1
+    fi
+}
+
 # Build release stacks-inspect binary.
-# When TRACK_BRANCH=1 (default): clone if missing, otherwise track the branch
-# When TRACK_BRANCH=0 (set by -r/--repodir): treat REPO_DIR as a pre-existing checkout
+# When TRACK_REV=1 (default): clone if missing, otherwise check out ${REPO_REV}.
+# When TRACK_REV=0 (set by --repodir): treat REPO_DIR as a pre-existing checkout.
 build_stacks_inspect() {
-    if [ "${TRACK_BRANCH}" -eq 0 ]; then
+    if [ "${TRACK_REV}" -eq 0 ]; then
         if [ ! -d "${REPO_DIR}" ]; then
             echo "${COLRED}Error${COLRESET} repo dir not found: ${REPO_DIR}"
             exit 1
         fi
-        echo "Using existing checkout at ${COLYELLOW}${REPO_DIR}${COLRESET} as-is (branch tracking disabled)"
+        echo "Using existing checkout at ${COLYELLOW}${REPO_DIR}${COLRESET} as-is (rev tracking disabled)"
     elif [ -d "${REPO_DIR}" ]; then
-        echo "Found ${COLYELLOW}${REPO_DIR}${COLRESET}. checking out ${COLGREEN}${BRANCH}${COLRESET} and resetting to ${COLBOLD}HEAD${COLRESET}"
-        cd "${REPO_DIR}" && git fetch
-        echo "Checking out ${BRANCH} and resetting to HEAD"
-        # Git stash any local changes to prevent checking out $BRANCH
+        echo "Found ${COLYELLOW}${REPO_DIR}${COLRESET}. Updating to ${COLGREEN}${REPO_REV}${COLRESET}"
+        cd "${REPO_DIR}"
+        # Stash local changes so checkout is clean; --tags pulls in new tags too.
         git stash --include-untracked
-        (git checkout "${BRANCH}" && git reset --hard HEAD) || {
-            echo "${COLRED}Error${COLRESET} checking out ${BRANCH}"
+        git fetch --tags --prune origin || {
+            echo "${COLRED}Error${COLRESET} fetching from origin"
             exit 1
         }
-        git pull
+        checkout_rev
     else
-        echo "Cloning stacks-core ${BRANCH}"
-        (git clone "https://github.com/${REMOTE_REPO}" --branch "${BRANCH}" "${REPO_DIR}" && cd "${REPO_DIR}") || {
+        # Full clone (no --branch, since it rejects bare SHAs); resolve REPO_REV afterwards.
+        echo "Cloning stacks-core into ${COLYELLOW}${REPO_DIR}${COLRESET}"
+        git clone "https://github.com/${REMOTE_REPO}" "${REPO_DIR}" || {
             echo "${COLRED}Error${COLRESET} cloning https://github.com/${REMOTE_REPO} into ${REPO_DIR}"
             exit 1
         }
+        cd "${REPO_DIR}"
+        checkout_rev
     fi
     # Build stacks-inspect to: ${REPO_DIR}/target/release/stacks-inspect
     echo "Building stacks-inspect binary"
@@ -827,18 +857,18 @@ parse_args() {
                 NETWORK=${2}
                 shift
                 ;;
-            --branch)
-                # Build from a specific branch
+            --rev)
+                # Build from a specific git revision (branch, tag, or commit SHA)
                 require_value "${1}" "${2:-}"
-                BRANCH=${2}
+                REPO_REV=${2}
                 shift
                 ;;
             --repodir)
-                # Use an existing stacks-core checkout. Disables the branch-tracking
-                # logic in build_stacks_inspect — the dir is used as-is, --branch is ignored.
+                # Use an existing stacks-core checkout. Disables the rev-tracking
+                # logic in build_stacks_inspect — the dir is used as-is, --rev is ignored.
                 require_value "${1}" "${2:-}"
                 REPO_DIR="${2}"
-                TRACK_BRANCH=0
+                TRACK_REV=0
                 shift
                 ;;
             --chaindir)
