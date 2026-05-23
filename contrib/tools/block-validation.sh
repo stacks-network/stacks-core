@@ -46,6 +46,7 @@ COLRESET=$'\033[0m'   # reset color/formatting
 # Known --repo label → canonical clone URL. Add entries here to support more shortcuts.
 declare -rA REPO_LABELS=(
     [stacks-core]="https://github.com/stacks-network/stacks-core.git"
+    [stacks-core-p]="git@github.com:stx-labs/stacks-blockchain-p.git"
 )
 
 # Initialize user-overridable defaults. Anything the
@@ -149,8 +150,8 @@ Options:
         Default: ${COLCYAN}${WORK_DIR}/chain${COLRESET}
     ${COLYELLOW}--repo <label>|<url>|<path>${COLRESET}
         stacks-core source. Accepts:
-          ${COLCYAN}<label>${COLRESET} - known shortcut. Choices: ${COLCYAN}stacks-core${COLRESET}. (--rev is applied)
-          ${COLCYAN}<url>${COLRESET}   - git URL (--rev is applied).
+          ${COLCYAN}<label>${COLRESET} - known shortcut. Choices: ${COLCYAN}stacks-core${COLRESET}, ${COLCYAN}stacks-core-p${COLRESET} (--rev is applied).
+          ${COLCYAN}<url>${COLRESET}   - a valid git URL (--rev is applied).
           ${COLCYAN}<path>${COLRESET}  - existing local repository, used as-is (--rev is ignored).
         Default: ${COLCYAN}stacks-core${COLRESET}
     ${COLYELLOW}--rev <branch>|<tag>|<sha>${COLRESET}
