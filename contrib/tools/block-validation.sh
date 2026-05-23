@@ -43,16 +43,20 @@ COLCYAN=$'\033[36m'   # Cyan
 COLBOLD=$'\033[1m'    # Bold Text
 COLRESET=$'\033[0m'   # reset color/formatting
 
+# Known --repo label → canonical clone URL. Add entries here to support more shortcuts.
+declare -rA REPO_LABELS=(
+    [stacks-core]="https://github.com/stacks-network/stacks-core.git"
+)
+
 # Initialize user-overridable defaults. Anything the
 # user can set via a CLI flag has its default here.
 set_default_config() {
     WORK_DIR="${HOME}/block-validation"        # root folder used for block validation and related artifacts
     CHAIN_DIR=""                               # path to local chainstate to use instead of snapshot download
-    NETWORK="mainnet"                          # network to validate
-    REPO_DIR=""                                # stacks-core checkout location; defaults to ${WORK_DIR}/stacks-core
+    REPO="stacks-core"                         # --repo value: known label, git URL, or path to an existing checkout.
     REPO_REV="develop"                         # default git revision (branch, tag, or commit) to build stacks-inspect from
-    TRACK_REV=1                                # 1: REPO_REV tracking enabled; 0: use REPO_DIR as-is if set by flag.
     CORES=""                                   # cores to use for validation; resolved in apply_input_config
+    NETWORK="mainnet"                          # network to validate
     RANGE="full"                               # block range to validate: scenario or numeric range
 }
 
@@ -87,13 +91,11 @@ apply_input_config() {
         exit 1
     fi
 
-    if [ -z "${REPO_DIR}" ]; then
-        REPO_DIR="${WORK_DIR}/stacks-core"            # default stacks-core checkout location
-    fi
+    # Resolve --repo (label / git URL / local path) into REPO_URL, REPO_DIR, and TRACK_REV.
+    resolve_repo "${REPO}"
 
     # Internal configurations
     SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
-    REMOTE_REPO="stacks-network/stacks-core"          # remote git repo to build stacks-inspect from
     TMUX_SESSION="validation"                         # tmux session name to run the validation
 
     # Detect once whether stdout is attached to a terminal. Drives in-place
@@ -105,28 +107,76 @@ apply_input_config() {
     fi
 }
 
+# Resolve the --repo argument into REPO_URL, REPO_DIR, and TRACK_REV.
+#   - Known label (see REPO_LABELS) → REPO_URL=label's URL, REPO_DIR=${WORK_DIR}/<label>, TRACK_REV=1
+#   - Git URL (https/http/git/ssh/scp-form) → REPO_URL=arg, REPO_DIR=${WORK_DIR}/<basename>, TRACK_REV=1
+#   - Existing local directory → REPO_URL="", REPO_DIR=arg, TRACK_REV=0 (used as-is, --rev ignored)
+# Errors out if the argument matches none of the three.
+resolve_repo() {
+    local arg=$1
+    if [ -n "${REPO_LABELS[${arg}]:-}" ]; then
+        REPO_URL="${REPO_LABELS[${arg}]}"
+        REPO_DIR="${WORK_DIR}/${arg}"
+        TRACK_REV=1
+    elif [[ "${arg}" =~ ^(https?|git|ssh)://|^git@ ]]; then
+        REPO_URL="${arg}"
+        local base
+        base=$(basename "${arg}")
+        REPO_DIR="${WORK_DIR}/${base%.git}"
+        TRACK_REV=1
+    elif [ -d "${arg}" ]; then
+        REPO_URL=""
+        REPO_DIR="${arg}"
+        TRACK_REV=0
+    else
+        echo "${COLRED}Error${COLRESET} --repo '${arg}' is not a known label, a git URL, or an existing directory"
+        exit 1
+    fi
+}
+
 # Show usage and exit
 usage() {
-    echo
-    echo "Usage:"
-    echo "    ${COLBOLD}${0}${COLRESET}"
-    echo "        ${COLYELLOW}--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME}/block-validation)"
-    echo "        ${COLYELLOW}--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
-    echo "        ${COLYELLOW}--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; --rev flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
-    echo "        ${COLYELLOW}--rev${COLRESET}: git revision of stacks-core to build stacks-inspect from. Accepts a branch, tag, or commit SHA (short or full); branches are pulled to the latest, tags/commits land on a detached HEAD (default: develop)"
-    echo "        ${COLYELLOW}--proc${COLRESET}: how many cpu cores to use for validation capped at nproc (default: max(1, nproc/4))"
-    echo "        ${COLYELLOW}--network${COLRESET}: run block validation against specific network (default: mainnet)"
-    echo "        ${COLYELLOW}--range <mode>${COLRESET}: block range to validate (default: full)"
-    echo "            modes: ${COLCYAN}test${COLRESET} (fixed test block ranges for pre-nakamoto and nakamoto)"
-    echo "                   ${COLCYAN}pre-nakamoto${COLRESET} (full Epoch 2 blocks)"
-    echo "                   ${COLCYAN}nakamoto${COLRESET} (full Epoch 3+ blocks)"
-    echo "                   ${COLCYAN}full${COLRESET} (pre-nakamoto + nakamoto blocks)"
-    echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch2/3 boundary)"
-    echo "                   ${COLCYAN}<start>+<count>${COLRESET} (count blocks starting at start, equivalent to <start>:<start+count-1>)"
-    echo
-    echo "    ex: Full block validation with chainstate automatically downloaded"
-    echo "        ${COLCYAN}${0} --workdir /data/workdir ${COLRESET}"
-    echo
+    cat <<EOF
+
+Usage: ${COLBOLD}${0}${COLRESET} [options]
+
+Options:
+    ${COLYELLOW}--workdir <path>${COLRESET}
+        Root folder for block-validation artifacts.
+        Default: ${COLCYAN}${WORK_DIR}${COLRESET}
+    ${COLYELLOW}--chaindir <path>${COLRESET}
+        Local chainstate copy; skips snapshot download.
+        Default: ${COLCYAN}${WORK_DIR}/chain${COLRESET}
+    ${COLYELLOW}--repo <label>|<url>|<path>${COLRESET}
+        stacks-core source. Accepts:
+          ${COLCYAN}<label>${COLRESET} - known shortcut. Choices: ${COLCYAN}stacks-core${COLRESET}. (--rev is applied)
+          ${COLCYAN}<url>${COLRESET}   - git URL (--rev is applied).
+          ${COLCYAN}<path>${COLRESET}  - existing local repository, used as-is (--rev is ignored).
+        Default: ${COLCYAN}stacks-core${COLRESET}
+    ${COLYELLOW}--rev <branch>|<tag>|<sha>${COLRESET}
+        git revision to build. 
+        Branches are pulled to the latest; tags/commits land on detached HEAD.
+        Default: ${COLCYAN}develop${COLRESET}
+    ${COLYELLOW}--proc <n>${COLRESET}
+        CPU cores for validation, capped at nproc.
+        Default: ${COLCYAN}max(1, nproc/4)${COLRESET}
+    ${COLYELLOW}--network <name>${COLRESET}
+        Network to validate. Choices: ${COLCYAN}mainnet${COLRESET}, ${COLCYAN}testnet${COLRESET}.
+        Default: ${COLCYAN}mainnet${COLRESET}
+    ${COLYELLOW}--range <mode>${COLRESET}
+        Block range to validate. Modes:
+          ${COLCYAN}test${COLRESET}            - fixed test ranges for pre-nakamoto and nakamoto
+          ${COLCYAN}pre-nakamoto${COLRESET}    - full Epoch 2 blocks
+          ${COLCYAN}nakamoto${COLRESET}        - full Epoch 3+ blocks
+          ${COLCYAN}full${COLRESET}            - pre-nakamoto + nakamoto blocks
+          ${COLCYAN}<start>:<end>${COLRESET}   - inclusive range; auto-splits at the epoch2/3 boundary
+          ${COLCYAN}<start>+<count>${COLRESET} - <count> blocks starting at <start>
+        Default: ${COLCYAN}full${COLRESET}
+
+Example: full block validation, auto-downloading the chainstate using stacks-core public repo at develop
+    ${COLCYAN}${0} --workdir /data/workdir${COLRESET}
+
+EOF
 }
 
 # Verify that cargo is installed in the expected path, not only $PATH
@@ -173,7 +223,7 @@ checkout_rev() {
 
 # Build release stacks-inspect binary.
 # When TRACK_REV=1 (default): clone if missing, otherwise check out ${REPO_REV}.
-# When TRACK_REV=0 (set by --repodir): treat REPO_DIR as a pre-existing checkout.
+# When TRACK_REV=0 (set by --repo <path>): treat REPO_DIR as a pre-existing checkout.
 build_stacks_inspect() {
     if [ "${TRACK_REV}" -eq 0 ]; then
         if [ ! -d "${REPO_DIR}" ]; then
@@ -193,9 +243,9 @@ build_stacks_inspect() {
         checkout_rev
     else
         # Full clone (no --branch, since it rejects bare SHAs); resolve REPO_REV afterwards.
-        echo "Cloning stacks-core into ${COLYELLOW}${REPO_DIR}${COLRESET}"
-        git clone "https://github.com/${REMOTE_REPO}" "${REPO_DIR}" || {
-            echo "${COLRED}Error${COLRESET} cloning https://github.com/${REMOTE_REPO} into ${REPO_DIR}"
+        echo "Cloning ${COLYELLOW}${REPO_URL}${COLRESET} into ${COLYELLOW}${REPO_DIR}${COLRESET}"
+        git clone "${REPO_URL}" "${REPO_DIR}" || {
+            echo "${COLRED}Error${COLRESET} cloning ${REPO_URL} into ${REPO_DIR}"
             exit 1
         }
         cd "${REPO_DIR}"
@@ -863,12 +913,12 @@ parse_args() {
                 REPO_REV=${2}
                 shift
                 ;;
-            --repodir)
-                # Use an existing stacks-core checkout. Disables the rev-tracking
-                # logic in build_stacks_inspect — the dir is used as-is, --rev is ignored.
+            --repo)
+                # stacks-core repo source: known label, git URL, or existing local path.
+                # Resolved in apply_input_config → resolve_repo (label/URL → cloned and
+                # --rev applied; path → used as-is, --rev ignored).
                 require_value "${1}" "${2:-}"
-                REPO_DIR="${2}"
-                TRACK_REV=0
+                REPO="${2}"
                 shift
                 ;;
             --chaindir)
