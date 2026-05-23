@@ -109,19 +109,19 @@ usage() {
     echo
     echo "Usage:"
     echo "    ${COLBOLD}${0}${COLRESET}"
-    echo "        ${COLYELLOW}-v|--validate <mode>${COLRESET}: what to validate (default: full)"
+    echo "        ${COLYELLOW}--validate <mode>${COLRESET}: what to validate (default: full)"
     echo "            modes: ${COLCYAN}test${COLRESET} (fixed test block ranges for pre-nakamoto and nakamoto)"
     echo "                   ${COLCYAN}pre-nakamoto${COLRESET} (full Epoch 2 blocks)"
     echo "                   ${COLCYAN}nakamoto${COLRESET} (full Epoch 3+ blocks)"
     echo "                   ${COLCYAN}full${COLRESET} (pre-nakamoto + nakamoto blocks)"
     echo "                   ${COLCYAN}<start>:<end>${COLRESET} (inclusive range in continuous block space; auto-splits at the epoch2/3 boundary)"
     echo "                   ${COLCYAN}<start>+<count>${COLRESET} (count blocks starting at start, equivalent to <start>:<start+count-1>)"
-    echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
-    echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
-    echo "        ${COLYELLOW}-r|--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; branch flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
-    echo "        ${COLYELLOW}-c|--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
-    echo "        ${COLYELLOW}-p|--proc${COLRESET}: how many cpu cores to use for validation cappet at nproc (default: max(1, nproc/4))"
-    echo "        ${COLYELLOW}-w|--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME})"
+    echo "        ${COLYELLOW}--network${COLRESET}: run block validation against specific network (default: mainnet)"
+    echo "        ${COLYELLOW}--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
+    echo "        ${COLYELLOW}--repodir${COLRESET}: use an existing stacks-core checkout as-is. It must exist; branch flag is ignored (default: ${WORK_DIR}/stacks-core - with automatic checkout)"
+    echo "        ${COLYELLOW}--chaindir${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot (default: download and extract to ${WORK_DIR}/chain)"
+    echo "        ${COLYELLOW}--proc${COLRESET}: how many cpu cores to use for validation cappet at nproc (default: max(1, nproc/4))"
+    echo "        ${COLYELLOW}--workdir${COLRESET}: root folder used for block validation and related artifacts (default: ${HOME})"
     echo
     echo "    ex: Full block validation with chainstate automatically downloaded"
     echo "        ${COLCYAN}${0} -w /data/workdir ${COLRESET}"
@@ -805,7 +805,7 @@ require_value() {
 parse_args() {
     while [ ${#} -gt 0 ]; do
         case ${1} in
-            -v|--validate)
+            --validate)
                 # What to validate; see usage for accepted values
                 require_value "${1}" "${2:-}"
                 VALIDATE="${2}"
@@ -821,19 +821,19 @@ parse_args() {
                 esac
                 shift
                 ;;
-            -n|--network)
+            --network)
                 # Required if not mainnet
                 require_value "${1}" "${2:-}"
                 NETWORK=${2}
                 shift
                 ;;
-            -b|--branch)
+            --branch)
                 # Build from a specific branch
                 require_value "${1}" "${2:-}"
                 BRANCH=${2}
                 shift
                 ;;
-            -r|--repodir)
+            --repodir)
                 # Use an existing stacks-core checkout. Disables the branch-tracking
                 # logic in build_stacks_inspect — the dir is used as-is, --branch is ignored.
                 require_value "${1}" "${2:-}"
@@ -841,13 +841,13 @@ parse_args() {
                 TRACK_BRANCH=0
                 shift
                 ;;
-            -c|--chaindir)
+            --chaindir)
                 # Use a local chainstate
                 require_value "${1}" "${2:-}"
                 CHAIN_DIR="${2}"
                 shift
                 ;;
-            -p|--proc)
+            --proc)
                 # Cores to use for validation
                 require_value "${1}" "${2:-}"
                 if ! [[ "$2" =~ ^[0-9]+$ ]]; then
@@ -857,7 +857,7 @@ parse_args() {
                 CORES=${2}
                 shift
                 ;;
-            -w|--workdir)
+            --workdir)
                 # Use a specified workdir
                 require_value "${1}" "${2:-}"
                 WORK_DIR="${2}"
