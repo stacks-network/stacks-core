@@ -647,16 +647,20 @@ compute_progress_pct() {
 # Args: <log_file>...   slice logs for the current phase, used to estimate %.
 check_progress() {
     local slice_logs=("$@")
-    # Give the pids a few seconds to show up in process table before checking if they're running
-    local sleep_duration=5
     local progress=1
     local sp="/-\|"
     local count pct
-    while [ $sleep_duration -gt 0 ]; do
-        ${IS_TTY} && printf "Sleeping ...  \b [ %s%s%s ] \033[0K\r" "${COLYELLOW}" "${sleep_duration}" "${COLRESET}"
-        sleep_duration=$((sleep_duration-1))
+    # Give the pids a while to show up in the process table before checking if they're running
+    while true; do
+        count=$(pgrep -c "stacks-inspect" || true)
+        if [ "${count}" -eq 0 ]; then
+            ${IS_TTY} && printf "Waiting for processes to be spawned ...  \b [ %s%s%s ] \033[0K\r" "${COLYELLOW}" "${sleep_duration}" "${COLRESET}"
+        else
+            break
+        fi
         sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
+
     echo "************************************************************************"
     echo "Checking Block Validation status"
     echo ' '
