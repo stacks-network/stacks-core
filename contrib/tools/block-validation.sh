@@ -30,14 +30,14 @@ set -Eeuo pipefail
 # ** Recommendations
 #   - Run this script in screen or tmux
 #   - Use an existing chainstate on a disk formatted using XFS, Btrfs, ZFS or APFS (for XFS, reflink support must be enabled at fs-creation time; this is the default in recent OS versions)
-#   - If using a filesystem which doesn't support reflink (e.g. ext4), ensure that the SCRATCH_DIR volume has multiple TBs of free space - each allocated CPU will require its own chainstate copy.
-#   - If using CHAIN_DIR on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the SCRATCH_DIR.
+#   - If using a filesystem which doesn't support reflink (e.g. ext4), ensure that the workdir volume has multiple TBs of free space - each allocated CPU will require its own chainstate copy.
+#   - If using CHAIN_DIR on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the workdir.
 #   - Depending on how many CPU cores you have available, a full run will take several hours. More CPUs = faster execution time.
 #     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled partition, full validation took ~14 hours.
 
 # ANSI styling helpers. Skip codes when stdout isn't a TTY so logs stay plain.
-# style <sgr-code> <text...> — wraps text in an SGR code (e.g. "31" red, "1;33" bold yellow).
-style() {
+# style <sgr-code> <text...> — wraps text in an SGR code.
+_style() {
     local code=$1
     shift
     if ${IS_TTY}; then
@@ -46,20 +46,50 @@ style() {
         printf '%s' "$*"
     fi
 }
-bold()        { style "1"    "$*"; }
-red()         { style "31"   "$*"; }
-green()       { style "32"   "$*"; }
-yellow()      { style "33"   "$*"; }
-cyan()        { style "36"   "$*"; }
-bold_yellow() { style "1;33" "$*"; }
+bold()        { _style "1"    "$*"; }
+red()         { _style "31"   "$*"; }
+green()       { _style "92"   "$*"; }
+yellow()      { _style "33"   "$*"; }
+blue()        { _style "94"   "$*"; }
+cyan()        { _style "36"   "$*"; }
+bold_yellow() { _style "1;33" "$*"; }
+bold_green()  { _style "1;92" "$*"; }
+highlight()   { cyan "$*"; }
 
-# Known --repo label → canonical clone URL. Add entries here to support more shortcuts.
+# Logging helpers. All accept a printf-style format string + args.
+# println adds a trailing \n (Java/Go convention); print writes raw — used for
+# in-place updates with \r (e.g. progress bars in check_progress).
+# info goes to stdout; warn/error go to stderr so callers can filter noise.
+# error does NOT exit — callers decide control flow.
+# Note: [INFO]/[WARN]/[ERRO] are kept 4 chars wide so prefixes line up; don't "fix" ERRO to ERROR.
+println() { local fmt=${1:-}; shift || true; printf "${fmt}\n" "$@"; }
+print()   { local fmt=${1:-}; shift || true; printf "${fmt}"   "$@"; }
+_log() {
+    local prefix=$1 fmt=$2
+    shift 2
+    local ts="$(date +%Y-%m-%dT%H:%M:%S%z)"
+    printf "[%s][%s] ${fmt}\n" "${prefix}" "${ts}" "$@" >&2
+}
+info()  { _log "$(blue   'INFO')" "$@"; }
+warn()  { _log "$(yellow 'WARN')" "$@"; }
+error() { _log "$(red    'ERRO')" "$@"; }
+
+# Known --repo label
 declare -rA REPO_LABELS=(
     [stacks-core]="https://github.com/stacks-network/stacks-core.git"
     [stacks-core-p]="git@github.com:stx-labs/stacks-blockchain-p.git"
 )
 
-set_system_config() {
+# Initialize user-overridable and env defaults. 
+pre_input_config() {
+    WORK_DIR="${HOME}/block-validation"        # root folder used for block validation and related artifacts
+    CHAIN_DIR=""                               # path to local chainstate to use instead of snapshot download
+    REPO="stacks-core"                         # --repo value: known label, git URL, or path to an existing checkout.
+    REPO_REV="develop"                         # default git revision (branch, tag, or commit) to build stacks-inspect from
+    CORES=""                                   # cores to use for validation; resolved in post_input_config
+    NETWORK="mainnet"                          # network to validate
+    RANGE="full"                               # block range to validate: scenario or numeric range
+
     if [[ -t 1 ]]; then
         IS_TTY=true
     else
@@ -67,27 +97,13 @@ set_system_config() {
     fi
 }
 
-# Initialize user-overridable defaults. Anything the
-# user can set via a CLI flag has its default here.
-set_default_config() {
-    WORK_DIR="${HOME}/block-validation"        # root folder used for block validation and related artifacts
-    CHAIN_DIR=""                               # path to local chainstate to use instead of snapshot download
-    REPO="stacks-core"                         # --repo value: known label, git URL, or path to an existing checkout.
-    REPO_REV="develop"                         # default git revision (branch, tag, or commit) to build stacks-inspect from
-    CORES=""                                   # cores to use for validation; resolved in apply_input_config
-    NETWORK="mainnet"                          # network to validate
-    RANGE="full"                               # block range to validate: scenario or numeric range
-}
-
 # Derive configurations and resolved values from the user-supplied config
-apply_input_config() {
+post_input_config() {
     # Input based configurations
     SCRATCH_DIR="${WORK_DIR}/scratch"                 # root folder for the validation slices
-    # LOG_ROOT is the persistent parent that collects every run; LOG_DIR is this
-    # run's timestamped subdir inside it (created fresh, never deleted afterwards).
-    LOG_ROOT="${WORK_DIR}/logs"
+    local log_root="${WORK_DIR}/logs"                 
     local timestamp=$(date +%Y-%m-%d-%s)              # year-month-day-epoch
-    LOG_DIR="${LOG_ROOT}/${timestamp}"
+    LOG_DIR="${log_root}/${timestamp}"                # logs folder
 
     # Resolve CORES: number of validation workers to run in parallel.
     # Default: max(1, nproc/4) — leaves headroom for the system on large boxes.
@@ -100,13 +116,13 @@ apply_input_config() {
             CORES=1
         fi
     elif [ "${CORES}" -gt "${system_cores}" ]; then
-        echo "$(yellow "Warning"): requested cores (${CORES}) exceeds detected cores (${system_cores}); capping to ${system_cores}"
+        warn "requested cores (${CORES}) exceeds detected cores (${system_cores}); capping to ${system_cores}"
         CORES="${system_cores}"
     elif [ "${CORES}" -eq "${system_cores}" ]; then
-        echo "$(yellow "Warning"): using all ${system_cores} available cores; system may be unresponsive during validation"
+        warn "using all ${system_cores} available cores; system may be unresponsive during validation"
     fi
     if [ "${CORES}" -lt 1 ]; then
-        echo "$(red "Error") cores (${CORES}) must be at least 1"
+        error "cores (${CORES}) must be at least 1"
         exit 1
     fi
 
@@ -119,28 +135,27 @@ apply_input_config() {
 }
 
 # Resolve the --repo argument into REPO_URL, REPO_DIR, and TRACK_REV.
-#   - Known label (see REPO_LABELS) → REPO_URL=label's URL, REPO_DIR=${WORK_DIR}/<label>, TRACK_REV=1
-#   - Git URL (https/http/git/ssh/scp-form) → REPO_URL=arg, REPO_DIR=${WORK_DIR}/<basename>, TRACK_REV=1
-#   - Existing local directory → REPO_URL="", REPO_DIR=arg, TRACK_REV=0 (used as-is, --rev ignored)
-# Errors out if the argument matches none of the three.
 resolve_repo() {
     local arg=$1
+    # Known label
     if [ -n "${REPO_LABELS[${arg}]:-}" ]; then
         REPO_URL="${REPO_LABELS[${arg}]}"
         REPO_DIR="${WORK_DIR}/${arg}"
         TRACK_REV=1
+    # Git URL  
     elif [[ "${arg}" =~ ^(https?|git|ssh)://|^git@ ]]; then
         REPO_URL="${arg}"
         local base
         base=$(basename "${arg}")
         REPO_DIR="${WORK_DIR}/${base%.git}"
         TRACK_REV=1
+    # Existing local directory
     elif [ -d "${arg}" ]; then
         REPO_URL=""
         REPO_DIR="${arg}"
         TRACK_REV=0
     else
-        echo "$(red "Error") --repo '${arg}' is not a known label, a git URL, or an existing directory"
+        error "--repo '${arg}' is not a known label, a git URL, or an existing directory"
         exit 1
     fi
 }
@@ -193,41 +208,41 @@ EOF
 # Verify that cargo is installed in the expected path, not only $PATH
 install_cargo() {
     command -v "${HOME}/.cargo/bin/cargo" >/dev/null 2>&1 || {
-        echo "Installing Rust via rustup"
+        println "Installing Rust via rustup"
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || {
-            echo "$(red "Error") installing Rust"
+            error "installing Rust"
             exit 1
         }
     }
-    echo "Exporting ${HOME}/.cargo/env"
+    println "Exporting ${HOME}/.cargo/env"
     # shellcheck source=/dev/null
     source "${HOME}/.cargo/env"
     return 0
 }
 
 # Resolve and check out ${REPO_REV} in the current directory. Accepts:
-#   - a branch name → switches to it and fast-forwards from origin
-#   - a tag         → detached HEAD at the tag (no pull)
-#   - a commit SHA  → detached HEAD at the commit (no pull); short or full
+#   - a branch name: switches to it and fast-forwards from origin
+#   - a tag        : detached HEAD at the tag (no pull)
+#   - a commit SHA : detached HEAD at the commit (no pull); short or full
 # Call after fetching, so remote-only branches/tags are resolvable.
 checkout_rev() {
     if git show-ref --verify --quiet "refs/remotes/origin/${REPO_REV}"; then
         # Branch case: create/reset a local branch tracking origin/${REPO_REV}.
         # `checkout -B` is force-create + reset to the upstream tip in one step.
-        echo "Checking out branch $(green "${REPO_REV}") (tracking origin/${REPO_REV})"
+        println "Checking out branch $(highlight "${REPO_REV}") (tracking origin/${REPO_REV})"
         git checkout -B "${REPO_REV}" "origin/${REPO_REV}" || {
-            echo "$(red "Error") checking out branch ${REPO_REV}"
+            error "checking out branch ${REPO_REV}"
             exit 1
         }
     elif git rev-parse --verify --quiet "${REPO_REV}^{commit}" >/dev/null; then
         # Tag or commit SHA (short/full): detach HEAD at the resolved commit.
-        echo "Checking out $(green "${REPO_REV}") (detached HEAD — tag or commit)"
+        println "Checking out $(highlight "${REPO_REV}") (detached HEAD — tag or commit)"
         git checkout --detach "${REPO_REV}" || {
-            echo "$(red "Error") checking out ${REPO_REV}"
+            error "checking out ${REPO_REV}"
             exit 1
         }
     else
-        echo "$(red "Error") revision '${REPO_REV}' not found in ${REPO_DIR} (not a branch, tag, or known commit)"
+        error "revision '${REPO_REV}' not found in ${REPO_DIR} (not a branch, tag, or known commit)"
         exit 1
     fi
 }
@@ -238,37 +253,37 @@ checkout_rev() {
 build_stacks_inspect() {
     if [ "${TRACK_REV}" -eq 0 ]; then
         if [ ! -d "${REPO_DIR}" ]; then
-            echo "$(red "Error") repo dir not found: ${REPO_DIR}"
+            error "repo dir not found: ${REPO_DIR}"
             exit 1
         fi
-        echo "Using existing checkout at $(yellow "${REPO_DIR}") as-is (rev tracking disabled)"
+        info "Using existing checkout at $(highlight "${REPO_DIR}") as-is (rev tracking disabled)"
     elif [ -d "${REPO_DIR}" ]; then
-        echo "Found $(yellow "${REPO_DIR}"). Updating to $(green "${REPO_REV}")"
+        info "Found $(highlight "${REPO_DIR}"). Updating to $(highlight "${REPO_REV}")"
         cd "${REPO_DIR}"
         # Stash local changes so checkout is clean; --tags pulls in new tags too.
         git stash --include-untracked
         git fetch --tags --prune origin || {
-            echo "$(red "Error") fetching from origin"
+            error "fetching from origin"
             exit 1
         }
         checkout_rev
     else
         # Full clone (no --branch, since it rejects bare SHAs); resolve REPO_REV afterwards.
-        echo "Cloning $(yellow "${REPO_URL}") into $(yellow "${REPO_DIR}")"
+        info "Cloning $(highlight "${REPO_URL}") into $(highlight "${REPO_DIR}")"
         git clone "${REPO_URL}" "${REPO_DIR}" || {
-            echo "$(red "Error") cloning ${REPO_URL} into ${REPO_DIR}"
+            error "cloning ${REPO_URL} into ${REPO_DIR}"
             exit 1
         }
         cd "${REPO_DIR}"
         checkout_rev
     fi
     # Build stacks-inspect to: ${REPO_DIR}/target/release/stacks-inspect
-    echo "Building stacks-inspect binary"
+    info "Building stacks-inspect binary"
     cd "${REPO_DIR}/contrib/stacks-inspect" && cargo build --bin=stacks-inspect --release || {
-        echo "$(red "Error") building stacks-inspect binary"
+        error "building stacks-inspect binary"
         exit 1
     }
-    echo "Done building. continuing"
+    info "Done building. continuing"
 }
 
 # Resolve chain dir: use the user-provided path if set, otherwise reuse
@@ -276,14 +291,14 @@ build_stacks_inspect() {
 configure_chainstate() {
     if [[ -n "${CHAIN_DIR}" ]]; then
         if [ ! -d "${CHAIN_DIR}" ]; then
-            echo "$(red "Error") Chainstate not found: ${CHAIN_DIR}"
+            error "Chainstate not found: ${CHAIN_DIR}"
             exit 1
         fi
-        echo "$(yellow "Using local chainstate: ${CHAIN_DIR}")"
+        info "$(highlight "Using local chainstate: ${CHAIN_DIR}")"
     else
         CHAIN_DIR="${WORK_DIR}/chain"
         if [ -d "${CHAIN_DIR}" ]; then
-            echo "Chainstate found. It will be reused: $(yellow "${CHAIN_DIR}")"
+            info "Chainstate found. It will be reused: $(highlight "${CHAIN_DIR}")"
             return 0
         fi
 
@@ -291,26 +306,26 @@ configure_chainstate() {
         local archive_path="${download_dir}/${NETWORK}-stacks-blockchain-latest.tar.zst"
         
         if [ -f "${archive_path}" ]; then
-            echo "Chainstate archive found will be reused: $(yellow "${archive_path}")"    
+            info "Chainstate archive found. It will be reused: $(highlight "${archive_path}")"
         else     
             mkdir -p "${download_dir}"
-            echo "Downloading latest ${NETWORK} chainstate archive $(yellow "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst")"
+            info "Downloading latest ${NETWORK} chainstate archive $(highlight "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst")"
             local url="https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst"
             aria2c -x 16 -s 16 -k 1M --summary-interval=0 -d "${download_dir}" "${url}"  || {
-            echo "$(red "Error") downloading latest ${NETWORK} chainstate archive"
-            exit 1
+                error "downloading latest ${NETWORK} chainstate archive"
+                exit 1
             }
         fi
 
         # Extract downloaded archive
         mkdir -p "${CHAIN_DIR}"
-        echo "Extracting downloaded archive: $(yellow "${archive_path}")"
+        info "Extracting downloaded archive: $(highlight "${archive_path}")"
         if [ ! -f "${archive_path}" ]; then
-            echo "$(red "Error") ${archive_path} not found"
+            error "${archive_path} not found"
             exit 1
         fi
         tar --strip-components=1 --zstd -xvf "${archive_path}" -C "${CHAIN_DIR}" || {
-            echo "$(red "Error") extracting ${NETWORK} chainstate archive"
+            error "extracting ${NETWORK} chainstate archive"
             exit 1
         }
     fi
@@ -357,27 +372,27 @@ configure_validation_slices() {
                 fi
             done
             if [ "${all_valid}" -eq 1 ]; then
-                echo "Reusing existing scratch dir: $(yellow "${SCRATCH_DIR}") (${expected_slices} slices, chainstate: ${CHAIN_DIR})"
+                info "Scratch dir found. It will be reused: $(highlight "${SCRATCH_DIR}") (${expected_slices} slices)"
                 return 0
             fi
-            echo "$(yellow "Scratch dir metadata matched but slices are incomplete"), rebuilding"
+            warn "$(highlight "Scratch dir metadata matched but slices are incomplete"), rebuilding ..."
         else
-            echo "Scratch dir was built with a different config or chainstate content changed, rebuilding"
+            warn "Scratch dir was built with a different config or chainstate content changed, rebuilding ..."
         fi
     fi
 
     # If we got here, we need to build the slice dirs from the local chainstate. 
     # First clean up any existing scratch dir contents since we're not reusing it.
     if [ -d "${SCRATCH_DIR}" ]; then
-        echo "Deleting existing scratch dir contents: $(yellow "${SCRATCH_DIR}")"
+        info "Deleting existing scratch dir contents: $(highlight "${SCRATCH_DIR}")"
         find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P "${expected_slices}" -n 500 rm -rf || {
-            echo "$(red "Error") deleting dir contents: ${SCRATCH_DIR}"
+            error "deleting dir contents: ${SCRATCH_DIR}"
             exit 1
         }
     fi
-    echo "Creating scratch and slice dirs"
+    info "Creating scratch and slice dirs"
     (mkdir -p "${SLICE_DIR}0" && cd "${SCRATCH_DIR}") || {
-        echo "$(red "Error") creating dir ${SLICE_DIR}0"
+        error "creating dir ${SLICE_DIR}0"
         exit 1
     }
 
@@ -386,36 +401,36 @@ configure_validation_slices() {
     touch "${SCRATCH_DIR}/reflink_test"
     if cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null; then
         reflink=1
-        echo "$(green "Reflink is supported"): chainstate slice copies will be fast and space-efficient"
+        println "$(green "Reflink is supported"): chainstate slice copies will be fast and space-efficient"
     else
-        echo "$(yellow "Warning"): reflink is not enabled for this filesystem, chainstate copy will be slower"
+        warn "reflink is not enabled for this filesystem, chainstate copy will be slower"
     fi
     # Remove the test files, silently failing if the file(s) don't exist
     rm "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy"  2>/dev/null
     
     # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
     if [[ ${reflink} -ne "1" ]]; then
-        echo "Copying local chainstate ${CHAIN_DIR} ->  $(yellow "${SLICE_DIR}0")"
+        println "Copying local chainstate ${CHAIN_DIR} ->  $(highlight "${SLICE_DIR}0")"
         cp -r "${CHAIN_DIR}"/* "${SLICE_DIR}0"
 
-        echo "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> $(yellow "${SCRATCH_DIR}/marf.sqlite.blobs")"
+        println "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> $(highlight "${SCRATCH_DIR}/marf.sqlite.blobs")"
         mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/ || {
-            echo "$(red "Error") moving marf database"
+            error "moving marf database"
             exit 1
         }
-        echo "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> $(yellow "${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs")"
+        println "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> $(highlight "${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs")"
         ln -s "${SCRATCH_DIR}"/marf.sqlite.blobs "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs || {
-            echo "$(red "Error") creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
+            error "creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
             exit 1
         }
     else 
-        echo "Copying local chainstate ${CHAIN_DIR} ->  $(yellow "${SLICE_DIR}0")"
+        println "Copying local chainstate ${CHAIN_DIR} ->  $(highlight "${SLICE_DIR}0")"
         cp -r --reflink=always "${CHAIN_DIR}"/* "${SLICE_DIR}0" 2>/dev/null
     fi 
 
     # Sanity check that the chainstate db exists in slice0 before copying
     if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
-        echo "$(red "Error"): chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
+        error "chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
         exit 1
     fi
 
@@ -426,9 +441,9 @@ configure_validation_slices() {
         cp_args+=(--reflink=always)
     fi
     for ((i=1;i<=$(( CORES - 1 ));i++)); do
-        echo "Copying ${SLICE_DIR}0 -> $(yellow "${SLICE_DIR}${i}")"
+        println "Copying ${SLICE_DIR}0 -> $(highlight "${SLICE_DIR}${i}")"
         cp "${cp_args[@]}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
-            echo "$(red "Error") copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
+            error "copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
             exit 1
         }
     done
@@ -441,15 +456,13 @@ configure_validation_slices() {
     } > "${meta_file}"
 }
 
-# Create this run's logdir under LOG_ROOT. LOG_ROOT is persistent; the per-run
-# timestamped subdir is fresh each invocation.
+# Create this run's log dir
 setup_logs() {
-    echo "Creating logdir ${LOG_DIR}"
+    info "Creating logs dir ${LOG_DIR}"
     mkdir -p "${LOG_DIR}" || {
-        echo "$(red "Error") creating logdir ${LOG_DIR}"
+        error "creating logs dir ${LOG_DIR}"
         exit 1
     }
-    echo "${LOG_DIR}" > /tmp/block-validation.logdir
 }
 
 # Delete any existing tmux session and recreate. Pre-creates one window per worker
@@ -457,17 +470,17 @@ setup_logs() {
 # of which scenario (or order of scenarios) is run.
 setup_tmux() {
     if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
-        echo "Killing existing tmux session: ${TMUX_SESSION}"
+        info "Cleaning existing tmux session: ${TMUX_SESSION}"
         eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
     fi
     tmux new-session -d -s "${TMUX_SESSION}" -n "slice0" || {
-        echo "$(red "Error") creating tmux session $(yellow "${TMUX_SESSION}")"
+        error "creating tmux session $(highlight "${TMUX_SESSION}")"
         exit 1
     }
     local i
     for ((i=1; i<CORES; i++)); do
         tmux new-window -t "${TMUX_SESSION}" -d -n "slice${i}" || {
-            echo "$(red "Error") creating tmux window $(yellow "slice${i}")"
+            error "creating tmux window $(highlight "slice${i}")"
             exit 1
         }
     done
@@ -484,7 +497,7 @@ get_total_blocks() {
         nakamoto)     range_command="naka-index-range" ;;
         pre-nakamoto) range_command="index-range" ;;
         *)
-            echo "$(red "Error") get_total_blocks: invalid mode '${mode}'" >&2
+            error "get_total_blocks: invalid mode '${mode}'" >&2
             exit 1
             ;;
     esac
@@ -492,13 +505,13 @@ get_total_blocks() {
     local inspect_config="${REPO_DIR}/sample/conf/${NETWORK}-follower-conf.toml"
     local count_output
     if ! count_output=$("${inspect_bin}" --config "${inspect_config}" validate-block "${SLICE_DIR}0" "${range_command}" 2>/dev/null); then
-        echo "$(red "Error") retrieving total ${mode} blocks from chainstate" >&2
+        error "retrieving total ${mode} blocks from chainstate" >&2
         exit 1
     fi
     local total
     total=$(printf '%s\n' "${count_output}" | awk -F " " '{print $NF}')
     if [ -z "${total}" ]; then
-        echo "$(red "Error") parsing block count for ${mode}" >&2
+        error "parsing block count for ${mode}" >&2
         exit 1
     fi
     printf '%s' "${total}"
@@ -517,7 +530,7 @@ validate_block_range() {
         nakamoto)     range_command="naka-index-range"; log_append="_nakamoto" ;;
         pre-nakamoto) range_command="index-range";      log_append="" ;;
         *)
-            echo "$(red "Error") validate_block_range: invalid mode '${mode}'"
+            error "validate_block_range: invalid mode '${mode}'"
             exit 1
             ;;
     esac
@@ -536,7 +549,7 @@ validate_block_range() {
             local epoch_min=${pre_total}
             local epoch_max=$((pre_total + naka_total - 1))
             if [ "${global_start}" -lt "${epoch_min}" ] || [ "${global_end}" -gt "${epoch_max}" ]; then
-                echo "$(red "Error") nakamoto range ${global_start}-${global_end} is outside the available epoch (${epoch_min}-${epoch_max})"
+                error "nakamoto range ${global_start}-${global_end} is outside the available epoch (${epoch_min}-${epoch_max})"
                 exit 1
             fi
             starting_block=$((global_start - pre_total))
@@ -547,7 +560,7 @@ validate_block_range() {
             pre_total=$(get_total_blocks pre-nakamoto)
             local epoch_max=$((pre_total - 1))
             if [ "${global_start}" -lt 0 ] || [ "${global_end}" -gt "${epoch_max}" ]; then
-                echo "$(red "Error") pre-nakamoto range ${global_start}-${global_end} is outside the available epoch (0-${epoch_max})"
+                error "pre-nakamoto range ${global_start}-${global_end} is outside the available epoch (0-${epoch_max})"
                 exit 1
             fi
             starting_block=${global_start}
@@ -569,14 +582,14 @@ validate_block_range() {
         slices=$block_diff
     fi
     local slice_blocks=$((block_diff / slices))
-
-    echo "************************************************************************"
-    echo "Mode: $(yellow "${mode}")"
-    echo "Block range: $(yellow "${global_start}-${global_end}") (${block_diff} blocks)"
-    echo "Slices: $(yellow "${slices}") | Blocks/slice: $(yellow "${slice_blocks}")"
-    local range_label="> ${mode} validation"
+    
+    local range_label="${mode} validation"
     local range_start=$(phase_start "${range_label}")
-    echo "************************************************************************"
+    println "************************************************************************"
+    println "Mode: $(highlight "${mode}")"
+    println "Block range: $(highlight "${global_start}-${global_end}") (${block_diff} blocks)"
+    println "Slices: $(highlight "${slices}") | Blocks/slice: $(highlight "${slice_blocks}")"
+    println "************************************************************************"
 
     local end_block_count=$starting_block
     local slice_counter=0
@@ -596,15 +609,15 @@ validate_block_range() {
         slice_log_files+=("${log_file}")
         local log=" | tee -a ${log_file}"
         local cmd="${inspect_prefix} ${slice_path} ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
-        echo "  $(green "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(yellow "${global_slice_start}-${global_slice_end}") :: Logging to: ${log_file}"
+        println "  $(highlight "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(highlight "${global_slice_start}-${global_slice_end}") :: Logging to: ${log_file}"
         echo "Command: ${cmd}" > "${log_file}"
         echo "Validating blocks: ${global_slice_start}-${global_slice_end} (out of ${global_end})" >> "${log_file}"
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "${cmd}${log}" Enter || {
-            echo "$(red "Error") sending stacks-inspect command to tmux window $(yellow "slice${slice_counter}")"
+            error "sending stacks-inspect command to tmux window $(highlight "slice${slice_counter}")"
             exit 1
         }
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "echo \${PIPESTATUS[0]} >> ${log_file}" Enter || {
-            echo "$(red "Error") sending return status command to tmux window $(yellow "slice${slice_counter}")"
+            error "sending return status command to tmux window $(highlight "slice${slice_counter}")"
             exit 1
         }
         slice_counter=$((slice_counter + 1))
@@ -632,7 +645,7 @@ run_validation() {
             fi
             local naka_start=300883 naka_end=301882
 
-            echo "$(bold "Validating in test mode")"
+            info "$(bold_yellow "Validating in test mode")"
             validate_block_range pre-nakamoto "${pre_start}" "${pre_end}"
             validate_block_range nakamoto "${naka_start}" "${naka_end}"
             ;;
@@ -661,7 +674,7 @@ run_validation() {
                 start=${BASH_REMATCH[1]}
                 end=${BASH_REMATCH[2]}
                 if [ "${start}" -gt "${end}" ]; then
-                    echo "$(red "Error") Invalid range: start (${start}) > end (${end})"
+                    error "Invalid range: start (${start}) > end (${end})"
                     exit 1
                 fi
             elif [[ "${RANGE}" =~ ^([0-9]+)[+]([0-9]+)$ ]]; then
@@ -669,12 +682,12 @@ run_validation() {
                 start=${BASH_REMATCH[1]}
                 local count=${BASH_REMATCH[2]}
                 if [ "${count}" -lt 1 ]; then
-                    echo "$(red "Error") Invalid count: must be at least 1 (got ${count})"
+                    error "Invalid count: must be at least 1 (got ${count})"
                     exit 1
                 fi
                 end=$((start + count - 1))
             else
-                echo "$(red "Error") Invalid --range value: '${RANGE}'"
+                error "Invalid --range value: '${RANGE}'"
                 exit 1
             fi
             
@@ -685,7 +698,7 @@ run_validation() {
             elif [ "${start}" -ge "${pre_total}" ]; then
                 validate_block_range nakamoto "${start}" "${end}"
             else
-                echo "$(yellow "Range straddles epoch boundary at block ${pre_total}; splitting into two runs")"
+                warn "Range straddles epoch boundary at block ${pre_total}; splitting into two runs"
                 validate_block_range pre-nakamoto "${start}" $((pre_total - 1))
                 validate_block_range nakamoto "${pre_total}" "${end}"
             fi
@@ -739,28 +752,28 @@ check_progress() {
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
         if [ "${count}" -eq 0 ]; then
-            ${IS_TTY} && printf "Waiting for processes to be spawned ... \033[0K\r"
+            ${IS_TTY} && print "Waiting for processes to be spawned ... \033[0K\r"
         else
             break
         fi
         sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
 
-    echo "************************************************************************"
-    echo "Checking Block Validation status"
-    echo ' '
+    println "************************************************************************"
+    println "Checking Block Validation status"
+    println ' '
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
         if [ "${count}" -gt 0 ]; then
             pct=$(compute_progress_pct "${slice_logs[@]}")
-            ${IS_TTY} && printf "Block validation processes are currently active [ %s ] Progress: [ %s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "$(bold_yellow "${count}")" "$(bold_yellow "${pct}")"
+            ${IS_TTY} && print "Block validation processes are currently active [ %s ] Progress: [ %s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "$(bold_yellow "${count}")" "$(bold_yellow "${pct}")"
         else
-            ${IS_TTY} && printf "\rAll block validation processes finished\033[0K\n"
+            ${IS_TTY} && print "\rAll block validation processes finished\033[0K\n"
             break
         fi
         sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
-    echo "************************************************************************"
+    println "************************************************************************"
 }
 
 # Aggregate per-slice return codes and "Failed processing block" lines into
@@ -773,15 +786,14 @@ store_results() {
     local failure_count=0;
     local return_code=0;
     local count_one=0
-    echo "Results: $(yellow "${results}")"
     cd "${LOG_DIR}" || {
-        echo "$(red "Error") Logdir $(yellow "${LOG_DIR}") doesn't exist"
+        error "Logdir $(highlight "${LOG_DIR}") doesn't exist"
         exit 1
     }
     # Retrieve the count of all lines with `Failed processing block`
     # Check the return codes to see if we had a panic
     for file in $(find . -name "slice*.log" -printf '%P\n' | sort); do
-        echo "Checking file: $(yellow "$file")"
+        info "Checking file: $(highlight "$file")"
         return_code=$(tail -1 "${file}")
         case ${return_code} in
             0)
@@ -804,7 +816,7 @@ store_results() {
 
     if [ "${failed}" != "0" ]; then
         failure_count=$failed
-        echo "Panic: $(red "$failure_count")"
+        println "Panic: $(red "$failure_count")"
     fi
 
     # Use the $failed var here in case there is a panic, then $failure_count may show zero, but the validation was not successful
@@ -818,7 +830,7 @@ store_results() {
         if [ "${failure_count}" -gt 0 ]; then
             for line in ${output}; do
                 echo "${line}" >> "${results}" || {
-                    echo "$(red "Error") writing failure to: ${results}"
+                    error "writing failure to: ${results}"
                 }
             done
         else
@@ -826,8 +838,15 @@ store_results() {
             failure_count=$count_one
         fi
     fi
-    echo "Failures: ${failure_count}"
+
     sed  -i "1i Failures: ${failure_count}" "${results}"
+    info "Results: $(highlight "${results}")"
+
+    if [ "${failure_count}" -eq 0 ]; then
+        info "$(bold_green "Block Validation successful!")"
+    else
+        erro "Block validation failures detected: ${failure_count}"
+    fi
 }
 
 # Check and install missing dependencies
@@ -840,7 +859,7 @@ check_dependencies() {
         if [ "${cmd}" == "find" ] && [ -L "${cmd}" ]; then
             rp="$(readlink "$(command -v "${cmd}" || echo "NOTLINK")")"
             if [ "${rp}" == "/bin/busybox" ]; then
-            echo "$(red "ERROR") Busybox 'find' is not supported. Please install 'findutils' or similar."
+            error "Busybox 'find' is not supported. Please install 'findutils' or similar."
             exit 1
             fi
         fi
@@ -848,12 +867,12 @@ check_dependencies() {
         command -v "${cmd}" >/dev/null 2>&1 || {
             case "${cmd}" in
                 "apt-get")
-                    echo "$(yellow "WARN") 'apt-get' not found; automatic package installation will fail"
+                    warn "'apt-get' not found; automatic package installation will fail"
                     has_apt=0
                     continue
                     ;;
                 "sudo")
-                    echo "$(yellow "WARN") 'sudo' not found; automatic package installation will fail"
+                    warn "'sudo' not found; automatic package installation will fail"
                     has_sudo=0
                     continue
                     ;;
@@ -869,11 +888,11 @@ check_dependencies() {
             esac
 
             if [[ ${has_apt} = 0 ]] || [[ ${has_sudo} = 0 ]]; then
-            echo "$(red "Error") Missing command '${cmd}'"
+            error "Missing command '${cmd}'"
             exit 1
             fi
             (sudo apt-get update && sudo apt-get install -y "${package}") || {
-                echo "$(red "Error") installing $package"
+                error "installing $package"
                 exit 1
             }
         }
@@ -881,19 +900,19 @@ check_dependencies() {
 }
 
 # Require that a value was passed after the current flag; otherwise show usage and exit 1.
-# Usage (from inside a parse_args case branch): require_value "${1}" "${2:-}"
+# Usage (from inside a parse_input case branch): require_value "${1}" "${2:-}"
 require_value() {
     local flag=$1
     local value=$2
     if [ -z "${value}" ]; then
-        echo "ERROR: Missing required value for ${flag}"
+        error "Missing required value for ${flag}"
         usage
         exit 1
     fi
 }
 
 # Parse CLI flags into the config globals. See usage() for the supported flags.
-parse_args() {
+parse_input() {
     while [ ${#} -gt 0 ]; do
         case ${1} in
             --range)
@@ -904,7 +923,7 @@ parse_args() {
                     test|pre-nakamoto|nakamoto|full) ;;
                     *)
                         if ! [[ "${RANGE}" =~ ^[0-9]+[:+][0-9]+$ ]]; then
-                            echo "ERROR: Invalid argument: ${1}"
+                            error "Invalid argument: ${1}"
                             usage
                             exit 1
                         fi
@@ -926,8 +945,6 @@ parse_args() {
                 ;;
             --repo)
                 # stacks-core repo source: known label, git URL, or existing local path.
-                # Resolved in apply_input_config → resolve_repo (label/URL → cloned and
-                # --rev applied; path → used as-is, --rev ignored).
                 require_value "${1}" "${2:-}"
                 REPO="${2}"
                 shift
@@ -942,7 +959,7 @@ parse_args() {
                 # Cores to use for validation
                 require_value "${1}" "${2:-}"
                 if ! [[ "$2" =~ ^[0-9]+$ ]]; then
-                    echo "ERROR: arg ($2) is not a number."
+                    error "arg ($2) is not a number."
                     exit 1
                 fi
                 CORES=${2}
@@ -960,7 +977,7 @@ parse_args() {
                 exit 0
                 ;;
             *)
-                echo "ERROR: Invalid argument: ${1}"
+                error "Invalid argument: ${1}"
                 usage
                 exit 1
                 ;;
@@ -983,11 +1000,11 @@ confirm_abort() {
     IFS= read -r reply < /dev/tty || true
     case "${reply}" in
         y|Y|yes|YES)
-            echo "$(red "Aborting.")" >&2
+            println "$(red "Aborting.")" >&2
             exit 130
             ;;
         *)
-            echo "$(green "Continuing.")" >&2
+            println "$(green "Continuing.")" >&2
             trap 'confirm_abort' INT
             ;;
     esac
@@ -997,7 +1014,7 @@ confirm_abort() {
 # Usage: local foo_start=$(phase_start "Foo")
 phase_start() {
     local label=$1
-    echo "${label} started: $(yellow "$(date)")" >&2
+    info "$(highlight "${label}") started"
     date +%s
 }
 
@@ -1009,16 +1026,15 @@ phase_end() {
     local end_epoch=$(date +%s)
     local elapsed=$((end_epoch - start_epoch))
     local duration=$(printf '%02d:%02d:%02d' $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60)))
-    echo "${label} finished: $(yellow "$(date)") (duration: $(yellow "${duration}"))"
+    info "$(highlight "${label}") finished (duration: $(highlight "${duration}"))"
 }
 
 # Entry point
 main() {
     # Env preparation
-    set_system_config
-    set_default_config
-    parse_args "$@"
-    apply_input_config
+    pre_input_config
+    parse_input "$@"
+    post_input_config
     check_dependencies
     ${IS_TTY} && tput reset
     ${IS_TTY} && trap 'confirm_abort' INT
