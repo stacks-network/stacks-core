@@ -183,10 +183,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
 
     // Leave the caller positioned at the end of the blob, as if the write had
     // been a single forward stream.
-    sink.seek(SeekFrom::Start(
-        base.checked_add(total_size).ok_or(Error::OverflowError)?,
-    ))
-    .map_err(Error::IOError)?;
+    sink.seek(SeekFrom::Start(end)).map_err(Error::IOError)?;
 
     Ok(total_size)
 }
