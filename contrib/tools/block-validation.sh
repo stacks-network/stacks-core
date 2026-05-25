@@ -12,12 +12,12 @@ set -Eeuo pipefail
 #
 # See usage() for flags descriptions
 #
-# ** Default folder layout (when only -w/--workdir is set)
+# ** Default folder layout (when only --workdir is set)
 #   ${WORK_DIR}/stacks-core/                   built repo (checkout of develop by default)
 #   ${WORK_DIR}/chain/                         chainstate used as the source of slices
 #   ${WORK_DIR}/downloads/                     downloaded Hiro snapshot archive (expanded in-place to chain/ if missing)
 #   ${WORK_DIR}/scratch/                       slice copies + .scratch_meta
-#   ${WORK_DIR}/logs/<timestamp>/              per-run logs (slices + results)
+#   ${WORK_DIR}/logs/<timestamp>/              per-run logs: slice*.log + slice*.progress per slice, plus results.log
 #
 # ** Caching (each step skips work when a prior artifact is reusable)
 #   - stacks-core/     : reused if present (updated when rev tracking is enabled)
@@ -33,7 +33,7 @@ set -Eeuo pipefail
 #   - If using a filesystem which doesn't support reflink (e.g. ext4), ensure that the workdir volume has multiple TBs of free space - each allocated CPU will require its own chainstate copy.
 #   - If using CHAIN_DIR on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the workdir.
 #   - Depending on how many CPU cores you have available, a full run will take several hours. More CPUs = faster execution time.
-#     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled partition, full validation took ~14 hours.
+#     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled partition, full validation took ~18 hours (up to naka block 8.020.466).
 
 # ANSI styling helpers. Skip codes when stdout isn't a TTY so logs stay plain.
 # style <sgr-code> <text...> — wraps text in an SGR code.
@@ -732,10 +732,10 @@ run_validation() {
 }
 
 # Coarse overall progress for the current phase, computed from the last 1-2 slice
-# progress files (last-spawned slices lag the rest; the final slice may own a
-# different-sized remainder, so a weighted average across all slices would skew
-# optimistic). Each slice's progress file contains a single line — the latest
-# "Validating: NN%" entry — kept current by the awk filter in validate_block_range.
+# progress files (the final slice may own a different-sized remainder, so a
+# weighted average across all slices would skew optimistic). Each slice's progress
+# file contains a single line — the latest "Validating: NN%" entry — kept current
+# by the read-loop filter in validate_block_range.
 # Args: <progress_file>...
 # Prints "NN%" or "NA" on stdout.
 compute_progress_pct() {
