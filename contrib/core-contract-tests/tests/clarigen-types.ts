@@ -6898,6 +6898,10 @@ export const contracts = {
         isOk: false,
         value: 30n,
       },
+      ERR_DUPLICATE_LOCKUP_OUTPOINT: {
+        isOk: false,
+        value: 46n,
+      },
       ERR_INSUFFICIENT_STX: {
         isOk: false,
         value: 8n,
