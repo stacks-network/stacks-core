@@ -593,7 +593,28 @@ validate_block_range() {
 
     local end_block_count=$starting_block
     local slice_counter=0
-    local slice_log_files=()
+    local slice_progress_files=()
+    # Per-slice pipeline: inspect → [tee /dev/tty] → tr → read-loop → .progress + .log
+    #
+    # .progress is truncated+rewritten on each "Validating: NN%" update (read by
+    # compute_progress_pct); .log is appended for non-progress lines only (Finished,
+    # errors), keeping it small even on multi-hour runs. tr converts the in-place
+    # \r progress separators to \n so the read loop can process them as records.
+    #
+    # Buffering matters because stacks-inspect's progress is ~25-byte writes
+    # separated only by \r (no \n until completion), so without help, every stage
+    # would hold data until inspect exits. stdbuf -o0 disables tee's stdout
+    # buffering, stdbuf -oL keeps tr line-buffered. The filter is a bash read loop
+    # rather than awk because mawk has its own input buffer above stdio that
+    # stdbuf cannot reach — awk only saw data at EOF.
+    #
+    # The tee /dev/tty stage mirrors the live \r progress into the tmux pane; only
+    # useful when someone might be watching (i.e. interactive run), so gate it on
+    # IS_TTY to skip both tee and its stdbuf wrapper when non-interactive.
+    local tee_stage=""
+    if ${IS_TTY}; then
+        tee_stage="stdbuf -o0 tee /dev/tty | "
+    fi
     while [[ ${end_block_count} -lt ${total_blocks} ]]; do
         local start_block_count=$end_block_count
         end_block_count=$((end_block_count + slice_blocks))
@@ -606,23 +627,27 @@ validate_block_range() {
         local global_slice_end=$((end_block_count + global_offset - 1))
         local slice_path="${SLICE_DIR}${slice_counter}"
         local log_file="${LOG_DIR}/slice${slice_counter}${log_append}.log"
-        slice_log_files+=("${log_file}")
-        local log=" | tee -a ${log_file}"
-        local cmd="${inspect_prefix} ${slice_path} ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
+        local progress_file="${LOG_DIR}/slice${slice_counter}${log_append}.progress"
+        slice_progress_files+=("${progress_file}")
+        local inspect_cmd="${inspect_prefix} ${slice_path} ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
+        local cmd="${inspect_cmd} | ${tee_stage}stdbuf -oL tr '\\r' '\\n' | while IFS= read -r line; do if [[ \"\$line\" =~ ^Validating:[[:space:]]+[0-9]+% ]]; then printf '%s\\n' \"\$line\" > '${progress_file}'; elif [[ -n \"\$line\" ]]; then printf '%s\\n' \"\$line\" >> '${log_file}'; fi; done"
         println "  $(highlight "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(highlight "${global_slice_start}-${global_slice_end}") :: Logging to: ${log_file}"
-        echo "Command: ${cmd}" > "${log_file}"
+        echo "Command: ${inspect_cmd}" > "${log_file}"
         echo "Validating blocks: ${global_slice_start}-${global_slice_end} (out of ${global_end})" >> "${log_file}"
-        tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "${cmd}${log}" Enter || {
+        echo "Progress updates will be written to: ${progress_file}" >> "${log_file}"
+        tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "${cmd}" Enter || {
             error "sending stacks-inspect command to tmux window $(highlight "slice${slice_counter}")"
             exit 1
         }
+        # PIPESTATUS[0] is still stacks-inspect (first pipeline stage), so the
+        # return-code capture continues to work unchanged.
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "echo \${PIPESTATUS[0]} >> ${log_file}" Enter || {
             error "sending return status command to tmux window $(highlight "slice${slice_counter}")"
             exit 1
         }
         slice_counter=$((slice_counter + 1))
     done
-    check_progress "${slice_log_files[@]}"
+    check_progress "${slice_progress_files[@]}"
     phase_end "${range_label}" "${range_start}"
 }
 
@@ -707,29 +732,27 @@ run_validation() {
 }
 
 # Coarse overall progress for the current phase, computed from the last 1-2 slice
-# logs (last-spawned slices lag the rest; the final slice may own a different-sized
-# remainder, so a weighted average across all slices would skew optimistic).
-# stacks-inspect emits in-place progress as "\rValidating: NN% (X/Y)" (no \n until
-# completion), so while validation runs the entire progress stream lives on a single
-# un-terminated line. We tail by bytes (not lines) and translate \r -> \n before
-# grepping for the latest "Validating: NN%" entry.
-# Args: <log_file>...
+# progress files (last-spawned slices lag the rest; the final slice may own a
+# different-sized remainder, so a weighted average across all slices would skew
+# optimistic). Each slice's progress file contains a single line — the latest
+# "Validating: NN%" entry — kept current by the awk filter in validate_block_range.
+# Args: <progress_file>...
 # Prints "NN%" or "NA" on stdout.
 compute_progress_pct() {
-    local logs=("$@")
-    local n=${#logs[@]}
-    local tail_logs=()
+    local progress_files=("$@")
+    local n=${#progress_files[@]}
+    local tail_files=()
     if [ "${n}" -ge 2 ]; then
-        tail_logs=("${logs[n-2]}" "${logs[n-1]}")
+        tail_files=("${progress_files[n-2]}" "${progress_files[n-1]}")
     elif [ "${n}" -eq 1 ]; then
-        tail_logs=("${logs[0]}")
+        tail_files=("${progress_files[0]}")
     fi
     local pct_sum=0 found=0
-    local f last_line
-    for f in "${tail_logs[@]}"; do
+    local f line
+    for f in "${tail_files[@]}"; do
         [ -f "${f}" ] || continue
-        last_line=$(tail -c 1024 "${f}" | tr '\r' '\n' | grep -E '^Validating:[[:space:]]+[0-9]+%' | tail -n 1 || true)
-        if [[ "${last_line}" =~ ([0-9]+)% ]]; then
+        line=$(cat "${f}" 2>/dev/null || true)
+        if [[ "${line}" =~ ([0-9]+)% ]]; then
             pct_sum=$((pct_sum + BASH_REMATCH[1]))
             found=$((found + 1))
         fi
@@ -742,9 +765,9 @@ compute_progress_pct() {
 }
 
 # Pretty print the status output (simple spinner while pids are active)
-# Args: <log_file>...   slice logs for the current phase, used to estimate %.
+# Args: <progress_file>...   slice .progress files for the current phase, used to estimate %.
 check_progress() {
-    local slice_logs=("$@")
+    local slice_progress=("$@")
     local progress=1
     local sp="/-\|"
     local count pct
@@ -765,7 +788,7 @@ check_progress() {
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
         if [ "${count}" -gt 0 ]; then
-            pct=$(compute_progress_pct "${slice_logs[@]}")
+            pct=$(compute_progress_pct "${slice_progress[@]}")
             ${IS_TTY} && print "Block validation processes are currently active [ %s ] Progress: [ %s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "$(bold_yellow "${count}")" "$(bold_yellow "${pct}")"
         else
             ${IS_TTY} && print "\rAll block validation processes finished\033[0K\n"
@@ -845,7 +868,7 @@ store_results() {
     if [ "${failure_count}" -eq 0 ]; then
         info "$(bold_green "Block Validation successful!")"
     else
-        erro "Block validation failures detected: ${failure_count}"
+        error "Block validation failures detected: ${failure_count}"
     fi
 }
 
