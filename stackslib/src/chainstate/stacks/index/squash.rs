@@ -41,6 +41,8 @@ mod stream;
 pub(crate) use node_store::NodeStore;
 #[cfg(test)]
 pub(crate) use node_store::{deserialize_node, serialize_node};
+#[cfg(test)]
+pub(crate) use stream::compute_node_hash;
 use stream::recompute_content_hashes;
 pub(crate) use stream::stream_squash_blob;
 

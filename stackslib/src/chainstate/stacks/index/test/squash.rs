@@ -21,17 +21,18 @@ use tempfile::tempdir;
 
 use super::marf::setup_marf;
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, read_nodetype, resolve_inline_child_offsets,
+    get_node_byte_len, get_node_hash, read_nodetype, resolve_inline_child_offsets,
 };
 use crate::chainstate::stacks::index::marf::{
-    MARFOpenOpts, MarfConnection, SquashStats, MARF, OWN_BLOCK_HEIGHT_KEY,
+    MARFOpenOpts, MarfConnection, SquashStats, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
+    OWN_BLOCK_HEIGHT_KEY,
 };
 use crate::chainstate::stacks::index::node::{
     is_u64_ptr, set_backptr, TrieNode as _, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
     TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::squash::{
-    deserialize_node, serialize_node, stream_squash_blob, NodeStore,
+    compute_node_hash, deserialize_node, serialize_node, stream_squash_blob, NodeStore,
 };
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::{
@@ -884,6 +885,45 @@ fn test_squash_internal_blobs_extend_with_compression() {
 // ---------------------------------------------------------------------------
 // Targeted unit tests for the disk-backed squash mechanisms
 // ---------------------------------------------------------------------------
+
+/// `compute_node_hash` must agree with `bits::get_node_hash` for any
+/// backptr-free node. If they ever diverge, every root-hash equivalence test
+/// would still pass on the squash output alone — this dedicated test catches
+/// such drift directly.
+#[test]
+fn test_compute_node_hash_matches_bits_get_node_hash() {
+    let child_hashes = [
+        TrieHash([1; 32]),
+        TrieHash([2; 32]),
+        TrieHash([3; 32]),
+        TrieHash::EMPTY,
+    ];
+
+    // Leaf: no children
+    let leaf = TrieLeaf {
+        path: vec![0xab, 0xcd],
+        data: MARFValue([7u8; 40]),
+    };
+    let leaf_via_bits = get_node_hash(&leaf, &[], &mut ());
+    let leaf_via_squash = compute_node_hash(&TrieNodeType::Leaf(leaf), &[]);
+    assert_eq!(leaf_via_bits, leaf_via_squash, "TrieLeaf hash drift");
+
+    // Node4 with three inline children and one empty slot.
+    let node4 = TrieNode4 {
+        path: vec![1, 2, 3],
+        ptrs: [
+            TriePtr::new(TrieNodeID::Leaf as u8, b'a', 100),
+            TriePtr::new(TrieNodeID::Leaf as u8, b'b', 200),
+            TriePtr::new(TrieNodeID::Leaf as u8, b'c', 300),
+            TriePtr::default(),
+        ],
+        cowptr: None,
+        patches: vec![],
+    };
+    let node4_via_bits = get_node_hash(&node4, &child_hashes, &mut ());
+    let node4_via_squash = compute_node_hash(&TrieNodeType::Node4(node4), &child_hashes);
+    assert_eq!(node4_via_bits, node4_via_squash, "TrieNode4 hash drift");
+}
 
 /// Helper: build a leaf node for tests.
 fn make_test_leaf(path: &[u8], value_byte: u8) -> TrieNodeType {
@@ -1787,8 +1827,6 @@ fn test_resquash_rejects_height_at_or_below_existing_squash() {
 /// Parent walk should match the trie height index for a `commit_to` chain.
 #[test]
 fn test_parent_walk_matches_height_index_lookups() {
-    use crate::chainstate::stacks::index::marf::BLOCK_HEIGHT_TO_HASH_MAPPING_KEY;
-
     let dir = tempdir().unwrap();
     let src_path = dir.path().join("src.sqlite");
     let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);

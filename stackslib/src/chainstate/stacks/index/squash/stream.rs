@@ -224,7 +224,7 @@ impl BlockMap for BackptrFreeBlockMap {
 ///
 /// Precondition: every child pointer of `node` has its backptr bit cleared.
 /// `BackptrFreeBlockMap` panics if that precondition is violated.
-fn compute_node_hash(node: &TrieNodeType, child_hashes: &[TrieHash]) -> TrieHash {
+pub(crate) fn compute_node_hash(node: &TrieNodeType, child_hashes: &[TrieHash]) -> TrieHash {
     debug_assert!(
         node.is_leaf() || node.ptrs().iter().all(|p| !is_backptr(p.id)),
         "compute_node_hash precondition violated: node still has backpointer children"
