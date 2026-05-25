@@ -4,8 +4,13 @@ expression: results
 ---
 [
   Success(ExpectedBlockOutput(
+<<<<<<< HEAD
     marf_hash: "59ce7122ce3d083dd403bfcfeb95716640102076fe040c1b46422ef1d930c64d",
     evaluated_epoch: Epoch34,
+=======
+    marf_hash: "7bc5c7dcd36c68e511cad2fd3072d94b270ebaf35c82659a25b240586a49027a",
+    evaluated_epoch: Epoch40,
+>>>>>>> aa446cee37 (fix: remove faulty `reward-cycle-to-unlock-height`)
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -34,8 +39,13 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
+<<<<<<< HEAD
     marf_hash: "ec45b927f5e9bc24fda9064bb928d841941ace1eb03cb7362e36db9a79bca09f",
     evaluated_epoch: Epoch34,
+=======
+    marf_hash: "ecbeabe1e8363586c8dc36f53795142a31a47d5fbb49362b5332359967c2436c",
+    evaluated_epoch: Epoch40,
+>>>>>>> aa446cee37 (fix: remove faulty `reward-cycle-to-unlock-height`)
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-2, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -64,8 +74,13 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
+<<<<<<< HEAD
     marf_hash: "dfda39cf7b12a432c3cae018e7b83eb15e824ee0aaa6219c1c7245212fdefe49",
     evaluated_epoch: Epoch34,
+=======
+    marf_hash: "85c6397ecfc4383d946cf1aebeb6eb70ee3ad7a32f648e73f7615b72fee259f7",
+    evaluated_epoch: Epoch40,
+>>>>>>> aa446cee37 (fix: remove faulty `reward-cycle-to-unlock-height`)
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-3, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -94,8 +109,13 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
+<<<<<<< HEAD
     marf_hash: "79fde90263608315a469a382bf6291c6265bf67ffbd4ace37a788dbf749913ca",
     evaluated_epoch: Epoch34,
+=======
+    marf_hash: "fb33f414eb3cd1ca43dbbeb7e6d9b09e844fedc81c127def40da81e945662e9b",
+    evaluated_epoch: Epoch40,
+>>>>>>> aa446cee37 (fix: remove faulty `reward-cycle-to-unlock-height`)
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",

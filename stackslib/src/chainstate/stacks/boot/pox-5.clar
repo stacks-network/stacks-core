@@ -622,7 +622,7 @@
             amount-ustx: amount-ustx,
             bond-index: bond-index,
             first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
             unlock-cycle: unlock-cycle,
         })
     )
@@ -829,7 +829,7 @@
             amount-ustx: amount-ustx,
             num-cycle: num-cycles,
             first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
             unlock-cycle: unlock-cycle,
         })
     )
@@ -912,7 +912,7 @@
         })
 
         (ok {
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
             staker: tx-sender,
             signer: signer,
             prev-unlock-height: prev-unlock-cycle,
@@ -1120,7 +1120,7 @@
             amount-ustx: (get amount-ustx current-info),
             first-reward-cycle: first-reward-cycle,
             unlock-cycle: unlock-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
         })
     )
 )
@@ -2072,14 +2072,6 @@
 (define-read-only (reward-cycle-to-burn-height (cycle uint))
     (+ (var-get first-burnchain-block-height)
         (* cycle (var-get pox-reward-cycle-length))
-    )
-)
-
-;; Get the L1 unlock height for a given reward cycle.
-;; This is equal to exactly halfway through the provided cycle.
-(define-read-only (reward-cycle-to-unlock-height (cycle uint))
-    (+ (reward-cycle-to-burn-height cycle)
-        (/ (var-get pox-reward-cycle-length) u2)
     )
 )
 

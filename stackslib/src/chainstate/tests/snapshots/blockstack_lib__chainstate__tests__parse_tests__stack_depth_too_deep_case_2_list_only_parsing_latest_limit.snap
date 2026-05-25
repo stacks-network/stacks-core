@@ -4,12 +4,12 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "be07aeeb4dd6df675d79caaf674db7ae9f540d856f050a4220c4915787afddcc",
+    marf_hash: "bb09a75a33588fe55c6188c9c55bad6104a3eaf3bcc5dba9f7c508c39065960d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -21,7 +21,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -30,16 +30,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0777a1cbbdfa4d364651c19c43bdb51a7dc19d37aec0e1386867ed05dea218d9",
+    marf_hash: "957621b7029e366788c5515d90b6bbe39468efdab2aea1b739f232061e1f7ee7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -51,7 +51,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -60,16 +60,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2a90ff244367597f3e3cc90c0a3e16eeba82f7c7805ef0c64b9b9db1f047efcc",
+    marf_hash: "65af97a4725e512ae3a52f03c16121c6ab3e0049adc388f9ac05f7f93ee7a38e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -81,7 +81,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -90,16 +90,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2dc13f0858ab0e5d91a93465bd8bd1477d291aaf4386329cfbf60ea51a541789",
+    marf_hash: "6d2395fd728e462aa3a358d3c35ad45e723c8a114bb5d602e83dfc4c46d18fa8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -111,7 +111,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -120,16 +120,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "18c6a0c4f8269b989d4f132f168eb22d17665bda2c9a98a4299b78d27ef3178f",
+    marf_hash: "f00d12c26dc778ae83a837b86fbe63e2bfbb1ba50aec755abaae44bf3f8473b9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -141,7 +141,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -150,18 +150,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
-<<<<<<< HEAD
-=======
   Success(ExpectedBlockOutput(
-    marf_hash: "90e4b15bb82f89f070407c2bf6f5add795b86769c80f7861d567bb7fd38ddf19",
+    marf_hash: "b5daa1053d78f3be9d3fa49a6a01078a8fbb827092255df5afd823ebfdffdfb6",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -173,7 +171,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -182,16 +180,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3d3d7df8d8af6beab7ea23eecdc1ead842f164d327d872208a2737edff6545ef",
+    marf_hash: "005d93e5cac9a0d7cc6fd85bc7f00b9b171b77eaedde04a70b9676c96491cce7",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -203,7 +201,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -212,16 +210,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6580362f89e7400943aa8a4e69b474e4b929538c1fcd769a04f4296dd70a3971",
+    marf_hash: "a42c10ad43b2cf11d847e385042f5fbe9082b20a1bbb22ef899e2ada5aba8d02",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -233,7 +231,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -242,16 +240,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "785afc87aef335aa0c923d76755594494fd7293371366b34a9e3d5300ec6fc5b",
+    marf_hash: "675c87e0bc65888f4598e7f107a535faecd37cfc72fbaa6a26f16b5a48d0333d",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -263,7 +261,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -272,16 +270,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e7c40c60a372f006b7a3e67e60b9d913f58f6b9bb28db6581fa3fd8d6f6873be",
+    marf_hash: "6a917c3456b947757cf4dedcb0003169e7e6dd121374695aa3c1363cb7d837d0",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -293,7 +291,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -302,16 +300,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "00ef84f3116829670329539c73540d93386588247a1a543363a409642f41d336",
+    marf_hash: "77a85558e983d0baf0d956ff68e623398ac6c6803dcc28ed0453bdea541201a8",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
-        vm_error: "Some(detected interdependent functions (my-a, my-b)) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -323,7 +321,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 2838,
+          runtime: 25488,
         ),
       ),
     ],
@@ -332,8 +330,7 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 2838,
+      runtime: 25488,
     ),
   )),
->>>>>>> aa446cee37 (fix: remove faulty `reward-cycle-to-unlock-height`)
 ]
