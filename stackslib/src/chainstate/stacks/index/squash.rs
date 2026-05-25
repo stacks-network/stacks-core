@@ -30,7 +30,7 @@ use stacks_common::types::chainstate::TrieHash;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _, MARF};
 use crate::chainstate::stacks::index::node::{clear_backptr, is_backptr, TrieNodeID, TriePtr};
 use crate::chainstate::stacks::index::storage::{
-    SquashInfo, TrieFileStorage, TrieStorageConnection,
+    SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
 };
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
@@ -487,19 +487,11 @@ impl<T: MarfTrieId> MARF<T> {
     pub fn squash_to_path(
         src_path: &str,
         dst_path: &str,
-        open_opts: MARFOpenOpts,
+        src_open_opts: MARFOpenOpts,
         tip: &T,
         height: u32,
         label: &str,
     ) -> Result<SquashStats, Error> {
-        if open_opts.compress {
-            return Err(Error::CorruptionError(
-                "squash_to_path does not support compress=true; \
-                 the direct blob write path only emits uncompressed nodes"
-                    .to_string(),
-            ));
-        }
-
         let dst_db_path = PathBuf::from(dst_path);
         let dst_blobs_path = PathBuf::from(format!("{dst_path}.blobs"));
         if dst_db_path.exists() {
@@ -518,7 +510,7 @@ impl<T: MarfTrieId> MARF<T> {
             src_path,
             &dst_db_path,
             &dst_blobs_path,
-            open_opts,
+            src_open_opts,
             tip,
             height,
             label,
@@ -536,7 +528,7 @@ impl<T: MarfTrieId> MARF<T> {
         src_path: &str,
         dst_db_path: &Path,
         dst_blobs_path: &Path,
-        open_opts: MARFOpenOpts,
+        src_open_opts: MARFOpenOpts,
         tip: &T,
         height: u32,
         label: &str,
@@ -552,7 +544,7 @@ impl<T: MarfTrieId> MARF<T> {
         let mut step_durations = SquashStepDurations::default();
 
         // [1/8] Bulk SQL block map
-        let src_storage = TrieFileStorage::open_readonly(src_path, open_opts.clone())?;
+        let src_storage = TrieFileStorage::open_readonly(src_path, src_open_opts)?;
         let mut src = MARF::from_storage(src_storage);
 
         // Re-squashes must advance past the source squash height.
@@ -618,8 +610,9 @@ impl<T: MarfTrieId> MARF<T> {
             fmt_duration(step_durations.collect_trie_nodes)
         );
 
-        let mut dst_open_opts = open_opts;
-        dst_open_opts.external_blobs = true;
+        // Destination requires `external_blobs = true` and `compress = false`;
+        // the rest is unused because we bypass the normal MARF write path.
+        let dst_open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
 
         // Open destination MARF and begin transaction
         let mut dst = MARF::from_path(dst_path, dst_open_opts)?;

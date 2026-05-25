@@ -50,11 +50,11 @@ fn squash_helper(
 ) -> (PathBuf, SquashStats) {
     std::fs::create_dir_all(dst_dir).unwrap();
     let dst_db_path = dst_dir.join("index.sqlite");
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let src_open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
     let stats = MARF::squash_to_path(
         src_path,
         dst_db_path.to_str().unwrap(),
-        open_opts,
+        src_open_opts,
         tip,
         height,
         "test",
@@ -825,8 +825,8 @@ fn test_squash_internal_blobs_extend_with_compression() {
     let dir = tempdir().unwrap();
     let src_db_path = dir.path().join("sort.sqlite");
 
-    let squash_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
-    let mut src = MARF::from_path(src_db_path.to_str().unwrap(), squash_opts.clone()).unwrap();
+    let src_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
+    let mut src = MARF::from_path(src_db_path.to_str().unwrap(), src_opts.clone()).unwrap();
 
     let b1 = StacksBlockId::from_bytes(&[1u8; 32]).unwrap();
     let b2 = StacksBlockId::from_bytes(&[2u8; 32]).unwrap();
@@ -860,7 +860,7 @@ fn test_squash_internal_blobs_extend_with_compression() {
     MARF::squash_to_path(
         src_db_path.to_str().unwrap(),
         dst_db_path.to_str().unwrap(),
-        squash_opts,
+        src_opts,
         &b2,
         1,
         "test",
@@ -1853,7 +1853,7 @@ fn test_squash_rejects_existing_destination() {
     let result = MARF::squash_to_path(
         src_db_path.to_str().unwrap(),
         dst_db_path.to_str().unwrap(),
-        open_opts,
+        open_opts.clone(),
         blocks.last().unwrap(),
         1,
         "test",
@@ -1868,7 +1868,6 @@ fn test_squash_rejects_existing_destination() {
     let dst_blobs_path = dir.path().join("dst.sqlite.blobs");
     std::fs::write(&dst_blobs_path, b"").unwrap();
 
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
     let result = MARF::squash_to_path(
         src_db_path.to_str().unwrap(),
         dst_db_path.to_str().unwrap(),
@@ -1881,35 +1880,6 @@ fn test_squash_rejects_existing_destination() {
         Err(Error::DestinationExists(path)) => assert_eq!(path, dst_blobs_path.to_str().unwrap()),
         other => panic!("expected DestinationExists for the .blobs collision, got {other:?}"),
     }
-}
-
-#[test]
-fn test_squash_rejects_compress_true() {
-    let dir = tempdir().unwrap();
-    let src_db_path = dir.path().join("index.sqlite");
-    let (_, blocks, _) = setup_marf(src_db_path.to_str().unwrap(), 2, 1);
-
-    let dst_dir = dir.path().join("squashed");
-    std::fs::create_dir_all(&dst_dir).unwrap();
-    let dst_db_path = dst_dir.join("index.sqlite");
-
-    let mut open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
-    open_opts.compress = true;
-
-    let result = MARF::squash_to_path(
-        src_db_path.to_str().unwrap(),
-        dst_db_path.to_str().unwrap(),
-        open_opts,
-        blocks.last().unwrap(),
-        1,
-        "test",
-    );
-    assert!(result.is_err(), "compress=true should be rejected");
-    let err_msg = format!("{}", result.unwrap_err());
-    assert!(
-        err_msg.contains("compress=true"),
-        "error should mention compress=true: {err_msg}"
-    );
 }
 
 /// `stream_squash_blob` relies on NodeStore's root-first DFS preorder. If a
@@ -2096,12 +2066,10 @@ fn test_squash_extend_many_keys_patch_backptr_regression() {
     std::fs::create_dir_all(&dst_dir).unwrap();
     let dst_db_path = dst_dir.join("dst.sqlite");
 
-    // squash_to_path requires compress=false; compression is for the extend step.
-    let squash_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
     MARF::squash_to_path(
         src_db_path.to_str().unwrap(),
         dst_db_path.to_str().unwrap(),
-        squash_opts,
+        open_opts.clone(),
         &b2,
         1,
         "test",
