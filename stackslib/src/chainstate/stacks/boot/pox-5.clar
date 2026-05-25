@@ -365,10 +365,14 @@
 )
 
 (define-public (set-bond-admin (new-admin principal))
-    (begin
+    (let ((old-admin (var-get bond-admin)))
         ;; only bond admin can call this.
-        (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
-        (ok (var-set bond-admin new-admin))
+        (asserts! (is-eq contract-caller old-admin) ERR_UNAUTHORIZED)
+        (var-set bond-admin new-admin)
+        (ok {
+            old-admin: old-admin,
+            new-admin: new-admin,
+        })
     )
 )
 
@@ -431,6 +435,15 @@
             })
             ERR_BOND_ALREADY_SETUP
         )
+
+        (print {
+            bond-index: bond-index,
+            target-rate: target-rate,
+            stx-value-ratio: stx-value-ratio,
+            min-ustx-ratio: min-ustx-ratio,
+            early-unlock-signers: early-unlock-signers,
+            early-unlock-admin: early-unlock-admin,
+        })
 
         (let ((accumulator (try! (fold add-staker-to-bond allowlist
                 (ok {
@@ -609,15 +622,20 @@
             BOND_LENGTH_CYCLES amount-ustx false
         ))
 
-        (ok {
-            signer: signer,
-            staker: tx-sender,
-            amount-ustx: amount-ustx,
-            bond-index: bond-index,
-            first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            unlock-cycle: unlock-cycle,
-        })
+        (let ((result {
+                signer: signer,
+                staker: tx-sender,
+                amount-ustx: amount-ustx,
+                sats-total: sats-total,
+                bond-index: bond-index,
+                first-reward-cycle: first-reward-cycle,
+                unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+                unlock-cycle: unlock-cycle,
+                is-l1-lock: (is-ok btc-lockup),
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -732,7 +750,20 @@
             is-l1-lock: (get is-l1-lock current-membership),
         })
 
-        (ok true)
+        (let ((result {
+                staker: tx-sender,
+                signer: signer,
+                old-signer: old-signer,
+                bond-index: bond-index,
+                amount-ustx: (get amount-ustx current-membership),
+                amount-sats: amount-sats,
+                first-reward-cycle: first-reward-cycle,
+                num-cycles: num-cycles,
+                is-l1-lock: (get is-l1-lock current-membership),
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -751,10 +782,13 @@
         (asserts! (is-eq tx-sender signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
 
         (map-set signers signer signer-key)
-        (ok {
-            signer: signer,
-            signer-key: signer-key,
-        })
+        (let ((result {
+                signer: signer,
+                signer-key: signer-key,
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -816,15 +850,18 @@
             signer: signer,
         })
 
-        (ok {
-            signer: signer,
-            staker: tx-sender,
-            amount-ustx: amount-ustx,
-            num-cycle: num-cycles,
-            first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            unlock-cycle: unlock-cycle,
-        })
+        (let ((result {
+                signer: signer,
+                staker: tx-sender,
+                amount-ustx: amount-ustx,
+                num-cycles: num-cycles,
+                first-reward-cycle: first-reward-cycle,
+                unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+                unlock-cycle: unlock-cycle,
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -904,15 +941,21 @@
             signer: signer,
         })
 
-        (ok {
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            staker: tx-sender,
-            signer: signer,
-            prev-unlock-height: prev-unlock-cycle,
-            unlock-cycle: unlock-cycle,
-            num-cycles: num-cycles,
-            amount-ustx: new-lock-amount,
-        })
+        (let ((result {
+                unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+                staker: tx-sender,
+                signer: signer,
+                old-signer: old-signer,
+                prev-unlock-height: prev-unlock-cycle,
+                unlock-cycle: unlock-cycle,
+                num-cycles: num-cycles,
+                amount-ustx: new-lock-amount,
+                amount-increase: amount-increase,
+                cycles-to-extend: cycles-to-extend,
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -971,7 +1014,15 @@
         }
             (- current-total-shares amount-sats)
         )
-        (ok true)
+        (let ((result {
+                staker: staker,
+                signer: signer,
+                bond-index: bond-index,
+                amount-sats-released: amount-sats,
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -1056,11 +1107,16 @@
             ))
         ))
 
-        (ok {
-            staker: staker,
-            signer: signer,
-            new-amount-sats: new-amount-sats,
-        })
+        (let ((result {
+                staker: staker,
+                signer: signer,
+                bond-index: bond-index,
+                amount-withdrawn-sats: amount-to-withdrawal-sats,
+                new-amount-sats: new-amount-sats,
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -1108,13 +1164,17 @@
             signer: old-signer,
         })
 
-        (ok {
-            staker: tx-sender,
-            amount-ustx: (get amount-ustx current-info),
-            first-reward-cycle: first-reward-cycle,
-            unlock-cycle: unlock-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-        })
+        (let ((result {
+                staker: tx-sender,
+                signer: old-signer,
+                amount-ustx: (get amount-ustx current-info),
+                first-reward-cycle: first-reward-cycle,
+                unlock-cycle: unlock-cycle,
+                unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -1580,17 +1640,6 @@
                 ))
                 (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
             )
-            (print {
-                topic: "calculate-rewards",
-                bond-periods: bond-periods,
-                calculation-height: calculation-height,
-                remaining-rewards: remaining-rewards,
-                accrued-rewards: accrued-rewards,
-                stx-staker-rewards: stx-staker-rewards,
-                stx-cycle: stx-cycle,
-                cycle-staked-ustx: cycle-staked-ustx,
-                next-rewards-per-ustx: next-rewards-per-ustx,
-            })
             (var-set reserve-balance (+ cur-reserve new-reserve))
             (var-set last-reward-compute-height calculation-height)
             (var-set last-accounted-rewards-only
@@ -1602,7 +1651,20 @@
             }
                 next-rewards-per-ustx
             )
-            (ok true)
+            (let ((result {
+                    bond-periods: bond-periods,
+                    calculation-height: calculation-height,
+                    remaining-rewards: remaining-rewards,
+                    accrued-rewards: accrued-rewards,
+                    new-reserve: new-reserve,
+                    stx-staker-rewards: stx-staker-rewards,
+                    stx-cycle: stx-cycle,
+                    cycle-staked-ustx: cycle-staked-ustx,
+                    next-rewards-per-ustx: next-rewards-per-ustx,
+                }))
+                (print result)
+                (ok result)
+            )
         )
     )
 )
@@ -1748,19 +1810,15 @@
             (- prev-accrued-rewards total-rewards)
         )
 
-        (print {
-            topic: "claim-rewards",
-            stx-rewards: stx-rewards,
-            bond-rewards: (get bond-rewards bond-rewards),
-            bond-totals: bond-totals,
-            total-rewards: total-rewards,
-        })
-        (ok {
-            stx-rewards: stx-rewards,
-            bond-rewards: (get bond-rewards bond-rewards),
-            bond-totals: bond-totals,
-            total-rewards: total-rewards,
-        })
+        (let ((result {
+                stx-rewards: stx-rewards,
+                bond-rewards: (get bond-rewards bond-rewards),
+                bond-totals: bond-totals,
+                total-rewards: total-rewards,
+            }))
+            (print result)
+            (ok result)
+        )
     )
 )
 
@@ -1977,7 +2035,11 @@
             true
         )
 
-        (ok true)
+        (ok {
+            signer-key: signer-key,
+            signer-manager: signer-manager,
+            auth-id: auth-id,
+        })
     )
 )
 
@@ -2004,10 +2066,14 @@
             )
             ERR_UNAUTHORIZED
         )
-        (ok (map-delete signer-key-grants {
+        (ok {
             signer-key: signer-key,
             signer-manager: signer-manager,
-        }))
+            existed: (map-delete signer-key-grants {
+                signer-key: signer-key,
+                signer-manager: signer-manager,
+            }),
+        })
     )
 )
 
