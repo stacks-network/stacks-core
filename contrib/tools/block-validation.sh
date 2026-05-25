@@ -401,7 +401,7 @@ configure_validation_slices() {
     touch "${SCRATCH_DIR}/reflink_test"
     if cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null; then
         reflink=1
-        println "$(green "Reflink is supported"): chainstate slice copies will be fast and space-efficient"
+        info "$(green "Reflink is supported"): chainstate slice copies will be fast and space-efficient"
     else
         warn "reflink is not enabled for this filesystem, chainstate copy will be slower"
     fi
@@ -410,21 +410,21 @@ configure_validation_slices() {
     
     # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
     if [[ ${reflink} -ne "1" ]]; then
-        println "Copying local chainstate ${CHAIN_DIR} ->  $(highlight "${SLICE_DIR}0")"
+        info "Copying ${CHAIN_DIR} ->  $(highlight "${SLICE_DIR}0")"
         cp -r "${CHAIN_DIR}"/* "${SLICE_DIR}0"
 
-        println "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> $(highlight "${SCRATCH_DIR}/marf.sqlite.blobs")"
+        info "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> $(highlight "${SCRATCH_DIR}/marf.sqlite.blobs")"
         mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/ || {
             error "moving marf database"
             exit 1
         }
-        println "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> $(highlight "${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs")"
+        info "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> $(highlight "${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs")"
         ln -s "${SCRATCH_DIR}"/marf.sqlite.blobs "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs || {
             error "creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
             exit 1
         }
     else 
-        println "Copying local chainstate ${CHAIN_DIR} ->  $(highlight "${SLICE_DIR}0")"
+        info "Copying ${CHAIN_DIR} ->  $(highlight "${SLICE_DIR}0")"
         cp -r --reflink=always "${CHAIN_DIR}"/* "${SLICE_DIR}0" 2>/dev/null
     fi 
 
@@ -441,7 +441,7 @@ configure_validation_slices() {
         cp_args+=(--reflink=always)
     fi
     for ((i=1;i<=$(( CORES - 1 ));i++)); do
-        println "Copying ${SLICE_DIR}0 -> $(highlight "${SLICE_DIR}${i}")"
+        info "Copying ${SLICE_DIR}0 -> $(highlight "${SLICE_DIR}${i}")"
         cp "${cp_args[@]}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
             error "copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
             exit 1
