@@ -18,6 +18,10 @@ success-output = "never"
 # Options: "none", "fail", "retry", "slow", "leak", "pass", "skip", "all"
 status-level = "pass"
 
+[profile.ci.junit]
+# Create JUnit output that we can parse
+path = "../../../junit.xml"
+
 [profile.ci-sequential]
 inherits = "ci"
 # The number of tests to run simultaneously
