@@ -1510,3 +1510,248 @@ fn prune_watched_outputs() {
         );
     }
 }
+
+// ----------------------------------------------------------------------------
+// Property tests for watched P2WSH outputs
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+use proptest::prelude::*;
+
+/// Build a deterministic 32-byte hash from a u64 height.
+/// Different heights -> different hashes (assuming heights fit in 8 bytes, which
+/// is always true for u64).
+#[cfg(test)]
+fn height_hash(height: u64) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    bytes[0..8].copy_from_slice(&height.to_le_bytes());
+    bytes
+}
+
+#[cfg(test)]
+fn header_at_height(height: u64, parent: BurnchainHeaderHash) -> BurnchainBlockHeader {
+    BurnchainBlockHeader {
+        block_height: height,
+        block_hash: BurnchainHeaderHash(height_hash(height)),
+        parent_block_hash: parent,
+        num_txs: 0,
+        timestamp: height,
+    }
+}
+
+#[cfg(test)]
+fn output_for_height(height: u64) -> WatchedP2WSHOutput {
+    WatchedP2WSHOutput {
+        txid: Txid(height_hash(height)),
+        vout: 0,
+        witness_script_hash: WitnessScriptHash(height_hash(height)),
+        amount: 1_000,
+    }
+}
+
+/// Insert one watched output per height. Heights are inserted in sorted order
+/// so the parent chain stays linear.
+#[cfg(test)]
+fn seed_outputs_at_heights(db: &mut BurnchainDB, heights: &[u64]) {
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+    let mut parent = first_bhh;
+    for &h in heights {
+        let header = header_at_height(h, parent);
+        let output = output_for_height(h);
+        let db_tx = db.tx_begin().unwrap();
+        db_tx.store_burnchain_db_entry(&header).unwrap();
+        db_tx.store_watched_outputs(&header, &[output]).unwrap();
+        db_tx.commit().unwrap();
+        parent = header.block_hash;
+    }
+}
+
+#[cfg(test)]
+fn outputs_at_height(db: &BurnchainDB, height: u64) -> Vec<WatchedP2WSHOutput> {
+    let block_hash = BurnchainHeaderHash(height_hash(height));
+    BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash).unwrap()
+}
+
+proptest! {
+    /// Property 1: ToSql + FromSql round-trip any 32-byte witness script hash.
+    ///
+    /// Pins that the on-disk hex encoding is a strict, lossless inverse of the
+    /// in-memory representation for every possible value. The hand-written test
+    /// `witness_script_hash_sql_roundtrip` only covers `[0xab; 32]`.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_witness_script_hash_sql_roundtrip(bytes in any::<[u8; 32]>()) {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t (v TEXT NOT NULL)").unwrap();
+
+        let original = WitnessScriptHash(bytes);
+        conn.execute("INSERT INTO t (v) VALUES (?1)", params![&original]).unwrap();
+        let retrieved: WitnessScriptHash = conn
+            .query_row("SELECT v FROM t", [], |row| row.get(0))
+            .unwrap();
+        prop_assert_eq!(retrieved.0, bytes);
+    }
+
+    /// Property 2: After `prune_watched_outputs(R, H)`, every output stored at
+    /// block height `h < threshold` is gone and every output at `h >= threshold`
+    /// survives, where `threshold = H.saturating_sub(3 * R / 2)`.
+    ///
+    /// This is the universal claim behind the hand-written `prune_watched_outputs`
+    /// example, generalized over arbitrary RCL/tip/height-set combinations.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_prune_deletes_below_threshold(
+        reward_cycle_length in 1u32..=10_000,
+        current_block_height in 0u64..=(i64::MAX as u64),
+        heights in prop::collection::hash_set(0u64..=(i64::MAX as u64), 1..=10),
+    ) {
+        let window = (3u64 * u64::from(reward_cycle_length)) / 2;
+        let threshold = current_block_height.saturating_sub(window);
+
+        let burnchain = Burnchain::regtest(":memory:");
+        let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+        let mut sorted: Vec<u64> = heights.into_iter().collect();
+        sorted.sort();
+        seed_outputs_at_heights(&mut db, &sorted);
+
+        let db_tx = db.tx_begin().unwrap();
+        db_tx.prune_watched_outputs(reward_cycle_length, current_block_height).unwrap();
+        db_tx.commit().unwrap();
+
+        for &h in &sorted {
+            let remaining = outputs_at_height(&db, h);
+            if h < threshold {
+                prop_assert!(
+                    remaining.is_empty(),
+                    "height {} < threshold {} should be pruned", h, threshold
+                );
+            } else {
+                prop_assert_eq!(
+                    remaining.len(), 1,
+                    "height {} >= threshold {} should survive", h, threshold
+                );
+            }
+        }
+    }
+
+    /// Property 3: The prune SQL uses strict `<`, not `<=`. An output at the
+    /// exact threshold survives. This pins the off-by-one between
+    /// `block_height < ?1` and `block_height <= ?1`.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_prune_boundary_exact(
+        reward_cycle_length in 2u32..=10_000,
+        current_block_height in 100u64..=1_000_000,
+    ) {
+        let window = (3u64 * u64::from(reward_cycle_length)) / 2;
+        // Need threshold-1 and threshold+1 to be valid (>=0 and <=i64::MAX).
+        prop_assume!(current_block_height > window + 1);
+        let threshold = current_block_height - window;
+
+        let burnchain = Burnchain::regtest(":memory:");
+        let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+        let triple = [threshold - 1, threshold, threshold + 1];
+        seed_outputs_at_heights(&mut db, &triple);
+
+        let db_tx = db.tx_begin().unwrap();
+        db_tx.prune_watched_outputs(reward_cycle_length, current_block_height).unwrap();
+        db_tx.commit().unwrap();
+
+        prop_assert!(
+            outputs_at_height(&db, threshold - 1).is_empty(),
+            "h = threshold - 1 must be pruned"
+        );
+        prop_assert_eq!(
+            outputs_at_height(&db, threshold).len(), 1,
+            "h = threshold must survive (SQL is `<`, not `<=`)"
+        );
+        prop_assert_eq!(
+            outputs_at_height(&db, threshold + 1).len(), 1,
+            "h = threshold + 1 must survive"
+        );
+    }
+
+    /// Property 4: prune is idempotent. Running it twice with the same arguments
+    /// is observationally identical to running it once.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_prune_idempotent(
+        reward_cycle_length in 1u32..=10_000,
+        current_block_height in 0u64..=(i64::MAX as u64),
+        heights in prop::collection::hash_set(0u64..=(i64::MAX as u64), 1..=10),
+    ) {
+        let burnchain = Burnchain::regtest(":memory:");
+        let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+        let mut sorted: Vec<u64> = heights.into_iter().collect();
+        sorted.sort();
+        seed_outputs_at_heights(&mut db, &sorted);
+
+        let db_tx = db.tx_begin().unwrap();
+        db_tx.prune_watched_outputs(reward_cycle_length, current_block_height).unwrap();
+        db_tx.commit().unwrap();
+
+        let snapshot_after_first: Vec<(u64, Vec<WatchedP2WSHOutput>)> = sorted
+            .iter()
+            .map(|&h| (h, outputs_at_height(&db, h)))
+            .collect();
+
+        let db_tx = db.tx_begin().unwrap();
+        db_tx.prune_watched_outputs(reward_cycle_length, current_block_height).unwrap();
+        db_tx.commit().unwrap();
+
+        for (h, expected) in snapshot_after_first {
+            let got = outputs_at_height(&db, h);
+            prop_assert_eq!(got, expected, "prune at h={} not idempotent", h);
+        }
+    }
+
+    /// Property 5: Only scriptpubkeys of shape `[0x00, 0x20, ..32 bytes..]`
+    /// (canonical P2WSH) produce a `SegwitBitcoinAddress::P2WSH`. Every other
+    /// shape either maps to a different address type or to `None`, but never
+    /// to P2WSH.
+    ///
+    /// This pins the extract-side filter: the watched-outputs pipeline calls
+    /// `BitcoinAddress::from_scriptpubkey` and only keeps the P2WSH variant.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_extract_only_p2wsh_outputs(
+        bytes in prop_oneof![
+            // Random-shape scriptpubkey: covers the negative branch.
+            1 => prop::collection::vec(any::<u8>(), 0..=100),
+            // Canonical P2WSH: guarantees the positive branch fires often.
+            1 => any::<[u8; 32]>().prop_map(|h| {
+                let mut s = Vec::with_capacity(34);
+                s.push(0x00);
+                s.push(0x20);
+                s.extend_from_slice(&h);
+                s
+            }),
+        ],
+    ) {
+        let result = BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Mainnet, &bytes);
+        let is_canonical_p2wsh =
+            bytes.len() == 34 && bytes[0] == 0x00 && bytes[1] == 0x20;
+
+        if is_canonical_p2wsh {
+            match &result {
+                Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(_, hash))) => {
+                    prop_assert_eq!(&hash[..], &bytes[2..34]);
+                }
+                other => prop_assert!(
+                    false, "canonical P2WSH script produced {:?}", other
+                ),
+            }
+        } else {
+            prop_assert!(
+                !matches!(
+                    result,
+                    Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(_, _)))
+                ),
+                "non-canonical script of len {} produced P2WSH", bytes.len()
+            );
+        }
+    }
+}
