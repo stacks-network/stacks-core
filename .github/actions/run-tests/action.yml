@@ -143,7 +143,7 @@ runs:
         echo "Inputs validated successfully!"
 
     # Modify test-name input to be a valid filename, since we use it to name the junit test file and the code coverage file
-    - name: Generate sanitized file name for both junit and grcov
+    - name: Generate Sanitized File Name
       id: generate-sanitized-file-name
       if: github.event.repository.visibility == 'public'
       shell: bash
@@ -242,7 +242,7 @@ runs:
           --ignore "**/*.toml" \
           --ignore "**/*.txt" \
           --ignore "**/*.yml" \
-          -o lcov_${{ steps.generate-test-file-name.outputs.file-name }}.info \
+          -o lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
         || exit 1
 
     # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
@@ -251,7 +251,7 @@ runs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
         name: ${{ github.sha }}-codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
-        path: lcov_${{ steps.generate-test-file-name.outputs.file-name }}.info
+        path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
         if-no-files-found: error
         retention-days: 1
         compression-level: 9 # 0 (none) - 9 (most)
