@@ -397,21 +397,21 @@ jobs:
 
                 if (retried_list != "") {
                     print "### ⚠️ Automatically Retried (Flaky/Rerun) Tests" >> summary_file;
-                    print "| Test Name | Source JUnit Report |" >> summary_file;
-                    print "| --- | --- |" >> summary_file;
+                    print "| Test Name |" >> summary_file;
+                    print "| --- |" >> summary_file;
                     
                     n_retried = split(retried_list, r_lines, "\n");
                     for (i = 1; i < n_retried; i++) {
                         split(r_lines[i], r_data, ":::");
-                        print "| `" r_data[1] "` | `" r_data[2] "` |" >> summary_file;
+                        print "| `" r_data[1] "` |" >> summary_file;
                     }
                     print "" >> summary_file;
                 }
 
                 if (slow_list != "") {
-                    print "### ⏱️ Slow Execution Paths (> $SLOW_THRESHOLD_SECS)" >> summary_file;
-                    print "| Test Name | Duration | Source JUnit Report |" >> summary_file;
-                    print "| --- | --- | --- |" >> summary_file;
+                    print "### ⏱️ Slow Tests (> $SLOW_THRESHOLD_SECS)" >> summary_file;
+                    print "| Test Name | Duration |" >> summary_file;
+                    print "| --- | --- |" >> summary_file;
 
                     n_slow = split(slow_list, s_lines, "\n");
                     for (i = 1; i < n_slow; i++) {
@@ -419,7 +419,7 @@ jobs:
                         duration = s_data[2] + 0;
                         mins = int(duration / 60);
                         secs = int(duration % 60);
-                        printf("| `%s` | %dm %ds (`%.2fs`) | `%s` |\n", s_data[1], mins, secs, duration, s_data[3]) >> summary_file;
+                        printf("| `%s` | %dm %ds (`%.2fs`) |\n", s_data[1], mins, secs, duration) >> summary_file;
                     }
                     print "" >> summary_file;
                 }
