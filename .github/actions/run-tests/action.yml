@@ -169,8 +169,8 @@ runs:
           --profile ci-sequential \
           --run-ignored all \
           --archive-file ${{ inputs.archive-file }} \
-          -E "$FILTERSET"
-          --junit-xml "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml" \
+          -E "$FILTERSET" \
+          --junit-xml "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml"
 
     # Mode 2: Run Partitioned Tests (If partition IS specified)
     - name: Run Partitioned Tests
@@ -184,8 +184,8 @@ runs:
           --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-parallel \
           --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
-          --archive-file ${{ inputs.archive-file }}
-          --junit-xml "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml" \
+          --archive-file ${{ inputs.archive-file }} \
+          --junit-xml "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml"
           
     ############################################################################
     ### Upload the nextest JUnit XML
