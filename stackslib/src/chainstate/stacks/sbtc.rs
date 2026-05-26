@@ -226,7 +226,10 @@ fn write_compact_size(buf: &mut Vec<u8>, n: u64) {
 
 #[cfg(test)]
 mod tests {
-    use clarity::vm::types::PrincipalData;
+    use clarity::vm::types::{
+        PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+    };
+    use clarity::vm::ContractName;
     use serde::Deserialize;
     use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -652,6 +655,215 @@ mod tests {
                 "{}: taproot_output_key",
                 fixture.name,
             );
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Property tests.
+    //
+    // These probe the derivation invariants — determinism, sensitivity to
+    // each input dimension, robustness against malformed pubkeys, and
+    // wrapper/generic agreement — across a randomized search space that
+    // the hand-picked reference fixtures above cannot exhaustively cover.
+    // ---------------------------------------------------------------------
+
+    use pinny::tag;
+    use proptest::prelude::*;
+
+    /// Arbitrary 32-byte sequence that is a valid x-only secp256k1 point
+    /// (`XOnlyPublicKey::from_slice` accepts it). Filters the ~50% of byte
+    /// arrays that are off-curve x-coordinates; cheap enough that proptest's
+    /// global-rejection budget is never exhausted.
+    fn arb_valid_xonly_pubkey() -> impl Strategy<Value = [u8; 32]> {
+        any::<[u8; 32]>().prop_filter_map("not a valid x-only secp256k1 point", |bytes| {
+            XOnlyPublicKey::from_slice(&bytes).ok().map(|_| bytes)
+        })
+    }
+
+    /// Arbitrary 33-byte compressed secp256k1 pubkey: prefix `0x02`/`0x03`
+    /// followed by a valid x-coordinate. Matches what
+    /// `get-current-aggregate-pubkey` returns to the PoX-5 wrapper.
+    fn arb_valid_compressed_pubkey_33() -> impl Strategy<Value = [u8; 33]> {
+        (arb_valid_xonly_pubkey(), prop_oneof![Just(0x02u8), Just(0x03u8)]).prop_map(
+            |(xonly, prefix)| {
+                let mut compressed = [0u8; 33];
+                compressed[0] = prefix;
+                compressed[1..].copy_from_slice(&xonly);
+                compressed
+            },
+        )
+    }
+
+    /// Standard principal (version < 32, arbitrary 20-byte hash).
+    fn arb_standard_principal() -> impl Strategy<Value = StandardPrincipalData> {
+        (0u8..32u8, any::<[u8; 20]>()).prop_map(|(version, bytes)| {
+            StandardPrincipalData::new(version, bytes).expect("version < 32 by construction")
+        })
+    }
+
+    /// A `ContractName`-valid string: leading ASCII letter, then 0..=39 of
+    /// `[a-z0-9-]`. Uses `try_from` to filter the few combinations that
+    /// would still be rejected, e.g. names that collide with reserved
+    /// tokens.
+    fn arb_contract_name() -> impl Strategy<Value = ContractName> {
+        (
+            b'a'..=b'z',
+            prop::collection::vec(
+                prop_oneof![b'a'..=b'z', b'0'..=b'9', Just(b'-')],
+                0..40,
+            ),
+        )
+            .prop_filter_map("contract name rejected by ContractName::try_from", |(first, rest)| {
+                let mut s = String::with_capacity(1 + rest.len());
+                s.push(first as char);
+                for c in rest {
+                    s.push(c as char);
+                }
+                ContractName::try_from(s).ok()
+            })
+    }
+
+    /// Standard- or Contract-variant principal. Both arms are weighted
+    /// uniformly; the recipient sensitivity tests below assume both shapes
+    /// are routinely exercised.
+    fn arb_principal_data() -> impl Strategy<Value = PrincipalData> {
+        prop_oneof![
+            arb_standard_principal().prop_map(PrincipalData::Standard),
+            (arb_standard_principal(), arb_contract_name()).prop_map(|(issuer, name)| {
+                PrincipalData::Contract(QualifiedContractIdentifier::new(issuer, name))
+            }),
+        ]
+    }
+
+    /// Cap user-reclaim scripts at sBTC's `MAX_RECLAIM_SCRIPT_LENGTH`
+    /// (2048 bytes) — anything larger is rejected by the validator
+    /// upstream of this helper.
+    const MAX_USER_RECLAIM_SCRIPT_LEN: usize = 2048;
+
+    proptest! {
+        /// The output key derivation is a pure function. Same inputs in,
+        /// same 32-byte key out, every time. Pins down that no hidden
+        /// stateful path (e.g. a thread-local secp context with mutable
+        /// state) leaks into the result.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_deterministic(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            let key1 = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("valid x-only pubkey should derive");
+            let key2 = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("valid x-only pubkey should derive");
+            prop_assert_eq!(key1, key2);
+        }
+
+        /// Two different recipients must produce different deposit
+        /// addresses, with everything else fixed. If they collided, two
+        /// stakers would share the same on-chain deposit address — a
+        /// fund-loss vector.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_recipient(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient_a in arb_principal_data(),
+            recipient_b in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(recipient_a != recipient_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient_a, max_fee, lock_time, &user_reclaim,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient_b, max_fee, lock_time, &user_reclaim,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// Two different `max_fee` values must produce different deposit
+        /// addresses, with everything else fixed. `max_fee` is encoded
+        /// inside the deposit script's data prefix; a collision would let
+        /// an attacker swap fee values without changing the on-chain
+        /// address that the signers watch.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_max_fee(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee_a in any::<u64>(),
+            max_fee_b in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(max_fee_a != max_fee_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee_a, lock_time, &user_reclaim,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee_b, lock_time, &user_reclaim,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// Arbitrary 32-byte input that is not a valid x-only secp256k1
+        /// point must return `Err`, never panic. The first thing the
+        /// derivation does is validate the pubkey on-curve; a regression
+        /// that bypasses that guard would land here. Inputs that *do*
+        /// parse as valid x-coords are allowed either result (Ok or Err)
+        /// — we only pin the no-panic behavior in that branch.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_invalid_pubkey_no_panic(
+            pubkey_xonly in any::<[u8; 32]>(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            let is_valid_xonly = XOnlyPublicKey::from_slice(&pubkey_xonly).is_ok();
+            let result = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim,
+            );
+            if !is_valid_xonly {
+                prop_assert!(
+                    result.is_err(),
+                    "off-curve x-coord must return Err, got {:?}", result.is_ok(),
+                );
+            }
+            // Either branch: reaching here without panic is the property.
+        }
+
+        /// The PoX-5 wrapper must be an exact specialization of the
+        /// generic derivation: same x-only portion of the pubkey, same
+        /// recipient and fee, with `lock_time = u16::MAX` and
+        /// user-reclaim `[OP_RETURN]` baked in. Any drift between the two
+        /// would silently change the watched address for PoX-5 deposits.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_pox5_wrapper_matches_generic(
+            pubkey_compressed in arb_valid_compressed_pubkey_33(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+        ) {
+            let xonly: [u8; 32] = pubkey_compressed[1..].try_into().expect("33 - 1 = 32");
+            let wrapper = sbtc_pox5_deposit_taproot_output_key(
+                &pubkey_compressed, &recipient, max_fee,
+            ).expect("valid pubkey");
+            let generic = sbtc_deposit_taproot_output_key(
+                &xonly,
+                &recipient,
+                max_fee,
+                u16::MAX,
+                &[Opcode::OP_RETURN as u8],
+            ).expect("valid pubkey");
+            prop_assert_eq!(wrapper, generic);
         }
     }
 }
