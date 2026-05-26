@@ -1472,4 +1472,205 @@ mod tests {
             other => panic!("Expected STXLockEvent, got: {other:?}"),
         }
     }
+
+    // ------------------------------------------------------------------------
+    // Property tests
+    // ------------------------------------------------------------------------
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Rule: `lock_amount == 0` is rejected before any DB work.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_zero_amount_rejected(
+            unlock_height in 1u64..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_lock_v5(&mut gc.database, &staker, 0, unlock_height)
+                .expect_err("zero amount must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxInvalidLockAmount),
+                "expected PoxInvalidLockAmount, got {err:?}"
+            );
+        }
+
+        /// Rule: `unlock_burn_height == 0` is rejected before any DB work.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_zero_height_rejected(
+            amount in 1u128..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_lock_v5(&mut gc.database, &staker, amount, 0)
+                .expect_err("zero unlock_height must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxInvalidUnlockHeight),
+                "expected PoxInvalidUnlockHeight, got {err:?}"
+            );
+        }
+
+        /// Rule: a second `pox_lock_v5` on an already-locked account must surface
+        /// `PoxAlreadyLocked` no matter what the second amount/height are.
+        /// `has_locked_tokens` is checked before `can_transfer`, so the rejection
+        /// applies even when the second amount would otherwise exceed the
+        /// available balance.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_double_lock_rejected(
+            first_amount in 1u128..=500_000,
+            first_unlock in 1_000u64..=1_000_000,
+            second_amount in 1u128..=10_000_000,
+            second_unlock in 1u64..=1_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let total_amount: u128 = 10_000_000;
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, first_amount, first_unlock)
+                .expect("first lock should succeed");
+            let err = pox_lock_v5(&mut gc.database, &staker, second_amount, second_unlock)
+                .expect_err("second lock must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxAlreadyLocked),
+                "expected PoxAlreadyLocked, got {err:?}"
+            );
+        }
+
+        /// Rule: locking more than the available balance is rejected with
+        /// `PoxInsufficientBalance` (after the zero-amount/zero-height gates).
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_exceeds_balance(
+            balance in 1u128..=1_000_000,
+            extra in 1u128..=1_000_000,
+            unlock_height in 1u64..=1_000_000,
+        ) {
+            let lock_amount = balance.checked_add(extra).unwrap();
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, balance);
+
+            let err = pox_lock_v5(&mut gc.database, &staker, lock_amount, unlock_height)
+                .expect_err("over-balance lock must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxInsufficientBalance),
+                "expected PoxInsufficientBalance, got {err:?}"
+            );
+        }
+
+        /// Rule: `pox_lock_update_v5` cannot reduce `amount_locked`. Any
+        /// `new_total_locked < current_amount_locked` must return
+        /// `PoxInvalidIncrease` — there is no "decrease via stake-update" path.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_no_decrease(
+            initial_lock in 100u128..=1_000_000,
+            decrease in 1u128..=99,
+            initial_unlock in 1_000u64..=1_000_000,
+            new_unlock in 1_000u64..=1_000_000,
+        ) {
+            let new_total = initial_lock - decrease;
+            let total_amount: u128 = 10_000_000;
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("first lock should succeed");
+            let err = pox_lock_update_v5(&mut gc.database, &staker, new_unlock, new_total)
+                .expect_err("decrease must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxInvalidIncrease),
+                "expected PoxInvalidIncrease, got {err:?}"
+            );
+        }
+
+        /// Rule: `pox_unstake_v5` on an account that holds no lock fails with
+        /// `PoxUnstakeNotLocked` regardless of the requested unlock height.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_unstake_v5_not_locked(
+            unlock_height in 1u64..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_unstake_v5(&mut gc.database, &staker, unlock_height)
+                .expect_err("unstake on unlocked must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxUnstakeNotLocked),
+                "expected PoxUnstakeNotLocked, got {err:?}"
+            );
+        }
+
+        /// Rule: a Clarity tuple missing any of `staker`, `amount-ustx`, or
+        /// `unlock-burn-height` is rejected as `PoxMalformedResponse`. Pins the
+        /// contract <-> handler shape contract against future field renames.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_parse_pox_stake_result_malformed_missing_field(
+            which_field in 0u8..=2,
+            amount in any::<u128>(),
+            unlock_u64 in any::<u64>(),
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut fields: Vec<(ClarityName, Value)> = vec![
+                (ClarityName::from_literal("staker"), Value::Principal(staker)),
+                (ClarityName::from_literal("amount-ustx"), Value::UInt(amount)),
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(u128::from(unlock_u64)),
+                ),
+            ];
+            fields.remove(which_field as usize);
+            let tuple = TupleData::from_data(fields).unwrap();
+            let bad = Value::okay(Value::Tuple(tuple)).unwrap();
+            let err = parse_pox_stake_result(&bad)
+                .expect_err("missing field must surface as PoxMalformedResponse");
+            prop_assert!(
+                matches!(err, LockingError::PoxMalformedResponse(_)),
+                "expected PoxMalformedResponse, got {err:?}"
+            );
+        }
+
+        /// Rule: an `unlock-burn-height` u128 value above `u64::MAX` must surface
+        /// as `PoxMalformedResponse`. This is the only place the u128 -> u64
+        /// cast can overflow silently.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_parse_pox_stake_result_unlock_height_overflow(
+            unlock_overflow in ((u64::MAX as u128) + 1)..=u128::MAX,
+            amount in any::<u128>(),
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let fields: Vec<(ClarityName, Value)> = vec![
+                (ClarityName::from_literal("staker"), Value::Principal(staker)),
+                (ClarityName::from_literal("amount-ustx"), Value::UInt(amount)),
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(unlock_overflow),
+                ),
+            ];
+            let tuple = TupleData::from_data(fields).unwrap();
+            let bad = Value::okay(Value::Tuple(tuple)).unwrap();
+            let err = parse_pox_stake_result(&bad)
+                .expect_err("u128 > u64::MAX must surface as PoxMalformedResponse");
+            prop_assert!(
+                matches!(err, LockingError::PoxMalformedResponse(_)),
+                "expected PoxMalformedResponse, got {err:?}"
+            );
+        }
+    }
 }
