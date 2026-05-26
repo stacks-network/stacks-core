@@ -13,10 +13,6 @@ inputs:
   cache-key:
     description: "The cache key to use. Should be based on runner OS, Cargo.lock hash, and Cargo.toml hash."
     required: true
-  fail-on-cache-miss:
-    description: "Fail workflow if cache is not restorable"
-    required: false
-    default: "true"
 
 outputs:
   cache-hit:
@@ -48,7 +44,6 @@ runs:
         steps.check-cache.outputs.cache-hit == 'true'
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
-        fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
         path: |
           ~/.cargo/bin/
           ~/.cargo/registry/index/

@@ -142,6 +142,15 @@ runs:
         
         echo "Inputs validated successfully!"
 
+    # Modify test-name input to be a valid filename, since we use it to name the junit test file and the code coverage file
+    - name: Generate sanitized file name for both junit and grcov
+      id: generate-sanitized-file-name
+      if: github.event.repository.visibility == 'public'
+      shell: bash
+      run: |
+        SANITIZED_FILE_NAME=$(echo "${{ inputs.codecov-test-name }}" | sed 's/[\\/:\*\?"<>|]/_/g')
+        echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
+
     # Mode 1: Run specific test names sequentially (If partition is NOT specified)
     - name: Run Tests Sequentially
       if: inputs.partition == '' && inputs.total-partitions == ''
@@ -154,13 +163,14 @@ runs:
         FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
         FILTERSET="test(=${FILTERSET})"
 
-        # nextest settings are configured in ~/.github/ci-nextest.toml, arguments here override those settings
+        # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
         cargo nextest run \
-          --config-file .github/ci-nextest.toml \
+          --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-sequential \
           --run-ignored all \
           --archive-file ${{ inputs.archive-file }} \
           -E "$FILTERSET"
+          --junit-xml "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml" \
 
     # Mode 2: Run Partitioned Tests (If partition IS specified)
     - name: Run Partitioned Tests
@@ -169,25 +179,33 @@ runs:
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
         
-        # nextest settings are configured in ~/.github/ci-nextest.toml, arguments here override those settings
+        # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
         cargo nextest run \
-          --config-file .github/ci-nextest.toml \
+          --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-parallel \
           --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
           --archive-file ${{ inputs.archive-file }}
+          --junit-xml "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml" \
+          
+    ############################################################################
+    ### Upload the nextest JUnit XML
+    ############################################################################
+
+    # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
+    - name: Store JUnit Report as Artifact
+      if: always() # needed to be able to execute this step for test failures
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      with:
+        name: ${{ github.sha }}-nextest-${{ steps.generate-test-file-name.outputs.file-name }}
+        path: junit_${{ steps.sanitize-id.outputs.id }}.xml
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 9 # 0 (none) - 9 (most)
+        overwrite: true
           
     ############################################################################
     ### Generate and upload code coverage artifact
     ############################################################################
-    
-    # Modify test-name input to be a valid filename, since we use it to name the coverage file
-    - name: Generate sanitized test file name for grcov
-      id: generate-test-file-name
-      if: github.event.repository.visibility == 'public'
-      shell: bash
-      run: |
-        SANITIZED_FILE_NAME=$(echo "lcov_${{ inputs.codecov-test-name }}.info" | sed 's/[\\/:\*\?"<>|]/_/g')
-        echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
 
     # Generate code coverage using grcov
     #   - Resulting coverage filenames must be unique, so use test-name input to name the file
@@ -220,16 +238,16 @@ runs:
           --ignore "**/*.toml" \
           --ignore "**/*.txt" \
           --ignore "**/*.yml" \
-          -o ${{ steps.generate-test-file-name.outputs.file-name }} \
+          -o lcov_${{ steps.generate-test-file-name.outputs.file-name }}.info \
         || exit 1
 
-    # Store coverage file in GitHub CI artifacts (with SHA prefix)
+    # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
     - name: Store Code Coverage as Artifact
       if: github.event.repository.visibility == 'public'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: ${{ github.sha }}-${{ steps.generate-test-file-name.outputs.file-name }}
-        path: ${{ steps.generate-test-file-name.outputs.file-name }}
+        name: ${{ github.sha }}-codecov-${{ steps.generate-test-file-name.outputs.file-name }}
+        path: lcov_${{ steps.generate-test-file-name.outputs.file-name }}.info
         if-no-files-found: error
         retention-days: 1
         compression-level: 9 # 0 (none) - 9 (most)

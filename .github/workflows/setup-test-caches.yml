@@ -41,7 +41,7 @@ jobs:
       cache-key: ${{ steps.generate-cache-key.outputs.cache-key }}
     steps:
       # Checkout the code
-      #   - only Cargo.lock and Cargo.toml are required to generate the cache key
+      #   - only Cargo.lock, Cargo.toml, and rust-toolchain.toml are required to generate the cache key
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -49,12 +49,13 @@ jobs:
           sparse-checkout: |
             Cargo.lock
             Cargo.toml
+            rust-toolchain.toml
 
       - name: Generate Cache Key
         id: generate-cache-key
         shell: bash
         run: |
-          echo "cache-key=cache-cargo-for-archive-build--${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml') }}" >> "$GITHUB_OUTPUT"
+          echo "cache-key=cache-cargo-for-archive-build--${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml') }}-${{ hashFiles('rust-toolchain.toml') }}" >> "$GITHUB_OUTPUT"
 
   # Check which caches already exist before creating them
   check-caches:

@@ -69,7 +69,7 @@ jobs:
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: ./.github/actions/setup-run-tests-codecov
+        uses: ./.github/actions/run-tests
         with:
           partition: ${{ matrix.partition }}
           total-partitions: ${{ strategy.job-total }}

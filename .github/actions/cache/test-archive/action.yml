@@ -15,12 +15,8 @@ inputs:
     description: "Code coverage binary path"
     required: false
     default: "./target/debug/"
-  fail-on-cache-miss:
-    description: "Fail workflow if cache is not restorable"
-    required: false
-    default: "true"
   cache-key:
-    description: "Cache Key name"
+    description: "Cache key"
     required: false
     default: cache-test-archive--${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -50,7 +46,6 @@ runs:
         steps.check_cache.outputs.cache-hit == 'true'
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
-        fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
         path: |
           ${{ inputs.archive-file }}
           ${{ inputs.codecov-binary-path }}

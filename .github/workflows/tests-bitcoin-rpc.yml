@@ -133,9 +133,9 @@ jobs:
           # Safely replace a leading ~ with the actual absolute $HOME path
           TEST_ARCHIVE_FILE="${TEST_ARCHIVE_FILE/#\~/$HOME}"
         
-          # nextest settings are configured in ~/.github/ci-nextest.toml, arguments here override those settings
+          # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
           cargo nextest run \
-            --config-file .github/ci-nextest.toml \
+            --config-file ./.github/nextest/ci-nextest.toml \
             --profile ci-parallel \
             --run-ignored all \
             --no-tests fail \
