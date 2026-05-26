@@ -334,94 +334,92 @@ jobs:
       - name: Parse JUnit Reports and Generate Summary
         shell: bash
         run: |
-          # Check if the directory exists and contains reports
-          if [ ! -d "$NEXTEST_FILES_DIR" ] || [ -z "$(ls -A "$NEXTEST_FILES_DIR" 2>/dev/null)" ]; then
-            echo "## 📊 Consolidated Nextest Matrix Summary" >> $GITHUB_STEP_SUMMARY
-            echo "### ❌ No Reports Found" >> $GITHUB_STEP_SUMMARY
-            echo "No JUnit report files were found in the workspace." >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
-
+          EXT="${{ env.NEXTEST_FILES_EXT }}"
+          DIR="${{ env.NEXTEST_FILES_DIR }}"
+          SLOW_SECS=${{ env.SLOW_THRESHOLD_SECS }}
+        
           # Feed all reports cleanly into a unified gawk processing loop
-          find "$NEXTEST_FILES_DIR" -type f -name "*.$NEXTEST_FILES_EXT" | sort | xargs gawk '
-            BEGINFILE {
-                # Safeguard state transitions between individual file bounds
-                in_testcase = 0
-                has_retry = 0
+          # We pass the bash variable into AWK safely using the -v flag
+          find "$DIR" -type f -name "*.$EXT" | sort | xargs gawk -v slow_thresh="$SLOW_SECS" '
+            BEGIN {
+                # Split the XML file by the testcase tag instead of newlines
+                RS = "<testcase "
             }
             
-            /<testcase/ {
-                # Pull attributes independently (handles potential attribute order variations)
-                match($0, /classname="([^"]+)"/, c); classname = c[1];
-                match($0, /name="([^"]+)"/, n); name = n[1];
-                match($0, /time="([^"]+)"/, t); time_val = t[1] + 0;
-                
-                full_name = classname " :: " name;
-                in_testcase = 1;
-                has_retry = 0;
+            FNR == 1 {
+                # Skip the first record of every file (contains metadata before the first testcase)
+                next
             }
             
             {
-                if (in_testcase) {
-                    # Scan for Nextest-specific retry elements within the active block context
-                    if ($0 ~ /flakyFailure|flakyError|rerunFailure|rerunError/) {
-                        has_retry = 1;
-                    }
-                    
-                    # Evaluate conditions when the individual node block terminates
-                    if ($0 ~ /<\/testcase>|\/>/) {
-                        short_file = FILENAME;
-                        sub(/.*\//, "", short_file); # Strip path, preserve filename string
-                        
-                        if (has_retry) {
-                            retried_list = retried_list full_name ":::" short_file "\n";
-                        }
-                        if (time_val > $SLOW_THRESHOLD_SECS) {
-                            slow_list = slow_list full_name ":::" time_val ":::" short_file "\n";
-                        }
-                        in_testcase = 0;
-                    }
+                # Clear variables to prevent data bleeding between records
+                classname = ""
+                name = ""
+                time_val = 0
+                has_retry = 0
+                
+                # Extract attributes safely from the beginning of this specific testcase record
+                if (match($0, /classname="([^"]+)"/, c)) classname = c[1]
+                if (match($0, /name="([^"]+)"/, n)) name = n[1]
+                if (match($0, /time="([^"]+)"/, t)) time_val = t[1] + 0
+                
+                full_name = classname " :: " name
+                
+                # Scan for Nextest-specific retry elements within this testcase's context
+                if ($0 ~ /flakyFailure|flakyError|rerunFailure|rerunError/) {
+                    has_retry = 1
+                }
+                
+                short_file = FILENAME
+                sub(/.*\//, "", short_file) # Strip path, preserve filename string
+                
+                if (has_retry) {
+                    retried_list = retried_list full_name ":::" short_file "\n"
+                }
+                if (time_val > slow_thresh) {
+                    slow_list = slow_list full_name ":::" time_val ":::" short_file "\n"
                 }
             }
             
             END {
-                summary_file = ENVIRON["GITHUB_STEP_SUMMARY"];
-                if (!summary_file) summary_file = "/dev/stdout";
+                summary_file = ENVIRON["GITHUB_STEP_SUMMARY"]
+                if (!summary_file) summary_file = "/dev/stdout"
 
-                print "## 📊 Consolidated Nextest Matrix Summary\n" >> summary_file;
+                print "## 📊 Nextest Summary\n" >> summary_file
 
                 if (retried_list == "" && slow_list == "") {
-                    print "### ✅ Perfect Matrix Execution!\nAll parallel testing jobs ran within normal bounds without a single retry or slow timeout alert." >> summary_file;
-                    exit(0);
+                    print "### ✅ Perfect!" >> summary_file
+                    print "All tests ran without a single retry or slow timeout alert." >> summary_file
+                    exit(0)
                 }
 
                 if (retried_list != "") {
-                    print "### ⚠️ Automatically Retried (Flaky/Rerun) Tests" >> summary_file;
-                    print "| Test Name |" >> summary_file;
-                    print "| --- |" >> summary_file;
+                    print "### ⚠️ Automatically Retried (Flaky/Rerun) Tests" >> summary_file
+                    print "| Test Name |" >> summary_file
+                    print "| --- |" >> summary_file
                     
-                    n_retried = split(retried_list, r_lines, "\n");
+                    n_retried = split(retried_list, r_lines, "\n")
                     for (i = 1; i < n_retried; i++) {
-                        split(r_lines[i], r_data, ":::");
-                        print "| `" r_data[1] "` |" >> summary_file;
+                        split(r_lines[i], r_data, ":::")
+                        print "| `" r_data[1] "` |" >> summary_file
                     }
-                    print "" >> summary_file;
+                    print "" >> summary_file
                 }
 
                 if (slow_list != "") {
-                    print "### ⏱️ Slow Tests (> $SLOW_THRESHOLD_SECS)" >> summary_file;
-                    print "| Test Name | Duration |" >> summary_file;
-                    print "| --- | --- |" >> summary_file;
+                    print "### ⏱️ Slow Tests (> " slow_thresh "s)" >> summary_file
+                    print "| Test Name | Duration |" >> summary_file
+                    print "| --- | --- |" >> summary_file
 
-                    n_slow = split(slow_list, s_lines, "\n");
+                    n_slow = split(slow_list, s_lines, "\n")
                     for (i = 1; i < n_slow; i++) {
-                        split(s_lines[i], s_data, ":::");
-                        duration = s_data[2] + 0;
-                        mins = int(duration / 60);
-                        secs = int(duration % 60);
-                        printf("| `%s` | %dm %ds (`%.2fs`) |\n", s_data[1], mins, secs, duration) >> summary_file;
+                        split(s_lines[i], s_data, ":::")
+                        duration = s_data[2] + 0
+                        mins = int(duration / 60)
+                        secs = int(duration % 60)
+                        printf("| `%s` | %dm %ds (`%.2fs`) |\n", s_data[1], mins, secs, duration) >> summary_file
                     }
-                    print "" >> summary_file;
+                    print "" >> summary_file
                 }
             }
           '
