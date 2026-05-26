@@ -365,7 +365,7 @@ jobs:
                 
                 full_name = classname " :: " name
                 
-                # Scan for Nextest-specific retry elements within this testcase's context
+                # Scan for Nextest-specific retry elements within this testcase context
                 if ($0 ~ /flakyFailure|flakyError|rerunFailure|rerunError/) {
                     has_retry = 1
                 }
