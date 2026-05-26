@@ -24,7 +24,7 @@ env:
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
   # Configure batch size and archive file for bitcoin_tests.sh invocation
-  BATCH_SIZE: 3
+  BATCH_SIZE: 2
   NEXTEST_ARCHIVE: ${{ inputs.archive-file }}
 
 # Configure concurrency
