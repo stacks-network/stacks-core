@@ -52,6 +52,9 @@
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 ;; The lockup amount does not match the specified amount of sats
 (define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
+;; A staker tried to modify the next reward cycle's state during the prepare
+;; phase.
+(define-constant ERR_STAKE_IN_PREPARE_PHASE (err u46))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -540,6 +543,10 @@
             (current-total-staked (get-total-shares-staked-for-cycle true bond-index))
             (current-signer-staked (get-signer-shares-staked-for-cycle signer true bond-index))
         )
+        ;; Check that the current reward cycle is not in the prepare phase
+        (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
+            ERR_STAKE_IN_PREPARE_PHASE
+        )
         ;; Verify that they're sending enough STX
         (asserts!
             (>= amount-ustx
@@ -655,6 +662,12 @@
             ))
             (num-cycles (- bond-end-cycle first-reward-cycle))
         )
+        ;; Check that the current reward cycle is not in the prepare phase
+        (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
+            ERR_STAKE_IN_PREPARE_PHASE
+        )
+
+        ;; Check that the old signer is the current signer
         (asserts! (is-eq old-signer current-signer)
             ERR_INVALID_OLD_SIGNER_MANAGER
         )
@@ -774,6 +787,10 @@
             ;; the first cycle in which their stx are unlocked
             (unlock-cycle (+ first-reward-cycle num-cycles))
         )
+        ;; Check that the current reward cycle is not in the prepare phase
+        (asserts! (not (is-in-prepare-phase current-cycle))
+            ERR_STAKE_IN_PREPARE_PHASE
+        )
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles amount-ustx u0 false
@@ -852,6 +869,10 @@
             (current-cycle (current-pox-reward-cycle))
             (first-reward-cycle (+ current-cycle u1))
             (num-cycles (- unlock-cycle current-cycle u1))
+        )
+        ;; Check that the current reward cycle is not in the prepare phase
+        (asserts! (not (is-in-prepare-phase current-cycle))
+            ERR_STAKE_IN_PREPARE_PHASE
         )
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender
