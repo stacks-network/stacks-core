@@ -1197,5 +1197,119 @@ mod tests {
                 Err(ParseTxError::ScriptTooLarge),
             );
         }
+
+        /// `tx_count == 0` describes an empty block, which has no leaves and
+        /// thus no valid inclusion proof. The verifier must reject regardless
+        /// of leaf, root, tx_index, or sibling contents — there's nothing to
+        /// be included in.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_zero_tx_count_always_false(
+            leaf in any::<[u8; 32]>(),
+            root in any::<[u8; 32]>(),
+            tx_index in any::<u128>(),
+            siblings in prop::collection::vec(
+                any::<[u8; 32]>(),
+                0..=VERIFY_MERKLE_PROOF_MAX_DEPTH as usize,
+            ),
+        ) {
+            prop_assert!(!verify_merkle(leaf, root, tx_index, 0, &siblings));
+        }
+
+        /// Substituting `tx_count` with a value of a *different* canonical
+        /// depth must always reject a valid proof. The path-length check is
+        /// the defense against CVE-2012-2459-style depth-downgrade attacks:
+        /// claiming a smaller `tx_count` to pass off an intermediate node
+        /// as a leaf necessarily mismatches the sibling count, and the
+        /// verifier rejects before walking.
+        ///
+        /// Note: this invariant only holds across different *depths*. Two
+        /// distinct `tx_count` values that share a canonical depth (e.g. 5
+        /// and 8 both have depth 3) reach the same walk and verify the
+        /// same synthetic proof — a real on-chain merkle root would differ,
+        /// but a property test using synthetic siblings cannot distinguish
+        /// them. The depth-mismatch case is the one the codebase actually
+        /// defends against.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_cross_tree_fails(
+            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+            depth_shift in 1u32..=VERIFY_MERKLE_PROOF_MAX_DEPTH,
+        ) {
+            let n_depth = canonical_merkle_depth(tx_count);
+            // Pick a target depth in [0, MAX_DEPTH] that differs from n_depth.
+            let target_depth =
+                (n_depth + depth_shift) % (VERIFY_MERKLE_PROOF_MAX_DEPTH + 1);
+            // Smallest tx_count whose canonical depth equals `target_depth`.
+            let bad_tx_count = if target_depth == 0 {
+                1u128
+            } else {
+                (1u128 << (target_depth - 1)) + 1
+            };
+            prop_assume!(canonical_merkle_depth(bad_tx_count) != n_depth);
+            prop_assert!(!verify_merkle(
+                leaf, root, tx_index, bad_tx_count, &siblings,
+            ));
+        }
+
+        /// CVE-2012-2459 intermediate-as-leaf forgery — the *desired*
+        /// invariant from the plan, which the builtin currently does NOT
+        /// enforce on its own.
+        ///
+        /// Bitcoin pads odd rows by duplicating the last node, so a
+        /// 3-leaf block `[A, B, C]` has the tree shape `[A, B, C, C]` and
+        /// `root = H(H(A, B), H(C, C))`. An attacker who presents
+        /// `H(C, C)` as a leaf at index 1 with `tx_count = 2` (the next
+        /// smaller power of two) and sibling `H(A, B)` produces a walk
+        /// that reaches the genuine `root` — `verify_merkle` accepts it.
+        ///
+        /// **Why it slips through.** `verify_merkle` only enforces
+        ///  1. `tx_index < tx_count`,
+        ///  2. `siblings.len() == canonical_depth(tx_count)`.
+        ///
+        /// Both hold here: `1 < 2`, and `canonical_depth(2) == 1 ==
+        /// siblings.len()`. The walk then reaches the real root because
+        /// `H(C, C)` legitimately sits one hop below the root in the
+        /// original 3-leaf tree.
+        ///
+        /// **Mitigation.** Callers of `verify-merkle-proof` MUST validate
+        /// `tx_count` against an authoritative source (e.g. the block
+        /// header). The builtin alone cannot tell whether a claimed
+        /// `tx_count` matches the tree the `root` was derived from.
+        ///
+        /// This test asserts the plan's desired invariant
+        /// (`!verify_merkle(...)`) and is `#[ignore]`d because it fails
+        /// against the current implementation, intentionally surfacing
+        /// the gap. Run with `cargo test -- --ignored` to see the
+        /// counterexample. Drop the `#[ignore]` when the builtin is
+        /// hardened (or when caller-side validation is documented as the
+        /// required defense in plain code paths).
+        #[tag(t_prop)]
+        #[test]
+        #[ignore = "exposes known verify_merkle gap: same-depth tx_count \
+                    substitution slips past the depth check (CVE-2012-2459 \
+                    family). Caller must validate tx_count authoritatively."]
+        fn prop_merkle_intermediate_as_leaf_fails(
+            a in any::<[u8; 32]>(),
+            b in any::<[u8; 32]>(),
+            c in any::<[u8; 32]>(),
+        ) {
+            // Canonical 3-leaf padded tree: [a, b, c, c].
+            let mut buf = [0u8; 64];
+            buf[..32].copy_from_slice(&a);
+            buf[32..].copy_from_slice(&b);
+            let h_ab = Sha256dHash::from_data(&buf).0;
+            buf[..32].copy_from_slice(&c);
+            buf[32..].copy_from_slice(&c);
+            let h_cc = Sha256dHash::from_data(&buf).0;
+            buf[..32].copy_from_slice(&h_ab);
+            buf[32..].copy_from_slice(&h_cc);
+            let root = Sha256dHash::from_data(&buf).0;
+
+            // The forgery: claim h_cc as a leaf in a 2-leaf tree with
+            // sibling h_ab. The plan demands this be rejected; the
+            // current builtin accepts it.
+            prop_assert!(!verify_merkle(h_cc, root, 1, 2, &[h_ab]));
+        }
     }
 }
