@@ -133,12 +133,13 @@ jobs:
           # Safely replace a leading ~ with the actual absolute $HOME path
           TEST_ARCHIVE_FILE="${TEST_ARCHIVE_FILE/#\~/$HOME}"
         
+          # nextest settings are configured in ~/.github/ci-nextest.toml, arguments here override those settings
           cargo nextest run \
-            --archive-file "$TEST_ARCHIVE_FILE" \
-            --fail-fast \
-            --status-level fail \
+            --config-file .github/ci-nextest.toml \
+            --profile ci-parallel \
             --run-ignored all \
             --no-tests fail \
+            --archive-file "$TEST_ARCHIVE_FILE" \
             -E 'package(stacks-node) & binary(stacks-node) & test(/^tests::bitcoin::rpc_integrations::/)'
 
   # Check that all jobs in this workflow have succeeded.

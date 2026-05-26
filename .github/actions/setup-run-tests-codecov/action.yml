@@ -21,22 +21,6 @@ inputs:
   archive-file:
     description: "Archive file to use for tests"
     required: true
-  failure-output:
-    description: "Failure output"
-    required: false
-    default: "final"
-  success-output:
-    description: "Success output"
-    required: false
-    default: "never"
-  status-level:
-    description: "Output status level"
-    required: false
-    default: "pass"
-  retries:
-    description: "Number of test retries"
-    required: false
-    default: "2"
   codecov-test-name:
     description: "Code coverage test name"
     required: true
@@ -170,16 +154,12 @@ runs:
         FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
         FILTERSET="test(=${FILTERSET})"
 
+        # nextest settings are configured in ~/.github/ci-nextest.toml, arguments here override those settings
         cargo nextest run \
-          --archive-file ${{ inputs.archive-file }} \
-          --retries ${{ inputs.retries }} \
-          --test-threads 1 \
+          --config-file .github/ci-nextest.toml \
+          --profile ci-sequential \
           --run-ignored all \
-          --fail-fast \
-          --failure-output ${{ inputs.failure-output }} \
-          --success-output ${{ inputs.success-output }} \
-          --status-level ${{ inputs.status-level }} \
-          --show-progress bar \
+          --archive-file ${{ inputs.archive-file }} \
           -E "$FILTERSET"
 
     # Mode 2: Run Partitioned Tests (If partition IS specified)
@@ -189,15 +169,12 @@ runs:
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
         
+        # nextest settings are configured in ~/.github/ci-nextest.toml, arguments here override those settings
         cargo nextest run \
-          --archive-file ${{ inputs.archive-file }} \
-          --retries ${{ inputs.retries }} \
-          --fail-fast \
-          --failure-output ${{ inputs.failure-output }} \
-          --success-output ${{ inputs.success-output }} \
-          --status-level ${{ inputs.status-level }} \
-          --show-progress bar \
-          --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }}
+          --config-file .github/ci-nextest.toml \
+          --profile ci-parallel \
+          --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
+          --archive-file ${{ inputs.archive-file }}
           
     ############################################################################
     ### Generate and upload code coverage artifact
