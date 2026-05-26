@@ -170,7 +170,8 @@ runs:
           --run-ignored all \
           --archive-file ${{ inputs.archive-file }} \
           -E "$FILTERSET" \
-          --junit-xml "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml"
+          --message-format junit \
+          --output-file "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml"
 
     # Mode 2: Run Partitioned Tests (If partition IS specified)
     - name: Run Partitioned Tests
@@ -185,7 +186,8 @@ runs:
           --profile ci-parallel \
           --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
           --archive-file ${{ inputs.archive-file }} \
-          --junit-xml "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml"
+          --message-format junit \
+          --output-file "junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml"
           
     ############################################################################
     ### Upload the nextest JUnit XML
