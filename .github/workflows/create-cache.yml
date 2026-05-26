@@ -72,13 +72,23 @@ jobs:
     if: needs.check-caches.outputs.cargo-cache-hit != 'true'
     steps:
       # Checkout the code
-      #   - only .github is required for this job
+      #   - the full workspace is required so `cargo fetch` can populate the registry cache for
+      #     offline test runners, including trybuild's nested Cargo invocations.
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: |
-            .github
+
+      # Setup rust toolchain
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+
+      # Populate the Cargo registry cache before saving it. The nextest archive contains compiled
+      # test binaries, but 'trybuild' compiles temporary crates at test runtime; those nested Cargo
+      # builds still need registry index/cache data when CI runs tests offline.
+      - name: Fetch Cargo Dependencies
+        shell: bash
+        run: cargo fetch --locked
 
       # Save cargo cache
       - name: Cargo Cache
