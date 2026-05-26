@@ -52,6 +52,8 @@
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 ;; The lockup amount does not match the specified amount of sats
 (define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
+;; sBTC from a prior bond has not yet been withdrawn
+(define-constant ERR_PRIOR_SBTC_NOT_WITHDRAWN (err u48))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -571,6 +573,23 @@
 
         (asserts! (is-none (get-bond-membership tx-sender))
             ERR_ALREADY_REGISTERED
+        )
+
+        ;; Ensure that a staker can't register for a bond if they have an
+        ;; active bond membership from a previous bond period, and there are
+        ;; sBTC shares from the prior bond period still outstanding.
+        (match (map-get? protocol-bond-memberships tx-sender)
+            prev-membership (asserts!
+                (is-eq
+                    (get-staker-shares-staked-for-cycle tx-sender true
+                        (get bond-index prev-membership)
+                        (get signer prev-membership)
+                    )
+                    u0
+                )
+                ERR_PRIOR_SBTC_NOT_WITHDRAWN
+            )
+            true
         )
 
         (map-set protocol-bond-memberships tx-sender {

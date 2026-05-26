@@ -1,0 +1,1 @@
+Require previous bond to be unstaked before registering for a new bond, keeping the accounting simple and preventing the new bond from overwriting the old bond before its sBTC has been returned.

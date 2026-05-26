@@ -6958,6 +6958,10 @@ export const contracts = {
         isOk: false,
         value: 32n,
       },
+      ERR_PRIOR_SBTC_NOT_WITHDRAWN: {
+        isOk: false,
+        value: 48n,
+      },
       ERR_READ_TX_OUT_OF_BOUNDS: {
         isOk: false,
         value: 39n,

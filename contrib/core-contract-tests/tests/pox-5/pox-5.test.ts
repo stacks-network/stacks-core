@@ -2884,3 +2884,101 @@ test('sbtc bond participant can recover sbtc after bond ends', () => {
   );
   expect(sbtcBalance(alice)).toBe(aliceBalance + aliceSbtc);
 });
+
+/**
+ * Ensure that a bond participant cannot participate in a new bond while they
+ * have active shares from a previous bond that haven't been withdrawn yet.
+ * This keeps the accounting simple, and prevents new bond registrations from
+ * interfering with existing commitments.
+ */
+test('register-for-bond rejected while prior sBTC shares remain', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+
+  // Set up the immediate bond; Alice joins it with sBTC.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Mine past bond 0's end.
+  const bond0End =
+    rov(pox5.bondPeriodToBurnHeight(0n)) +
+    pox5.constants.BOND_LENGTH_CYCLES * REWARD_CYCLE_LENGTH;
+  mineUntil(bond0End + 1n);
+  // `get-bond-membership` is intentionally filtering expired memberships, so
+  // it returns null even though the raw map entry and Alice's sBTC shares
+  // still exist.
+  expect(rov(pox5.getBondMembership(alice))).toBeNull();
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 0n, signer))).toBe(
+    aliceSbtc,
+  );
+
+  // Bond 7 starts the cycle after bond 0 ends (one bond-period gap
+  // beyond bond 0's tail), so we are inside its valid setup window.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 7n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+
+  // Without withdrawing the old sBTC, re-registration for bond 7 must
+  // fail with ERR_PRIOR_SBTC_NOT_WITHDRAWN (u48).
+  const stale = txErr(
+    pox5.registerForBond({
+      bondIndex: 7n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(stale.value).toBe(pox5Errors.ERR_PRIOR_SBTC_NOT_WITHDRAWN);
+
+  // After unstaking the prior sBTC, re-registration succeeds.
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: aliceSbtc,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 7n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+});
