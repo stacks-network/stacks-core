@@ -52,6 +52,8 @@
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 ;; The lockup amount does not match the specified amount of sats
 (define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
+;; A reentrant call into pox-5 was detected while a signer-manager call was in flight
+(define-constant ERR_REENTRANT_CALL (err u46))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -329,6 +331,9 @@
 ;; The total amount of sBTC staked
 (define-data-var total-sbtc-staked uint u0)
 
+;; Reentrancy guard: prevents cross-function re-entry through signer-manager trait calls
+(define-data-var signer-manager-call-active bool false)
+
 (define-trait signer-manager-trait (
     (validate-stake!
         ;; staker, first-index, num-indexes, amount-ustx, amount-sats, is-bond, signer-calldata
@@ -560,9 +565,12 @@
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
         ;; Validate that the staker can join this signer
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (var-set signer-manager-call-active true)
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
             amount-ustx sats-total true signer-calldata
         ))
+        (var-set signer-manager-call-active false)
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
@@ -663,6 +671,8 @@
         (asserts! (not (is-eq signer old-signer)) ERR_UPDATE_BOND_SAME_SIGNER)
 
         ;; Validate that the staker can join this signer
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (var-set signer-manager-call-active true)
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
             (get amount-ustx current-membership) amount-sats true
             signer-calldata
@@ -676,6 +686,7 @@
             ok-val ok-val
             err-val true
         )
+        (var-set signer-manager-call-active false)
 
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
@@ -775,10 +786,13 @@
             (unlock-cycle (+ first-reward-cycle num-cycles))
         )
         ;; Validate that the staker can join this signer
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (var-set signer-manager-call-active true)
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles amount-ustx u0 false
             signer-calldata
         ))
+        (var-set signer-manager-call-active false)
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
@@ -854,6 +868,8 @@
             (num-cycles (- unlock-cycle current-cycle u1))
         )
         ;; Validate that the staker can join this signer
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (var-set signer-manager-call-active true)
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles new-lock-amount u0 false
             signer-calldata
@@ -887,6 +903,7 @@
             err-val
             true
         )
+        (var-set signer-manager-call-active false)
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender (+ u1 current-cycle)
@@ -1012,12 +1029,15 @@
 
         ;; Call `signer-manager`, and allow them to snapshot current
         ;; data before updating. Do not throw any errors.
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (var-set signer-manager-call-active true)
         (match (contract-call? signer-manager checkpoint-staker staker bond-index u1
             true
         )
             ok-val ok-val
             err-val true
         )
+        (var-set signer-manager-call-active false)
 
         ;; Take a snapshot of the signer's current rewards
         (settle-rewards signer true bond-index)
@@ -1088,6 +1108,8 @@
 
         ;; Call `old-signer-manager`, and allow them to snapshot current
         ;; data before updating. Do not throw any errors.
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (var-set signer-manager-call-active true)
         (match (contract-call? old-signer-manager checkpoint-staker tx-sender
             (+ current-cycle u1) (- prev-unlock-cycle current-cycle u1)
             false
@@ -1095,6 +1117,7 @@
             ok-val ok-val
             err-val true
         )
+        (var-set signer-manager-call-active false)
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender (+ u1 current-cycle)
