@@ -3334,7 +3334,6 @@ mod tests {
     use std::io::Cursor;
 
     use stacks_common::codec::testing::check_codec_and_corruption;
-    use stacks_common::codec::{read_next, write_next};
     use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
     use stacks_common::util::hash::hex_bytes;
 
@@ -3343,44 +3342,6 @@ mod tests {
     // `BlockHeaderHash::sentinel()` would work too, but using a const named after
     // its semantic purpose makes the test vectors easier to read.
     const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
-
-    // -- Test-only helpers -------------------------------------------------
-
-    /// Codec helper for `ClarityVersion`. `ClarityVersion` does not implement
-    /// `StacksMessageCodec` directly (it has multiple wire forms depending on
-    /// where it is embedded), so the tests roll their own.
-    #[allow(non_snake_case)]
-    fn ClarityVersion_consensus_serialize<W: Write>(
-        version: &ClarityVersion,
-        fd: &mut W,
-    ) -> Result<(), codec_error> {
-        match *version {
-            ClarityVersion::Clarity1 => write_next(fd, &1u8)?,
-            ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
-            ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
-            ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
-            ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
-        }
-        Ok(())
-    }
-
-    #[allow(non_snake_case)]
-    fn ClarityVersion_consensus_deserialize<R: Read>(
-        fd: &mut R,
-    ) -> Result<ClarityVersion, codec_error> {
-        let version_byte: u8 = read_next(fd)?;
-        match version_byte {
-            1u8 => Ok(ClarityVersion::Clarity1),
-            2u8 => Ok(ClarityVersion::Clarity2),
-            3u8 => Ok(ClarityVersion::Clarity3),
-            4u8 => Ok(ClarityVersion::Clarity4),
-            5u8 => Ok(ClarityVersion::Clarity5),
-            _ => Err(codec_error::DeserializeError(format!(
-                "Unrecognized ClarityVersion byte {}",
-                &version_byte
-            ))),
-        }
-    }
 
     // -- Constructors used by multiple tests -------------------------------
 
@@ -3448,7 +3409,7 @@ mod tests {
         version: &ClarityVersion,
     ) -> Vec<u8> {
         let mut bytes = vec![];
-        ClarityVersion_consensus_serialize(version, &mut bytes).unwrap();
+        clarity_version_consensus_serialize(version, &mut bytes).unwrap();
         smart_contract.name.consensus_serialize(&mut bytes).unwrap();
         smart_contract
             .code_body
@@ -3485,17 +3446,17 @@ mod tests {
         }
     }
 
-    /// Iterates `ClarityVersion::ALL` rather than enumerating `#[case]` lines
-    /// so the test stays exhaustive as new variants are added in clarity-types.
-    /// `ClarityVersion_consensus_serialize`'s own `match` provides the
-    /// compile-time guard that every variant has a wire mapping.
+    /// Iterating `ClarityVersion::ALL` keeps this test exhaustive as new
+    /// variants are added in clarity-types. `clarity_version_consensus_serialize`'s
+    /// own `match` provides the compile-time guard that every variant has a
+    /// wire mapping.
     #[test]
     fn clarity_version_codec_is_consistent() {
         for &version in ClarityVersion::ALL {
             let mut buf = vec![];
-            ClarityVersion_consensus_serialize(&version, &mut buf).unwrap();
+            clarity_version_consensus_serialize(&version, &mut buf).unwrap();
             let mut cursor = Cursor::new(&buf);
-            let decoded = ClarityVersion_consensus_deserialize(&mut cursor).unwrap();
+            let decoded = clarity_version_consensus_deserialize(&mut cursor).unwrap();
             assert_eq!(version, decoded, "Roundtrip mismatch for {version:?}");
         }
     }

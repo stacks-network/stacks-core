@@ -229,14 +229,34 @@ mod tests {
         );
     }
 
-    /// `is_clarity_variable` returns true for strings that satisfy the stricter
+    /// `is_clarity_variable` returns true for strings that satisfy the
     /// `ClarityName` rules.
     #[test]
-    fn stacks_string_clarity_variable_detection() {
+    fn stacks_string_is_clarity_variable_accepts_valid_names() {
         let s = StacksString::from_str("foo-bar").unwrap();
         assert!(s.is_clarity_variable());
+        // Operator names like `+`, `-`, `<=` are valid ClarityName variables
+        // via the regex's operator-specific alternation arms, not the
+        // identifier arm exercised above.
+        let s = StacksString::from_str("<=").unwrap();
+        assert!(s.is_clarity_variable());
+    }
+
+    /// `is_clarity_variable` returns false for strings that pass `StacksString`
+    /// printable-ASCII validation but fail the stricter `ClarityName` rules.
+    #[test]
+    fn stacks_string_is_clarity_variable_rejects_invalid_names() {
         // ClarityName forbids '.' and spaces.
         let s = StacksString::from_str("not a name").unwrap();
+        assert!(!s.is_clarity_variable());
+        let s = StacksString::from_str("a.b").unwrap();
+        assert!(!s.is_clarity_variable());
+        // StacksString accepts the empty string (no chars to reject), but
+        // ClarityName requires at least one character.
+        let s = StacksString::from_str("").unwrap();
+        assert!(!s.is_clarity_variable());
+        // ClarityName must start with a letter.
+        let s = StacksString::from_str("1abc").unwrap();
         assert!(!s.is_clarity_variable());
     }
 
