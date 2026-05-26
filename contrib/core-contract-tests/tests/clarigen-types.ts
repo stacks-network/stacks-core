@@ -6974,6 +6974,10 @@ export const contracts = {
         isOk: false,
         value: 23n,
       },
+      ERR_STAKE_IN_PREPARE_PHASE: {
+        isOk: false,
+        value: 46n,
+      },
       ERR_STAKER_ALREADY_ADDED: {
         isOk: false,
         value: 5n,

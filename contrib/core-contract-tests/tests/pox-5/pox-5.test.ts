@@ -2886,3 +2886,177 @@ test('sbtc bond participant can recover sbtc after bond ends', () => {
   );
   expect(sbtcBalance(alice)).toBe(aliceBalance + aliceSbtc);
 });
+
+/**
+ * Reject calls to `stake`, `stake-update`, `register-for-bond`, and
+ * `update-bond-registration` when in the prepare phase of the current reward
+ * cycle, since the signer and staker sets are frozen during this time.
+ */
+test('stake/register/update reject during the prepare phase', () => {
+  const signer = testSigner.identifier;
+  registerSigner();
+  // Second signer used as the new signer for stake-update /
+  // update-bond-registration switches.
+  const testSigner2 = deployTestSigner('test-signer-2');
+  const signer2 = testSigner2.identifier;
+
+  // Pre-stake alice and pre-register bob so stake-update and
+  // update-bond-registration have existing memberships to mutate. Charlie and
+  // dave stay fresh so they can exercise stake and register-for-bond; dave is
+  // allowlisted on bond 0 so the during-prepare attempt reaches the guard
+  // rather than tripping ERR_NOT_ALLOWLISTED in the let bindings.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [
+        { maxSats: 100000n, staker: bob },
+        { maxSats: 100000n, staker: dave },
+      ],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 4n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(100000n),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  // Cycle 0 prepare phase begins at height 90 (cycle-1-start - 10).
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) - 9n);
+  expect(rov(pox5.isInPreparePhase(rov(pox5.currentPoxRewardCycle())))).toBe(
+    true,
+  );
+
+  // stake during prepare phase -> ERR_STAKE_IN_PREPARE_PHASE
+  expect(
+    txErr(
+      pox5.stake({
+        signerManager: signer,
+        amountUstx: stxToUStx(50_000),
+        numCycles: 2n,
+        startBurnHt: simnet.burnBlockHeight,
+        signerCalldata: null,
+      }),
+      charlie,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // stake-update during prepare phase -> ERR_STAKE_IN_PREPARE_PHASE
+  expect(
+    txErr(
+      pox5.stakeUpdate({
+        signerManager: signer2,
+        oldSignerManager: signer,
+        cyclesToExtend: 1n,
+        amountIncrease: 0n,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // register-for-bond during prepare phase -> ERR_STAKE_IN_PREPARE_PHASE
+  expect(
+    txErr(
+      pox5.registerForBond({
+        bondIndex: 0n,
+        signerManager: signer,
+        amountUstx: stxToUStx(50_000),
+        btcLockup: err(100000n),
+        signerCalldata: null,
+      }),
+      dave,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // update-bond-registration during prepare phase -> ERR_STAKE_IN_PREPARE_PHASE
+  expect(
+    txErr(
+      pox5.updateBondRegistration({
+        signerManager: signer2,
+        oldSignerManager: signer,
+        signerCalldata: null,
+      }),
+      bob,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // Crossing into the next cycle clears prepare phase; all four functions
+  // succeed, confirming the prepare-phase guard was the sole blocker. Bond 0
+  // has now started, so a fresh bond 1 (which setup-bond can only configure
+  // once we're within 2 cycles of its start) is used for dave's success path.
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
+  expect(rov(pox5.isInPreparePhase(rov(pox5.currentPoxRewardCycle())))).toBe(
+    false,
+  );
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: 100000n, staker: dave }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+  txOk(
+    pox5.stakeUpdate({
+      signerManager: signer2,
+      oldSignerManager: signer,
+      cyclesToExtend: 1n,
+      amountIncrease: 0n,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(100000n),
+      signerCalldata: null,
+    }),
+    dave,
+  );
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      oldSignerManager: signer,
+      signerCalldata: null,
+    }),
+    bob,
+  );
+});
