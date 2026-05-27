@@ -31,7 +31,7 @@ use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT
 use crate::vm::costs::{CostOverflowingMath, runtime_cost};
 use crate::vm::errors::{SyntaxBindingError, SyntaxBindingErrorType};
 use crate::vm::representations::{
-    ClarityName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
+    ClarityName, DISCARD_IDENTIFIER, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -255,6 +255,15 @@ impl TypeSignatureExt for TypeSignature {
             SyntaxBindingErrorType::TupleCons,
             accounting,
         )?;
+        // Clarity 6: bare `_` cannot name a tuple-type key. Without this,
+        // `(define-map foo { _: uint } …)` would register a referenceable
+        // `_` field accessible via `(get _ …)`.
+        if mapped_key_types
+            .iter()
+            .any(|(name, _)| name.as_str() == DISCARD_IDENTIFIER)
+        {
+            return Err(CommonCheckErrorKind::BareUnderscoreReserved);
+        }
         let tuple_type_signature = TupleTypeSignature::try_from(mapped_key_types)?;
         Ok(TypeSignature::from(tuple_type_signature))
     }

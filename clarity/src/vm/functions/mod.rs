@@ -808,10 +808,8 @@ fn special_let(
 
     finally_drop_memory!( exec_state, memory_use; {
         handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
-            // Clarity 6: a bare `_` is a discard binding. Evaluate the bound
-            // expression (preserving `try!`/`unwrap!` short-circuits) but do
-            // not place it in scope, and do not treat repeated `_` bindings
-            // as name conflicts.
+            // Clarity 6: bare `_` is a discard binding — evaluate the value
+            // (preserving `try!`/`unwrap!` short-circuit) but don't bind it.
             let is_discard = binding_name.as_str() == DISCARD_IDENTIFIER
                 && *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity6;
 

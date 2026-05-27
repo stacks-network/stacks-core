@@ -36,6 +36,18 @@ pub fn tuple_cons(
 
     check_arguments_at_least(1, args)?;
 
+    // Clarity 6: reject bare `_` keys before evaluating any values — matches
+    // the analyzer's ordering and avoids paying for evaluations that will be
+    // discarded. A `_` key would create a referenceable binding via `get`.
+    for arg in args {
+        if let Some(pair) = arg.match_list()
+            && let Some(name) = pair.first().and_then(|e| e.match_atom())
+            && name.as_str() == DISCARD_IDENTIFIER
+        {
+            return Err(RuntimeCheckErrorKind::BareUnderscoreReserved.into());
+        }
+    }
+
     let bindings = parse_eval_bindings(
         args,
         SyntaxBindingErrorType::TupleCons,
@@ -43,13 +55,6 @@ pub fn tuple_cons(
         invoke_ctx,
         context,
     )?;
-    // Clarity 6: bare `_` is reserved as a discard pattern and cannot be used
-    // as a tuple key (it would create a referenceable binding via `get`).
-    for (name, _) in &bindings {
-        if name.as_str() == DISCARD_IDENTIFIER {
-            return Err(RuntimeCheckErrorKind::BareUnderscoreReserved.into());
-        }
-    }
     runtime_cost(ClarityCostFunction::TupleCons, exec_state, bindings.len())?;
 
     Ok(TupleData::from_data(bindings).map(Value::from)?)

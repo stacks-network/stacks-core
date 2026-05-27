@@ -307,9 +307,8 @@ fn eval_with_new_binding(
             .ok_or_else(|| CostErrors::CostOverflow)?;
         checker.add_memory(memory_use)?;
     }
-    // Clarity 6: a `match` arm whose bind name is bare `_`
-    // discards the matched value — skip name-collision checks and don't
-    // place the name in the typing context for the branch body.
+    // Clarity 6: bare `_` discards the matched value — don't place the
+    // name in the typing context for the branch body.
     let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER
         && checker.clarity_version >= ClarityVersion::Clarity6;
     if !is_discard {

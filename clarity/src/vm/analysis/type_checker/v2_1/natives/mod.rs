@@ -311,10 +311,8 @@ fn check_special_let(
         binding_list,
         SyntaxBindingErrorType::Let,
         |var_name, var_sexp| {
-            // Clarity 6: bare `_` is a discard binding — still
-            // type-check the value (so its type errors surface) but don't
-            // add the name to the typing context and skip name-collision
-            // checks across repeated discards.
+            // Clarity 6: bare `_` is a discard binding — still type-check
+            // the value (so type errors surface) but don't add to scope.
             let is_discard = var_name.as_str() == DISCARD_IDENTIFIER
                 && checker.clarity_version >= ClarityVersion::Clarity6;
             if !is_discard {

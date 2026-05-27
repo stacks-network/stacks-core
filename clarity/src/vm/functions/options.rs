@@ -129,9 +129,8 @@ fn eval_with_new_binding(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let mut inner_context = context.extend()?;
-    // Clarity 6: a `match` arm whose bind name is bare `_`
-    // discards the value — execute the branch without binding the name and
-    // without raising `NameAlreadyUsed` on re-use across nested match arms.
+    // Clarity 6: bare `_` discards the matched value — execute the branch
+    // without binding the name.
     let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER
         && *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity6;
     if !is_discard

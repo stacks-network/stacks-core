@@ -328,6 +328,25 @@ fn test_bare_underscore_as_tuple_key_rejected_in_clarity6() {
     );
 }
 
+/// Clarity 6: bare `_` is rejected in tuple TYPE positions too, not just
+/// tuple-literal values. `(define-map foo { _: uint } …)` would otherwise
+/// register a referenceable `_` field.
+#[test]
+fn test_bare_underscore_as_tuple_type_key_rejected_in_clarity6() {
+    let err = execute_with_parameters(
+        "(define-map foo { _: uint } { val: uint })",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
 /// Clarity 6: bare `_` cannot name a function argument either.
 #[test]
 fn test_bare_underscore_as_function_arg_rejected_in_clarity6() {
@@ -343,6 +362,34 @@ fn test_bare_underscore_as_function_arg_rejected_in_clarity6() {
     assert!(
         msg.contains("BareUnderscoreReserved"),
         "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// The SIP requires that referencing `_` after a discard is an
+/// *analysis* error (not just a runtime failure). The analyzer's
+/// type-check sees `_` as unbound and emits `UndefinedVariable("_")`.
+#[test]
+fn test_let_discard_underscore_reference_is_analysis_error() {
+    let err = crate::vm::analysis::type_checker::v2_1::tests::mem_type_check("(let ((_ 7)) _)")
+        .expect_err("expected analysis error");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("UndefinedVariable") && msg.contains("\"_\""),
+        "expected `UndefinedVariable(\"_\")` analysis error, got: {msg}"
+    );
+}
+
+/// Same SIP requirement for `match` arms.
+#[test]
+fn test_match_discard_underscore_reference_is_analysis_error() {
+    let err = crate::vm::analysis::type_checker::v2_1::tests::mem_type_check(
+        "(match (some 5) _ _ 0)",
+    )
+    .expect_err("expected analysis error");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("UndefinedVariable") && msg.contains("\"_\""),
+        "expected `UndefinedVariable(\"_\")` analysis error, got: {msg}"
     );
 }
 

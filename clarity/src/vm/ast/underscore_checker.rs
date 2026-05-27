@@ -73,14 +73,14 @@ fn check_one(expr: &PreSymbolicExpression) -> ParseResult<()> {
 }
 
 fn reject_if_underscore(name: &ClarityName, expr: &PreSymbolicExpression) -> ParseResult<()> {
-    if name.starts_with('_') {
-        let mut err = ParseError::new(ParseErrorKind::UnderscoreIdentifierNotAllowed(
-            name.to_string(),
-        ));
-        err.diagnostic.spans = vec![expr.span().clone()];
-        return Err(err);
+    if !name.starts_with('_') {
+        return Ok(());
     }
-    Ok(())
+    let mut err = ParseError::new(ParseErrorKind::UnderscoreIdentifierNotAllowed(
+        name.to_string(),
+    ));
+    err.diagnostic.spans = vec![expr.span().clone()];
+    Err(err)
 }
 
 #[cfg(test)]
