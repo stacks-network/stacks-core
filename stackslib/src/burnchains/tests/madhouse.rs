@@ -13,24 +13,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! # P2WSH Watched-Outputs Store Lifecycle (Madhouse)
+//! Stateful PBT for `watched_p2wsh_outputs` in the burnchain DB. Random
+//! sequences of `StoreBlock` and `PruneAtHeight` run against an in-memory
+//! SQLite-backed `BurnchainDB`, with a shadow `BTreeMap` kept aligned. Ordered
+//! collections are used throughout so iteration order is reproducible across
+//! machines from a saved seed (`HashMap` iteration is per-process seeded and
+//! would alter which counter-example shrinking lands on).
 //!
-//! Stateful PBT for `watched_p2wsh_outputs` in the burnchain DB. Composes
-//! random sequences of `StoreBlock` and `PruneAtHeight` against a real
-//! in-memory SQLite-backed `BurnchainDB`, keeping a shadow `HashMap` model
-//! aligned.
-//!
-//! After every command we verify two invariants:
-//! 1. **DB/shadow consistency**: every block-hash recorded in the model has
-//!    the exact same set of outputs in the DB, and no DB rows exist for
-//!    block-hashes outside the model.
-//! 2. **Prune correctness**: after `PruneAtHeight(H)`, no entry with
-//!    `block_height < H.saturating_sub(3 * RCL / 2)` survives in either
-//!    side.
+//! Invariants checked after every command:
+//! 1. DB/shadow consistency: every block_hash in the model has the same outputs
+//!    in the DB, and no DB rows exist for block_hashes outside the model.
+//! 2. Prune correctness: after `PruneAtHeight(H)`, no entry with
+//!    `block_height < H.saturating_sub(3 * RCL / 2)` survives on either side.
 //!
 //! See [`tests::db`](super::db) for the example-based counterpart.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -44,30 +42,17 @@ use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{Burnchain, BurnchainBlockHeader, Txid};
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/// Reward cycle length used by the prune logic. Stays fixed across the
-/// scenario so the threshold computation is reproducible.
+/// Fixed across the scenario so the prune threshold is reproducible.
 const REWARD_CYCLE_LENGTH: u32 = 100;
 
-/// Maximum number of P2WSH outputs synthesized per block. Random but
-/// bounded so each block is small and the scenario runs fast.
+/// Per-block output cap. Keeps each block small.
 const MAX_OUTPUTS_PER_BLOCK: usize = 4;
 
-/// Maximum block height we ever generate. Bounds the size of the shadow
-/// map and keeps the DB compact.
+/// Upper bound on generated block heights.
 const MAX_HEIGHT: u64 = 10_000;
 
-// ---------------------------------------------------------------------------
-// Deterministic synthesis helpers
-// ---------------------------------------------------------------------------
-
-/// Unique 32-byte hash derived from a u64 height. Different heights yield
-/// distinct hashes (and therefore distinct `block_hash` keys), avoiding
-/// the PK collision of the example test's `[h as u8; 32]` (which wraps
-/// at 256).
+/// 32-byte hash derived from `height`. Distinct heights yield distinct hashes,
+/// avoiding the PK collision of the example test's `[h as u8; 32]` (wraps at 256).
 fn height_hash(height: u64) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     bytes[0..8].copy_from_slice(&height.to_le_bytes());
@@ -84,9 +69,8 @@ fn header_at_height(height: u64, parent: BurnchainHeaderHash) -> BurnchainBlockH
     }
 }
 
-/// Build a deterministic list of P2WSH outputs for a given `(height,
-/// num_outputs)`. Returns the outputs in `vout` order. Distinct heights
-/// produce non-overlapping txids.
+/// Deterministic P2WSH outputs for `(height, num_outputs)`, in `vout` order.
+/// Distinct heights produce non-overlapping txids.
 fn outputs_for_block(height: u64, num_outputs: usize) -> Vec<WatchedP2WSHOutput> {
     (0..num_outputs as u32)
         .map(|vout| {
@@ -104,44 +88,30 @@ fn outputs_for_block(height: u64, num_outputs: usize) -> Vec<WatchedP2WSHOutput>
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
-
-/// Per-block model entry: the height the block was stored at + the
-/// outputs we expect to find on the DB side.
+/// Block height + outputs expected on the DB side.
 #[derive(Debug, Clone, PartialEq)]
 struct BlockEntry {
     block_height: u64,
     outputs: Vec<WatchedP2WSHOutput>,
 }
 
-/// Shadow model of the watched-outputs store. `blocks` maps each stored
-/// `block_hash` to the height it was stored at and the canonical outputs
-/// expected on the DB. `current_height` is the latest tip used by the
-/// `PruneAtHeight` command — it's *model state*, not driven directly by
-/// the SUT (`BurnchainDB::prune_watched_outputs` takes the tip as a
-/// parameter every call).
+/// Shadow model. `current_height` is model state (not SUT-driven):
+/// `BurnchainDB::prune_watched_outputs` takes the tip as a parameter each call.
 #[derive(Debug, Clone, Default)]
 struct WatchedOutputsState {
     current_height: u64,
-    blocks: HashMap<BurnchainHeaderHash, BlockEntry>,
+    blocks: BTreeMap<BurnchainHeaderHash, BlockEntry>,
 }
 
 impl State for WatchedOutputsState {}
 
-// ---------------------------------------------------------------------------
-// System-Under-Test
-// ---------------------------------------------------------------------------
-
 struct WatchedOutputsSut {
     db: BurnchainDB,
-    /// Last header inserted, kept so subsequent inserts can use it as
-    /// `parent_block_hash` (avoiding orphan constraints). Initialized to
-    /// `BITCOIN_REGTEST_FIRST_BLOCK_HASH`.
+    /// Last header inserted; subsequent inserts use it as `parent_block_hash`
+    /// to satisfy orphan constraints. Initialized to `BITCOIN_REGTEST_FIRST_BLOCK_HASH`.
     last_block_hash: BurnchainHeaderHash,
     /// Heights for which a header has already been recorded.
-    seen_heights: std::collections::HashSet<u64>,
+    seen_heights: BTreeSet<u64>,
 }
 
 impl WatchedOutputsSut {
@@ -152,7 +122,7 @@ impl WatchedOutputsSut {
             db,
             last_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
                 .unwrap(),
-            seen_heights: std::collections::HashSet::new(),
+            seen_heights: BTreeSet::new(),
         }
     }
 
@@ -191,10 +161,6 @@ impl std::fmt::Debug for WatchedOutputsSut {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test context
-// ---------------------------------------------------------------------------
-
 #[derive(Clone)]
 pub struct WatchedOutputsContext {
     sut: Arc<Mutex<WatchedOutputsSut>>,
@@ -219,26 +185,24 @@ impl WatchedOutputsContext {
         }
     }
 
-    /// proptest re-runs the body during shrinking even with `cases = 1`,
-    /// leaking SUT state across iterations. Reset between iterations.
+    /// `proptest!` re-runs the body during shrinking even at `cases = 1`,
+    /// so SUT state would leak. Reset between iterations.
     fn reset_sut(&self) {
         *self.sut.lock().unwrap() = WatchedOutputsSut::fresh();
     }
 }
 
-/// Invariants verified after every command. Cross-checks the shadow
-/// model against the SUT (block-by-block), validating both presence and
-/// content. A divergence panics with the offending block hash.
+/// Cross-check model against SUT block-by-block. Divergence panics with the
+/// offending block hash.
 fn check_invariants(model: &WatchedOutputsState, ctx: &WatchedOutputsContext) {
     let sut = ctx.sut.lock().unwrap();
 
     // Direction 1: every block in the model has matching outputs in the DB.
     for (block_hash, entry) in &model.blocks {
         let db_outputs = sut.outputs_at(block_hash);
-        // The DB returns rows ordered by `(txid, vout)`. Our shadow
-        // entries are inserted in `vout` order for a single block so they
-        // share the canonical ordering when txids are deterministic
-        // (which they are — `outputs_for_block`).
+        // DB returns rows ordered by `(txid, vout)`. Shadow entries are
+        // inserted in `vout` order with deterministic txids, so they share
+        // the canonical ordering after sort.
         let mut expected = entry.outputs.clone();
         expected.sort_by(|a, b| (a.txid.0, a.vout).cmp(&(b.txid.0, b.vout)));
         let mut got = db_outputs.clone();
@@ -249,10 +213,9 @@ fn check_invariants(model: &WatchedOutputsState, ctx: &WatchedOutputsContext) {
         );
     }
 
-    // Direction 2: every block-hash that the model thinks is gone has no
-    // rows in the DB. We can only enumerate block-hashes the SUT has ever
-    // seen (model.blocks knows what's *still* there; SUT.seen_heights
-    // knows what was *ever* inserted).
+    // Direction 2: every block_hash the model says is gone has no rows in the
+    // DB. Only block_hashes the SUT has seen can be enumerated (model.blocks
+    // tracks what's still there; sut.seen_heights tracks what was ever inserted).
     for &height in &sut.seen_heights {
         let bh = BurnchainHeaderHash(height_hash(height));
         if !model.blocks.contains_key(&bh) {
@@ -265,13 +228,8 @@ fn check_invariants(model: &WatchedOutputsState, ctx: &WatchedOutputsContext) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
-/// Store a block of P2WSH outputs at a given height. The shadow model
-/// asserts the block-hash is fresh — re-inserts would violate the
-/// `burnchain_db_block_headers` PK.
+/// Store a block of P2WSH outputs at `height`. `check` asserts the block_hash
+/// is fresh; re-inserts would violate the `burnchain_db_block_headers` PK.
 struct StoreBlock {
     ctx: Arc<WatchedOutputsContext>,
     height: u64,
@@ -303,7 +261,7 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for StoreBlock {
                 outputs,
             },
         );
-        // The model's `current_height` advances to the max height seen.
+        // Track max height seen on the model.
         if self.height > state.current_height {
             state.current_height = self.height;
         }
@@ -329,9 +287,8 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for StoreBlock {
     }
 }
 
-/// Prune the watched-outputs store at a given tip height. Both the SUT
-/// and the model strip entries with `block_height < threshold`, where
-/// `threshold = current.saturating_sub(3 * RCL / 2)`.
+/// Prune at `current_height`: both sides drop entries with
+/// `block_height < current.saturating_sub(3 * RCL / 2)`.
 struct PruneAtHeight {
     ctx: Arc<WatchedOutputsContext>,
     current_height: u64,
@@ -358,12 +315,9 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for PruneAtHeight {
             .retain(|_block_hash, entry| entry.block_height >= threshold);
         state.current_height = state.current_height.max(self.current_height);
 
-        // Adversarial direction: explicitly enumerate every height we ever
-        // inserted and assert the SUT has no rows below `threshold`.
-        // Stronger than `check_invariants` Direction 2 alone: that one
-        // piggybacks on the shadow having correctly removed entries. If
-        // the shadow had a bug that retained pruned entries, this loop
-        // would still catch a correctly-pruning SUT.
+        // Independent of the shadow: enumerate every inserted height and assert
+        // the SUT has no rows below `threshold`. Catches a correctly-pruning SUT
+        // even if the shadow itself has a retention bug.
         {
             let sut = self.ctx.sut.lock().unwrap();
             for &height in &sut.seen_heights {
@@ -397,13 +351,9 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for PruneAtHeight {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test entry point
-// ---------------------------------------------------------------------------
-
-/// Drive the watched-outputs store through random sequences of
-/// `StoreBlock` and `PruneAtHeight`. Default deterministic order;
-/// `MADHOUSE=1` switches to random permutations of 1..16 commands.
+/// Drive the watched-outputs store through random `StoreBlock`/`PruneAtHeight`
+/// sequences. Default: deterministic order. `MADHOUSE=1`: random permutations
+/// of 1..16 commands.
 #[test]
 #[cfg_attr(test, tag(t_prop))]
 fn p2wsh_store_lifecycle_madhouse() {

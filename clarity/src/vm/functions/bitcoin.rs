@@ -914,6 +914,8 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::{OutPoint, TxIn, TxOut};
     use stacks_common::deps_common::bitcoin::network::serialize::serialize as btc_serialize;
 
+    use crate::vm::tests::proptest_strategies::{arb_simple_tx, compute_root_from_proof};
+
     /// Walk a Bitcoin-style merkle proof bottom-up using the canonical tree
     /// shape implied by `tx_count`, forcing the duplicated-padding sibling
     /// at every odd-row edge to equal the running hash. Returns the synthesized
@@ -1026,58 +1028,6 @@ mod tests {
             };
             (leaf, root, tx_index, tx_count, siblings, bad_tx_count)
         }
-    }
-
-    /// Either an empty witness (forces non-segwit serialization) or 1..=4
-    /// witness items of 0..=128 bytes (forces segwit marker/flag/witness
-    /// encoding). With only one input, this toggles the whole tx between
-    /// the two encodings.
-    fn arb_witness() -> impl Strategy<Value = Vec<Vec<u8>>> {
-        prop_oneof![
-            Just(Vec::new()),
-            prop::collection::vec(prop::collection::vec(any::<u8>(), 0..=128), 1..=4),
-        ]
-    }
-
-    /// Tx with 1..=16 outputs and scripts spanning the full 0..=1024-byte
-    /// allowed range. Randomized witness exercises both segwit and
-    /// non-segwit encodings; the canonical (witness-stripped) txid is
-    /// recovered via `Transaction::txid()` regardless of which path is
-    /// taken.
-    fn arb_simple_tx() -> impl Strategy<Value = (Transaction, Vec<(u64, Vec<u8>)>)> {
-        (
-            arb_witness(),
-            prop::collection::vec(
-                (
-                    any::<u64>(),
-                    prop::collection::vec(any::<u8>(), 0..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN),
-                ),
-                1..=16,
-            ),
-        )
-            .prop_map(|(witness, outputs)| {
-                let tx = Transaction {
-                    version: 1,
-                    lock_time: 0,
-                    input: vec![TxIn {
-                        previous_output: OutPoint {
-                            txid: Sha256dHash([0u8; 32]),
-                            vout: 0,
-                        },
-                        script_sig: Script::from(Vec::<u8>::new()),
-                        sequence: 0xffffffff,
-                        witness,
-                    }],
-                    output: outputs
-                        .iter()
-                        .map(|(amount, script)| TxOut {
-                            value: *amount,
-                            script_pubkey: Script::from(script.clone()),
-                        })
-                        .collect(),
-                };
-                (tx, outputs)
-            })
     }
 
     proptest! {

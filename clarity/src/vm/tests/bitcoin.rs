@@ -35,6 +35,7 @@ use stacks_common::util::hash::to_hex;
 use crate::vm::functions::bitcoin::{
     GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN, VERIFY_MERKLE_PROOF_MAX_DEPTH,
 };
+use crate::vm::tests::proptest_strategies::{arb_simple_tx, compute_root_from_proof};
 use crate::vm::types::{TupleData, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
@@ -99,8 +100,8 @@ fn synth_canonical_proof(
     (siblings, cur)
 }
 
-/// `ceil(log2(n))` for `n >= 2`, or 0 for `n <= 1` — local copy of the
-/// helper in `vm::functions::bitcoin`.
+/// `ceil(log2(n))` for `n >= 2`, 0 for `n <= 1`. Local copy of the helper in
+/// `vm::functions::bitcoin`.
 fn canonical_merkle_depth(tx_count: u128) -> u32 {
     if tx_count <= 1 {
         0
@@ -131,57 +132,6 @@ prop_compose! {
         let (siblings, root) = synth_canonical_proof(leaf, tx_index, tx_count, &raw_siblings);
         (leaf, root, tx_index, tx_count, siblings)
     }
-}
-
-/// Either an empty witness (forces non-segwit serialization) or 1..=4
-/// witness items of 0..=128 bytes (forces segwit marker/flag/witness
-/// encoding). With a single input, this toggles the whole tx between the
-/// two encodings.
-fn arb_witness() -> impl Strategy<Value = Vec<Vec<u8>>> {
-    prop_oneof![
-        Just(Vec::new()),
-        prop::collection::vec(prop::collection::vec(any::<u8>(), 0..=128), 1..=4),
-    ]
-}
-
-/// Tx with 1..=16 outputs and scripts spanning the full 0..=1024-byte
-/// allowed range. Randomized witness exercises both segwit and non-segwit
-/// encodings; `get-bitcoin-tx-output?` is expected to return the canonical
-/// (witness-stripped) txid in both cases.
-fn arb_simple_tx() -> impl Strategy<Value = (Transaction, Vec<(u64, Vec<u8>)>)> {
-    (
-        arb_witness(),
-        prop::collection::vec(
-            (
-                any::<u64>(),
-                prop::collection::vec(any::<u8>(), 0..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN),
-            ),
-            1..=16,
-        ),
-    )
-        .prop_map(|(witness, outputs)| {
-            let tx = Transaction {
-                version: 1,
-                lock_time: 0,
-                input: vec![TxIn {
-                    previous_output: OutPoint {
-                        txid: Sha256dHash([0u8; 32]),
-                        vout: 0,
-                    },
-                    script_sig: Script::from(Vec::<u8>::new()),
-                    sequence: 0xffffffff,
-                    witness,
-                }],
-                output: outputs
-                    .iter()
-                    .map(|(amount, script)| TxOut {
-                        value: *amount,
-                        script_pubkey: Script::from(script.clone()),
-                    })
-                    .collect(),
-            };
-            (tx, outputs)
-        })
 }
 
 fn merkle_proof_snippet(
