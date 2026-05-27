@@ -32,8 +32,22 @@ properties:
     type: [string, "null"]
     description: optional vm error (for runtime failures)
   profiler:
-      type: object
+      type: [object, "null"]
       description: hardware profiler metrics for the transaction execution context
+      properties:
+        cpu_instructions:
+          type: [integer, "null"]
+          description: number of instructions executed
+        cpu_cycles:
+          type: [integer, "null"]
+          description: number of cycles executed
+        cpu_ref_cycles:
+          type: [integer, "null"]
+          description: number of reference cycles executed
+        required:
+          - cpu_instructions
+          - cpu_cycles
+          - cpu_ref_cycles
   execution_stats:
       type: object
       description: metrics for the transaction execution context
@@ -58,3 +72,5 @@ required:
   - tx_index
   - txid
   - vm_error
+  - profiler
+  - execution_stats
