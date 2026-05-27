@@ -838,7 +838,7 @@ impl<T: MarfTrieId> MARF<T> {
     /// could hold millions of entries (~GBs) for wide, hash-distributed tries.
     ///
     /// Nodes are pushed in DFS preorder (parent before children), which is
-    /// all the remap and hash-recompute passes require.
+    /// what all the remap and hash-recompute passes require.
     ///
     /// Returns:
     /// - `node_store`: disk-backed node data + in-memory metadata.
