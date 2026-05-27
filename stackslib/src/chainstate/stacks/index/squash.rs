@@ -645,9 +645,8 @@ impl<T: MarfTrieId> MARF<T> {
         // [3/8] Collect trie nodes (DFS walk)
         info!("[{label}] [3/8] Collect trie nodes: starting DFS...");
         let start = Instant::now();
-        let (mut node_store, source_to_idx) = src.with_conn(|conn| {
-            MARF::<T>::collect_reachable_nodes(conn, &block_at_height, dst_dir)
-        })?;
+        let (mut node_store, source_to_idx) =
+            src.with_conn(|conn| MARF::collect_reachable_nodes(conn, &block_at_height, dst_dir))?;
         let node_count = node_store.len() as u64;
         step_durations.collect_trie_nodes = start.elapsed();
         info!(
