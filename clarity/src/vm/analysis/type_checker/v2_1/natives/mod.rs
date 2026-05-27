@@ -783,10 +783,12 @@ fn check_ed25519_verify(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
+    let [message, signature, public_key] = get_arguments_exact::<_, 3>(args)?;
+
     check_argument_count(3, args)?;
-    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_MAX)?;
-    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_64)?;
-    checker.type_check_expects(&args[2], context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(&message, context, &TypeSignature::BUFFER_MAX)?;
+    checker.type_check_expects(&signature, context, &TypeSignature::BUFFER_64)?;
+    checker.type_check_expects(&public_key, context, &TypeSignature::BUFFER_32)?;
     Ok(TypeSignature::BoolType)
 }
 
