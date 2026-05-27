@@ -48,15 +48,16 @@ lazy_static! {
         "({})|({})",
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
     );
-    // Four alternation arms:
-    //   1) `[a-zA-Z]...` — identifier starting with a letter (the historical form).
-    //   2) `_...`        — identifier starting with `_`, including the bare `_`
-    //                      (Clarity 6 SIP-04x; codec/lexer accept always, but
-    //                      pre-Clarity-6 ASTs reject these at the parser pass).
-    //   3) `[-+=/*]`     — single-char operator name.
-    //   4) `[<>]=?`      — comparison operator name.
+    // Three alternation arms:
+    //   1) `[a-zA-Z_]...` — identifier starting with a letter or `_` (including
+    //                      the bare `_`). The `_` leading position is accepted
+    //                      unconditionally at the codec/lexer level per
+    //                      Clarity 6 SIP-04x; pre-Clarity-6 ASTs reject these
+    //                      at the parser pass.
+    //   2) `[-+=/*]`      — single-char operator name.
+    //   3) `[<>]=?`       — comparison operator name.
     pub static ref CLARITY_NAME_REGEX_STRING: String =
-        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^_([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
+        "^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
     {
         Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
