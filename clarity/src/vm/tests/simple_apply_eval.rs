@@ -98,8 +98,8 @@ fn test_let_discard_underscore_not_referenceable() {
     .unwrap_err();
     let msg = format!("{err:?}");
     assert!(
-        msg.contains("UndefinedVariable") || msg.contains("Undefined") || msg.contains("not"),
-        "expected an unbound/undefined-variable error, got: {msg}"
+        msg.contains("Undefined variable: _"),
+        "expected an unbound-variable error for `_`, got: {msg}"
     );
 }
 
@@ -160,6 +160,66 @@ fn test_match_resp_discard_bare_underscore() {
     .unwrap()
     .unwrap();
     assert_eq!(result, Value::Int(2));
+}
+
+/// SIP-04x: a bare-`_` `let` binding must still *evaluate* its value
+/// expression — short-circuit forms like `try!` rely on this. Using a
+/// guaranteed runtime fault (division by zero) in the bound expression
+/// proves the value is computed; if the discard skipped evaluation, the
+/// program would return `(int 0)` rather than erroring.
+#[test]
+fn test_let_discard_still_evaluates_value() {
+    let program = "(let ((_ (/ 1 0))) 0)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("DivisionByZero") || msg.contains("division") || msg.contains("Division"),
+        "expected a division-by-zero error from the discarded expression, got: {msg}"
+    );
+}
+
+/// SIP-04x: `match` discard semantics extend to evaluating the matched
+/// expression for side-effecting forms like `try!`. The bound value is
+/// computed; it just isn't placed in scope. Here we exercise that the
+/// matched expression is still evaluated by relying on its value being
+/// used by branch selection (some vs. none), even though `_` isn't readable.
+#[test]
+fn test_match_opt_none_arm_with_discard_some() {
+    let program = "(match (some 99) _ 11 22)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    // Some-arm taken: discards `99`, returns `11`. None-arm (`22`) untaken.
+    assert_eq!(result, Value::Int(11));
+}
+
+/// SIP-04x: a bare-`_` `match` branch must not be referenceable in its body.
+#[test]
+fn test_match_opt_discard_underscore_not_referenceable() {
+    let program = "(match (some 5) _ _ 0)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("Undefined variable: _"),
+        "expected an unbound-variable error for `_`, got: {msg}"
+    );
 }
 
 #[apply(test_clarity_versions)]

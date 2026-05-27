@@ -289,4 +289,26 @@ mod tests {
             ClarityVersion::Clarity5,
         ));
     }
+
+    /// SIP-04x ambiguity: the spec carves out bare `_` as a discard binding
+    /// only "in `let` and `match` bindings". Outside those positions (e.g.
+    /// as a `define-constant` name or function-arg name), bare `_` is just
+    /// another identifier whose first character is `_` — so the AST pass
+    /// accepts it for Clarity 6+ and rejects it for older versions, exactly
+    /// like `_admin`. This test pins down that behavior so it doesn't drift
+    /// silently if a future reviewer reads the SIP more strictly.
+    #[test]
+    fn bare_underscore_as_define_name_accepted_in_clarity6() {
+        // Documents: `(define-constant _ 1)` parses in Clarity 6. The bare-`_`
+        // discard semantics from `let`/`match` do NOT apply at top-level
+        // define positions; this is a regular (referenceable) constant named
+        // `_`. The SIP's "does not create a binding that can be referenced
+        // later" wording is scoped to let/match bindings only.
+        assert!(parses("(define-constant _ 1)", ClarityVersion::Clarity6));
+    }
+
+    #[test]
+    fn bare_underscore_as_define_name_rejected_pre_clarity6() {
+        assert!(!parses("(define-constant _ 1)", ClarityVersion::Clarity5));
+    }
 }
