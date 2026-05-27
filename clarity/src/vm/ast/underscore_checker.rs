@@ -85,7 +85,11 @@ fn reject_if_underscore(name: &ClarityName, expr: &PreSymbolicExpression) -> Par
 
 #[cfg(test)]
 mod tests {
+    use clarity_types::representations::MAX_STRING_LEN;
     use clarity_types::types::QualifiedContractIdentifier;
+    use pinny::tag;
+    use proptest::prelude::*;
+    use proptest::string::string_regex;
 
     use super::*;
     use crate::vm::ast::{build_ast, build_ast_with_diagnostics};
@@ -310,5 +314,49 @@ mod tests {
     #[test]
     fn bare_underscore_as_define_name_rejected_pre_clarity6() {
         assert!(!parses("(define-constant _ 1)", ClarityVersion::Clarity5));
+    }
+
+    /// Generates valid `_`-led `ClarityName` strings, including the bare `_`.
+    /// The body length floor is 0 so the bare case is covered; the ceiling
+    /// is `MAX_STRING_LEN - 1` so the total length stays within the codec
+    /// limit.
+    fn any_underscore_led_clarity_name() -> impl Strategy<Value = String> {
+        string_regex(&format!(
+            "_[a-zA-Z0-9_!?+<>=/*-]{{0,{}}}",
+            (MAX_STRING_LEN as usize).saturating_sub(1)
+        ))
+        .unwrap()
+    }
+
+    /// Property test: the version gate is exactly `< Clarity6` vs. `>= Clarity6`
+    /// for every valid `_`-led `ClarityName`. Pre-Clarity-6 must reject with
+    /// the specific `UnderscoreIdentifierNotAllowed(name)` kind; Clarity 6
+    /// must accept. Exercises the full name-space — including the bare `_`,
+    /// underscore-followed-by-operator-chars (e.g. `_>=`, `_+!`), and names
+    /// at the `MAX_STRING_LEN` boundary — rather than relying on the handful
+    /// of example tests above to catch every shape.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_underscore_led_names_gated_by_clarity_version() {
+        proptest!(|(name in any_underscore_led_clarity_name())| {
+            // Filter to names that pass the codec regex — the generator
+            // pattern is a superset of the strict `ClarityName` grammar.
+            prop_assume!(ClarityName::try_from(name.clone()).is_ok());
+
+            let src = format!("(define-constant {name} 1)");
+
+            // Pre-Clarity-6: reject with the specific error variant.
+            let err = parse_err(&src, ClarityVersion::Clarity5);
+            prop_assert!(
+                matches!(&err, ParseErrorKind::UnderscoreIdentifierNotAllowed(n) if n == &name),
+                "expected UnderscoreIdentifierNotAllowed({name:?}), got {err:?}"
+            );
+
+            // Clarity 6: accept.
+            prop_assert!(
+                parses(&src, ClarityVersion::Clarity6),
+                "expected `_`-led name {name:?} to parse in Clarity 6"
+            );
+        });
     }
 }
