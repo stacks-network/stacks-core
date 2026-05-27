@@ -817,7 +817,7 @@ fn test_ed25519_verify_rfc_test_vectors_returns_true() {
 }
 
 #[test]
-fn test_ed25519_verify_empty_signature_returns_false() {
+fn test_ed25519_verify_empty_signature_returns_err() {
     let sk = Ed25519PrivateKey::random();
     let pk = Ed25519PublicKey::from_private(&sk);
 
@@ -830,17 +830,21 @@ fn test_ed25519_verify_empty_signature_returns_false() {
         buff_literal(&pk.to_bytes())
     );
 
-    assert_eq!(
-        Value::Bool(false),
-        execute_with_parameters(
-            program.as_str(),
-            ClarityVersion::latest(),
-            StacksEpochId::latest(),
-            false
-        )
-        .expect("execution should succeed")
-        .expect("should return a value")
-    );
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_64);
+        }
+        _ => panic!("expected BUFFER_64 type error, found {err:?}"),
+    }
 }
 
 #[test]
@@ -857,17 +861,21 @@ fn test_ed25519_verify_short_signature_returns_false() {
         buff_literal(&pk.to_bytes())
     );
 
-    assert_eq!(
-        Value::Bool(false),
-        execute_with_parameters(
-            program.as_str(),
-            ClarityVersion::latest(),
-            StacksEpochId::latest(),
-            false
-        )
-        .expect("execution should succeed")
-        .expect("should return a value")
-    );
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_64);
+        }
+        _ => panic!("expected BUFFER_64 type error, found {err:?}"),
+    }
 }
 
 #[test]

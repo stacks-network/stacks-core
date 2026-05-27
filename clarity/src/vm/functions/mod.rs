@@ -28,7 +28,7 @@ use crate::vm::errors::{
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{PrincipalData, TypeSignature, Value};
+use crate::vm::types::{BuffData, PrincipalData, SequenceData, TypeSignature, Value};
 use crate::vm::{LocalContext, eval, is_reserved};
 
 macro_rules! switch_on_global_epoch {
@@ -592,9 +592,12 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 ClarityCostFunction::GetBitcoinTxOutput,
                 &bitcoin::cost_input_get_bitcoin_tx_output,
             ),
-            Ed25519Verify => {
-                SpecialFunction("native_ed25519-verify", &crypto::special_ed25519_verify)
-            }
+            Ed25519Verify => NativeFunction205(
+                "native_ed25519-verify",
+                NativeHandle::MoreArg(&crypto::native_ed25519_verify),
+                ClarityCostFunction::Ed25519verify,
+                &crypto::cost_input_ed25519_verify,
+            ),
         };
         Some(callable)
     } else {
@@ -918,6 +921,27 @@ fn special_contract_of(
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
     Ok(contract_principal)
+}
+
+/// Helper to coerce a Clarity buffer value into a fixed-size byte array.
+pub fn buff_to_array<const N: usize>(value: &Value) -> Option<[u8; N]> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == N => {
+            let mut out = [0u8; N];
+            out.copy_from_slice(data);
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+pub fn buff_to_vec(value: &Value, max_size: usize) -> Option<Vec<u8>> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= max_size => {
+            Some(data.clone())
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
