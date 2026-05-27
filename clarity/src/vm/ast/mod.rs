@@ -196,7 +196,7 @@ fn inner_build_ast<T: CostTracker>(
         _ => (),
     }
 
-    // SIP-04x: reject identifiers beginning with `_` for `ClarityVersion <
+    // Clarity 6: reject identifiers beginning with `_` for `ClarityVersion <
     // Clarity6`. The wire-level regex and the v2 lexer both accept them so
     // that the parser can produce a precise diagnostic here.
     match UnderscoreIdentifierChecker::run_pass(&mut contract_ast, clarity_version, epoch) {

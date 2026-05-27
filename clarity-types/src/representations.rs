@@ -30,7 +30,7 @@ pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 pub const MAX_STRING_LEN: u8 = 128;
 
-/// The bare `_` identifier reserved as a discard pattern by SIP-04x. In
+/// The bare `_` identifier reserved as a discard pattern in Clarity 6. In
 /// `let` and `match` binding positions it discards the bound value; in
 /// every other naming position (function/constant/map/var names, function
 /// arguments, etc.) it is rejected at the analyzer/runtime layer. Rust,
@@ -60,7 +60,7 @@ lazy_static! {
     //   1) `[a-zA-Z_]...` — identifier starting with a letter or `_` (including
     //                      the bare `_`). The `_` leading position is accepted
     //                      unconditionally at the codec/lexer level per
-    //                      Clarity 6 SIP-04x; pre-Clarity-6 ASTs reject these
+    //                      Clarity 6; pre-Clarity-6 ASTs reject these
     //                      at the parser pass.
     //   2) `[-+=/*]`      — single-char operator name.
     //   3) `[<>]=?`       — comparison operator name.

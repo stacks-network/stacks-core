@@ -96,7 +96,7 @@ fn variant_coverage_report(variant: ParseErrorKind) {
         IllegalClarityName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant"),
         IllegalASCIIString(_) => Tested(vec![test_illegal_ascii_string]),
         IllegalContractName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant or Parser by MAX_CONTRACT_NAME_LEN returning `ContractNameTooLong` variant"),
-        UnderscoreIdentifierNotAllowed(_) => Ignored("Reachable via deploys of pre-Clarity-6 contracts that contain `_`-prefixed identifiers (SIP-04x). Covered by `clarity::vm::ast::underscore_checker::tests` rather than consensus-snapshot tests."),
+        UnderscoreIdentifierNotAllowed(_) => Ignored("Reachable via deploys of pre-Clarity-6 contracts that contain `_`-prefixed identifiers. Covered by `clarity::vm::ast::underscore_checker::tests` rather than consensus-snapshot tests."),
         NoteToMatchThis(_) => Unreachable_Functionally("It is reachable, but only visible in diagnostic mode as it comes as a later diagnostic error"),
         UnexpectedParserFailure => Unreachable_ExpectLike,
         InterpreterFailure => Unreachable_ExpectLike, // currently cause block rejection

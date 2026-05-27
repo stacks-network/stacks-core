@@ -177,7 +177,7 @@ pub enum ParseErrorKind {
     /// The `String` represents the invalid contract name.
     IllegalContractName(String),
     /// Identifier starts with an underscore in a Clarity version that predates
-    /// `ClarityVersion::Clarity6` (SIP-04x), where leading-`_` names are not yet
+    /// `ClarityVersion::Clarity6`, where leading-`_` names are not yet
     /// permitted. The `String` is the offending name.
     UnderscoreIdentifierNotAllowed(String),
 

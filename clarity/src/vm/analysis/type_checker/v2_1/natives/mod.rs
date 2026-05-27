@@ -254,7 +254,7 @@ pub fn check_special_tuple_cons(
         args,
         SyntaxBindingErrorType::TupleCons,
         |var_name, var_sexp| {
-            // SIP-04x: bare `_` cannot name a tuple key — it would be
+            // Clarity 6: bare `_` cannot name a tuple key — it would be
             // referenceable via `get`, contradicting the discard semantics.
             if var_name.as_str() == DISCARD_IDENTIFIER {
                 return Err(StaticCheckErrorKind::BareUnderscoreReserved.into());
@@ -311,7 +311,7 @@ fn check_special_let(
         binding_list,
         SyntaxBindingErrorType::Let,
         |var_name, var_sexp| {
-            // SIP-04x: bare `_` is a discard binding in Clarity 6 — still
+            // Clarity 6: bare `_` is a discard binding — still
             // type-check the value (so its type errors surface) but don't
             // add the name to the typing context and skip name-collision
             // checks across repeated discards.

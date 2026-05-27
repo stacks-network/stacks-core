@@ -43,7 +43,7 @@ pub fn tuple_cons(
         invoke_ctx,
         context,
     )?;
-    // SIP-04x: bare `_` is reserved as a discard pattern and cannot be used
+    // Clarity 6: bare `_` is reserved as a discard pattern and cannot be used
     // as a tuple key (it would create a referenceable binding via `get`).
     for (name, _) in &bindings {
         if name.as_str() == DISCARD_IDENTIFIER {

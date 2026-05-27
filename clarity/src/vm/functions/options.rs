@@ -129,7 +129,7 @@ fn eval_with_new_binding(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let mut inner_context = context.extend()?;
-    // SIP-04x: in Clarity 6, a `match` arm whose bind name is bare `_`
+    // Clarity 6: a `match` arm whose bind name is bare `_`
     // discards the value — execute the branch without binding the name and
     // without raising `NameAlreadyUsed` on re-use across nested match arms.
     let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER

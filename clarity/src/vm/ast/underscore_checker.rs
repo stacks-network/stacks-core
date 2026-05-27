@@ -19,7 +19,7 @@
 //! The wire-level `ClarityName` regex and the v2 lexer accept underscore-led
 //! names unconditionally so that the parser can produce a well-formed AST and
 //! report a precise, version-aware diagnostic here rather than a generic
-//! "illegal name" lexer error. SIP-04x permits the relaxation only for
+//! "illegal name" lexer error. Clarity 6 permits the relaxation only from
 //! `ClarityVersion::Clarity6` onwards.
 
 use clarity_types::representations::ClarityName;

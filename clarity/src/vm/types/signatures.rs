@@ -439,7 +439,7 @@ impl TypeSignatureExt for TypeSignature {
             let fn_name = args[0]
                 .match_atom()
                 .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
-            // SIP-04x: bare `_` is reserved as a discard pattern and cannot
+            // Clarity 6: bare `_` is reserved as a discard pattern and cannot
             // name a trait method.
             if fn_name.as_str() == clarity_types::representations::DISCARD_IDENTIFIER {
                 return Err(CommonCheckErrorKind::BareUnderscoreReserved);

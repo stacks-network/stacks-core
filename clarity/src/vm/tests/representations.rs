@@ -34,7 +34,7 @@ fn assert_regex_unchanged(actual: &str, expected: &str) {
 /// This function creates a branched strategy based on the `CLARITY_NAME_REGEX_STRING` pattern.
 ///
 /// The strategy covers three categories of valid names:
-/// - Identifier names starting with a letter or `_` (Clarity 6 / SIP-04x added
+/// - Identifier names starting with a letter or `_` (Clarity 6 added
 ///   the `_` leading position, including the bare `_` discard name) followed
 ///   by zero or more alphanumeric or symbol characters
 /// - Single arithmetic operators (`-`, `+`, `=`, `/`, `*`)

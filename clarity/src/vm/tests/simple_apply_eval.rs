@@ -64,7 +64,7 @@ fn test_doubly_defined_persisted_vars() {
     }
 }
 
-/// SIP-04x: bare `_` is a discard binding in `let`. The value is evaluated
+/// Clarity 6: bare `_` is a discard binding in `let`. The value is evaluated
 /// (so early-exit forms like `unwrap-panic` still fire) but the name is not
 /// added to scope, and multiple `_` bindings do not conflict.
 #[test]
@@ -81,7 +81,7 @@ fn test_let_discard_bare_underscore() {
     assert_eq!(result, Value::Int(7));
 }
 
-/// SIP-04x: a bare `_` binding in `let` does not place `_` in scope. The body
+/// Clarity 6: a bare `_` binding in `let` does not place `_` in scope. The body
 /// referring to `_` should fail with an unbound-variable error rather than
 /// returning the discarded value.
 #[test]
@@ -101,7 +101,7 @@ fn test_let_discard_underscore_not_referenceable() {
     );
 }
 
-/// SIP-04x: a bare-`_` `let` binding must short-circuit on `try!` just
+/// Clarity 6: a bare-`_` `let` binding must short-circuit on `try!` just
 /// like a regular binding would — the SIP's worked example uses this.
 #[test]
 fn test_let_discard_with_try_short_circuits() {
@@ -161,7 +161,7 @@ fn test_match_underscore_prefix_is_regular_binding() {
     assert_eq!(result, Value::Int(42));
 }
 
-/// SIP-04x: underscore-prefixed names (e.g. `_admin`) are *regular* bindings
+/// Clarity 6: underscore-prefixed names (e.g. `_admin`) are *regular* bindings
 /// — the leading `_` is just a convention. They can be read back.
 #[test]
 fn test_let_underscore_prefix_is_regular_binding() {
@@ -177,7 +177,7 @@ fn test_let_underscore_prefix_is_regular_binding() {
     assert_eq!(result, Value::Int(42));
 }
 
-/// SIP-04x: bare `_` in `match` (optional form) discards the matched value
+/// Clarity 6: bare `_` in `match` (optional form) discards the matched value
 /// without binding the name.
 #[test]
 fn test_match_opt_discard_bare_underscore() {
@@ -193,7 +193,7 @@ fn test_match_opt_discard_bare_underscore() {
     assert_eq!(result, Value::Int(1));
 }
 
-/// SIP-04x: bare `_` in `match` (response form) discards on both arms.
+/// Clarity 6: bare `_` in `match` (response form) discards on both arms.
 #[test]
 fn test_match_resp_discard_bare_underscore() {
     let program_ok = "(match (ok 7) _ 1 _ 2)";
@@ -255,7 +255,7 @@ fn test_match_opt_none_arm_with_discard_some() {
     assert_eq!(result, Value::Int(11));
 }
 
-/// SIP-04x: bare `_` is reserved as a discard pattern; it cannot name a
+/// Clarity 6: bare `_` is reserved as a discard pattern; it cannot name a
 /// top-level definition. Rejected by the analyzer's `check_name_used`.
 #[test]
 fn test_bare_underscore_as_define_name_rejected_in_clarity6() {
@@ -274,7 +274,7 @@ fn test_bare_underscore_as_define_name_rejected_in_clarity6() {
     );
 }
 
-/// SIP-04x: bare `_` cannot name a `use-trait` alias — would create a
+/// Clarity 6: bare `_` cannot name a `use-trait` alias — would create a
 /// referenceable `<_>` trait alias otherwise.
 #[test]
 fn test_bare_underscore_as_use_trait_alias_rejected_in_clarity6() {
@@ -292,7 +292,7 @@ fn test_bare_underscore_as_use_trait_alias_rejected_in_clarity6() {
     );
 }
 
-/// SIP-04x: bare `_` cannot name a `define-trait` method — implementing
+/// Clarity 6: bare `_` cannot name a `define-trait` method — implementing
 /// contracts would have a referenceable `_` function.
 #[test]
 fn test_bare_underscore_as_trait_method_rejected_in_clarity6() {
@@ -310,7 +310,7 @@ fn test_bare_underscore_as_trait_method_rejected_in_clarity6() {
     );
 }
 
-/// SIP-04x: bare `_` cannot be a tuple key — `(get _ tup)` would resolve
+/// Clarity 6: bare `_` cannot be a tuple key — `(get _ tup)` would resolve
 /// the value, making `_` referenceable.
 #[test]
 fn test_bare_underscore_as_tuple_key_rejected_in_clarity6() {
@@ -328,7 +328,7 @@ fn test_bare_underscore_as_tuple_key_rejected_in_clarity6() {
     );
 }
 
-/// SIP-04x: bare `_` cannot name a function argument either.
+/// Clarity 6: bare `_` cannot name a function argument either.
 #[test]
 fn test_bare_underscore_as_function_arg_rejected_in_clarity6() {
     let program = "(define-public (foo (_ uint)) (ok true)) (foo u1)";
@@ -346,7 +346,7 @@ fn test_bare_underscore_as_function_arg_rejected_in_clarity6() {
     );
 }
 
-/// SIP-04x: a bare-`_` `match` branch must not be referenceable in its body.
+/// Clarity 6: a bare-`_` `match` branch must not be referenceable in its body.
 #[test]
 fn test_match_opt_discard_underscore_not_referenceable() {
     let program = "(match (some 5) _ _ 0)";

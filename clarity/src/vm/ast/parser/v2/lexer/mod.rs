@@ -734,9 +734,9 @@ impl<'a> Lexer<'a> {
                 if self.next == '=' {
                     Token::LessEqual
                 } else if self.next.is_ascii_alphabetic() || self.next == '_' {
-                    // `_` may lead a trait identifier in Clarity 6 onwards
-                    // (SIP-04x); accept unconditionally here and let the
-                    // version-gated AST pass reject in older versions.
+                    // `_` may lead a trait identifier in Clarity 6 onwards;
+                    // accept unconditionally here and let the version-gated
+                    // AST pass reject in older versions.
                     self.read_trait_identifier()?
                 } else {
                     advance = false;

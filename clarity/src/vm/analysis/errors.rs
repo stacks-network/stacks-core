@@ -215,7 +215,7 @@ pub enum CommonCheckErrorKind {
     /// Too many trait methods specified.
     /// The first `usize` represents the number of methods found, the second the maximum allowed.
     TraitTooManyMethods(usize, usize),
-    /// SIP-04x: bare `_` cannot be used as a trait method name, tuple key, or
+    /// Clarity 6: bare `_` cannot be used as a trait method name, tuple key, or
     /// any other position covered by shared validation flow.
     BareUnderscoreReserved,
 }
@@ -408,7 +408,7 @@ pub enum StaticCheckErrorKind {
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
-    /// SIP-04x: bare `_` is reserved as a discard pattern in `let`/`match`
+    /// Clarity 6: bare `_` is reserved as a discard pattern in `let`/`match`
     /// bindings and cannot be used to name a top-level definition or function
     /// argument.
     BareUnderscoreReserved,
@@ -617,7 +617,7 @@ pub enum RuntimeCheckErrorKind {
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
-    /// SIP-04x: bare `_` is reserved as a discard pattern in `let`/`match`
+    /// Clarity 6: bare `_` is reserved as a discard pattern in `let`/`match`
     /// bindings and cannot be used to name a top-level definition or function
     /// argument.
     BareUnderscoreReserved,
