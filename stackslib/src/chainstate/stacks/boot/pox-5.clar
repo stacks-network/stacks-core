@@ -355,6 +355,7 @@
         (begin-pox5-reward-cycle uint)
     )
     (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
         (unwrap-panic (if (var-get configured)
             (err false)
             (ok true)
@@ -371,6 +372,7 @@
 
 (define-public (set-bond-admin (new-admin principal))
     (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
         ;; only bond admin can call this.
         (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
         (ok (var-set bond-admin new-admin))
@@ -400,57 +402,60 @@
             max-sats: uint,
         }))
     )
-    (let ((bond-start-height (bond-period-to-burn-height bond-index)))
-        ;; only bond admin can call this.
-        (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
+    (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (let ((bond-start-height (bond-period-to-burn-height bond-index)))
+            ;; only bond admin can call this.
+            (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
 
-        ;; only can be called within 2 cycles of bond start
-        (asserts!
-            (or
-                ;; prevent underflow
-                (< bond-start-height
-                    (* BOND_GAP_CYCLES (var-get pox-reward-cycle-length))
-                )
-                (<=
-                    (- bond-start-height
+            ;; only can be called within 2 cycles of bond start
+            (asserts!
+                (or
+                    ;; prevent underflow
+                    (< bond-start-height
                         (* BOND_GAP_CYCLES (var-get pox-reward-cycle-length))
                     )
-                    burn-block-height
+                    (<=
+                        (- bond-start-height
+                            (* BOND_GAP_CYCLES (var-get pox-reward-cycle-length))
+                        )
+                        burn-block-height
+                    )
                 )
+                ERR_CANNOT_SETUP_BOND_TOO_SOON
             )
-            ERR_CANNOT_SETUP_BOND_TOO_SOON
-        )
 
-        ;; only can be called before bond start
-        (asserts! (< burn-block-height bond-start-height)
-            ERR_CANNOT_SETUP_BOND_TOO_LATE
-        )
+            ;; only can be called before bond start
+            (asserts! (< burn-block-height bond-start-height)
+                ERR_CANNOT_SETUP_BOND_TOO_LATE
+            )
 
-        (asserts!
-            (map-insert protocol-bonds bond-index {
-                target-rate: target-rate,
-                stx-value-ratio: stx-value-ratio,
-                min-ustx-ratio: min-ustx-ratio,
-                early-unlock-signers: early-unlock-signers,
-                early-unlock-admin: early-unlock-admin,
-            })
-            ERR_BOND_ALREADY_SETUP
-        )
-
-        (let ((accumulator (try! (fold add-staker-to-bond allowlist
-                (ok {
-                    sum-max-sats: u0,
-                    bond-index: bond-index,
+            (asserts!
+                (map-insert protocol-bonds bond-index {
+                    target-rate: target-rate,
+                    stx-value-ratio: stx-value-ratio,
+                    min-ustx-ratio: min-ustx-ratio,
+                    early-unlock-signers: early-unlock-signers,
+                    early-unlock-admin: early-unlock-admin,
                 })
-            ))))
-            (ok {
-                bond-index: bond-index,
-                target-rate: target-rate,
-                stx-value-ratio: stx-value-ratio,
-                min-ustx-ratio: min-ustx-ratio,
-                early-unlock-signers: early-unlock-signers,
-                max-allocation-sats: (get sum-max-sats accumulator),
-            })
+                ERR_BOND_ALREADY_SETUP
+            )
+
+            (let ((accumulator (try! (fold add-staker-to-bond allowlist
+                    (ok {
+                        sum-max-sats: u0,
+                        bond-index: bond-index,
+                    })
+                ))))
+                (ok {
+                    bond-index: bond-index,
+                    target-rate: target-rate,
+                    stx-value-ratio: stx-value-ratio,
+                    min-ustx-ratio: min-ustx-ratio,
+                    early-unlock-signers: early-unlock-signers,
+                    max-allocation-sats: (get sum-max-sats accumulator),
+                })
+            )
         )
     )
 )
@@ -752,20 +757,23 @@
         (signer-manager <signer-manager-trait>)
         (signer-key (buff 33))
     )
-    (let ((signer (contract-of signer-manager)))
-        ;; Because signers can have members register at any time,
-        ;; they must use signer key grants instead of per-tx
-        ;; authorizations.
-        (try! (verify-signer-key-grant signer signer-key))
+    (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (let ((signer (contract-of signer-manager)))
+            ;; Because signers can have members register at any time,
+            ;; they must use signer key grants instead of per-tx
+            ;; authorizations.
+            (try! (verify-signer-key-grant signer signer-key))
 
-        ;; Only the signer contract itself can register itself
-        (asserts! (is-eq tx-sender signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
+            ;; Only the signer contract itself can register itself
+            (asserts! (is-eq tx-sender signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
 
-        (map-set signers signer signer-key)
-        (ok {
-            signer: signer,
-            signer-key: signer-key,
-        })
+            (map-set signers signer signer-key)
+            (ok {
+                signer: signer,
+                signer-key: signer-key,
+            })
+        )
     )
 )
 
@@ -937,58 +945,61 @@
         (staker principal)
         (old-signer-manager <signer-manager-trait>)
     )
-    (let (
-            (old-signer (contract-of old-signer-manager))
-            (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
-            (bond-index (get bond-index membership))
-            (signer (get signer membership))
-            (bond (unwrap-panic (get-protocol-bond bond-index)))
-            (amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
-            (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
-            (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
-        )
-        ;; Only the early unlock admin for this bond period can call this function.
-        ;; Calling via other contracts is not allowed.
-        (asserts!
-            (and (is-eq contract-caller tx-sender) (is-eq contract-caller (get early-unlock-admin bond)))
-            ERR_UNAUTHORIZED
-        )
-        (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
-        (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
+    (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (let (
+                (old-signer (contract-of old-signer-manager))
+                (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
+                (bond-index (get bond-index membership))
+                (signer (get signer membership))
+                (bond (unwrap-panic (get-protocol-bond bond-index)))
+                (amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
+                (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
+                (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
+            )
+            ;; Only the early unlock admin for this bond period can call this function.
+            ;; Calling via other contracts is not allowed.
+            (asserts!
+                (and (is-eq contract-caller tx-sender) (is-eq contract-caller (get early-unlock-admin bond)))
+                ERR_UNAUTHORIZED
+            )
+            (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
+            (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
 
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker staker bond-index u1
-            true
-        )
-            ok-val ok-val
-            err-val true
-        )
+            ;; Call `old-signer-manager`, and allow them to snapshot current
+            ;; data before updating. Do not throw any errors.
+            (match (contract-call? old-signer-manager checkpoint-staker staker bond-index u1
+                true
+            )
+                ok-val ok-val
+                err-val true
+            )
 
-        (settle-rewards signer true bond-index)
+            (settle-rewards signer true bond-index)
 
-        (map-set staker-shares-staked-for-cycle {
-            is-bond: true,
-            staker: staker,
-            signer: signer,
-            index: bond-index,
-        }
-            u0
+            (map-set staker-shares-staked-for-cycle {
+                is-bond: true,
+                staker: staker,
+                signer: signer,
+                index: bond-index,
+            }
+                u0
+            )
+            (map-set signer-shares-staked-for-cycle {
+                is-bond: true,
+                signer: signer,
+                index: bond-index,
+            }
+                (- current-shares amount-sats)
+            )
+            (map-set total-shares-staked-for-cycle {
+                index: bond-index,
+                is-bond: true,
+            }
+                (- current-total-shares amount-sats)
+            )
+            (ok true)
         )
-        (map-set signer-shares-staked-for-cycle {
-            is-bond: true,
-            signer: signer,
-            index: bond-index,
-        }
-            (- current-shares amount-sats)
-        )
-        (map-set total-shares-staked-for-cycle {
-            index: bond-index,
-            is-bond: true,
-        }
-            (- current-total-shares amount-sats)
-        )
-        (ok true)
     )
 )
 
@@ -998,89 +1009,91 @@
         (signer-manager <signer-manager-trait>)
         (amount-to-withdrawal-sats uint)
     )
-    (let (
-            (staker tx-sender)
-            (membership (unwrap! (map-get? protocol-bond-memberships staker)
-                ERR_NOT_BOND_PARTICIPANT
+    (begin
+        (let (
+                (staker tx-sender)
+                (membership (unwrap! (map-get? protocol-bond-memberships staker)
+                    ERR_NOT_BOND_PARTICIPANT
+                ))
+                (bond-index (get bond-index membership))
+                (signer (get signer membership))
+                (current-amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
+                (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
+                (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
+                (current-total-sbtc-staked (get-total-sbtc-staked))
+                ;; Cannot withdrawal more than they've staked
+                (new-amount-sats (try! (if (<= amount-to-withdrawal-sats current-amount-sats)
+
+                    (ok (- current-amount-sats amount-to-withdrawal-sats))
+                    ERR_INVALID_UNSTAKE_SBTC_AMOUNT
+                )))
+            )
+            ;; `signer-manager` must match the current signer
+            (asserts! (is-eq (contract-of signer-manager) signer)
+                ERR_INVALID_OLD_SIGNER_MANAGER
+            )
+
+            ;; Must be an sBTC lock
+            (asserts! (not (get is-l1-lock membership)) ERR_CANNOT_UNSTAKE_SBTC)
+
+            ;;  must be called directly by the tx-sender or by an allowed contract-caller
+            (try! (check-caller-allowed))
+
+            ;; Call `signer-manager`, and allow them to snapshot current
+            ;; data before updating. Do not throw any errors.
+            (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+            (var-set signer-manager-call-active true)
+            (match (contract-call? signer-manager checkpoint-staker staker bond-index u1
+                true
+            )
+                ok-val ok-val
+                err-val true
+            )
+            (var-set signer-manager-call-active false)
+
+            ;; Take a snapshot of the signer's current rewards
+            (settle-rewards signer true bond-index)
+
+            (map-set staker-shares-staked-for-cycle {
+                is-bond: true,
+                staker: staker,
+                signer: signer,
+                index: bond-index,
+            }
+                new-amount-sats
+            )
+            (map-set signer-shares-staked-for-cycle {
+                is-bond: true,
+                signer: signer,
+                index: bond-index,
+            }
+                (- current-shares amount-to-withdrawal-sats)
+            )
+            (map-set total-shares-staked-for-cycle {
+                is-bond: true,
+                index: bond-index,
+            }
+                (- current-total-shares amount-to-withdrawal-sats)
+            )
+            (var-set total-sbtc-staked
+                (- current-total-sbtc-staked amount-to-withdrawal-sats)
+            )
+
+            (try! (as-contract?
+                ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                    "sbtc-token" amount-to-withdrawal-sats
+                ))
+                (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                    transfer amount-to-withdrawal-sats tx-sender staker none
+                ))
             ))
-            (bond-index (get bond-index membership))
-            (signer (get signer membership))
-            (current-amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
-            (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
-            (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
-            (current-total-sbtc-staked (get-total-sbtc-staked))
-            ;; Cannot withdrawal more than they've staked
-            (new-amount-sats (try! (if (<= amount-to-withdrawal-sats current-amount-sats)
 
-                (ok (- current-amount-sats amount-to-withdrawal-sats))
-                ERR_INVALID_UNSTAKE_SBTC_AMOUNT
-            )))
+            (ok {
+                staker: staker,
+                signer: signer,
+                new-amount-sats: new-amount-sats,
+            })
         )
-        ;; `signer-manager` must match the current signer
-        (asserts! (is-eq (contract-of signer-manager) signer)
-            ERR_INVALID_OLD_SIGNER_MANAGER
-        )
-
-        ;; Must be an sBTC lock
-        (asserts! (not (get is-l1-lock membership)) ERR_CANNOT_UNSTAKE_SBTC)
-
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
-
-        ;; Call `signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
-        (var-set signer-manager-call-active true)
-        (match (contract-call? signer-manager checkpoint-staker staker bond-index u1
-            true
-        )
-            ok-val ok-val
-            err-val true
-        )
-        (var-set signer-manager-call-active false)
-
-        ;; Take a snapshot of the signer's current rewards
-        (settle-rewards signer true bond-index)
-
-        (map-set staker-shares-staked-for-cycle {
-            is-bond: true,
-            staker: staker,
-            signer: signer,
-            index: bond-index,
-        }
-            new-amount-sats
-        )
-        (map-set signer-shares-staked-for-cycle {
-            is-bond: true,
-            signer: signer,
-            index: bond-index,
-        }
-            (- current-shares amount-to-withdrawal-sats)
-        )
-        (map-set total-shares-staked-for-cycle {
-            is-bond: true,
-            index: bond-index,
-        }
-            (- current-total-shares amount-to-withdrawal-sats)
-        )
-        (var-set total-sbtc-staked
-            (- current-total-sbtc-staked amount-to-withdrawal-sats)
-        )
-
-        (try! (as-contract?
-            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                "sbtc-token" amount-to-withdrawal-sats
-            ))
-            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                transfer amount-to-withdrawal-sats tx-sender staker none
-            ))
-        ))
-
-        (ok {
-            staker: staker,
-            signer: signer,
-            new-amount-sats: new-amount-sats,
-        })
     )
 )
 
@@ -1564,68 +1577,71 @@
 )
 
 (define-public (calculate-rewards (bond-periods (list 6 uint)))
-    (let (
-            (last-calc (var-get last-reward-compute-height))
-            (calculation-height (- (distribution-cycle-to-burn-height (current-distribution-cycle))
-                u1
-            ))
-            (cur-reserve (var-get reserve-balance))
-            (accrued-rewards (get-new-rewards))
-        )
-        ;; verify that we are able to compute here
-        (asserts! (> calculation-height last-calc)
-            ERR_DISTRIBUTION_ALREADY_COMPUTED
-        )
-
-        ;; Verify that all active bonds are included
-        (try! (assert-all-active-bonds-included bond-periods calculation-height))
-
+    (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
         (let (
-                (bond-distributions (try! (fold calculate-bond-rewards bond-periods
-                    (ok {
-                        last-bond-stx-value-ratio: none,
-                        available-rewards: accrued-rewards,
-                        last-bond-index: none,
-                        calculation-height: calculation-height,
-                    })
-                )))
-                (remaining-rewards (get available-rewards bond-distributions))
-                (new-reserve (/ (* remaining-rewards RESERVE_RATIO) u10000))
-                (stx-staker-rewards (- remaining-rewards new-reserve))
-                (stx-cycle (burn-height-to-reward-cycle calculation-height))
-                (cycle-staked-ustx (get-total-shares-staked-for-cycle false stx-cycle))
-                (current-rewards-per-ustx (get-rewards-per-token-for-cycle false stx-cycle))
-                (prev-accounted-rewards (var-get last-accounted-rewards-only))
-                (new-rewards-per-ustx (if (is-eq cycle-staked-ustx u0)
-                    ;; if there are no stx staked, we have a problem
-                    u0
-                    (/ (* stx-staker-rewards PRECISION) cycle-staked-ustx)
+                (last-calc (var-get last-reward-compute-height))
+                (calculation-height (- (distribution-cycle-to-burn-height (current-distribution-cycle))
+                    u1
                 ))
-                (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+                (cur-reserve (var-get reserve-balance))
+                (accrued-rewards (get-new-rewards))
             )
-            (print {
-                topic: "calculate-rewards",
-                bond-periods: bond-periods,
-                calculation-height: calculation-height,
-                remaining-rewards: remaining-rewards,
-                accrued-rewards: accrued-rewards,
-                stx-staker-rewards: stx-staker-rewards,
-                stx-cycle: stx-cycle,
-                cycle-staked-ustx: cycle-staked-ustx,
-                next-rewards-per-ustx: next-rewards-per-ustx,
-            })
-            (var-set reserve-balance (+ cur-reserve new-reserve))
-            (var-set last-reward-compute-height calculation-height)
-            (var-set last-accounted-rewards-only
-                (+ prev-accounted-rewards (- accrued-rewards new-reserve))
+            ;; verify that we are able to compute here
+            (asserts! (> calculation-height last-calc)
+                ERR_DISTRIBUTION_ALREADY_COMPUTED
             )
-            (map-set rewards-per-token-for-cycle {
-                index: stx-cycle,
-                is-bond: false,
-            }
-                next-rewards-per-ustx
+
+            ;; Verify that all active bonds are included
+            (try! (assert-all-active-bonds-included bond-periods calculation-height))
+
+            (let (
+                    (bond-distributions (try! (fold calculate-bond-rewards bond-periods
+                        (ok {
+                            last-bond-stx-value-ratio: none,
+                            available-rewards: accrued-rewards,
+                            last-bond-index: none,
+                            calculation-height: calculation-height,
+                        })
+                    )))
+                    (remaining-rewards (get available-rewards bond-distributions))
+                    (new-reserve (/ (* remaining-rewards RESERVE_RATIO) u10000))
+                    (stx-staker-rewards (- remaining-rewards new-reserve))
+                    (stx-cycle (burn-height-to-reward-cycle calculation-height))
+                    (cycle-staked-ustx (get-total-shares-staked-for-cycle false stx-cycle))
+                    (current-rewards-per-ustx (get-rewards-per-token-for-cycle false stx-cycle))
+                    (prev-accounted-rewards (var-get last-accounted-rewards-only))
+                    (new-rewards-per-ustx (if (is-eq cycle-staked-ustx u0)
+                        ;; if there are no stx staked, we have a problem
+                        u0
+                        (/ (* stx-staker-rewards PRECISION) cycle-staked-ustx)
+                    ))
+                    (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+                )
+                (print {
+                    topic: "calculate-rewards",
+                    bond-periods: bond-periods,
+                    calculation-height: calculation-height,
+                    remaining-rewards: remaining-rewards,
+                    accrued-rewards: accrued-rewards,
+                    stx-staker-rewards: stx-staker-rewards,
+                    stx-cycle: stx-cycle,
+                    cycle-staked-ustx: cycle-staked-ustx,
+                    next-rewards-per-ustx: next-rewards-per-ustx,
+                })
+                (var-set reserve-balance (+ cur-reserve new-reserve))
+                (var-set last-reward-compute-height calculation-height)
+                (var-set last-accounted-rewards-only
+                    (+ prev-accounted-rewards (- accrued-rewards new-reserve))
+                )
+                (map-set rewards-per-token-for-cycle {
+                    index: stx-cycle,
+                    is-bond: false,
+                }
+                    next-rewards-per-ustx
+                )
+                (ok true)
             )
-            (ok true)
         )
     )
 )
@@ -1745,45 +1761,48 @@
         (bond-periods (list 6 uint))
         (reward-cycle uint)
     )
-    (let (
-            (signer contract-caller)
-            (stx-rewards (update-claimable-rewards signer false reward-cycle))
-            (bond-rewards (fold update-claimable-bond-rewards bond-periods {
-                signer: signer,
-                total: u0,
-                bond-rewards: (list),
-            }))
-            (bond-totals (get total bond-rewards))
-            (total-rewards (+ (get earned stx-rewards) bond-totals))
-            (prev-accrued-rewards (var-get last-accounted-rewards-only))
-        )
-        (asserts! (> total-rewards u0) ERR_NO_CLAIMABLE_REWARDS)
-        (try! (as-contract?
-            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                "sbtc-token" total-rewards
+    (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (let (
+                (signer contract-caller)
+                (stx-rewards (update-claimable-rewards signer false reward-cycle))
+                (bond-rewards (fold update-claimable-bond-rewards bond-periods {
+                    signer: signer,
+                    total: u0,
+                    bond-rewards: (list),
+                }))
+                (bond-totals (get total bond-rewards))
+                (total-rewards (+ (get earned stx-rewards) bond-totals))
+                (prev-accrued-rewards (var-get last-accounted-rewards-only))
+            )
+            (asserts! (> total-rewards u0) ERR_NO_CLAIMABLE_REWARDS)
+            (try! (as-contract?
+                ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                    "sbtc-token" total-rewards
+                ))
+                (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                    transfer total-rewards tx-sender signer none
+                ))
             ))
-            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                transfer total-rewards tx-sender signer none
-            ))
-        ))
-        ;; Update contract reward snapshot to prevent issues in next calculation
-        (var-set last-accounted-rewards-only
-            (- prev-accrued-rewards total-rewards)
-        )
+            ;; Update contract reward snapshot to prevent issues in next calculation
+            (var-set last-accounted-rewards-only
+                (- prev-accrued-rewards total-rewards)
+            )
 
-        (print {
-            topic: "claim-rewards",
-            stx-rewards: stx-rewards,
-            bond-rewards: (get bond-rewards bond-rewards),
-            bond-totals: bond-totals,
-            total-rewards: total-rewards,
-        })
-        (ok {
-            stx-rewards: stx-rewards,
-            bond-rewards: (get bond-rewards bond-rewards),
-            bond-totals: bond-totals,
-            total-rewards: total-rewards,
-        })
+            (print {
+                topic: "claim-rewards",
+                stx-rewards: stx-rewards,
+                bond-rewards: (get bond-rewards bond-rewards),
+                bond-totals: bond-totals,
+                total-rewards: total-rewards,
+            })
+            (ok {
+                stx-rewards: stx-rewards,
+                bond-rewards: (get bond-rewards bond-rewards),
+                bond-totals: bond-totals,
+                total-rewards: total-rewards,
+            })
+        )
     )
 )
 
@@ -1959,6 +1978,7 @@
         (signer-sig (buff 65))
     )
     (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
         (asserts!
             (is-none (map-get? used-signer-key-grants {
                 signer-key: signer-key,
@@ -2013,6 +2033,7 @@
         (signer-key (buff 33))
     )
     (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
         ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
         (asserts!
             (is-eq
@@ -2421,6 +2442,7 @@
 ;; Revoke contract-caller authorization to call stacking methods
 (define-public (disallow-contract-caller (caller principal))
     (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
         (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
         (ok (map-delete allowance-contract-callers {
             sender: tx-sender,
@@ -2438,6 +2460,7 @@
         (until-burn-ht (optional uint))
     )
     (begin
+        (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
         (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
         (ok (map-set allowance-contract-callers {
             sender: tx-sender,
