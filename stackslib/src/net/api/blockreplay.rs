@@ -169,8 +169,9 @@ impl BlockReplayExecutionTracker {
         }
     }
     fn collect(&mut self) {
-        self.secs = self.start_instant.elapsed().as_secs_f64();
-        self.nanos = self.start_instant.elapsed().as_nanos();
+        let elapsed = self.start_instant.elapsed();
+        self.secs = elapsed.as_secs_f64();
+        self.nanos = elapsed.as_nanos();
     }
 }
 
