@@ -581,7 +581,6 @@ impl<T: MarfTrieId> MARF<T> {
         let overall_start = Instant::now();
         let mut step_durations = SquashStepDurations::default();
 
-        // [1/8] Bulk SQL block map
         let src_storage = TrieFileStorage::open_readonly(src_path, src_open_opts)?;
         let mut src = MARF::from_storage(src_storage);
 
@@ -600,6 +599,12 @@ impl<T: MarfTrieId> MARF<T> {
             .get_block_at_height(height, tip)?
             .ok_or(Error::NotFoundError)?;
 
+        // Destination requires `external_blobs = true` and `compress = false`;
+        // the rest is unused because we bypass the normal MARF write path.
+        let dst_open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+        let mut dst = MARF::from_path(dst_path, dst_open_opts)?;
+
+        // [1/8] Bulk SQL block map
         let start = Instant::now();
         let block_map = collect_block_map(&mut src)?;
         step_durations.load_block_map = start.elapsed();
@@ -641,12 +646,6 @@ impl<T: MarfTrieId> MARF<T> {
             fmt_duration(step_durations.collect_trie_nodes)
         );
 
-        // Destination requires `external_blobs = true` and `compress = false`;
-        // the rest is unused because we bypass the normal MARF write path.
-        let dst_open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
-
-        // Open destination MARF and begin transaction
-        let mut dst = MARF::from_path(dst_path, dst_open_opts)?;
         let mut tx = dst.begin_tx()?;
         tx.begin(&T::sentinel(), &block_at_height)?;
 
