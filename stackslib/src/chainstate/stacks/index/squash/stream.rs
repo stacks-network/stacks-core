@@ -33,6 +33,9 @@ use crate::chainstate::stacks::index::{blob_layout, BlockMap, Error, MarfTrieId,
 /// The squash collector writes tree nodes in DFS preorder, so inline children
 /// are expected to appear after their parent.
 pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Error> {
+    // Flush any buffered writes from earlier passes so the reader handle
+    // sees the latest node bytes. Just in case.
+    store.flush()?;
     let empty_hash = TrieHash::EMPTY;
     let node_count = store.len();
     let start = Instant::now();
