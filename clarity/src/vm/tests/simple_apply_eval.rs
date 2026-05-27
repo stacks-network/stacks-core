@@ -64,6 +64,104 @@ fn test_doubly_defined_persisted_vars() {
     }
 }
 
+/// SIP-04x: bare `_` is a discard binding in `let`. The value is evaluated
+/// (so early-exit forms like `unwrap-panic!` would still fire) but the name
+/// is not added to scope, and multiple `_` bindings in the same form do not
+/// conflict.
+#[test]
+fn test_let_discard_bare_underscore() {
+    // Multiple bare-_ bindings in the same form should not raise NameAlreadyUsed.
+    let program = "(let ((_ 1) (_ 2) (x 3)) (+ x 4))";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(7));
+}
+
+/// SIP-04x: a bare `_` binding in `let` does not place `_` in scope. The body
+/// referring to `_` should fail with an unbound-variable error rather than
+/// returning the discarded value.
+#[test]
+fn test_let_discard_underscore_not_referenceable() {
+    let program = "(let ((_ 7)) _)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("UndefinedVariable") || msg.contains("Undefined") || msg.contains("not"),
+        "expected an unbound/undefined-variable error, got: {msg}"
+    );
+}
+
+/// SIP-04x: underscore-prefixed names (e.g. `_admin`) are *regular* bindings
+/// — the leading `_` is just a convention. They can be read back.
+#[test]
+fn test_let_underscore_prefix_is_regular_binding() {
+    let program = "(let ((_admin 42)) _admin)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+/// SIP-04x: bare `_` in `match` (optional form) discards the matched value
+/// without binding the name.
+#[test]
+fn test_match_opt_discard_bare_underscore() {
+    let program = "(match (some 5) _ 1 0)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+/// SIP-04x: bare `_` in `match` (response form) discards on both arms.
+#[test]
+fn test_match_resp_discard_bare_underscore() {
+    let program_ok = "(match (ok 7) _ 1 _ 2)";
+    let result = execute_with_parameters(
+        program_ok,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(1));
+
+    // Force the err-arm with a `response int int` whose err side is taken.
+    let program_err = "(match (err 7) _ 1 _ 2)";
+    let result = execute_with_parameters(
+        program_err,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(2));
+}
+
 #[apply(test_clarity_versions)]
 fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     /*
