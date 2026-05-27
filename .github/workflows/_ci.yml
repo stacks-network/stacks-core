@@ -293,7 +293,7 @@ jobs:
   create-slow-failed-tests-summary:
     if: >-
       always()
-    name: "Create: Slow & Failed Tests Summary"
+    name: "Create: Slow & Failed Tests Report"
     runs-on: *shared_config
     needs:
       - check-changelog
