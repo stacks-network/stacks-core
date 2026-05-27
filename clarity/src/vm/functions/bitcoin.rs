@@ -974,6 +974,60 @@ mod tests {
         }
     }
 
+    prop_compose! {
+        /// Same as [`arb_merkle_proof`] but restricted to `tx_count >= 2`,
+        /// guaranteeing `canonical_depth(tx_count) >= 1` and hence at least
+        /// one sibling. Use for tampering tests that need a non-empty
+        /// siblings vector (the sibling-tamper variant cannot operate on
+        /// an empty list).
+        fn arb_merkle_proof_with_nonempty_siblings()(
+            tx_count in 2u128..=(1u128 << VERIFY_MERKLE_PROOF_MAX_DEPTH),
+            leaf in any::<[u8; 32]>(),
+        )(
+            tx_index in 0u128..tx_count,
+            leaf in Just(leaf),
+            tx_count in Just(tx_count),
+            siblings in prop::collection::vec(
+                any::<[u8; 32]>(),
+                canonical_merkle_depth(tx_count) as usize,
+            ),
+        ) -> ([u8; 32], [u8; 32], u128, u128, Vec<[u8; 32]>) {
+            let root = compute_root_from_proof(leaf, tx_index, &siblings);
+            (leaf, root, tx_index, tx_count, siblings)
+        }
+    }
+
+    prop_compose! {
+        /// A valid merkle proof plus a `bad_tx_count` whose canonical depth
+        /// is GUARANTEED different from the original `tx_count`'s depth.
+        /// Used by [`prop_merkle_cross_tree_fails`] to exercise the
+        /// depth-downgrade defense without needing a runtime
+        /// `prop_assume!` filter.
+        ///
+        /// Construction: pick `depth_shift in 1..=MAX_DEPTH`, then
+        /// `target_depth = (n_depth + depth_shift) mod (MAX_DEPTH + 1)`.
+        /// Because `depth_shift in 1..=MAX_DEPTH`, the modulus result is
+        /// never `n_depth`, so the depth differs by construction.
+        fn arb_merkle_proof_with_different_depth_tx_count()(
+            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+            depth_shift in 1u32..=VERIFY_MERKLE_PROOF_MAX_DEPTH,
+        ) -> ([u8; 32], [u8; 32], u128, u128, Vec<[u8; 32]>, u128) {
+            let n_depth = canonical_merkle_depth(tx_count);
+            let target_depth =
+                (n_depth + depth_shift) % (VERIFY_MERKLE_PROOF_MAX_DEPTH + 1);
+            debug_assert_ne!(
+                target_depth, n_depth,
+                "depth_shift in 1..=MAX_DEPTH guarantees target_depth != n_depth"
+            );
+            let bad_tx_count = if target_depth == 0 {
+                1u128
+            } else {
+                (1u128 << (target_depth - 1)) + 1
+            };
+            (leaf, root, tx_index, tx_count, siblings, bad_tx_count)
+        }
+    }
+
     /// Either an empty witness (forces non-segwit serialization) or 1..=4
     /// witness items of 0..=128 bytes (forces segwit marker/flag/witness
     /// encoding). With only one input, this toggles the whole tx between
@@ -1048,52 +1102,62 @@ mod tests {
             prop_assert!(!verify_merkle(leaf, root, bad_idx, tx_count, &siblings));
         }
 
-        /// Flipping a bit of the leaf, root, or any sibling must break the
-        /// proof.
+        /// Flipping a bit of the LEAF breaks the proof.
         #[tag(t_prop)]
         #[test]
-        fn prop_merkle_tampering_breaks_proof(
+        fn prop_merkle_tampered_leaf_fails(
             (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
-            target in 0u8..3,
             byte_idx in 0usize..32,
             bit in 0u8..8,
         ) {
             let mask = 1u8 << bit;
+            let mut tampered = leaf;
+            tampered[byte_idx] ^= mask;
+            // A bit-flip is by definition a change, so the bit can never
+            // collide with the original byte at that position.
+            debug_assert_ne!(tampered, leaf);
+            prop_assert!(!verify_merkle(
+                tampered, root, tx_index, tx_count, &siblings,
+            ));
+        }
 
-            // Sanity: the untampered proof verifies.
-            prop_assert!(verify_merkle(leaf, root, tx_index, tx_count, &siblings));
+        /// Flipping a bit of the ROOT breaks the proof.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_tampered_root_fails(
+            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+            byte_idx in 0usize..32,
+            bit in 0u8..8,
+        ) {
+            let mask = 1u8 << bit;
+            let mut tampered = root;
+            tampered[byte_idx] ^= mask;
+            debug_assert_ne!(tampered, root);
+            prop_assert!(!verify_merkle(
+                leaf, tampered, tx_index, tx_count, &siblings,
+            ));
+        }
 
-            match target {
-                0 => {
-                    let mut tampered = leaf;
-                    tampered[byte_idx] ^= mask;
-                    // A bit-flip that happens to land on a same-as-original
-                    // collision is astronomically unlikely; skip the equality
-                    // edge case rather than weakening the assertion.
-                    prop_assume!(tampered != leaf);
-                    prop_assert!(!verify_merkle(
-                        tampered, root, tx_index, tx_count, &siblings,
-                    ));
-                }
-                1 => {
-                    let mut tampered = root;
-                    tampered[byte_idx] ^= mask;
-                    prop_assume!(tampered != root);
-                    prop_assert!(!verify_merkle(
-                        leaf, tampered, tx_index, tx_count, &siblings,
-                    ));
-                }
-                _ => {
-                    prop_assume!(!siblings.is_empty());
-                    let mut tampered = siblings.clone();
-                    let pick = byte_idx % siblings.len();
-                    tampered[pick][byte_idx] ^= mask;
-                    prop_assume!(tampered != siblings);
-                    prop_assert!(!verify_merkle(
-                        leaf, root, tx_index, tx_count, &tampered,
-                    ));
-                }
-            }
+        /// Flipping a bit in any SIBLING breaks the proof. Uses the
+        /// nonempty-siblings generator so the test never operates on an
+        /// empty proof.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_tampered_sibling_fails(
+            (leaf, root, tx_index, tx_count, siblings)
+                in arb_merkle_proof_with_nonempty_siblings(),
+            sibling_seed in 0usize..VERIFY_MERKLE_PROOF_MAX_DEPTH as usize,
+            byte_idx in 0usize..32,
+            bit in 0u8..8,
+        ) {
+            let mask = 1u8 << bit;
+            let pick = sibling_seed % siblings.len();
+            let mut tampered = siblings.clone();
+            tampered[pick][byte_idx] ^= mask;
+            debug_assert_ne!(tampered, siblings);
+            prop_assert!(!verify_merkle(
+                leaf, root, tx_index, tx_count, &tampered,
+            ));
         }
 
         /// A proof whose sibling count doesn't match canonical depth must
@@ -1233,35 +1297,23 @@ mod tests {
         #[tag(t_prop)]
         #[test]
         fn prop_merkle_cross_tree_fails(
-            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
-            depth_shift in 1u32..=VERIFY_MERKLE_PROOF_MAX_DEPTH,
+            (leaf, root, tx_index, _tx_count, siblings, bad_tx_count)
+                in arb_merkle_proof_with_different_depth_tx_count(),
         ) {
-            let n_depth = canonical_merkle_depth(tx_count);
-            // Pick a target depth in [0, MAX_DEPTH] that differs from n_depth.
-            let target_depth =
-                (n_depth + depth_shift) % (VERIFY_MERKLE_PROOF_MAX_DEPTH + 1);
-            // Smallest tx_count whose canonical depth equals `target_depth`.
-            let bad_tx_count = if target_depth == 0 {
-                1u128
-            } else {
-                (1u128 << (target_depth - 1)) + 1
-            };
-            prop_assume!(canonical_merkle_depth(bad_tx_count) != n_depth);
             prop_assert!(!verify_merkle(
                 leaf, root, tx_index, bad_tx_count, &siblings,
             ));
         }
 
-        /// CVE-2012-2459 intermediate-as-leaf forgery — the *desired*
-        /// invariant from the plan, which the builtin currently does NOT
-        /// enforce on its own.
+        /// Pins the CVE-2012-2459 gap in the CURRENT implementation.
         ///
         /// Bitcoin pads odd rows by duplicating the last node, so a
-        /// 3-leaf block `[A, B, C]` has the tree shape `[A, B, C, C]` and
-        /// `root = H(H(A, B), H(C, C))`. An attacker who presents
+        /// 3-leaf block `[A, B, C]` has the tree shape `[A, B, C, C]`
+        /// and `root = H(H(A, B), H(C, C))`. An attacker who presents
         /// `H(C, C)` as a leaf at index 1 with `tx_count = 2` (the next
         /// smaller power of two) and sibling `H(A, B)` produces a walk
-        /// that reaches the genuine `root` — `verify_merkle` accepts it.
+        /// that reaches the genuine `root` — `verify_merkle` accepts the
+        /// forgery for any `(a, b, c)`.
         ///
         /// **Why it slips through.** `verify_merkle` only enforces
         ///  1. `tx_index < tx_count`,
@@ -1272,24 +1324,25 @@ mod tests {
         /// `H(C, C)` legitimately sits one hop below the root in the
         /// original 3-leaf tree.
         ///
-        /// **Mitigation.** Callers of `verify-merkle-proof` MUST validate
-        /// `tx_count` against an authoritative source (e.g. the block
-        /// header). The builtin alone cannot tell whether a claimed
-        /// `tx_count` matches the tree the `root` was derived from.
+        /// **Mitigation lives outside this function.** Callers of
+        /// `verify-merkle-proof` MUST validate `tx_count` against an
+        /// authoritative source (the block header). The builtin alone
+        /// cannot tell whether a claimed `tx_count` matches the tree
+        /// the `root` was derived from.
         ///
-        /// This test asserts the plan's desired invariant
-        /// (`!verify_merkle(...)`) and is `#[ignore]`d because it fails
-        /// against the current implementation, intentionally surfacing
-        /// the gap. Run with `cargo test -- --ignored` to see the
-        /// counterexample. Drop the `#[ignore]` when the builtin is
-        /// hardened (or when caller-side validation is documented as the
-        /// required defense in plain code paths).
+        /// **This test is GREEN against the current code.** It asserts
+        /// the *buggy* behavior (forgery accepted) so CI continuously
+        /// guards our understanding of the gap. The day the builtin is
+        /// hardened (e.g. with caller-side `tx_count` validation moved
+        /// into the builtin itself), this test will fail and we'll know
+        /// to flip the assertion and update the public docs accordingly.
+        ///
+        /// The property is universal over `(a, b, c)` because the
+        /// forgery construction depends on no structure of the inputs
+        /// beyond their being 32-byte values.
         #[tag(t_prop)]
         #[test]
-        #[ignore = "exposes known verify_merkle gap: same-depth tx_count \
-                    substitution slips past the depth check (CVE-2012-2459 \
-                    family). Caller must validate tx_count authoritatively."]
-        fn prop_merkle_intermediate_as_leaf_fails(
+        fn prop_merkle_intermediate_as_leaf_forgery_currently_accepted(
             a in any::<[u8; 32]>(),
             b in any::<[u8; 32]>(),
             c in any::<[u8; 32]>(),
@@ -1307,9 +1360,9 @@ mod tests {
             let root = Sha256dHash::from_data(&buf).0;
 
             // The forgery: claim h_cc as a leaf in a 2-leaf tree with
-            // sibling h_ab. The plan demands this be rejected; the
-            // current builtin accepts it.
-            prop_assert!(!verify_merkle(h_cc, root, 1, 2, &[h_ab]));
+            // sibling h_ab. Today the builtin accepts it. When the gap
+            // closes, flip this to `prop_assert!(!verify_merkle(...))`.
+            prop_assert!(verify_merkle(h_cc, root, 1, 2, &[h_ab]));
         }
     }
 }

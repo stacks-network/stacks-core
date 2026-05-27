@@ -1635,42 +1635,76 @@ proptest! {
         }
     }
 
-    /// Property 3: The prune SQL uses strict `<`, not `<=`. An output at the
-    /// exact threshold survives. This pins the off-by-one between
-    /// `block_height < ?1` and `block_height <= ?1`.
+    /// Boundary property (a): an output at `block_height < threshold` is
+    /// always pruned. Together with [`prop_prune_keeps_at_threshold`] and
+    /// [`prop_prune_keeps_above_threshold`] this pins that the SQL is
+    /// strict `<`, not `<=`.
     #[test]
     #[cfg_attr(test, pinny::tag(t_prop))]
-    fn prop_prune_boundary_exact(
+    fn prop_prune_strictly_below_threshold(
         reward_cycle_length in 2u32..=10_000,
         current_block_height in 100u64..=1_000_000,
     ) {
         let window = (3u64 * u64::from(reward_cycle_length)) / 2;
-        // Need threshold-1 and threshold+1 to be valid (>=0 and <=i64::MAX).
-        prop_assume!(current_block_height > window + 1);
+        prop_assume!(current_block_height > window);
         let threshold = current_block_height - window;
+        prop_assume!(threshold >= 1);
 
         let burnchain = Burnchain::regtest(":memory:");
         let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
-
-        let triple = [threshold - 1, threshold, threshold + 1];
-        seed_outputs_at_heights(&mut db, &triple);
+        seed_outputs_at_heights(&mut db, &[threshold - 1]);
 
         let db_tx = db.tx_begin().unwrap();
         db_tx.prune_watched_outputs(reward_cycle_length, current_block_height).unwrap();
         db_tx.commit().unwrap();
 
-        prop_assert!(
-            outputs_at_height(&db, threshold - 1).is_empty(),
-            "h = threshold - 1 must be pruned"
-        );
-        prop_assert_eq!(
-            outputs_at_height(&db, threshold).len(), 1,
-            "h = threshold must survive (SQL is `<`, not `<=`)"
-        );
-        prop_assert_eq!(
-            outputs_at_height(&db, threshold + 1).len(), 1,
-            "h = threshold + 1 must survive"
-        );
+        prop_assert!(outputs_at_height(&db, threshold - 1).is_empty());
+    }
+
+    /// Boundary property (b): an output at `block_height == threshold`
+    /// survives. The SQL uses `<`, not `<=`.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_prune_keeps_at_threshold(
+        reward_cycle_length in 2u32..=10_000,
+        current_block_height in 100u64..=1_000_000,
+    ) {
+        let window = (3u64 * u64::from(reward_cycle_length)) / 2;
+        prop_assume!(current_block_height > window);
+        let threshold = current_block_height - window;
+
+        let burnchain = Burnchain::regtest(":memory:");
+        let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+        seed_outputs_at_heights(&mut db, &[threshold]);
+
+        let db_tx = db.tx_begin().unwrap();
+        db_tx.prune_watched_outputs(reward_cycle_length, current_block_height).unwrap();
+        db_tx.commit().unwrap();
+
+        prop_assert_eq!(outputs_at_height(&db, threshold).len(), 1);
+    }
+
+    /// Boundary property (c): an output at `block_height > threshold`
+    /// survives.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_prune_keeps_above_threshold(
+        reward_cycle_length in 2u32..=10_000,
+        current_block_height in 100u64..=1_000_000,
+    ) {
+        let window = (3u64 * u64::from(reward_cycle_length)) / 2;
+        prop_assume!(current_block_height > window);
+        let threshold = current_block_height - window;
+
+        let burnchain = Burnchain::regtest(":memory:");
+        let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+        seed_outputs_at_heights(&mut db, &[threshold + 1]);
+
+        let db_tx = db.tx_begin().unwrap();
+        db_tx.prune_watched_outputs(reward_cycle_length, current_block_height).unwrap();
+        db_tx.commit().unwrap();
+
+        prop_assert_eq!(outputs_at_height(&db, threshold + 1).len(), 1);
     }
 
     /// Property 4: prune is idempotent. Running it twice with the same arguments
@@ -1708,50 +1742,53 @@ proptest! {
         }
     }
 
-    /// Property 5: Only scriptpubkeys of shape `[0x00, 0x20, ..32 bytes..]`
-    /// (canonical P2WSH) produce a `SegwitBitcoinAddress::P2WSH`. Every other
-    /// shape either maps to a different address type or to `None`, but never
-    /// to P2WSH.
-    ///
-    /// This pins the extract-side filter: the watched-outputs pipeline calls
-    /// `BitcoinAddress::from_scriptpubkey` and only keeps the P2WSH variant.
+    /// A scriptpubkey of the canonical P2WSH shape `[0x00, 0x20, ..32]`
+    /// maps to `SegwitBitcoinAddress::P2WSH` with hash equal to the
+    /// 32 trailing bytes. The generator constructs only canonical scripts —
+    /// there is no negative branch in this property.
     #[test]
     #[cfg_attr(test, pinny::tag(t_prop))]
-    fn prop_extract_only_p2wsh_outputs(
-        bytes in prop_oneof![
-            // Random-shape scriptpubkey: covers the negative branch.
-            1 => prop::collection::vec(any::<u8>(), 0..=100),
-            // Canonical P2WSH: guarantees the positive branch fires often.
-            1 => any::<[u8; 32]>().prop_map(|h| {
-                let mut s = Vec::with_capacity(34);
-                s.push(0x00);
-                s.push(0x20);
-                s.extend_from_slice(&h);
-                s
-            }),
-        ],
+    fn prop_canonical_p2wsh_script_maps_to_p2wsh(
+        witness_hash in any::<[u8; 32]>(),
     ) {
-        let result = BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Mainnet, &bytes);
-        let is_canonical_p2wsh =
-            bytes.len() == 34 && bytes[0] == 0x00 && bytes[1] == 0x20;
+        let mut script = Vec::with_capacity(34);
+        script.push(0x00);
+        script.push(0x20);
+        script.extend_from_slice(&witness_hash);
 
-        if is_canonical_p2wsh {
-            match &result {
-                Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(_, hash))) => {
-                    prop_assert_eq!(&hash[..], &bytes[2..34]);
-                }
-                other => prop_assert!(
-                    false, "canonical P2WSH script produced {:?}", other
-                ),
+        let result = BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Mainnet, &script);
+        match result {
+            Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(_, hash))) => {
+                prop_assert_eq!(hash, witness_hash);
             }
-        } else {
-            prop_assert!(
-                !matches!(
-                    result,
-                    Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(_, _)))
-                ),
-                "non-canonical script of len {} produced P2WSH", bytes.len()
-            );
+            other => prop_assert!(
+                false, "canonical P2WSH script produced {:?}", other
+            ),
         }
+    }
+
+    /// A scriptpubkey of any non-canonical shape does NOT produce a
+    /// `SegwitBitcoinAddress::P2WSH`. It may produce a different variant
+    /// (P2WPKH, P2TR, P2PKH, P2SH) or `None`, but never P2WSH.
+    ///
+    /// The generator filters out the canonical shape so the negative
+    /// branch is exercised on every iteration.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_non_canonical_script_never_maps_to_p2wsh(
+        script in prop::collection::vec(any::<u8>(), 0..=100)
+            .prop_filter(
+                "exclude canonical P2WSH shape",
+                |v| !(v.len() == 34 && v[0] == 0x00 && v[1] == 0x20),
+            ),
+    ) {
+        let result = BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Mainnet, &script);
+        prop_assert!(
+            !matches!(
+                result,
+                Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(_, _)))
+            ),
+            "non-canonical script of len {} produced P2WSH", script.len()
+        );
     }
 }

@@ -695,32 +695,36 @@ mod tests {
     }
 
     /// Standard principal (version < 32, arbitrary 20-byte hash).
+    /// Construction is total — `version < 32` is guaranteed by the range,
+    /// so `StandardPrincipalData::new` cannot fail.
     fn arb_standard_principal() -> impl Strategy<Value = StandardPrincipalData> {
         (0u8..32u8, any::<[u8; 20]>()).prop_map(|(version, bytes)| {
             StandardPrincipalData::new(version, bytes).expect("version < 32 by construction")
         })
     }
 
-    /// A `ContractName`-valid string: leading ASCII letter, then 0..=39 of
-    /// `[a-z0-9-]`. Uses `try_from` to filter the few combinations that
-    /// would still be rejected, e.g. names that collide with reserved
-    /// tokens.
+    /// Structurally-valid Clarity contract name. Uses a fixed `t-` prefix
+    /// followed by an arbitrary suffix in `[a-z0-9-]` of length 0..=37.
+    /// Total length 2..=39, well under the 40-char cap.
+    ///
+    /// Why the fixed prefix: no Clarity reserved keyword starts with a
+    /// single letter followed by `-` (they are full words like `tx-sender`,
+    /// `block-height`, `as-contract`). So `t-XXX` is guaranteed never to
+    /// collide with a reserved name — and `ContractName::try_from` cannot
+    /// reject the output. The name is constructively valid by shape.
     fn arb_contract_name() -> impl Strategy<Value = ContractName> {
-        (
-            b'a'..=b'z',
-            prop::collection::vec(
-                prop_oneof![b'a'..=b'z', b'0'..=b'9', Just(b'-')],
-                0..40,
-            ),
+        prop::collection::vec(
+            prop_oneof![b'a'..=b'z', b'0'..=b'9', Just(b'-')],
+            0..38,
         )
-            .prop_filter_map("contract name rejected by ContractName::try_from", |(first, rest)| {
-                let mut s = String::with_capacity(1 + rest.len());
-                s.push(first as char);
-                for c in rest {
-                    s.push(c as char);
-                }
-                ContractName::try_from(s).ok()
-            })
+        .prop_map(|rest| {
+            let mut s = String::with_capacity(2 + rest.len());
+            s.push_str("t-");
+            for c in rest {
+                s.push(c as char);
+            }
+            ContractName::try_from(s).expect("structurally valid contract name")
+        })
     }
 
     /// Standard- or Contract-variant principal. Both arms are weighted
