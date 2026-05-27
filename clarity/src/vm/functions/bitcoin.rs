@@ -91,7 +91,7 @@ fn parse_tx_output(raw: &[u8], vout: u64) -> Result<(Vec<u8>, u64, [u8; 32]), Pa
 /// Canonical Bitcoin merkle-tree depth for a block containing `tx_count`
 /// transactions. Returns `0` for an empty or single-tx tree (the leaf is the
 /// root); otherwise `ceil(log2(tx_count))`.
-fn canonical_merkle_depth(tx_count: u128) -> u32 {
+pub(crate) fn canonical_merkle_depth(tx_count: u128) -> u32 {
     if tx_count <= 1 {
         0
     } else {
@@ -121,7 +121,7 @@ fn canonical_merkle_depth(tx_count: u128) -> u32 {
 ///
 /// Together with the `tx_index < tx_count` and path-length checks, these
 /// pin the proof to the canonical tree of a real Bitcoin block.
-fn verify_merkle(
+pub(crate) fn verify_merkle(
     leaf: [u8; 32],
     root: [u8; 32],
     tx_index: u128,

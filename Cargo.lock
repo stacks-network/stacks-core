@@ -809,6 +809,7 @@ dependencies = [
  "criterion",
  "integer-sqrt",
  "lazy_static",
+ "madhouse",
  "mutants",
  "pinny",
  "proptest",
