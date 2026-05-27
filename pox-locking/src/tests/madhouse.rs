@@ -37,7 +37,7 @@
 //! - One driving function (`pox5_staker_lifecycle_madhouse`) folds the
 //!   commands; per-command postconditions live inside each `apply`.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use clarity::types::StacksEpochId;
@@ -366,9 +366,38 @@ impl Pox5Context {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Coverage classification
+// ---------------------------------------------------------------------------
+//
+// Per-bucket counters bumped by `check_invariants` on every step. A weak
+// `> 0` assertion in `pox5_coverage_smoke` proves the random walk
+// actually reaches every macro-state of the FSM — protects against a
+// silent generator drift where (e.g.) `Unstake.check` becomes stricter
+// and `unstake_scheduled = true` stops being sampled at all.
+
+static COVERAGE_UNLOCKED: AtomicU64 = AtomicU64::new(0);
+static COVERAGE_LOCKED_NOSCHED: AtomicU64 = AtomicU64::new(0);
+static COVERAGE_LOCKED_SCHED: AtomicU64 = AtomicU64::new(0);
+
+fn classify_state(model: &Pox5StakerState) {
+    match &model.account {
+        AccountState::Unlocked => {
+            COVERAGE_UNLOCKED.fetch_add(1, Ordering::Relaxed);
+        }
+        AccountState::Locked { unstake_scheduled: false, .. } => {
+            COVERAGE_LOCKED_NOSCHED.fetch_add(1, Ordering::Relaxed);
+        }
+        AccountState::Locked { unstake_scheduled: true, .. } => {
+            COVERAGE_LOCKED_SCHED.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 /// Invariants verified after every command. Returns immediately if any
 /// fails — the panic surfaces as a madhouse test failure with shrinking.
 fn check_invariants(model: &Pox5StakerState, ctx: &Pox5Context) {
+    classify_state(model);
     let mut sut = ctx.sut.lock().unwrap();
     let (sut_locked, sut_unlocked) = sut.balance_canonical();
 
@@ -954,4 +983,65 @@ fn pox5_staker_lifecycle_madhouse() {
             execute_commands(&commands, &mut state);
         });
     }
+}
+
+/// Asserts that random walks of the FSM actually reach every
+/// macro-state of `AccountState`. Bumps per-bucket atomic counters in
+/// `classify_state` (called from `check_invariants` after every
+/// command), then asserts every counter is `> 0` after 50 walks.
+///
+/// If a future change makes `Unstake.check` stricter (e.g., only inside
+/// a reward cycle window) so the generator silently stops producing
+/// `unstake_scheduled = true`, this smoke fails — separating "the
+/// generator doesn't reach X" from "X doesn't hold".
+#[test]
+#[cfg_attr(test, tag(t_prop))]
+fn pox5_coverage_smoke() {
+    // Reset counters so we measure only this test's walks.
+    COVERAGE_UNLOCKED.store(0, Ordering::Relaxed);
+    COVERAGE_LOCKED_NOSCHED.store(0, Ordering::Relaxed);
+    COVERAGE_LOCKED_SCHED.store(0, Ordering::Relaxed);
+
+    let ctx = Arc::new(Pox5Context::new());
+    let config = proptest::test_runner::Config {
+        cases: 50,
+        max_shrink_iters: 0,
+        ..proptest::test_runner::Config::default()
+    };
+
+    proptest::proptest!(config, |(commands in proptest::collection::vec(
+        proptest::prop_oneof![
+            Stake::build(ctx.clone()),
+            StakeUpdate::build(ctx.clone()),
+            Unstake::build(ctx.clone()),
+            AdvanceBurnHeight::build(ctx.clone()),
+        ],
+        4..=24,
+    ))| {
+        ctx.reset_sut();
+        let mut state = Pox5StakerState::default();
+        execute_commands(&commands, &mut state);
+    });
+
+    let unlocked = COVERAGE_UNLOCKED.load(Ordering::Relaxed);
+    let locked_nosched = COVERAGE_LOCKED_NOSCHED.load(Ordering::Relaxed);
+    let locked_sched = COVERAGE_LOCKED_SCHED.load(Ordering::Relaxed);
+
+    assert!(
+        unlocked > 0,
+        "Unlocked state never observed across 50 walks — generator drift?"
+    );
+    assert!(
+        locked_nosched > 0,
+        "Locked-no-unstake never observed across 50 walks — Stake.check() too strict?"
+    );
+    assert!(
+        locked_sched > 0,
+        "Locked+unstake_scheduled never observed across 50 walks — Unstake.check() too strict?"
+    );
+
+    // Surface the distribution so a degraded run is debuggable.
+    eprintln!(
+        "pox5_coverage_smoke: unlocked={unlocked} locked_nosched={locked_nosched} locked_sched={locked_sched}"
+    );
 }

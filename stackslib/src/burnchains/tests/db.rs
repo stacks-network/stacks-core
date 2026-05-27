@@ -1430,8 +1430,7 @@ fn store_watched_outputs() {
     db_tx.store_watched_outputs(&header, &outputs).unwrap();
     db_tx.commit().unwrap();
 
-    // --- get_watched_outputs_at_block ---
-    // Both outputs are retrievable for the stored block.
+    // get_watched_outputs_at_block: both outputs are retrievable.
     let retrieved = BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash).unwrap();
     assert_eq!(retrieved.len(), 2);
     assert!(retrieved.contains(&outputs[0]));
@@ -1445,7 +1444,7 @@ fn store_watched_outputs() {
             .is_empty()
     );
 
-    // --- empty-slice store is a no-op ---
+    // empty-slice store is a no-op.
     let block_hash2 = BurnchainHeaderHash([2u8; 32]);
     let header2 = BurnchainBlockHeader {
         block_height: 2,
@@ -1545,16 +1544,13 @@ fn prune_watched_outputs() {
     }
 }
 
-// ----------------------------------------------------------------------------
-// Property tests for watched P2WSH outputs
-// ----------------------------------------------------------------------------
+// Property tests for watched P2WSH outputs.
 
 #[cfg(test)]
 use proptest::prelude::*;
 
-/// Build a deterministic 32-byte hash from a u64 height.
-/// Different heights -> different hashes (assuming heights fit in 8 bytes, which
-/// is always true for u64).
+/// Deterministic 32-byte hash from `height`. Distinct heights map to distinct
+/// hashes (heights always fit in 8 bytes).
 #[cfg(test)]
 fn height_hash(height: u64) -> [u8; 32] {
     let mut bytes = [0u8; 32];
@@ -1598,6 +1594,26 @@ fn seed_outputs_at_heights(db: &mut BurnchainDB, heights: &[u64]) {
         db_tx.commit().unwrap();
         parent = header.block_hash;
     }
+}
+
+/// Joint strategy for `(reward_cycle_length, current_block_height)` such
+/// that `current_block_height > window` by construction — i.e.,
+/// `threshold = current - window >= 1` is guaranteed without a
+/// `prop_assume!`. Conditional generation keeps shrinking deterministic
+/// and ensures every iteration reaches the boundary code path being
+/// asserted.
+#[cfg(test)]
+fn arb_rcl_and_current_above_window() -> impl proptest::strategy::Strategy<Value = (u32, u64)> {
+    use proptest::prelude::*;
+    (2u32..=10_000u32).prop_flat_map(|rcl| {
+        let window = (3u64 * u64::from(rcl)) / 2;
+        // Upper bound mirrors the original test ranges. `lower = window + 1`
+        // guarantees `current > window`. We grow the upper bound with `rcl`
+        // so large reward cycles still get a non-degenerate sampling band.
+        let lower = window + 1;
+        let upper = 1_000_000u64.max(lower + 1_000);
+        (Just(rcl), lower..=upper)
+    })
 }
 
 #[cfg(test)]
@@ -1673,16 +1689,16 @@ proptest! {
     /// always pruned. Together with [`prop_prune_keeps_at_threshold`] and
     /// [`prop_prune_keeps_above_threshold`] this pins that the SQL is
     /// strict `<`, not `<=`.
+    ///
+    /// The `(rcl, current)` strategy is conditioned so `current > window`
+    /// by construction — no `prop_assume!` needed.
     #[test]
     #[cfg_attr(test, pinny::tag(t_prop))]
     fn prop_prune_strictly_below_threshold(
-        reward_cycle_length in 2u32..=10_000,
-        current_block_height in 100u64..=1_000_000,
+        (reward_cycle_length, current_block_height) in arb_rcl_and_current_above_window(),
     ) {
         let window = (3u64 * u64::from(reward_cycle_length)) / 2;
-        prop_assume!(current_block_height > window);
         let threshold = current_block_height - window;
-        prop_assume!(threshold >= 1);
 
         let burnchain = Burnchain::regtest(":memory:");
         let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -1700,11 +1716,9 @@ proptest! {
     #[test]
     #[cfg_attr(test, pinny::tag(t_prop))]
     fn prop_prune_keeps_at_threshold(
-        reward_cycle_length in 2u32..=10_000,
-        current_block_height in 100u64..=1_000_000,
+        (reward_cycle_length, current_block_height) in arb_rcl_and_current_above_window(),
     ) {
         let window = (3u64 * u64::from(reward_cycle_length)) / 2;
-        prop_assume!(current_block_height > window);
         let threshold = current_block_height - window;
 
         let burnchain = Burnchain::regtest(":memory:");
@@ -1723,11 +1737,9 @@ proptest! {
     #[test]
     #[cfg_attr(test, pinny::tag(t_prop))]
     fn prop_prune_keeps_above_threshold(
-        reward_cycle_length in 2u32..=10_000,
-        current_block_height in 100u64..=1_000_000,
+        (reward_cycle_length, current_block_height) in arb_rcl_and_current_above_window(),
     ) {
         let window = (3u64 * u64::from(reward_cycle_length)) / 2;
-        prop_assume!(current_block_height > window);
         let threshold = current_block_height - window;
 
         let burnchain = Burnchain::regtest(":memory:");

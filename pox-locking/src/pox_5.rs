@@ -1473,9 +1473,7 @@ mod tests {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // Property tests
-    // ------------------------------------------------------------------------
+    // Property tests.
 
     use proptest::prelude::*;
 
@@ -1684,6 +1682,58 @@ mod tests {
             prop_assert!(
                 matches!(err, LockingError::PoxInsufficientBalance),
                 "expected PoxInsufficientBalance, got {err:?}"
+            );
+        }
+
+        /// Locking exactly `total_balance` (not more) must be accepted.
+        /// The comparator in `pox_lock_update_v5` is strict `<`, so
+        /// `new_total == total_amount` is the legal full-balance lock —
+        /// pins the comparator direction at the boundary.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_exact_balance_accepted(
+            initial_lock in 100u128..=10_000,
+            initial_unlock in 1_000u64..=1_000_000,
+            new_unlock in 1_000u64..=1_000_000,
+        ) {
+            let total_amount: u128 = 100_000;
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("initial lock should succeed");
+
+            // Lock every available ustx (new_total == total). Must be
+            // accepted — comparator is strict `<`, not `<=`.
+            let result = pox_lock_update_v5(
+                &mut gc.database, &staker, new_unlock, total_amount,
+            );
+            prop_assert!(
+                result.is_ok(),
+                "exact-balance lock should be accepted, got {result:?}"
+            );
+        }
+
+        /// Symmetric pin for `pox_lock_v5`: locking exactly the full balance
+        /// from scratch (no prior lock) must succeed. The check is delegated
+        /// to `can_transfer`, so cargo-mutants can't surface a comparator
+        /// mutant directly, but the boundary test pins the documented contract.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_exact_balance_accepted(
+            balance in 1u128..=1_000_000,
+            unlock_height in 1u64..=1_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, balance);
+
+            // Lock the entire available balance. Must succeed.
+            let result = pox_lock_v5(&mut gc.database, &staker, balance, unlock_height);
+            prop_assert!(
+                result.is_ok(),
+                "full-balance lock should be accepted, got {result:?}"
             );
         }
 

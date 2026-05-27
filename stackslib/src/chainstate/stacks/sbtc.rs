@@ -670,13 +670,31 @@ mod tests {
     use pinny::tag;
     use proptest::prelude::*;
 
-    /// Arbitrary 32-byte sequence that is a valid x-only secp256k1 point
-    /// (`XOnlyPublicKey::from_slice` accepts it). Filters the ~50% of byte
-    /// arrays that are off-curve x-coordinates; cheap enough that proptest's
-    /// global-rejection budget is never exhausted.
+    /// Arbitrary 32-byte sequence that is a valid x-only secp256k1 point.
+    ///
+    /// Constructive (not filter-based): generate a non-zero scalar `< n`,
+    /// derive the public key on the curve, take its x-coordinate. Always
+    /// succeeds on first try — no rejection budget burned, deterministic
+    /// shrinking down to the all-zeros tail.
     fn arb_valid_xonly_pubkey() -> impl Strategy<Value = [u8; 32]> {
-        any::<[u8; 32]>().prop_filter_map("not a valid x-only secp256k1 point", |bytes| {
-            XOnlyPublicKey::from_slice(&bytes).ok().map(|_| bytes)
+        // MSB capped at `0xfc` keeps the scalar comfortably below the curve
+        // order n (whose MSB starts at `0xff`); 31 trailing arbitrary bytes
+        // give us 31*8 + 7 = 255 bits of entropy. The whole strategy never
+        // produces zero (`msb >= 1`), so `SecretKey::from_slice` cannot fail.
+        (1u8..=0xfcu8, any::<[u8; 31]>()).prop_map(|(msb, tail)| {
+            let mut sk_bytes = [0u8; 32];
+            sk_bytes[0] = msb;
+            sk_bytes[1..].copy_from_slice(&tail);
+            let secp = Secp256k1::new();
+            let sk = secp256k1::SecretKey::from_slice(&sk_bytes)
+                .expect("non-zero scalar < n");
+            let pk = secp256k1::PublicKey::from_secret_key(&secp, &sk);
+            // 33-byte compressed encoding: `[parity, x[0..32]]`. Drop the
+            // parity byte to get x-only.
+            let compressed = pk.serialize();
+            let mut xonly = [0u8; 32];
+            xonly.copy_from_slice(&compressed[1..]);
+            xonly
         })
     }
 
@@ -743,6 +761,89 @@ mod tests {
     /// (2048 bytes) — anything larger is rejected by the validator
     /// upstream of this helper.
     const MAX_USER_RECLAIM_SCRIPT_LEN: usize = 2048;
+
+    // ----------------------------------------------------------------
+    // Generator validity properties
+    //
+    // A generator bug masquerades as N implementation bugs across
+    // unrelated downstream properties. These cheap, self-contained
+    // proptests pin each custom generator to its claimed invariant so
+    // a future refactor that breaks the generator surfaces here, not
+    // as confusing false-positives elsewhere.
+    // ----------------------------------------------------------------
+
+    proptest! {
+        /// `arb_valid_xonly_pubkey` claims to produce 32 bytes that are
+        /// always a valid x-only secp256k1 point. Pins that claim.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_gen_arb_valid_xonly_pubkey_parses(
+            bytes in arb_valid_xonly_pubkey(),
+        ) {
+            prop_assert!(
+                XOnlyPublicKey::from_slice(&bytes).is_ok(),
+                "arb_valid_xonly_pubkey produced invalid x-only bytes",
+            );
+        }
+
+        /// `arb_valid_compressed_pubkey_33` claims to produce 33-byte
+        /// compressed pubkeys that secp256k1 accepts. Pins the prefix
+        /// (`0x02` or `0x03`) and the x-only tail simultaneously.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_gen_arb_valid_compressed_pubkey_33_parses(
+            bytes in arb_valid_compressed_pubkey_33(),
+        ) {
+            prop_assert!(
+                bytes[0] == 0x02 || bytes[0] == 0x03,
+                "compressed pubkey prefix must be 0x02 or 0x03, got {:#04x}",
+                bytes[0],
+            );
+            prop_assert!(
+                secp256k1::PublicKey::from_slice(&bytes).is_ok(),
+                "arb_valid_compressed_pubkey_33 produced invalid compressed bytes",
+            );
+        }
+
+        /// `arb_principal_data` claims to produce well-formed Clarity
+        /// principals. Pins it by stringifying and parsing back —
+        /// `PrincipalData::parse` is the canonical accept oracle.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_gen_arb_principal_data_roundtrips(
+            principal in arb_principal_data(),
+        ) {
+            let s = format!("'{principal}");
+            let parsed = PrincipalData::parse(&s);
+            prop_assert!(
+                parsed.is_ok(),
+                "arb_principal_data produced unparseable string: {s}",
+            );
+            prop_assert_eq!(parsed.unwrap(), principal);
+        }
+
+        /// `arb_contract_name` claims structurally-valid names within
+        /// the 40-char cap and using only `[a-z0-9-]` with `t-` prefix.
+        /// Pins via `ContractName::try_from` (the constructor used
+        /// downstream by Clarity).
+        #[tag(t_prop)]
+        #[test]
+        fn prop_gen_arb_contract_name_valid(
+            name in arb_contract_name(),
+        ) {
+            let s: &str = name.as_str();
+            prop_assert!(s.starts_with("t-"), "missing t- prefix: {s}");
+            prop_assert!(s.len() <= 40, "name longer than 40 chars: {s}");
+            prop_assert!(
+                s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+                "name contains non-[a-z0-9-] chars: {s}",
+            );
+            prop_assert!(
+                ContractName::try_from(s.to_string()).is_ok(),
+                "ContractName::try_from rejected name produced by generator: {s}",
+            );
+        }
+    }
 
     proptest! {
         /// The output key derivation is a pure function. Same inputs in,

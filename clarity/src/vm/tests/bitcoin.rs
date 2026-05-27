@@ -227,7 +227,8 @@ proptest! {
     ) {
         let mut tampered = root;
         tampered[byte_idx] ^= 1u8 << bit;
-        prop_assume!(tampered != root);
+        // XOR by a non-zero single-bit mask always flips one bit, so
+        // `tampered != root` holds by construction — no `prop_assume!` needed.
         let snippet = merkle_proof_snippet(
             &leaf, &tampered, tx_index, tx_count, &siblings,
         );
