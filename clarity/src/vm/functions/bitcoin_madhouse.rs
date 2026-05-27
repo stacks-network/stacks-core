@@ -13,27 +13,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! # Merkle CVE-2012-2459 adversarial machine
+//! Stateful PBT against `verify_merkle`, targeting CVE-2012-2459-style
+//! tree-shape confusion. Random sequences mix:
 //!
-//! Stateful PBT exhausting the attack surface around tree-shape confusion
-//! in `verify_merkle`. Composes random sequences of three commands:
+//! - `BuildTree`: append a random tree to the in-memory pool.
+//! - `VerifyHonestProof`: build a valid inclusion proof for a pool leaf, assert
+//!   `verify_merkle` returns true.
+//! - `VerifyForge3`: build a fresh 3-leaf tree (the CVE padded shape) plus the
+//!   intermediate-as-leaf forgery, then check both gap directions: accepted at
+//!   `tx_count = 2`, rejected at the real `tx_count = 3`.
+//! - `VerifyTamperedLeaf` / `VerifyWrongDepth` / `VerifyOutOfRangeIndex`:
+//!   honest proof minus one component, must be rejected.
 //!
-//! 1. **`BuildTree`** — append a random tree to the in-memory pool.
-//! 2. **`VerifyHonestProof`** — pick a tree at random, construct a valid
-//!    proof of inclusion for one of its leaves, assert `verify_merkle`
-//!    returns `true`.
-//! 3. **`VerifyForge3`** — construct a fresh 3-leaf tree (the canonical
-//!    CVE-2012-2459 padded shape) and the intermediate-as-leaf forgery,
-//!    then assert two complementary invariants:
-//!    - the forgery is accepted when presented with `tx_count = 2`
-//!      (the gap documented in
-//!      `verify_merkle`)
-//!    - the forgery is rejected when presented with the real `tx_count = 3`
-//!      (the depth-check defense works for the truthful caller)
-//!
-//! There is no external SUT — the SUT is the pure function
-//! `verify_merkle` itself. The `State` is the adversary's tree pool. The
-//! `Context` is empty (purely for the `TestContext` trait shape).
+//! No SUT: the SUT is the pure `verify_merkle`. `State` is the tree pool;
+//! `Context` is empty (only for the `TestContext` trait shape).
 
 use std::sync::Arc;
 
@@ -42,16 +35,28 @@ use pinny::tag;
 use proptest::prelude::*;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
-use super::bitcoin::{VERIFY_MERKLE_PROOF_MAX_DEPTH, canonical_merkle_depth, verify_merkle};
+use super::bitcoin::{VERIFY_MERKLE_PROOF_MAX_DEPTH, verify_merkle};
 
-// ---------------------------------------------------------------------------
-// Local merkle helpers — we don't reuse the `mod tests` private helpers in
-// bitcoin.rs because we live in a different module.
-// ---------------------------------------------------------------------------
+/// Independent depth oracle: count halvings to reach 1 (0 for n <= 1).
+/// Deliberately does NOT delegate to production `canonical_merkle_depth` so
+/// regressions in that function surface here too.
+fn naive_depth(n: u128) -> u32 {
+    if n <= 1 {
+        return 0;
+    }
+    let mut depth = 0u32;
+    let mut m = n;
+    while m > 1 {
+        m = m.div_ceil(2);
+        depth += 1;
+    }
+    depth
+}
 
-/// Walk a proof from `leaf` to the root using `siblings`. Used both by
-/// honest-proof construction (to compute the canonical root) and by the
-/// pinning assertions.
+// Local merkle helpers. The `mod tests` helpers in bitcoin.rs are private to
+// that module, so reuse is not possible from here.
+
+/// Walk a proof from `leaf` to the root using `siblings`.
 fn compute_root_from_proof(leaf: [u8; 32], tx_index: u128, siblings: &[[u8; 32]]) -> [u8; 32] {
     let mut cur = leaf;
     let mut idx = tx_index;
@@ -78,9 +83,8 @@ fn hash_pair(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     Sha256dHash::from_data(&buf).0
 }
 
-/// Compute the canonical root of a Bitcoin merkle tree from `leaves`. Pads
-/// odd-length rows by duplicating the last node (the source of
-/// CVE-2012-2459).
+/// Canonical Bitcoin merkle root of `leaves`. Odd rows are padded by
+/// duplicating the last node (the CVE-2012-2459 source).
 fn canonical_root(leaves: &[[u8; 32]]) -> [u8; 32] {
     assert!(!leaves.is_empty(), "leaves must be non-empty");
     if leaves.len() == 1 {
@@ -100,9 +104,9 @@ fn canonical_root(leaves: &[[u8; 32]]) -> [u8; 32] {
     row[0]
 }
 
-/// Synthesize an honest inclusion proof for `leaf_idx` in `leaves`. Returns
-/// `(leaf, root, leaf_idx, tx_count, siblings)` such that
-/// `verify_merkle(leaf, root, leaf_idx, tx_count, &siblings)` is true.
+/// Honest inclusion proof for `leaf_idx`. Returns `(leaf, root, leaf_idx,
+/// tx_count, siblings)` such that
+/// `verify_merkle(leaf, root, leaf_idx, tx_count, &siblings)` holds.
 fn honest_proof(
     leaves: &[[u8; 32]],
     leaf_idx: usize,
@@ -129,12 +133,7 @@ fn honest_proof(
     (leaf, root, leaf_idx as u128, tx_count, siblings)
 }
 
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
-
-/// In-memory pool of trees the adversary has built so far. Each tree
-/// stores its leaves so `VerifyHonestProof` can build a proof on demand.
+/// Each tree stores its leaves so `VerifyHonestProof` can build a proof on demand.
 #[derive(Debug, Clone)]
 struct MerkleTree {
     leaves: Vec<[u8; 32]>,
@@ -148,21 +147,13 @@ struct MerkleAdversaryState {
 
 impl State for MerkleAdversaryState {}
 
-// ---------------------------------------------------------------------------
-// Empty test context — there is no shared SUT to wrap.
-// ---------------------------------------------------------------------------
-
+/// Empty context; the SUT is the pure `verify_merkle` function.
 #[derive(Debug, Clone, Default)]
 pub struct AdversaryContext;
 
 impl TestContext for AdversaryContext {}
 
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
-/// Append a tree of `leaves.len()` random leaves to the pool. Honest
-/// verification later can target any of them.
+/// Append a tree of `leaves.len()` random leaves to the pool.
 struct BuildTree {
     leaves: Vec<[u8; 32]>,
 }
@@ -187,17 +178,15 @@ impl Command<MerkleAdversaryState, AdversaryContext> for BuildTree {
     fn build(
         _ctx: Arc<AdversaryContext>,
     ) -> impl Strategy<Value = CommandWrapper<MerkleAdversaryState, AdversaryContext>> {
-        // 1..=8 leaves covers the interesting CVE-relevant shapes (odd
-        // counts have last-row padding; n=2,4,8 are power-of-two and
-        // free of padding).
+        // 1..=8 covers CVE-relevant shapes: odd counts trigger last-row
+        // padding; n=2,4,8 are power-of-two and unpadded.
         prop::collection::vec(any::<[u8; 32]>(), 1usize..=8)
             .prop_map(|leaves| CommandWrapper::new(BuildTree { leaves }))
     }
 }
 
-/// Pick an existing tree + leaf at random, synthesize an honest proof,
-/// and assert `verify_merkle` returns `true`. The check guarantees the
-/// pool is non-empty so `apply` never panics on indexing.
+/// Pick an existing tree + leaf, synthesize an honest proof, assert
+/// `verify_merkle` returns true. `check` guards against an empty pool.
 struct VerifyHonestProof {
     tree_seed: usize,
     leaf_seed: usize,
@@ -243,18 +232,13 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyHonestProof {
     }
 }
 
-/// Construct the canonical CVE-2012-2459 forgery on a fresh 3-leaf tree
-/// and assert both sides of the gap:
-///   - the forgery IS accepted by `verify_merkle` when the attacker
-///     supplies `tx_count = 2` (this is the known buggy behavior, see
-///     `prop_merkle_intermediate_as_leaf_forgery_currently_accepted` in
-///     `bitcoin.rs`),
-///   - the forgery IS rejected by `verify_merkle` when the truthful
-///     `tx_count = 3` is supplied (the depth-check defense works for the
-///     caller that validates `tx_count`).
+/// CVE-2012-2459 forgery on a fresh 3-leaf tree, both gap directions:
+/// accepted at attacker-supplied `tx_count = 2` (known gap, see
+/// `prop_merkle_intermediate_as_leaf_forgery_currently_accepted` in `bitcoin.rs`),
+/// rejected at the real `tx_count = 3` (depth-check defense for callers that
+/// validate `tx_count`).
 ///
-/// This command does NOT touch the tree pool — each invocation builds a
-/// fresh 3-leaf tree from the random `(a, b, c)`.
+/// Does not touch the tree pool: each call builds a fresh tree from `(a, b, c)`.
 struct VerifyForge3 {
     a: [u8; 32],
     b: [u8; 32],
@@ -267,27 +251,24 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyForge3 {
     }
 
     fn apply(&self, _state: &mut MerkleAdversaryState) {
-        // Canonical 3-leaf padded tree shape: [a, b, c, c]
-        // → row 1: [H(a, b), H(c, c)]
-        // → row 2: H(H(a, b), H(c, c)) = root
+        // 3-leaf padded shape [a, b, c, c]:
+        //   row 1: [H(a, b), H(c, c)]
+        //   row 2: H(H(a, b), H(c, c)) = root
         let h_ab = hash_pair(&self.a, &self.b);
         let h_cc = hash_pair(&self.c, &self.c);
         let root = hash_pair(&h_ab, &h_cc);
 
-        // Forgery: present H(c, c) as a leaf at index 1 of a "2-leaf
-        // tree" with sibling H(a, b). The walk reaches the genuine root.
+        // Forgery: H(c, c) as leaf at index 1 of a "2-leaf tree" with sibling
+        // H(a, b). The walk lands on the genuine root.
         assert!(
             verify_merkle(h_cc, root, 1, 2, &[h_ab]),
             "CVE forgery should be ACCEPTED with claimed tx_count=2 (gap)"
         );
 
-        // Same forgery presented with the truthful tx_count=3 is rejected
-        // because `canonical_depth(3) = 2 != 1 = siblings.len()`.
-        assert_eq!(
-            canonical_merkle_depth(3),
-            2,
-            "canonical_depth(3) should be 2"
-        );
+        // With truthful tx_count=3 the proof is rejected because
+        // naive_depth(3) = 2 != 1 = siblings.len(). Oracle is independent
+        // of production `canonical_merkle_depth`.
+        assert_eq!(naive_depth(3), 2, "naive_depth(3) should be 2");
         assert!(
             !verify_merkle(h_cc, root, 1, 3, &[h_ab]),
             "CVE forgery should be REJECTED with real tx_count=3 (defense)"
@@ -307,13 +288,168 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyForge3 {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test entry point
-// ---------------------------------------------------------------------------
+// Negative-path commands. Pick a tree, build the honest proof, sabotage one
+// component, assert `verify_merkle` rejects.
 
-/// Drive the adversary through random sequences of `BuildTree`,
-/// `VerifyHonestProof`, and `VerifyForge3`. Default deterministic order;
-/// `MADHOUSE=1` switches to random walks of 1..=16 commands.
+/// Flip one bit of the leaf in an honest proof.
+struct VerifyTamperedLeaf {
+    tree_seed: usize,
+    leaf_seed: usize,
+    byte_idx: u8,
+    bit: u8,
+}
+
+impl Command<MerkleAdversaryState, AdversaryContext> for VerifyTamperedLeaf {
+    fn check(&self, state: &MerkleAdversaryState) -> bool {
+        !state.trees.is_empty()
+    }
+
+    fn apply(&self, state: &mut MerkleAdversaryState) {
+        let tree_idx = self.tree_seed % state.trees.len();
+        let tree = &state.trees[tree_idx];
+        let leaf_idx = self.leaf_seed % tree.leaves.len();
+        let (leaf, root, tx_index, tx_count, siblings) = honest_proof(&tree.leaves, leaf_idx);
+        let byte = (self.byte_idx as usize) % 32;
+        let mut tampered = leaf;
+        tampered[byte] ^= 1u8 << (self.bit % 8);
+        // A bit-flip is by definition a change.
+        debug_assert_ne!(tampered, leaf);
+        assert!(
+            !verify_merkle(tampered, root, tx_index, tx_count, &siblings),
+            "tampered leaf accepted: tree_idx={tree_idx} leaf_idx={leaf_idx}"
+        );
+    }
+
+    fn label(&self) -> String {
+        format!("VERIFY_TAMPERED_LEAF({}, {})", self.byte_idx, self.bit)
+    }
+
+    fn build(
+        _ctx: Arc<AdversaryContext>,
+    ) -> impl Strategy<Value = CommandWrapper<MerkleAdversaryState, AdversaryContext>> {
+        (any::<usize>(), any::<usize>(), 0u8..32, 0u8..8).prop_map(
+            |(tree_seed, leaf_seed, byte_idx, bit)| {
+                CommandWrapper::new(VerifyTamperedLeaf {
+                    tree_seed,
+                    leaf_seed,
+                    byte_idx,
+                    bit,
+                })
+            },
+        )
+    }
+}
+
+/// Truncate or extend the siblings vector so `siblings.len() !=
+/// canonical_depth(tx_count)`. Uses `naive_depth` rather than the production
+/// `canonical_merkle_depth` to avoid the import-from-prod anti-pattern.
+struct VerifyWrongDepth {
+    tree_seed: usize,
+    leaf_seed: usize,
+    /// `true` = truncate one sibling, `false` = append one extra sibling.
+    truncate: bool,
+}
+
+impl Command<MerkleAdversaryState, AdversaryContext> for VerifyWrongDepth {
+    fn check(&self, state: &MerkleAdversaryState) -> bool {
+        if state.trees.is_empty() {
+            return false;
+        }
+        let tree_idx = self.tree_seed % state.trees.len();
+        let tree = &state.trees[tree_idx];
+        // Truncate needs siblings.len() >= 1 (i.e. tx_count >= 2). Extend is
+        // always meaningful.
+        !self.truncate || tree.leaves.len() >= 2
+    }
+
+    fn apply(&self, state: &mut MerkleAdversaryState) {
+        let tree_idx = self.tree_seed % state.trees.len();
+        let tree = &state.trees[tree_idx];
+        let leaf_idx = self.leaf_seed % tree.leaves.len();
+        let (leaf, root, tx_index, tx_count, mut siblings) =
+            honest_proof(&tree.leaves, leaf_idx);
+        if self.truncate {
+            siblings.pop().expect("guarded by check");
+        } else {
+            siblings.push([0u8; 32]);
+        }
+        assert!(
+            !verify_merkle(leaf, root, tx_index, tx_count, &siblings),
+            "wrong-depth proof accepted: tree_idx={tree_idx} tx_count={tx_count}"
+        );
+    }
+
+    fn label(&self) -> String {
+        if self.truncate {
+            "VERIFY_WRONG_DEPTH(truncated)".to_string()
+        } else {
+            "VERIFY_WRONG_DEPTH(extended)".to_string()
+        }
+    }
+
+    fn build(
+        _ctx: Arc<AdversaryContext>,
+    ) -> impl Strategy<Value = CommandWrapper<MerkleAdversaryState, AdversaryContext>> {
+        (any::<usize>(), any::<usize>(), any::<bool>()).prop_map(
+            |(tree_seed, leaf_seed, truncate)| {
+                CommandWrapper::new(VerifyWrongDepth {
+                    tree_seed,
+                    leaf_seed,
+                    truncate,
+                })
+            },
+        )
+    }
+}
+
+/// Honest proof with `tx_index >= tx_count`; must fail the `tx_index <
+/// tx_count` guard in `verify_merkle`.
+struct VerifyOutOfRangeIndex {
+    tree_seed: usize,
+    leaf_seed: usize,
+    /// Added to `tx_count` to derive the bad index (so bad_idx > tx_count).
+    slop: u32,
+}
+
+impl Command<MerkleAdversaryState, AdversaryContext> for VerifyOutOfRangeIndex {
+    fn check(&self, state: &MerkleAdversaryState) -> bool {
+        !state.trees.is_empty()
+    }
+
+    fn apply(&self, state: &mut MerkleAdversaryState) {
+        let tree_idx = self.tree_seed % state.trees.len();
+        let tree = &state.trees[tree_idx];
+        let leaf_idx = self.leaf_seed % tree.leaves.len();
+        let (leaf, root, _tx_index, tx_count, siblings) =
+            honest_proof(&tree.leaves, leaf_idx);
+        let bad_idx = tx_count.saturating_add(self.slop as u128);
+        assert!(
+            !verify_merkle(leaf, root, bad_idx, tx_count, &siblings),
+            "out-of-range index {bad_idx} accepted with tx_count={tx_count}"
+        );
+    }
+
+    fn label(&self) -> String {
+        format!("VERIFY_OOB_INDEX(slop={})", self.slop)
+    }
+
+    fn build(
+        _ctx: Arc<AdversaryContext>,
+    ) -> impl Strategy<Value = CommandWrapper<MerkleAdversaryState, AdversaryContext>> {
+        (any::<usize>(), any::<usize>(), 0u32..=64).prop_map(
+            |(tree_seed, leaf_seed, slop)| {
+                CommandWrapper::new(VerifyOutOfRangeIndex {
+                    tree_seed,
+                    leaf_seed,
+                    slop,
+                })
+            },
+        )
+    }
+}
+
+/// Drive the adversary through random command sequences. Default:
+/// deterministic order. `MADHOUSE=1`: random walks of 1..=16 commands.
 #[test]
 #[cfg_attr(test, tag(t_prop))]
 fn merkle_cve_adversarial_madhouse() {
@@ -332,11 +468,13 @@ fn merkle_cve_adversarial_madhouse() {
                 BuildTree::build(ctx.clone()),
                 VerifyHonestProof::build(ctx.clone()),
                 VerifyForge3::build(ctx.clone()),
+                VerifyTamperedLeaf::build(ctx.clone()),
+                VerifyWrongDepth::build(ctx.clone()),
+                VerifyOutOfRangeIndex::build(ctx.clone()),
             ],
             1..16,
         ))| {
-            // No SUT to reset — state is purely the tree pool, which is
-            // reset by `Default` here.
+            // No SUT to reset; state is just the tree pool, freshened via Default.
             let mut state = MerkleAdversaryState::default();
             execute_commands(&commands, &mut state);
         });
@@ -345,6 +483,9 @@ fn merkle_cve_adversarial_madhouse() {
             BuildTree::build(ctx.clone()),
             VerifyHonestProof::build(ctx.clone()),
             VerifyForge3::build(ctx.clone()),
+            VerifyTamperedLeaf::build(ctx.clone()),
+            VerifyWrongDepth::build(ctx.clone()),
+            VerifyOutOfRangeIndex::build(ctx.clone()),
         ])| {
             let mut state = MerkleAdversaryState::default();
             execute_commands(&commands, &mut state);

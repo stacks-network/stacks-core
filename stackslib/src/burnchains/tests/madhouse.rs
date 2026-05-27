@@ -358,6 +358,26 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for PruneAtHeight {
             .retain(|_block_hash, entry| entry.block_height >= threshold);
         state.current_height = state.current_height.max(self.current_height);
 
+        // Adversarial direction: explicitly enumerate every height we ever
+        // inserted and assert the SUT has no rows below `threshold`.
+        // Stronger than `check_invariants` Direction 2 alone: that one
+        // piggybacks on the shadow having correctly removed entries. If
+        // the shadow had a bug that retained pruned entries, this loop
+        // would still catch a correctly-pruning SUT.
+        {
+            let sut = self.ctx.sut.lock().unwrap();
+            for &height in &sut.seen_heights {
+                if height < threshold {
+                    let bh = BurnchainHeaderHash(height_hash(height));
+                    let rows = sut.outputs_at(&bh);
+                    assert!(
+                        rows.is_empty(),
+                        "post-prune SUT row at height {height} (threshold={threshold}): {rows:?}"
+                    );
+                }
+            }
+        }
+
         check_invariants(state, &self.ctx);
     }
 

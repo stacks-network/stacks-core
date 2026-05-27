@@ -1595,6 +1595,98 @@ mod tests {
             );
         }
 
+        /// Rule: `pox_unstake_v5` with `unlock_burn_height == 0` is the FIRST
+        /// gate and produces `PoxInvalidUnlockHeight`, regardless of whether
+        /// the account is locked. Pins the gate ordering inside
+        /// `pox_unstake_v5`.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_unstake_v5_zero_height_rejected(
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_unstake_v5(&mut gc.database, &staker, 0)
+                .expect_err("zero unlock_burn_height must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxInvalidUnlockHeight),
+                "expected PoxInvalidUnlockHeight, got {err:?}"
+            );
+        }
+
+        /// Rule: `pox_lock_update_v5` with `new_total_locked == 0` fails with
+        /// `PoxInvalidLockAmount`. Mirrors the `pox_lock_v5` zero-amount
+        /// gate but on the update path.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_zero_total_rejected(
+            unlock_height in 1u64..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_lock_update_v5(&mut gc.database, &staker, unlock_height, 0)
+                .expect_err("zero new_total must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxInvalidLockAmount),
+                "expected PoxInvalidLockAmount, got {err:?}"
+            );
+        }
+
+        /// Rule: `pox_lock_update_v5` on an UNLOCKED account produces
+        /// `PoxExtendNotLocked` — you can't extend something you haven't
+        /// started.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_not_locked(
+            unlock_height in 1u64..=1_000_000,
+            new_total in 1u128..=1_000_000,
+            total_amount in 1_000_000u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_lock_update_v5(&mut gc.database, &staker, unlock_height, new_total)
+                .expect_err("update on unlocked must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxExtendNotLocked),
+                "expected PoxExtendNotLocked, got {err:?}"
+            );
+        }
+
+        /// Rule: `pox_lock_update_v5` with `new_total > total_balance` fails
+        /// with `PoxInsufficientBalance`. The check is strict `<` (not `<=`)
+        /// — `new_total == total_balance` is accepted (full-balance lock).
+        /// Pins the comparator direction.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_exceeds_balance(
+            initial_lock in 100u128..=1_000,
+            initial_unlock in 1_000u64..=1_000_000,
+            new_unlock in 1_000u64..=1_000_000,
+            extra in 1u128..=1_000_000,
+        ) {
+            let total_amount: u128 = 100_000;
+            let new_total = total_amount.checked_add(extra).unwrap();
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("initial lock should succeed");
+            let err = pox_lock_update_v5(&mut gc.database, &staker, new_unlock, new_total)
+                .expect_err("new_total > total_balance must be rejected");
+            prop_assert!(
+                matches!(err, LockingError::PoxInsufficientBalance),
+                "expected PoxInsufficientBalance, got {err:?}"
+            );
+        }
+
         /// Rule: `pox_unstake_v5` on an account that holds no lock fails with
         /// `PoxUnstakeNotLocked` regardless of the requested unlock height.
         #[test]

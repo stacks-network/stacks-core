@@ -57,6 +57,7 @@ use stacks_common::types::chainstate::{
 };
 
 use crate::pox_5::{pox_lock_update_v5, pox_lock_v5, pox_unstake_v5};
+use crate::LockingError;
 
 /// Total STX balance the staker starts with. Big enough to absorb any
 /// random sequence of stakes/updates that the generators below produce.
@@ -453,7 +454,9 @@ impl Command<Pox5StakerState, Pox5Context> for Stake {
 
     fn build(ctx: Arc<Pox5Context>) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
         let total = ctx.total_ustx;
-        let amount_strategy = 1u128..=(total / 2);
+        // Range up to `total` (not `total/2`) so the full-balance edge is
+        // actually sampled — narrowing would silently skip the boundary.
+        let amount_strategy = 1u128..=total;
         let unlock_strategy = 1u64..=UNLOCK_WINDOW;
         (amount_strategy, unlock_strategy).prop_map(move |(amount, unlock_height)| {
             CommandWrapper::new(Stake {
@@ -650,6 +653,245 @@ fn next_reward_cycle_start(h: u64) -> u64 {
 }
 
 // ---------------------------------------------------------------------------
+// Negative-path commands — adversarial pins on rejection errors
+// ---------------------------------------------------------------------------
+//
+// These commands DO call into the SUT (unlike the legal commands above
+// which only run when the state allows). Each is enabled by `check` only
+// in states where the operation is illegal, and `apply` asserts the
+// expected error variant.
+//
+// Without these, an interleaving regression that breaks (say)
+// `PoxAlreadyLocked` returning `Ok` would never surface in the FSM run —
+// the legal `Stake` command's `check` would just skip and we'd move on.
+
+/// Try to stake while already locked. Must produce `PoxAlreadyLocked`.
+struct IllegalStakeWhileLocked {
+    ctx: Arc<Pox5Context>,
+    amount: u128,
+    unlock_height: u64,
+}
+
+impl Command<Pox5StakerState, Pox5Context> for IllegalStakeWhileLocked {
+    fn check(&self, state: &Pox5StakerState) -> bool {
+        // `pox_lock_v5` checks unlock_burn_height != 0, amount != 0, then
+        // has_locked_tokens. We supply amount > 0 and unlock > 0 so the
+        // failure is genuinely PoxAlreadyLocked, not an earlier gate.
+        matches!(state.account, AccountState::Locked { .. })
+            && self.amount > 0
+            && self.unlock_height > state.current_burn_height
+    }
+
+    fn apply(&self, state: &mut Pox5StakerState) {
+        let staker = self.ctx.sut.lock().unwrap().staker.clone();
+        let result = {
+            let mut sut = self.ctx.sut.lock().unwrap();
+            sut.run(|db| pox_lock_v5(db, &staker, self.amount, self.unlock_height))
+        };
+        match result {
+            Err(LockingError::PoxAlreadyLocked) => {}
+            other => panic!(
+                "IllegalStakeWhileLocked expected PoxAlreadyLocked, got {other:?}"
+            ),
+        }
+        // Model is unchanged: the failed call must not mutate the SUT.
+        check_invariants(state, &self.ctx);
+    }
+
+    fn label(&self) -> String {
+        format!(
+            "ILLEGAL_STAKE_LOCKED({}, unlock={})",
+            self.amount, self.unlock_height
+        )
+    }
+
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+        let total = ctx.total_ustx;
+        (1u128..=total, 1u64..=UNLOCK_WINDOW).prop_map(move |(amount, unlock_height)| {
+            CommandWrapper::new(IllegalStakeWhileLocked {
+                ctx: ctx.clone(),
+                amount,
+                unlock_height,
+            })
+        })
+    }
+}
+
+/// Try to stake-update while NOT locked. Must produce
+/// `PoxExtendNotLocked`. (Args pass the earlier zero-amount/zero-height
+/// gates to ensure that's the rule we're hitting.)
+struct IllegalStakeUpdateOnUnlocked {
+    ctx: Arc<Pox5Context>,
+    new_total: u128,
+    new_unlock_height: u64,
+}
+
+impl Command<Pox5StakerState, Pox5Context> for IllegalStakeUpdateOnUnlocked {
+    fn check(&self, state: &Pox5StakerState) -> bool {
+        matches!(state.account, AccountState::Unlocked)
+            && self.new_total > 0
+            && self.new_unlock_height > state.current_burn_height
+    }
+
+    fn apply(&self, state: &mut Pox5StakerState) {
+        let staker = self.ctx.sut.lock().unwrap().staker.clone();
+        let result = {
+            let mut sut = self.ctx.sut.lock().unwrap();
+            sut.run(|db| {
+                pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total)
+            })
+        };
+        match result {
+            Err(LockingError::PoxExtendNotLocked) => {}
+            other => panic!(
+                "IllegalStakeUpdateOnUnlocked expected PoxExtendNotLocked, got {other:?}"
+            ),
+        }
+        check_invariants(state, &self.ctx);
+    }
+
+    fn label(&self) -> String {
+        format!(
+            "ILLEGAL_UPDATE_UNLOCKED(new_total={}, new_unlock={})",
+            self.new_total, self.new_unlock_height
+        )
+    }
+
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+        let total = ctx.total_ustx;
+        (1u128..=total, 1u64..=UNLOCK_WINDOW).prop_map(move |(new_total, new_unlock)| {
+            CommandWrapper::new(IllegalStakeUpdateOnUnlocked {
+                ctx: ctx.clone(),
+                new_total,
+                new_unlock_height: new_unlock,
+            })
+        })
+    }
+}
+
+/// Try to unstake while NOT locked. Must produce `PoxUnstakeNotLocked`.
+/// Supplies `new_unlock_height > 0` to bypass the earlier gate.
+struct IllegalUnstakeOnUnlocked {
+    ctx: Arc<Pox5Context>,
+    new_unlock_height: u64,
+}
+
+impl Command<Pox5StakerState, Pox5Context> for IllegalUnstakeOnUnlocked {
+    fn check(&self, state: &Pox5StakerState) -> bool {
+        matches!(state.account, AccountState::Unlocked) && self.new_unlock_height > 0
+    }
+
+    fn apply(&self, state: &mut Pox5StakerState) {
+        let staker = self.ctx.sut.lock().unwrap().staker.clone();
+        let result = {
+            let mut sut = self.ctx.sut.lock().unwrap();
+            sut.run(|db| pox_unstake_v5(db, &staker, self.new_unlock_height))
+        };
+        match result {
+            Err(LockingError::PoxUnstakeNotLocked) => {}
+            other => panic!(
+                "IllegalUnstakeOnUnlocked expected PoxUnstakeNotLocked, got {other:?}"
+            ),
+        }
+        check_invariants(state, &self.ctx);
+    }
+
+    fn label(&self) -> String {
+        format!("ILLEGAL_UNSTAKE_UNLOCKED(unlock={})", self.new_unlock_height)
+    }
+
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+        (1u64..=UNLOCK_WINDOW).prop_map(move |new_unlock| {
+            CommandWrapper::new(IllegalUnstakeOnUnlocked {
+                ctx: ctx.clone(),
+                new_unlock_height: new_unlock,
+            })
+        })
+    }
+}
+
+/// Try to update-lock with `new_total < current locked_ustx`. Must
+/// produce `PoxInvalidIncrease` — `stake-update` cannot be used as a
+/// covert unstake.
+struct IllegalDecreaseInUpdate {
+    ctx: Arc<Pox5Context>,
+    decrease: u128,
+    new_unlock_height: u64,
+}
+
+impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
+    fn check(&self, state: &Pox5StakerState) -> bool {
+        match &state.account {
+            AccountState::Locked {
+                locked_ustx,
+                unstake_scheduled,
+                ..
+            } => {
+                // Need room to decrease (`locked > 1`), the unstake flag
+                // false (the unstake-in-progress path has its own rules),
+                // and the new unlock_height strictly > current to bypass
+                // the `unlock_burn_height <= burn_block_height` gate.
+                !unstake_scheduled
+                    && *locked_ustx > 1
+                    && self.decrease > 0
+                    && self.decrease < *locked_ustx
+                    && self.new_unlock_height > state.current_burn_height
+            }
+            _ => false,
+        }
+    }
+
+    fn apply(&self, state: &mut Pox5StakerState) {
+        let locked = state.account.locked_amount();
+        let new_total = locked - self.decrease;
+        let staker = self.ctx.sut.lock().unwrap().staker.clone();
+        let result = {
+            let mut sut = self.ctx.sut.lock().unwrap();
+            sut.run(|db| {
+                pox_lock_update_v5(db, &staker, self.new_unlock_height, new_total)
+            })
+        };
+        match result {
+            Err(LockingError::PoxInvalidIncrease) => {}
+            other => panic!(
+                "IllegalDecreaseInUpdate expected PoxInvalidIncrease (locked={locked}, new_total={new_total}), got {other:?}"
+            ),
+        }
+        check_invariants(state, &self.ctx);
+    }
+
+    fn label(&self) -> String {
+        format!(
+            "ILLEGAL_DECREASE(by={}, new_unlock={})",
+            self.decrease, self.new_unlock_height
+        )
+    }
+
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+        // The `decrease` is bounded against the runtime locked amount in
+        // `check`, so here we pick freely from the universe of possible
+        // decrements.
+        (1u128..=ctx.total_ustx, 1u64..=UNLOCK_WINDOW).prop_map(
+            move |(decrease, new_unlock)| {
+                CommandWrapper::new(IllegalDecreaseInUpdate {
+                    ctx: ctx.clone(),
+                    decrease,
+                    new_unlock_height: new_unlock,
+                })
+            },
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Test entry point
 // ---------------------------------------------------------------------------
 
@@ -685,6 +927,10 @@ fn pox5_staker_lifecycle_madhouse() {
                 StakeUpdate::build(ctx.clone()),
                 Unstake::build(ctx.clone()),
                 AdvanceBurnHeight::build(ctx.clone()),
+                IllegalStakeWhileLocked::build(ctx.clone()),
+                IllegalStakeUpdateOnUnlocked::build(ctx.clone()),
+                IllegalUnstakeOnUnlocked::build(ctx.clone()),
+                IllegalDecreaseInUpdate::build(ctx.clone()),
             ],
             1..16,
         ))| {
@@ -698,6 +944,10 @@ fn pox5_staker_lifecycle_madhouse() {
             StakeUpdate::build(ctx.clone()),
             Unstake::build(ctx.clone()),
             AdvanceBurnHeight::build(ctx.clone()),
+            IllegalStakeWhileLocked::build(ctx.clone()),
+            IllegalStakeUpdateOnUnlocked::build(ctx.clone()),
+            IllegalUnstakeOnUnlocked::build(ctx.clone()),
+            IllegalDecreaseInUpdate::build(ctx.clone()),
         ])| {
             ctx.reset_sut();
             let mut state = Pox5StakerState::default();

@@ -1361,6 +1361,40 @@ fn witness_script_hash_from_sql_errors() {
     assert!(result.is_err(), "33-byte hash should fail length check");
 }
 
+proptest! {
+    /// Universal positive form of [`witness_script_hash_from_sql_errors`]:
+    /// every 32-byte value, hex-encoded, parses back to the original bytes.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_witness_script_hash_from_sql_accepts_valid_hex(bytes in any::<[u8; 32]>()) {
+        use rusqlite::types::{FromSql, ValueRef};
+        let hex = to_hex(&bytes);
+        let result = WitnessScriptHash::column_result(ValueRef::Text(hex.as_bytes()));
+        prop_assert!(result.is_ok(), "len 64 hex must accept");
+        prop_assert_eq!(result.unwrap().0, bytes);
+    }
+
+    /// Universal negative form: any byte string that is NOT exactly 64
+    /// ASCII hex chars is rejected. Generator filters out the rare valid
+    /// case so the negative branch is exercised on every iteration.
+    #[test]
+    #[cfg_attr(test, pinny::tag(t_prop))]
+    fn prop_witness_script_hash_from_sql_rejects_non_64_hex(
+        raw in prop::collection::vec(any::<u8>(), 0..=200).prop_filter(
+            "exclude valid 64-char hex",
+            |v| !(v.len() == 64 && v.iter().all(|b| b.is_ascii_hexdigit())),
+        ),
+    ) {
+        use rusqlite::types::{FromSql, ValueRef};
+        let result = WitnessScriptHash::column_result(ValueRef::Text(&raw));
+        prop_assert!(
+            result.is_err(),
+            "non-64-hex input of len {} accepted",
+            raw.len()
+        );
+    }
+}
+
 #[test]
 fn store_watched_outputs() {
     let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
@@ -1789,6 +1823,62 @@ proptest! {
                 Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(_, _)))
             ),
             "non-canonical script of len {} produced P2WSH", script.len()
+        );
+    }
+}
+
+/// Hand-computed (rcl, expected_window) oracle pairs. **Deliberately not**
+/// derived from the production `(3 * rcl) / 2` formula — these are
+/// independent values the test asserts against. If the production
+/// formula drifts (say a rounding fix changes the window for odd RCLs),
+/// this loop catches the drift even if a copied formula in the proptest
+/// wouldn't.
+#[test]
+#[cfg_attr(test, pinny::tag(t_prop))]
+fn prune_window_table_oracle() {
+    // (reward_cycle_length, expected_window)
+    let cases: &[(u32, u64)] = &[
+        (1, 1),       // (3*1)/2 = 1
+        (2, 3),       // (3*2)/2 = 3
+        (3, 4),       // (3*3)/2 = 4
+        (10, 15),
+        (100, 150),
+        (1000, 1500),
+        (2016, 3024), // ~Bitcoin difficulty cycle
+    ];
+
+    for &(rcl, expected_window) in cases {
+        let current_block_height: u64 = expected_window + 10; // ensure threshold > 0
+        let expected_threshold = current_block_height - expected_window;
+
+        let burnchain = Burnchain::regtest(":memory:");
+        let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+        let triple = [
+            expected_threshold - 1,
+            expected_threshold,
+            expected_threshold + 1,
+        ];
+        seed_outputs_at_heights(&mut db, &triple);
+
+        let db_tx = db.tx_begin().unwrap();
+        db_tx
+            .prune_watched_outputs(rcl, current_block_height)
+            .unwrap();
+        db_tx.commit().unwrap();
+
+        assert!(
+            outputs_at_height(&db, expected_threshold - 1).is_empty(),
+            "rcl={rcl} window={expected_window}: h<threshold not pruned"
+        );
+        assert_eq!(
+            outputs_at_height(&db, expected_threshold).len(),
+            1,
+            "rcl={rcl} window={expected_window}: h==threshold pruned (SQL should be `<`, not `<=`)"
+        );
+        assert_eq!(
+            outputs_at_height(&db, expected_threshold + 1).len(),
+            1,
+            "rcl={rcl} window={expected_window}: h>threshold pruned"
         );
     }
 }
