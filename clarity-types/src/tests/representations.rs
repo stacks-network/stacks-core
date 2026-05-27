@@ -38,6 +38,12 @@ use crate::stacks_common::codec::StacksMessageCodec;
 #[case::slash("/")]
 #[case::dash_only("-")]
 #[case::equals("=")]
+#[case::leading_underscore("_admin")]
+#[case::leading_underscore_with_operators("_check!?")]
+#[case::leading_underscore_with_digits("_var123")]
+#[case::bare_underscore("_")]
+#[case::double_underscore("__")]
+#[case::underscore_then_dash("_-")]
 fn test_clarity_name_valid(#[case] name: &str) {
     let clarity_name = ClarityName::try_from(name.to_string())
         .unwrap_or_else(|_| panic!("Should parse valid clarity name: {name}"));

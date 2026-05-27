@@ -811,7 +811,10 @@ impl<'a> Lexer<'a> {
                 }
             }
             _ => {
-                if self.next.is_ascii_alphabetic() {
+                // `_` may lead an identifier from Clarity 6 onwards. The lexer
+                // accepts it unconditionally; an AST pass rejects underscore
+                // identifiers for `ClarityVersion < Clarity6`.
+                if self.next.is_ascii_alphabetic() || self.next == '_' {
                     advance = false;
                     self.read_identifier(None)?
                 } else if self.next.is_ascii_digit() {

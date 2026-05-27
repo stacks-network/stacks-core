@@ -23,6 +23,7 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
+pub mod underscore_checker;
 use stacks_common::types::StacksEpochId;
 
 use self::definition_sorter::DefinitionSorter;
@@ -36,6 +37,7 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
+use self::underscore_checker::UnderscoreIdentifierChecker;
 use crate::vm::ClarityVersion;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, runtime_cost};
@@ -186,6 +188,18 @@ fn inner_build_ast<T: CostTracker>(
 
     // run extra stack-depth pass for tuples
     match VaryStackDepthChecker::run_pass(&mut contract_ast, clarity_version, epoch) {
+        Err(e) if error_early => return Err(e),
+        Err(e) => {
+            diagnostics.push(e.diagnostic);
+            success = false;
+        }
+        _ => (),
+    }
+
+    // SIP-04x: reject identifiers beginning with `_` for `ClarityVersion <
+    // Clarity6`. The wire-level regex and the v2 lexer both accept them so
+    // that the parser can produce a precise diagnostic here.
+    match UnderscoreIdentifierChecker::run_pass(&mut contract_ast, clarity_version, epoch) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
