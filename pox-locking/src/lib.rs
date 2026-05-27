@@ -40,6 +40,9 @@ mod pox_3;
 mod pox_4;
 mod pox_5;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum LockingError {
