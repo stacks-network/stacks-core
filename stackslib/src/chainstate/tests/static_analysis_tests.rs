@@ -177,6 +177,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         WithNftExpectedListOfIdentifiers => Tested(vec![static_check_error_with_nft_expected_list_of_identifiers]),
         MaxIdentifierLengthExceeded(_, _) => Tested(vec![static_check_error_max_identifier_length_exceeded]),
         TooManyAllowances(_, _) => Tested(vec![static_check_error_too_many_allowances]),
+        BareUnderscoreReserved => Ignored("Reachable only in Clarity 6+ when `_` appears as a name in a non-discard position. Covered by `clarity::vm::tests::simple_apply_eval` rather than consensus-snapshot tests."),
     }
 }
 

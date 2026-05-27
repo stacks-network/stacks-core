@@ -382,10 +382,9 @@ fn test_let_discard_underscore_reference_is_analysis_error() {
 /// Same SIP requirement for `match` arms.
 #[test]
 fn test_match_discard_underscore_reference_is_analysis_error() {
-    let err = crate::vm::analysis::type_checker::v2_1::tests::mem_type_check(
-        "(match (some 5) _ _ 0)",
-    )
-    .expect_err("expected analysis error");
+    let err =
+        crate::vm::analysis::type_checker::v2_1::tests::mem_type_check("(match (some 5) _ _ 0)")
+            .expect_err("expected analysis error");
     let msg = format!("{err:?}");
     assert!(
         msg.contains("UndefinedVariable") && msg.contains("\"_\""),
