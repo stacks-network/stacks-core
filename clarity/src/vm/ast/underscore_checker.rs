@@ -124,7 +124,6 @@ mod tests {
 
     #[test]
     fn underscore_prefix_rejected_pre_clarity6() {
-        // Reject `_admin` as a constant name in Clarity 5.
         assert!(!parses(
             "(define-constant _admin 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)",
             ClarityVersion::Clarity5,
@@ -133,7 +132,6 @@ mod tests {
 
     #[test]
     fn underscore_prefix_accepted_in_clarity6() {
-        // Accept `_admin` as a constant name in Clarity 6.
         assert!(parses(
             "(define-constant _admin 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)",
             ClarityVersion::Clarity6,
@@ -194,7 +192,6 @@ mod tests {
 
     #[test]
     fn underscore_trait_reference_rejected_pre_clarity6() {
-        // `<_foo>` inside a function signature should be caught too.
         assert!(!parses(
             "(define-trait t ((bar (<_foo>) (response uint uint))))",
             ClarityVersion::Clarity5,
@@ -203,10 +200,8 @@ mod tests {
 
     #[test]
     fn underscore_trait_reference_accepted_in_clarity6() {
-        // Symmetry with the rejection test above. We must define `_foo`
-        // first, otherwise the later `TraitsResolver` pass (which the
-        // pre-Clarity-6 test never reaches because the underscore check
-        // short-circuits earlier) would fail with `TraitReferenceUnknown`.
+        // Defines `_foo` so the later `TraitsResolver` pass doesn't fail with
+        // `TraitReferenceUnknown` — pre-Clarity-6 short-circuits before that.
         assert!(parses(
             "(define-trait _foo ((m (uint) (response uint uint))))
              (define-trait t ((bar (<_foo>) (response uint uint))))",
@@ -216,13 +211,11 @@ mod tests {
 
     #[test]
     fn underscore_in_let_binding_accepted_in_clarity6() {
-        // Symmetry with `underscore_prefix_in_let_binding_pre_clarity6_rejected`.
         assert!(parses("(let ((_x 1)) (+ _x 1))", ClarityVersion::Clarity6));
     }
 
     #[test]
     fn underscore_in_function_arg_accepted_in_clarity6() {
-        // Symmetry with `underscore_in_function_arg_rejected_pre_clarity6`.
         assert!(parses(
             "(define-public (foo (_addr principal)) (ok _addr))",
             ClarityVersion::Clarity6,
@@ -268,46 +261,39 @@ mod tests {
         ));
     }
 
+    /// Regression guard: the gate must emit `UnderscoreIdentifierNotAllowed`,
+    /// not (say) a generic `IllegalClarityName`. The boolean-only tests
+    /// above would not catch such a drift.
     #[test]
     fn rejection_emits_underscore_identifier_not_allowed_kind() {
-        // Verify the specific `ParseErrorKind` rather than just success=false.
-        // Without this, the gate could regress to (say) `IllegalClarityName`
-        // and the boolean-only tests would still pass.
         let err = parse_err(
             "(define-constant _admin 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)",
             ClarityVersion::Clarity5,
         );
-        match err {
-            ParseErrorKind::UnderscoreIdentifierNotAllowed(name) => assert_eq!(name, "_admin"),
-            other => panic!("expected UnderscoreIdentifierNotAllowed, got {other:?}"),
-        }
+        let ParseErrorKind::UnderscoreIdentifierNotAllowed(name) = err else {
+            panic!("expected UnderscoreIdentifierNotAllowed, got {err:?}");
+        };
+        assert_eq!(name, "_admin");
     }
 
+    /// Regression guard: operator names like `+`, `<=`, `*` never start with
+    /// `_` and must pass the pass cleanly under any Clarity version.
     #[test]
     fn leading_operator_names_unaffected_pre_clarity6() {
-        // Regression guard: the pass should leave operator names like `+`,
-        // `<=`, `*` alone — they are valid `ClarityName`s via the operator
-        // alternation arms and never start with `_`.
         assert!(parses(
             "(define-private (foo) (+ 1 2)) (define-private (bar) (<= 1 2))",
             ClarityVersion::Clarity5,
         ));
     }
 
-    /// SIP-04x ambiguity: the spec carves out bare `_` as a discard binding
-    /// only "in `let` and `match` bindings". Outside those positions (e.g.
-    /// as a `define-constant` name or function-arg name), bare `_` is just
-    /// another identifier whose first character is `_` — so the AST pass
-    /// accepts it for Clarity 6+ and rejects it for older versions, exactly
-    /// like `_admin`. This test pins down that behavior so it doesn't drift
-    /// silently if a future reviewer reads the SIP more strictly.
+    /// The SIP carves out bare `_` as a discard pattern *only* inside
+    /// `let`/`match` bindings. Outside those positions (`define-constant
+    /// _ …`, function-arg names) bare `_` is a regular identifier whose
+    /// first char is `_`, so the AST pass treats it like `_admin`. Pinned
+    /// down so this can't silently drift if the SIP is later read more
+    /// strictly.
     #[test]
     fn bare_underscore_as_define_name_accepted_in_clarity6() {
-        // Documents: `(define-constant _ 1)` parses in Clarity 6. The bare-`_`
-        // discard semantics from `let`/`match` do NOT apply at top-level
-        // define positions; this is a regular (referenceable) constant named
-        // `_`. The SIP's "does not create a binding that can be referenced
-        // later" wording is scoped to let/match bindings only.
         assert!(parses("(define-constant _ 1)", ClarityVersion::Clarity6));
     }
 
@@ -316,10 +302,8 @@ mod tests {
         assert!(!parses("(define-constant _ 1)", ClarityVersion::Clarity5));
     }
 
-    /// Generates valid `_`-led `ClarityName` strings, including the bare `_`.
-    /// The body length floor is 0 so the bare case is covered; the ceiling
-    /// is `MAX_STRING_LEN - 1` so the total length stays within the codec
-    /// limit.
+    /// Generates valid `_`-led `ClarityName` strings (including bare `_`),
+    /// bounded by `MAX_STRING_LEN`.
     fn any_underscore_led_clarity_name() -> impl Strategy<Value = String> {
         string_regex(&format!(
             "_[a-zA-Z0-9_!?+<>=/*-]{{0,{}}}",
@@ -328,31 +312,22 @@ mod tests {
         .unwrap()
     }
 
-    /// Property test: the version gate is exactly `< Clarity6` vs. `>= Clarity6`
-    /// for every valid `_`-led `ClarityName`. Pre-Clarity-6 must reject with
-    /// the specific `UnderscoreIdentifierNotAllowed(name)` kind; Clarity 6
-    /// must accept. Exercises the full name-space — including the bare `_`,
-    /// underscore-followed-by-operator-chars (e.g. `_>=`, `_+!`), and names
-    /// at the `MAX_STRING_LEN` boundary — rather than relying on the handful
-    /// of example tests above to catch every shape.
+    /// For every valid `_`-led `ClarityName`, pre-Clarity-6 must reject with
+    /// `UnderscoreIdentifierNotAllowed(name)` and Clarity 6 must accept.
+    /// Covers bare `_`, `_>=` / `_+!` shapes, and names at the
+    /// `MAX_STRING_LEN` boundary.
     #[tag(t_prop)]
     #[test]
     fn prop_underscore_led_names_gated_by_clarity_version() {
         proptest!(|(name in any_underscore_led_clarity_name())| {
-            // Filter to names that pass the codec regex — the generator
-            // pattern is a superset of the strict `ClarityName` grammar.
-            prop_assume!(ClarityName::try_from(name.clone()).is_ok());
-
             let src = format!("(define-constant {name} 1)");
 
-            // Pre-Clarity-6: reject with the specific error variant.
             let err = parse_err(&src, ClarityVersion::Clarity5);
             prop_assert!(
                 matches!(&err, ParseErrorKind::UnderscoreIdentifierNotAllowed(n) if n == &name),
                 "expected UnderscoreIdentifierNotAllowed({name:?}), got {err:?}"
             );
 
-            // Clarity 6: accept.
             prop_assert!(
                 parses(&src, ClarityVersion::Clarity6),
                 "expected `_`-led name {name:?} to parse in Clarity 6"
