@@ -128,14 +128,20 @@ fn eval_with_new_binding(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let mut inner_context = context.extend()?;
-    if vm::is_reserved(
-        &bind_name,
-        invoke_ctx.contract_context.get_clarity_version(),
-    ) || invoke_ctx
-        .contract_context
-        .lookup_function(&bind_name)
-        .is_some()
-        || inner_context.lookup_variable(&bind_name).is_some()
+    // SIP-04x: in Clarity 6, a `match` arm whose bind name is bare `_`
+    // discards the value — execute the branch without binding the name and
+    // without raising `NameAlreadyUsed` on re-use across nested match arms.
+    let is_discard = bind_name.as_str() == "_"
+        && *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity6;
+    if !is_discard
+        && (vm::is_reserved(
+            &bind_name,
+            invoke_ctx.contract_context.get_clarity_version(),
+        ) || invoke_ctx
+            .contract_context
+            .lookup_function(&bind_name)
+            .is_some()
+            || inner_context.lookup_variable(&bind_name).is_some())
     {
         return Err(RuntimeCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
     }
@@ -143,18 +149,20 @@ fn eval_with_new_binding(
     let memory_use = bind_value.get_memory_use()?;
     exec_state.add_memory(memory_use)?;
 
-    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2
-        && let CallableContract(trait_data) = &bind_value
-    {
-        inner_context.callable_contracts.insert(
-            bind_name.clone(),
-            CallableData {
-                contract_identifier: trait_data.contract_identifier.clone(),
-                trait_identifier: trait_data.trait_identifier.clone(),
-            },
-        );
+    if !is_discard {
+        if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2
+            && let CallableContract(trait_data) = &bind_value
+        {
+            inner_context.callable_contracts.insert(
+                bind_name.clone(),
+                CallableData {
+                    contract_identifier: trait_data.contract_identifier.clone(),
+                    trait_identifier: trait_data.trait_identifier.clone(),
+                },
+            );
+        }
+        inner_context.variables.insert(bind_name, bind_value);
     }
-    inner_context.variables.insert(bind_name, bind_value);
     let result = vm::eval(body, exec_state, invoke_ctx, &inner_context)
         .and_then(|v| v.clone_with_cost(exec_state));
 

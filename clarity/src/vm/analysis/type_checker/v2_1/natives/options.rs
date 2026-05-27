@@ -22,6 +22,7 @@ use super::{
     StaticCheckError, StaticCheckErrorKind, TypeChecker, check_argument_count,
     check_arguments_at_least, no_type,
 };
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
@@ -306,13 +307,20 @@ fn eval_with_new_binding(
             .ok_or_else(|| CostErrors::CostOverflow)?;
         checker.add_memory(memory_use)?;
     }
-    checker.contract_context.check_name_used(&bind_name)?;
+    // SIP-04x: in Clarity 6, a `match` arm whose bind name is bare `_`
+    // discards the matched value — skip name-collision checks and don't
+    // place the name in the typing context for the branch body.
+    let is_discard =
+        bind_name.as_str() == "_" && checker.clarity_version >= ClarityVersion::Clarity6;
+    if !is_discard {
+        checker.contract_context.check_name_used(&bind_name)?;
 
-    if inner_context.lookup_variable_type(&bind_name).is_some() {
-        return Err(StaticCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
+        if inner_context.lookup_variable_type(&bind_name).is_some() {
+            return Err(StaticCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
+        }
+
+        inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
     }
-
-    inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
 
     let result = checker.type_check(body, &inner_context);
     if checker.epoch.analysis_memory() {

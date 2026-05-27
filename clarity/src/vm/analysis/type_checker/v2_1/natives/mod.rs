@@ -305,11 +305,19 @@ fn check_special_let(
         binding_list,
         SyntaxBindingErrorType::Let,
         |var_name, var_sexp| {
-            checker.contract_context.check_name_used(var_name)?;
-            if out_context.lookup_variable_type(var_name).is_some() {
-                return Err(StaticCheckError::new(
-                    StaticCheckErrorKind::NameAlreadyUsed(var_name.to_string()),
-                ));
+            // SIP-04x: bare `_` is a discard binding in Clarity 6 — still
+            // type-check the value (so its type errors surface) but don't
+            // add the name to the typing context and skip name-collision
+            // checks across repeated discards.
+            let is_discard =
+                var_name.as_str() == "_" && checker.clarity_version >= ClarityVersion::Clarity6;
+            if !is_discard {
+                checker.contract_context.check_name_used(var_name)?;
+                if out_context.lookup_variable_type(var_name).is_some() {
+                    return Err(StaticCheckError::new(
+                        StaticCheckErrorKind::NameAlreadyUsed(var_name.to_string()),
+                    ));
+                }
             }
 
             let typed_result = checker.type_check(var_sexp, &out_context)?;
@@ -328,7 +336,13 @@ fn check_special_let(
                     .ok_or_else(|| CostErrors::CostOverflow)?;
                 checker.add_memory(memory_use)?;
             }
-            out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);
+            if !is_discard {
+                out_context.add_variable_type(
+                    var_name.clone(),
+                    typed_result,
+                    checker.clarity_version,
+                );
+            }
             Ok(())
         },
     )?;

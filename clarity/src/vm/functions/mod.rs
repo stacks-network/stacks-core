@@ -806,9 +806,17 @@ fn special_let(
 
     finally_drop_memory!( exec_state, memory_use; {
         handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
-            if is_reserved(binding_name, invoke_ctx.contract_context.get_clarity_version()) ||
-                invoke_ctx.contract_context.lookup_function(binding_name).is_some() ||
-                inner_context.lookup_variable(binding_name).is_some() {
+            // SIP-04x: a bare `_` is a discard binding. Evaluate the bound
+            // expression (preserving `try!`/`unwrap!` short-circuits) but do
+            // not place it in scope, and do not treat repeated `_` bindings
+            // as name conflicts.
+            let is_discard = binding_name.as_str() == "_"
+                && *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity6;
+
+            if !is_discard
+                && (is_reserved(binding_name, invoke_ctx.contract_context.get_clarity_version()) ||
+                    invoke_ctx.contract_context.lookup_function(binding_name).is_some() ||
+                    inner_context.lookup_variable(binding_name).is_some()) {
                     return Err(RuntimeCheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
@@ -818,6 +826,9 @@ fn special_let(
             exec_state.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
             let binding_value = binding_value.clone_with_cost(exec_state)?;
+            if is_discard {
+                return Ok(());
+            }
             if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 && let CallableContract(trait_data) = &binding_value {
                 inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
             }
