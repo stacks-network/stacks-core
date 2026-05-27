@@ -486,6 +486,9 @@ impl<T: MarfTrieId> MARF<T> {
     /// `node_copy_update_ptrs` preserves these annotations, ensuring
     /// that `inner_write_children_hashes` uses the same `StacksBlockId` values
     /// as the archival MARF.  This guarantees identical per-block root hashes.
+    ///
+    /// `tip` is used to identify the canonical fork the squash height
+    /// lives on: it must be at or above `height`.
     pub fn squash_to_path(
         src_path: &str,
         dst_path: &str,
