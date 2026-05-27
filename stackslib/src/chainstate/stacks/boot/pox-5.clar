@@ -437,6 +437,7 @@
         )
 
         (print {
+            topic: "setup-bond",
             bond-index: bond-index,
             target-rate: target-rate,
             stx-value-ratio: stx-value-ratio,
@@ -633,7 +634,7 @@
                 unlock-cycle: unlock-cycle,
                 is-l1-lock: (is-ok btc-lockup),
             }))
-            (print result)
+            (print (merge {topic: "register-for-bond" } result))
             (ok result)
         )
     )
@@ -761,7 +762,7 @@
                 num-cycles: num-cycles,
                 is-l1-lock: (get is-l1-lock current-membership),
             }))
-            (print result)
+            (print (merge {topic: "update-bond-registration" } result))
             (ok result)
         )
     )
@@ -786,7 +787,7 @@
                 signer: signer,
                 signer-key: signer-key,
             }))
-            (print result)
+            (print (merge {topic: "register-signer" } result))
             (ok result)
         )
     )
@@ -859,7 +860,7 @@
                 unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
                 unlock-cycle: unlock-cycle,
             }))
-            (print result)
+            (print (merge {topic: "stake" } result))
             (ok result)
         )
     )
@@ -953,7 +954,7 @@
                 amount-increase: amount-increase,
                 cycles-to-extend: cycles-to-extend,
             }))
-            (print result)
+            (print (merge {topic: "stake-update" } result))
             (ok result)
         )
     )
@@ -1020,7 +1021,7 @@
                 bond-index: bond-index,
                 amount-sats-released: amount-sats,
             }))
-            (print result)
+            (print (merge {topic: "announce-l1-early-exit" } result))
             (ok result)
         )
     )
@@ -1114,7 +1115,7 @@
                 amount-withdrawn-sats: amount-to-withdrawal-sats,
                 new-amount-sats: new-amount-sats,
             }))
-            (print result)
+            (print (merge {topic: "unstake-sbtc" } result))
             (ok result)
         )
     )
@@ -1172,7 +1173,7 @@
                 unlock-cycle: unlock-cycle,
                 unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
             }))
-            (print result)
+            (print (merge {topic: "unstake" } result))
             (ok result)
         )
     )
@@ -1662,7 +1663,7 @@
                     cycle-staked-ustx: cycle-staked-ustx,
                     next-rewards-per-ustx: next-rewards-per-ustx,
                 }))
-                (print result)
+                (print (merge {topic: "calculate-rewards" } result))
                 (ok result)
             )
         )
@@ -1816,7 +1817,7 @@
                 bond-totals: bond-totals,
                 total-rewards: total-rewards,
             }))
-            (print result)
+            (print (merge {topic: "claim-rewards" } result))
             (ok result)
         )
     )
