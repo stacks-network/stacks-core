@@ -420,10 +420,10 @@ impl NodeStore {
         usize::try_from(end - off).map_err(|_| Error::OverflowError)
     }
 
-    pub(crate) fn hash(&self, idx: usize) -> &TrieHash {
+    pub(crate) fn get_hash(&self, idx: usize) -> &TrieHash {
         self.hashes.get(idx).unwrap_or_else(|| {
             panic!(
-                "NodeStore::hash: index {idx} out of bounds (len={})",
+                "NodeStore::get_hash: index {idx} out of bounds (len={})",
                 self.hashes.len()
             )
         })

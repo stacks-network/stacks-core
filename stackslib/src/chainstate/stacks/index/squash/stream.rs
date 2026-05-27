@@ -71,7 +71,7 @@ pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Erro
                          parent < child < node_count"
                     )));
                 }
-                child_hashes.push(*store.hash(child_idx));
+                child_hashes.push(*store.get_hash(child_idx));
             }
         }
 
@@ -154,7 +154,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
             current.checked_sub(base).ok_or(Error::OverflowError)?;
 
         let mut node = store.read_node(idx)?;
-        let hash = store.hash(idx);
+        let hash = store.get_hash(idx);
 
         // Convert array-index pointers to byte offsets (relative to blob start)
         if !node.is_leaf() {
@@ -180,7 +180,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
         base.checked_add(header_size).ok_or(Error::OverflowError)?,
     ))
     .map_err(Error::IOError)?;
-    let root_written = write_nodetype_bytes(&mut sink, &root_node, store.hash(0))?;
+    let root_written = write_nodetype_bytes(&mut sink, &root_node, store.get_hash(0))?;
     debug_assert!(
         root_written <= root_reserved_size,
         "root wrote {root_written} bytes but only {root_reserved_size} were reserved"

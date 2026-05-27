@@ -1016,7 +1016,7 @@ fn test_node_store_roundtrip_all_variants() {
     let rt_leaf = store.read_node(0).unwrap();
     assert!(rt_leaf.is_leaf());
     assert_eq!(rt_leaf.path_bytes(), &[1, 2, 3]);
-    assert_eq!(*store.hash(0), leaf_hash);
+    assert_eq!(*store.get_hash(0), leaf_hash);
     assert_eq!(store.block_id(0), 10);
 
     // Node4 round-trip
