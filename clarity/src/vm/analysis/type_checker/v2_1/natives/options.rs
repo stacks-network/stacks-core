@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::representations::ClarityName;
+use clarity_types::representations::{ClarityName, DISCARD_IDENTIFIER};
 use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
@@ -310,8 +310,8 @@ fn eval_with_new_binding(
     // SIP-04x: in Clarity 6, a `match` arm whose bind name is bare `_`
     // discards the matched value — skip name-collision checks and don't
     // place the name in the typing context for the branch body.
-    let is_discard =
-        bind_name.as_str() == "_" && checker.clarity_version >= ClarityVersion::Clarity6;
+    let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER
+        && checker.clarity_version >= ClarityVersion::Clarity6;
     if !is_discard {
         checker.contract_context.check_name_used(&bind_name)?;
 

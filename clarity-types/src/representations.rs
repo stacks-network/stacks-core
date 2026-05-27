@@ -30,6 +30,14 @@ pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 pub const MAX_STRING_LEN: u8 = 128;
 
+/// The bare `_` identifier reserved as a discard pattern by SIP-04x. In
+/// `let` and `match` binding positions it discards the bound value; in
+/// every other naming position (function/constant/map/var names, function
+/// arguments, etc.) it is rejected at the analyzer/runtime layer. Rust,
+/// Scala, Swift, OCaml and Haskell use the same character for the same
+/// purpose (variously called the "wildcard" or "discard" pattern).
+pub const DISCARD_IDENTIFIER: &str = "_";
+
 lazy_static! {
     pub static ref STANDARD_PRINCIPAL_REGEX_STRING: String =
         "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();

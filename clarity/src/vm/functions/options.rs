@@ -22,6 +22,7 @@ use crate::vm::errors::{
     EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
     check_arguments_at_least,
 };
+use crate::vm::representations::DISCARD_IDENTIFIER;
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::{self, ClarityName, ClarityVersion, SymbolicExpression};
 
@@ -131,7 +132,7 @@ fn eval_with_new_binding(
     // SIP-04x: in Clarity 6, a `match` arm whose bind name is bare `_`
     // discards the value — execute the branch without binding the name and
     // without raising `NameAlreadyUsed` on re-use across nested match arms.
-    let is_discard = bind_name.as_str() == "_"
+    let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER
         && *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity6;
     if !is_discard
         && (vm::is_reserved(

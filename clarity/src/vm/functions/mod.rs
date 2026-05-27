@@ -27,7 +27,9 @@ use crate::vm::errors::{
     VmExecutionError, check_argument_count, check_arguments_at_least,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
-use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::representations::{
+    ClarityName, DISCARD_IDENTIFIER, SymbolicExpression, SymbolicExpressionType,
+};
 use crate::vm::types::{PrincipalData, TypeSignature, Value};
 use crate::vm::{LocalContext, eval, is_reserved};
 
@@ -810,7 +812,7 @@ fn special_let(
             // expression (preserving `try!`/`unwrap!` short-circuits) but do
             // not place it in scope, and do not treat repeated `_` bindings
             // as name conflicts.
-            let is_discard = binding_name.as_str() == "_"
+            let is_discard = binding_name.as_str() == DISCARD_IDENTIFIER
                 && *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity6;
 
             if !is_discard

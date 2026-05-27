@@ -28,6 +28,7 @@ use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime
 use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::bitcoin::VERIFY_MERKLE_PROOF_MAX_DEPTH;
 use crate::vm::functions::{NativeFunctions, handle_binding_list};
+use crate::vm::representations::DISCARD_IDENTIFIER;
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
 };
@@ -309,8 +310,8 @@ fn check_special_let(
             // type-check the value (so its type errors surface) but don't
             // add the name to the typing context and skip name-collision
             // checks across repeated discards.
-            let is_discard =
-                var_name.as_str() == "_" && checker.clarity_version >= ClarityVersion::Clarity6;
+            let is_discard = var_name.as_str() == DISCARD_IDENTIFIER
+                && checker.clarity_version >= ClarityVersion::Clarity6;
             if !is_discard {
                 checker.contract_context.check_name_used(var_name)?;
                 if out_context.lookup_variable_type(var_name).is_some() {

@@ -24,7 +24,7 @@ use crate::vm::errors::{
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::{ClarityName, DISCARD_IDENTIFIER, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value, parse_name_type_pairs,
@@ -123,7 +123,7 @@ fn check_legal_define(
     name: &str,
     contract_context: &ContractContext,
 ) -> Result<(), RuntimeCheckErrorKind> {
-    if name == "_" {
+    if name == DISCARD_IDENTIFIER {
         return Err(RuntimeCheckErrorKind::BareUnderscoreReserved);
     }
     if contract_context.is_name_used(name) {
