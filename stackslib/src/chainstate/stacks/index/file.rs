@@ -512,7 +512,7 @@ impl TrieFile {
         let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
         self.read_blob_bytes_at(blob_offset, &mut buf)?;
 
-        let mut parent_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+        let mut parent_bytes = [0u8; BLOCK_HEADER_HASH_ENCODED_SIZE];
         parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
         let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
         root_bytes.copy_from_slice(
