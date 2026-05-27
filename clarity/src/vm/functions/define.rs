@@ -300,9 +300,10 @@ fn handle_define_trait(
 fn handle_use_trait(
     name: &ClarityName,
     trait_identifier: &TraitIdentifier,
-    invoke_ctx: &InvocationContext,
 ) -> Result<DefineResult, VmExecutionError> {
-    check_legal_define(name, invoke_ctx.contract_context)?;
+    if name.as_str() == DISCARD_IDENTIFIER {
+        return Err(RuntimeCheckErrorKind::BareUnderscoreReserved.into());
+    }
     Ok(DefineResult::UseTrait(
         name.clone(),
         trait_identifier.clone(),
@@ -509,7 +510,7 @@ pub fn evaluate_define(
             DefineFunctionsParsed::UseTrait {
                 name,
                 trait_identifier,
-            } => handle_use_trait(name, trait_identifier, invoke_ctx),
+            } => handle_use_trait(name, trait_identifier),
             DefineFunctionsParsed::ImplTrait { trait_identifier } => {
                 Ok(handle_impl_trait(trait_identifier))
             }
