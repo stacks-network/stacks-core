@@ -66,7 +66,7 @@ function bondTargetYieldPerCalculation({
   sats: bigint;
   targetRate: bigint;
 }) {
-  return ((sats * targetRate) / BASIS_POINTS) / 50n;
+  return (sats * targetRate) / BASIS_POINTS / 50n;
 }
 
 beforeEach(() => {
@@ -891,9 +891,7 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
     targetRate,
   });
   expect(rov(pox5.getEarned(signer, true, 0n))).toBe(firstBondRewards);
-  expect(rov(pox5.getEarned(signer, true, 1n))).toBe(
-    1500n - firstBondRewards,
-  );
+  expect(rov(pox5.getEarned(signer, true, 1n))).toBe(1500n - firstBondRewards);
   expect(rov(pox5.getEarned(signer, false, 3n))).toBe(0n);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
 });
@@ -1011,9 +1009,7 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
     totalShares: stxStake * 2n,
   });
 
-  expect(rov(pox5.getReserveBalance())).toBe(
-    reserveRewards(remainingRewards),
-  );
+  expect(rov(pox5.getReserveBalance())).toBe(reserveRewards(remainingRewards));
   expect(rov(pox5.getEarned(signer1, true, 0n))).toBe(firstBondRewards);
   expect(rov(pox5.getEarned(signer2, true, 1n))).toBe(secondBondRewards);
   expect(rov(pox5.getEarned(signer1, false, 3n))).toBe(signerStxRewards);

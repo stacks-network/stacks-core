@@ -91,36 +91,36 @@ function logAsTree(statistics: [string, number][]) {
   const tree: { [key: string]: any } = {};
 
   statistics.forEach(([commandName, count]) => {
-    const split = commandName.split('_');
-    let root: string = split[0],
-      rest: string = 'base';
-
-    if (split.length > 1) {
-      rest = split.slice(1).join('_');
-    }
-    if (!tree[root]) {
-      tree[root] = {};
-    }
+    const [root, ...restParts] = commandName.split('_');
+    const rest = restParts.length > 0 ? restParts.join('_') : 'base';
+    if (!tree[root]) tree[root] = {};
     tree[root][rest] = count;
   });
 
-  const printTree = (node: any, indent: string = '') => {
-    const keys = Object.keys(node);
+  const TEE = '├── ';
+  const ELBOW = '└── ';
+  const PIPE = '│   ';
+  const GAP = '    ';
+
+  const printNode = (node: any, indent: string) => {
+    const keys = Object.keys(node).filter((k) => k !== 'base');
     keys.forEach((key, index) => {
       const isLast = index === keys.length - 1;
-      const boxChar = isLast ? '-- ' : '|-- ';
-      if (key !== 'base') {
-        if (typeof node[key] === 'object') {
-          console.log(`${indent}${boxChar}${key}: x${node[key]['base']}`);
-          printTree(node[key], indent + (isLast ? '    ' : '|   '));
-        } else {
-          console.log(`${indent}${boxChar}${key}: ${node[key]}`);
-        }
+      const branch = isLast ? ELBOW : TEE;
+      const childIndent = indent + (isLast ? GAP : PIPE);
+      const value = node[key];
+      if (typeof value === 'object') {
+        const base = value['base'];
+        const label = base !== undefined ? `${key}: ${base}` : key;
+        console.log(`${indent}${branch}${label}`);
+        printNode(value, childIndent);
+      } else {
+        console.log(`${indent}${branch}${key}: ${value}`);
       }
     });
   };
 
-  printTree(tree);
+  printNode(tree, '');
 }
 
 export const getWalletNameByAddress = (address: string): string | undefined =>
