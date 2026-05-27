@@ -520,6 +520,12 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<SquashStats, Error> {
         let dst_db_path = PathBuf::from(dst_path);
         let dst_blobs_path = PathBuf::from(format!("{dst_path}.blobs"));
+        let dst_dir = match dst_db_path.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.canonicalize(),
+            _ => std::env::current_dir(),
+        }
+        .map_err(Error::IOError)?;
+
         if dst_db_path.exists() {
             return Err(Error::DestinationExists(dst_path.to_string()));
         }
@@ -534,6 +540,7 @@ impl<T: MarfTrieId> MARF<T> {
         // before propagating the error.
         let result = Self::squash_to_path_inner(
             src_path,
+            &dst_dir,
             &dst_db_path,
             &dst_blobs_path,
             src_open_opts,
@@ -552,6 +559,7 @@ impl<T: MarfTrieId> MARF<T> {
 
     fn squash_to_path_inner(
         src_path: &str,
+        dst_dir: &Path,
         dst_db_path: &Path,
         dst_blobs_path: &Path,
         src_open_opts: MARFOpenOpts,
@@ -563,6 +571,12 @@ impl<T: MarfTrieId> MARF<T> {
             Error::CorruptionError(format!(
                 "squash dst path is not valid UTF-8: {}",
                 dst_db_path.display()
+            ))
+        })?;
+        let dst_dir = dst_dir.to_str().ok_or_else(|| {
+            Error::CorruptionError(format!(
+                "squash dst parent dir is not valid UTF-8: {}",
+                dst_dir.display()
             ))
         })?;
 
@@ -617,17 +631,10 @@ impl<T: MarfTrieId> MARF<T> {
         step_durations.build_height_index = start.elapsed();
 
         // [3/8] Collect trie nodes (DFS walk)
-        //
-        // Derive the temp directory from dst_path: use the parent directory.
-        let tmp_dir = dst_db_path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .and_then(|p| p.to_str())
-            .unwrap_or(".");
         info!("[{label}] [3/8] Collect trie nodes: starting DFS...");
         let start = Instant::now();
         let (mut node_store, source_to_idx) = src.with_conn(|conn| {
-            MARF::<T>::collect_reachable_nodes(conn, &block_at_height, tmp_dir)
+            MARF::<T>::collect_reachable_nodes(conn, &block_at_height, dst_dir)
         })?;
         let node_count = node_store.len() as u64;
         step_durations.collect_trie_nodes = start.elapsed();

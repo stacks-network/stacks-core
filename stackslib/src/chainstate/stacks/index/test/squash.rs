@@ -1804,9 +1804,12 @@ fn test_resquash_rejects_height_at_or_below_existing_squash() {
 
     for bad_height in [1u32, 2u32] {
         let resquashed_dir = dir.path().join(format!("bad_{bad_height}"));
+        std::fs::create_dir_all(&resquashed_dir).unwrap();
+        let dst_db_path = resquashed_dir.join("index.sqlite");
+        let dst_blobs_path = resquashed_dir.join("index.sqlite.blobs");
         let result = MARF::squash_to_path(
             squashed_path.to_str().unwrap(),
-            resquashed_dir.join("index.sqlite").to_str().unwrap(),
+            dst_db_path.to_str().unwrap(),
             open_opts.clone(),
             &post,
             bad_height,
@@ -1821,6 +1824,14 @@ fn test_resquash_rejects_height_at_or_below_existing_squash() {
             }
             other => panic!("expected CorruptionError for bad_height={bad_height}, got {other:?}"),
         }
+        assert!(
+            !dst_db_path.exists(),
+            "destination DB must not be created when source rejects (bad_height={bad_height})"
+        );
+        assert!(
+            !dst_blobs_path.exists(),
+            "destination .blobs must not be created when source rejects (bad_height={bad_height})"
+        );
     }
 }
 
