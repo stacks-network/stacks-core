@@ -125,6 +125,25 @@ fn test_let_discard_with_try_short_circuits() {
     );
 }
 
+/// Nested `let`s where both outer and inner bind bare `_`. Each scope's
+/// discard is independent — neither should leak the other's `_` nor raise
+/// `NameAlreadyUsed` on the inner binding.
+#[test]
+fn test_nested_let_with_bare_underscore_discards() {
+    let program = "(let ((_ 1) (x 10))
+                     (let ((_ 2) (y 20))
+                       (+ x y)))";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(30));
+}
+
 /// Symmetry with `test_let_underscore_prefix_is_regular_binding`:
 /// underscore-prefixed match-arm names are regular bindings (not discards)
 /// and can be referenced in the branch body.
