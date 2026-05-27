@@ -62,6 +62,13 @@ fn resolve_child_ptr(ptr: &TriePtr, origin_block_id: u32) -> Option<(u32, u64)> 
     }
 }
 
+/// Emit a progress log every this many heights walked.
+const LOG_PROGRESS_HEIGHT_INTERVAL: u32 = 100_000;
+/// Emit a progress log every this many nodes processed.
+const LOG_PROGRESS_NODE_INTERVAL: u64 = 1_000_000;
+/// Emit a progress log at least this often, regardless of count.
+const LOG_PROGRESS_TIME_INTERVAL_SECS: u64 = 30;
+
 /// Format a `Duration` as `X.YZ secs` or `X min Y.ZW secs`.
 fn fmt_duration(d: Duration) -> String {
     let total_centis = d.as_millis() / 10;
@@ -94,7 +101,7 @@ fn remap_child_ptrs(
     let node_count = store.len();
 
     for idx in 0..node_count {
-        if idx > 0 && idx % 1_000_000 == 0 {
+        if idx > 0 && idx as u64 % LOG_PROGRESS_NODE_INTERVAL == 0 {
             info!(
                 "[{label}] Remap trie pointers: {idx}/{node_count} nodes in {}",
                 fmt_duration(remap_start.elapsed())
@@ -283,7 +290,9 @@ fn collect_per_height_metadata<T: MarfTrieId>(
             current = parent;
         }
 
-        if last_log.elapsed().as_secs() >= 30 || (h > 0 && h % 100_000 == 0) {
+        if last_log.elapsed().as_secs() >= LOG_PROGRESS_TIME_INTERVAL_SECS
+            || (h > 0 && h % LOG_PROGRESS_HEIGHT_INTERVAL == 0)
+        {
             let done = height + 1 - h;
             info!(
                 "[{label}] [2/8] Build height index: {}/{} heights walked in {}",
@@ -385,7 +394,7 @@ fn insert_placeholder_blocks<T: MarfTrieId>(
             .try_into()
             .expect("block_id overflow");
         archival_to_squashed.insert(archival_id, squashed_id);
-        if entry.height % 100_000 == 0 && entry.height > 0 {
+        if entry.height % LOG_PROGRESS_HEIGHT_INTERVAL == 0 && entry.height > 0 {
             info!(
                 "[{label}] [4/8] Register placeholder blocks: {} of {} in {}",
                 entry.height,
@@ -931,7 +940,9 @@ impl<T: MarfTrieId> MARF<T> {
                 store.push(&child_node, child_hash, child_block_id)?;
 
                 nodes_collected += 1;
-                if last_log.elapsed().as_secs() >= 30 || nodes_collected % 1_000_000 == 0 {
+                if last_log.elapsed().as_secs() >= LOG_PROGRESS_TIME_INTERVAL_SECS
+                    || nodes_collected % LOG_PROGRESS_NODE_INTERVAL == 0
+                {
                     info!(
                         "Trie DFS: {nodes_collected} nodes, stack depth {stack_depth}, {} elapsed",
                         fmt_duration(dfs_start.elapsed())
