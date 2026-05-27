@@ -1,4 +1,6 @@
-# The main Github Actions workflow
+############################################################################
+### The main GitHub Actions workflow for CI/CD
+############################################################################
 
 name: CI
 run-name: "CI: [${{ github.ref_name }}]"
@@ -14,9 +16,9 @@ on:
       - reopened
       - synchronize
 
-# Set default permissions
+# Set default permissions for all jobs
 permissions:
-  contents: read  # default for all jobs
+  contents: read
 
 # Set default shell
 defaults:
@@ -29,15 +31,19 @@ concurrency:
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
+# Env vars
 env:
   TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
   BTC_VERSION: "25.0"
 
 jobs:
-  # --- Global Variables Setup ---------------------------------------------
-  # Bridges global env variables to the jobs context so they are safely 
-  # accessible by downstream reusable workflows.
-  # Also define default runs-on anchor.
+  ############################################################################
+  ### Global Variables Setup
+  ### 
+  ### Bridges global env variables to the jobs context so they are safely 
+  ### accessible by downstream reusable workflows.
+  ### Also defines default runs-on anchor.
+  ############################################################################
   setup-env:
     name: "Setup: Global Variables"
     runs-on: &shared_config ubuntu-latest
@@ -59,9 +65,12 @@ jobs:
           # Check that evaluates if various jobs should run. Generally we care if it's a workflow dispatch, PR, or merge group.
           echo "job_should_run=${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group' }}" >> $GITHUB_OUTPUT
   
-  # --- Changelog check ------------------------------------------------------
-  # Checks for changelog updates (or the 'No Changelog' label) on a PR
-  # Required to pass for all subsequent jobs
+  ############################################################################
+  ### Changelog Check
+  ### 
+  ### Checks for changelog updates (or the 'No Changelog' label) on a PR
+  ### Required to pass for all subsequent jobs
+  ############################################################################
   check-changelog:
     name: "Check: Changelog"
     runs-on: *shared_config
@@ -86,9 +95,12 @@ jobs:
             const changelog = require('./.github/scripts/changelog.js');
             await changelog({ github, context, core });
 
-  # --- Check Rust Formatting ------------------------------------------------
-  # Checks for correct formatting
-  # Required to pass for all subsequent jobs
+  ############################################################################
+  ### Rust Formatting Check
+  ### 
+  ### Checks for correct formatting
+  ### Required to pass for all subsequent jobs
+  ############################################################################
   check-rustfmt:
     name: "Check: Rust Formatting"
     needs:
@@ -110,13 +122,12 @@ jobs:
       - name: Rustfmt
         run: bash ./.github/scripts/rustfmt.sh
 
-  # --- Check if this is a release build -------------------------------------
-  # Outputs:
-  #  - node_tag: Tag of the stacks-node if the branch is a release one (example: release/3.4.0.0.1), null otherwise
-  #  - signer_tag: Tag of the stacks-signer if the branch is a release one (example: release/3.4.0.0.1.0), null otherwise
-  #  - is_node_release: True if the branch represents a 'stacks-node' release, false otherwise.
-  #    - If this is true, 'is_signer_release' will also be true, since a 'stacks-signer' binary is always released alongside 'stacks-node'.
-  #  - is_signer_release: True if the branch represents a 'stacks-signer' release, false otherwise.
+  ############################################################################
+  ### Release Check
+  ### 
+  ### Checks if this is a release build
+  ### If true, will execute release jobs
+  ############################################################################
   check-release:
     name: "Check: Release"
     needs:
@@ -126,16 +137,21 @@ jobs:
       github.event.repository.visibility == 'public'
     runs-on: *shared_config
     outputs:
+      node_tag: ${{ steps.check-release.outputs.node_tag }}
+      signer_tag: ${{ steps.check-release.outputs.signer_tag }}
+      is_node_release: ${{ steps.check-release.outputs.is_node_release }}
+      is_signer_release: ${{ steps.check-release.outputs.is_signer_release }}
       is_release: ${{ steps.check-release.outputs.is_node_release || steps.check-release.outputs.is_signer_release }}
     steps:
       # Checkout the code
-      #   - only .github is required for this job
+      #   - only .github and versions.toml are required for this job
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
+            versions.toml
 
       # Run script to check if this is a release and set outputs
       - name: Check Release
@@ -144,7 +160,9 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: bash ./.github/scripts/check_release.sh
 
-  # --- Cargo Hack check------------------------------------------------------
+  ############################################################################
+  ### Cargo Hack Check
+  ############################################################################
   check-cargo-hack:
     name: "Check: Cargo Hack"
     needs:
@@ -155,8 +173,10 @@ jobs:
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-cargo-hack.yml
-
-  # --- Validate constants dumped by stacks-inspect --------------------------
+  
+  ############################################################################
+  ### Constant Check (stacks-inspect)
+  ############################################################################
   check-constants:
     name: "Check: Constants"
     needs:
@@ -168,7 +188,9 @@ jobs:
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-constants.yml
 
-  # --- Setup reusable caches for tests ------------------------------------
+  ############################################################################
+  ### Setup Reusable Caches for Tests
+  ############################################################################
   setup-test-caches:
     name: "Setup: Test Caches"
     needs:
@@ -184,7 +206,9 @@ jobs:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       btc-version: ${{ needs.setup-env.outputs.btc-version }}
 
-  # --- Run stacks core tests ------------------------------------------------
+  ############################################################################
+  ### Run Stacks Core Tests
+  ############################################################################
   tests-stacks-core:
     name: "Tests: Stacks Core"
     needs:
@@ -200,7 +224,9 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  # --- Run bitcoin Tests ----------------------------------------------------
+  ############################################################################
+  ### Run Bitcoin Tests
+  ############################################################################
   tests-bitcoin:
     name: "Tests: Bitcoin"
     needs:
@@ -216,7 +242,9 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  # --- Run bitcoin RPC Tests ------------------------------------------------
+  ############################################################################
+  ### Run Bitcoin RPC Tests
+  ############################################################################
   tests-bitcoin-rpc:
     name: "Tests: Bitcoin RPC"
     needs:
@@ -233,7 +261,9 @@ jobs:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       btc-version: ${{ needs.setup-env.outputs.btc-version }}
 
-  # --- Run P2P Tests --------------------------------------------------------
+  ############################################################################
+  ### Run P2P Tests
+  ############################################################################
   tests-p2p:
     name: "Tests: P2P"
     needs:
@@ -248,11 +278,31 @@ jobs:
     uses: ./.github/workflows/tests-p2p.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      
+  ############################################################################
+  ### Run Epoch Tests (Release Only)
+  ############################################################################
+  tests-epoch:
+    name: "Tests: Epoch (Release Only)"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-release
+      - setup-test-caches
+      - setup-env
+    if: >-
+      needs.check-release.outputs.is_release == 'true'
+    uses: ./.github/workflows/tests-epoch.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  # --- Create a release ---------------------------------------
-  # Creates binary archives for several architectures
-  # Creates Docker images and pushes to ghcr registry
-  # Creates a draft GitHub release
+  ############################################################################
+  ### Create Release
+  ###
+  ### Creates binary archives for several architectures
+  ### Creates Docker images and pushes to ghcr registry
+  ### Creates a draft GitHub release
+  ############################################################################  
   create-release:
     name: "Create: Release"
     needs:
@@ -269,27 +319,13 @@ jobs:
       packages: write      # required for image push to ghcr
     uses: ./.github/workflows/release-github.yml
     with:
-      node_tag: ${{ needs.check-release.outputs.node_tag }} # 5 place version format like 1.2.3.4.5
-      signer_tag: ${{ needs.check-release.outputs.signer_tag }} # 6 place version format like 1.2.3.4.5.6
+      node_tag: ${{ needs.check-release.outputs.node_tag }} # 5 place version format like 3.3.0.0.3
+      signer_tag: ${{ needs.check-release.outputs.signer_tag }} # 6 place version format like 3.3.0.0.3.0
       is_node_release: ${{ needs.check-release.outputs.is_node_release }} # boolean used in matrix conditional in .github/workflows/release-github.yml
 
-  # --- Epoch Tests ----------------------------------------------------------
-  # Only run for releases
-  tests-epoch:
-    name: "Tests: Epoch (Release Only)"
-    needs:
-      - check-changelog
-      - check-rustfmt
-      - check-release
-      - setup-test-caches
-      - setup-env
-    if: >-
-      needs.check-release.outputs.is_release == 'true'
-    uses: ./.github/workflows/tests-epoch.yml
-    with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-
-  # --- Create Job Summary for Slow & Failed Tests ---------------------------
+  ############################################################################
+  ### Create Job Summary: Slow & Failed Tests
+  ############################################################################
   create-slow-failed-tests-summary:
     if: >-
       always()
@@ -440,7 +476,9 @@ jobs:
             }
           '
 
-  # --- Create Code Coverage Report -------------------------------------------
+  ############################################################################
+  ### Create Code Coverage Report
+  ############################################################################
   create-code-coverage-report:
     if: >-
       always() &&
@@ -471,6 +509,8 @@ jobs:
       # Checkout the code (Coveralls requires source code to be available when action is called)
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+           ref: ${{ github.event.pull_request.head.sha || github.ref }}
         
       # Download the code coverage .info files generated by tests from artifacts (prefixed by commit SHA)
       - name: Download code coverage artifacts

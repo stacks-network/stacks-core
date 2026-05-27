@@ -145,7 +145,6 @@ runs:
     # Modify test-name input to be a valid filename, since we use it to name the junit test file and the code coverage file
     - name: Generate Sanitized File Name
       id: generate-sanitized-file-name
-      if: github.event.repository.visibility == 'public'
       shell: bash
       run: |
         SANITIZED_FILE_NAME=$(echo "${{ inputs.codecov-test-name }}" | sed 's/[\\/:\*\?"<>|]/_/g')
