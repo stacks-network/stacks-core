@@ -535,9 +535,6 @@ impl<T: MarfTrieId> MARF<T> {
             ));
         }
 
-        // Run the actual squash work. On any failure after this point we may
-        // have created `dst_db_path` and/or `dst_blobs_path`, so remove them
-        // before propagating the error.
         let result = Self::squash_to_path_inner(
             src_path,
             &dst_dir,
@@ -550,9 +547,10 @@ impl<T: MarfTrieId> MARF<T> {
         );
 
         if let Err(e) = &result {
-            error!("[{label}] squash failed: {e}; cleaning up partial output at {dst_path}");
-            let _ = std::fs::remove_file(&dst_db_path);
-            let _ = std::fs::remove_file(&dst_blobs_path);
+            error!(
+                "[{label}] squash failed: {e}; leaving partial output at {dst_path} \
+                 - remove before retrying"
+            );
         }
         result
     }
