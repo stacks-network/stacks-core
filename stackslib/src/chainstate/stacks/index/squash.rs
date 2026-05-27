@@ -147,8 +147,13 @@ fn remap_child_ptrs(
     Ok(())
 }
 
-/// Per-height block metadata: `(height, block_hash, root_hash)`.
-type BlockInfo<T> = (u32, T, TrieHash);
+/// Per-height block metadata used to build the squash side table.
+#[derive(Debug, Clone)]
+struct BlockInfo<T> {
+    height: u32,
+    block_hash: T,
+    root_hash: TrieHash,
+}
 
 /// Wall-clock duration of each squash step.
 #[derive(Debug, Clone, Default)]
@@ -261,7 +266,11 @@ fn collect_per_height_metadata<T: MarfTrieId>(
         })?;
 
         let (parent, root_hash): (T, TrieHash) = conn.read_parent_and_root_hash(block_id)?;
-        block_info.push((h, current.clone(), root_hash));
+        block_info.push(BlockInfo {
+            height: h,
+            block_hash: current.clone(),
+            root_hash,
+        });
 
         if h == 0 {
             // Genesis must point at sentinel.
@@ -314,7 +323,11 @@ fn collect_per_height_metadata<T: MarfTrieId>(
                      declared src_squash_height {max_h}"
                 )));
             }
-            block_info.push((h, bh, rh));
+            block_info.push(BlockInfo {
+                height: h,
+                block_hash: bh,
+                root_hash: rh,
+            });
         }
         info!(
             "[{label}] [2/8] Build height index: filled heights 0..={max_h} from \
@@ -330,7 +343,7 @@ fn collect_per_height_metadata<T: MarfTrieId>(
         )));
     }
 
-    block_info.sort_by_key(|(h, _, _)| *h);
+    block_info.sort_by_key(|b| b.height);
 
     info!(
         "[{label}] [2/8] Build height index: {} heights in {}",
@@ -354,20 +367,28 @@ fn insert_placeholder_blocks<T: MarfTrieId>(
     let start = Instant::now();
     let mut archival_to_squashed = HashMap::with_capacity(block_info.len() + 1);
     let mut stmt = conn.prepare(PLACEHOLDER_INSERT_SQL)?;
-    for (h, bh, _) in block_info {
-        if bh == block_at_height {
+    for entry in block_info {
+        if entry.block_hash == *block_at_height {
             continue;
         }
-        let archival_id = *block_map.get(bh).ok_or(Error::NotFoundError)?;
+        let archival_id = *block_map
+            .get(&entry.block_hash)
+            .ok_or(Error::NotFoundError)?;
         let empty_blob: &[u8] = &[];
         let squashed_id: u32 = stmt
-            .insert(params![bh.to_string(), empty_blob, 0i64, 0i64])?
+            .insert(params![
+                entry.block_hash.to_string(),
+                empty_blob,
+                0i64,
+                0i64
+            ])?
             .try_into()
             .expect("block_id overflow");
         archival_to_squashed.insert(archival_id, squashed_id);
-        if *h % 100_000 == 0 && *h > 0 {
+        if entry.height % 100_000 == 0 && entry.height > 0 {
             info!(
-                "[{label}] [4/8] Register placeholder blocks: {h} of {} in {}",
+                "[{label}] [4/8] Register placeholder blocks: {} of {} in {}",
+                entry.height,
                 block_info.len(),
                 fmt_duration(start.elapsed())
             );
@@ -428,11 +449,11 @@ fn bind_squashed_blocks_chunk<T: MarfTrieId>(
     stmt: &mut rusqlite::Statement<'_>,
     chunk: &[BlockInfo<T>],
 ) -> rusqlite::Result<()> {
-    for (i, (h, bh, rh)) in chunk.iter().enumerate() {
+    for (i, entry) in chunk.iter().enumerate() {
         let base = i * 3;
-        stmt.raw_bind_parameter(base + 1, i64::from(*h))?;
-        stmt.raw_bind_parameter(base + 2, bh.as_bytes())?;
-        stmt.raw_bind_parameter(base + 3, rh.as_bytes())?;
+        stmt.raw_bind_parameter(base + 1, i64::from(entry.height))?;
+        stmt.raw_bind_parameter(base + 2, entry.block_hash.as_bytes())?;
+        stmt.raw_bind_parameter(base + 3, entry.root_hash.as_bytes())?;
     }
     Ok(())
 }
@@ -758,8 +779,8 @@ impl<T: MarfTrieId> MARF<T> {
         let step8_start = Instant::now();
         let source_root_hash = block_info
             .iter()
-            .find(|(_, bh, _)| bh == &block_at_height)
-            .map(|(_, _, rh)| *rh)
+            .find(|b| b.block_hash == block_at_height)
+            .map(|b| b.root_hash)
             .ok_or(Error::NotFoundError)?;
         persist_squash_metadata(tx.sqlite_tx(), &block_info, &source_root_hash, height)?;
         info!("[{label}] Squash root hash: {squash_root_node_hash}");
