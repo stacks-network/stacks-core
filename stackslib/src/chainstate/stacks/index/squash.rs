@@ -856,16 +856,15 @@ impl<T: MarfTrieId> MARF<T> {
         let mut store = NodeStore::new(tmp_dir)?;
         let mut source_to_idx: HashMap<(u32, u64), usize> = HashMap::new();
 
-        let root_disk_ptr = TrieStorageConnection::<T>::root_ptr_disk();
-        source_to_idx.insert((root_block_id, root_disk_ptr), 0);
-
         let root_is_leaf = root_node.is_leaf();
         let root_ptrs: Vec<TriePtr> = if root_is_leaf {
             vec![]
         } else {
             root_node.ptrs().to_vec()
         };
-        store.push(&root_node, root_hash, root_block_id)?;
+        let root_disk_ptr = TrieStorageConnection::<T>::root_ptr_disk();
+        let root_idx = store.push(&root_node, root_hash, root_block_id)?;
+        source_to_idx.insert((root_block_id, root_disk_ptr), root_idx);
 
         // DFS stack frame: holds remaining child pointers for one node.
         // Stack depth is bounded by trie height (~32), so total memory is
