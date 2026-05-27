@@ -1518,6 +1518,31 @@ fn test_get_block_height_of_same_pre_squash_block() {
     assert_eq!(height, Some(8));
 }
 
+/// Sanity: a complete squashed MARF opens and resolves the squash tip's own
+/// height to `squash_height` (the tip flows through the trie read path, not
+/// the side-table fallback).
+#[test]
+fn test_get_own_block_height_of_squash_tip() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("index.sqlite");
+    let (_, blocks, _) = setup_marf(src_path.to_str().unwrap(), 16, 1);
+
+    let squash_height: u32 = 12;
+    let (squashed_path, _) = squash_helper(
+        src_path.to_str().unwrap(),
+        &dir.path().join("squashed"),
+        blocks.last().unwrap(),
+        squash_height,
+    );
+
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut squashed = MARF::from_path(squashed_path.to_str().unwrap(), open_opts).unwrap();
+
+    let tip = &blocks[squash_height as usize];
+    let height = squashed.get_block_height_of(tip, tip).unwrap();
+    assert_eq!(height, Some(squash_height));
+}
+
 /// `squash_to_path` must follow the explicit `tip` argument, not the
 /// highest `block_id` in `marf_data`. Build a forked MARF where the
 /// canonical tip is inserted *before* the non-canonical fork, so picking by
