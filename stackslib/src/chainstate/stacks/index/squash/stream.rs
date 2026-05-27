@@ -114,6 +114,8 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
 
     // Record the base offset so all writes are relative to blob start.
     let base = sink.stream_position().map_err(Error::IOError)?;
+    // We use CountingWriter to track the cursor locally. Otherwise using `BufWriter::stream_position()`
+    // would flush and seek on every offset lookup.
     let mut sink = CountingWriter::with_position(sink, base);
     let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
 
