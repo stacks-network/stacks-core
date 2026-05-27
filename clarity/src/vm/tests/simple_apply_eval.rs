@@ -101,6 +101,47 @@ fn test_let_discard_underscore_not_referenceable() {
     );
 }
 
+/// SIP-04x: a bare-`_` `let` binding must short-circuit on `try!` just
+/// like a regular binding would — the SIP's worked example uses this.
+#[test]
+fn test_let_discard_with_try_short_circuits() {
+    let program = "(define-public (foo)
+                       (let ((_ (try! (err u7))))
+                         (ok u0)))
+                    (foo)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    // `try!` should propagate `(err u7)` out of `foo` instead of returning `(ok u0)`.
+    let msg = format!("{result:?}");
+    assert!(
+        msg.contains("Response(ResponseData") && msg.contains("UInt(7)"),
+        "expected `(err u7)` propagated by `try!`, got: {msg}"
+    );
+}
+
+/// Symmetry with `test_let_underscore_prefix_is_regular_binding`:
+/// underscore-prefixed match-arm names are regular bindings (not discards)
+/// and can be referenced in the branch body.
+#[test]
+fn test_match_underscore_prefix_is_regular_binding() {
+    let program = "(match (some 42) _val _val 0)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
 /// SIP-04x: underscore-prefixed names (e.g. `_admin`) are *regular* bindings
 /// — the leading `_` is just a convention. They can be read back.
 #[test]
@@ -202,6 +243,60 @@ fn test_bare_underscore_as_define_name_rejected_in_clarity6() {
     let program = "(define-constant _ 1)";
     let err = execute_with_parameters(
         program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// SIP-04x: bare `_` cannot name a `use-trait` alias — would create a
+/// referenceable `<_>` trait alias otherwise.
+#[test]
+fn test_bare_underscore_as_use_trait_alias_rejected_in_clarity6() {
+    let err = execute_with_parameters(
+        "(use-trait _ 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7.foo.bar)",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// SIP-04x: bare `_` cannot name a `define-trait` method — implementing
+/// contracts would have a referenceable `_` function.
+#[test]
+fn test_bare_underscore_as_trait_method_rejected_in_clarity6() {
+    let err = execute_with_parameters(
+        "(define-trait t ((_ (uint) (response uint uint))))",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// SIP-04x: bare `_` cannot be a tuple key — `(get _ tup)` would resolve
+/// the value, making `_` referenceable.
+#[test]
+fn test_bare_underscore_as_tuple_key_rejected_in_clarity6() {
+    let err = execute_with_parameters(
+        "(define-constant x { _: u1 })",
         ClarityVersion::Clarity6,
         StacksEpochId::Epoch40,
         false,

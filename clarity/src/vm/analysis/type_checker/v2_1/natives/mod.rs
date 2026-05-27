@@ -254,6 +254,11 @@ pub fn check_special_tuple_cons(
         args,
         SyntaxBindingErrorType::TupleCons,
         |var_name, var_sexp| {
+            // SIP-04x: bare `_` cannot name a tuple key — it would be
+            // referenceable via `get`, contradicting the discard semantics.
+            if var_name.as_str() == DISCARD_IDENTIFIER {
+                return Err(StaticCheckErrorKind::BareUnderscoreReserved.into());
+            }
             checker.type_check(var_sexp, context).and_then(|var_type| {
                 runtime_cost(
                     ClarityCostFunction::AnalysisTupleItemsCheck,

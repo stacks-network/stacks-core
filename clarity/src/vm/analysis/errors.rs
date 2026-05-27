@@ -215,6 +215,9 @@ pub enum CommonCheckErrorKind {
     /// Too many trait methods specified.
     /// The first `usize` represents the number of methods found, the second the maximum allowed.
     TraitTooManyMethods(usize, usize),
+    /// SIP-04x: bare `_` cannot be used as a trait method name, tuple key, or
+    /// any other position covered by shared validation flow.
+    BareUnderscoreReserved,
 }
 
 /// An error detected during the static analysis of a smart contract at deployment time.
@@ -1026,6 +1029,9 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
             CommonCheckErrorKind::UnknownTypeName(name) => {
                 RuntimeCheckErrorKind::Unreachable(format!("Unknown type name: {name}"))
             }
+            CommonCheckErrorKind::BareUnderscoreReserved => {
+                RuntimeCheckErrorKind::BareUnderscoreReserved
+            }
         }
     }
 }
@@ -1066,6 +1072,9 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::BadSyntaxBinding(e) => StaticCheckErrorKind::BadSyntaxBinding(e),
             CommonCheckErrorKind::UnknownTypeName(name) => {
                 StaticCheckErrorKind::UnknownTypeName(name)
+            }
+            CommonCheckErrorKind::BareUnderscoreReserved => {
+                StaticCheckErrorKind::BareUnderscoreReserved
             }
         }
     }

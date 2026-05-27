@@ -297,8 +297,16 @@ fn handle_define_trait(
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }
 
-fn handle_use_trait(name: &ClarityName, trait_identifier: &TraitIdentifier) -> DefineResult {
-    DefineResult::UseTrait(name.clone(), trait_identifier.clone())
+fn handle_use_trait(
+    name: &ClarityName,
+    trait_identifier: &TraitIdentifier,
+    invoke_ctx: &InvocationContext,
+) -> Result<DefineResult, VmExecutionError> {
+    check_legal_define(name, invoke_ctx.contract_context)?;
+    Ok(DefineResult::UseTrait(
+        name.clone(),
+        trait_identifier.clone(),
+    ))
 }
 
 fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> DefineResult {
@@ -501,7 +509,7 @@ pub fn evaluate_define(
             DefineFunctionsParsed::UseTrait {
                 name,
                 trait_identifier,
-            } => Ok(handle_use_trait(name, trait_identifier)),
+            } => handle_use_trait(name, trait_identifier, invoke_ctx),
             DefineFunctionsParsed::ImplTrait { trait_identifier } => {
                 Ok(handle_impl_trait(trait_identifier))
             }

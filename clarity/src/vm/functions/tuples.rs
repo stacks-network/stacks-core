@@ -20,7 +20,7 @@ use crate::vm::errors::{
     RuntimeCheckErrorKind, SyntaxBindingErrorType, VmExecutionError, VmInternalError,
     check_argument_count, check_arguments_at_least,
 };
-use crate::vm::representations::SymbolicExpression;
+use crate::vm::representations::{DISCARD_IDENTIFIER, SymbolicExpression};
 use crate::vm::types::{TupleData, TypeSignature, Value};
 use crate::vm::{LocalContext, eval};
 
@@ -43,6 +43,13 @@ pub fn tuple_cons(
         invoke_ctx,
         context,
     )?;
+    // SIP-04x: bare `_` is reserved as a discard pattern and cannot be used
+    // as a tuple key (it would create a referenceable binding via `get`).
+    for (name, _) in &bindings {
+        if name.as_str() == DISCARD_IDENTIFIER {
+            return Err(RuntimeCheckErrorKind::BareUnderscoreReserved.into());
+        }
+    }
     runtime_cost(ClarityCostFunction::TupleCons, exec_state, bindings.len())?;
 
     Ok(TupleData::from_data(bindings).map(Value::from)?)
