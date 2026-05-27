@@ -584,7 +584,7 @@ fn stack_depth_too_deep_call_chain_cdeploy() {
             &contract_code,
             "",
             &[],
-            &[],
+            ClarityVersion::ALL,
             &[],
         )
         .run();
@@ -668,9 +668,6 @@ fn stack_depth_too_deep_call_chain_ccall() {
 /// [`StaticCheckErrorKind::AtBlockUnavailable`].
 #[test]
 fn unknown_block_header_hash_fork() {
-    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
-    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
-
     contract_call_consensus_test!(
         contract_name: "unknown-hash",
         contract_code: "
@@ -684,7 +681,7 @@ fn unknown_block_header_hash_fork() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: &deploy_epochs,
+        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
         call_epochs: &[StacksEpochId::Epoch33],
     );
 }
@@ -697,9 +694,6 @@ fn unknown_block_header_hash_fork() {
 /// [`StaticCheckErrorKind::AtBlockUnavailable`] during deployment.
 #[test]
 fn bad_block_hash() {
-    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
-    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
-
     contract_call_consensus_test!(
         contract_name: "bad-block-hash",
         contract_code: "
@@ -713,7 +707,7 @@ fn bad_block_hash() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: &deploy_epochs,
+        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
         call_epochs: &[StacksEpochId::Epoch33],
     );
 }
@@ -871,6 +865,6 @@ fn block_time_not_available() {
         function_args: &[ClarityValue::UInt(1)],
         deploy_epochs: &[StacksEpochId::Epoch33],
         call_epochs: &[StacksEpochId::Epoch33],
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     )
 }
