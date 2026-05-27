@@ -88,7 +88,7 @@ mod tests {
     use clarity_types::types::QualifiedContractIdentifier;
 
     use super::*;
-    use crate::vm::ast::build_ast_with_diagnostics;
+    use crate::vm::ast::{build_ast, build_ast_with_diagnostics};
     use crate::vm::costs::LimitedCostTracker;
 
     fn parses(source: &str, version: ClarityVersion) -> bool {
@@ -101,6 +101,21 @@ mod tests {
             StacksEpochId::latest(),
         );
         success
+    }
+
+    /// Like `parses(...)` but with error-early enabled, so callers can match
+    /// on the specific `ParseErrorKind` returned for a pre-Clarity-6 contract.
+    fn parse_err(source: &str, version: ClarityVersion) -> ParseErrorKind {
+        let contract_id = QualifiedContractIdentifier::transient();
+        let err = build_ast(
+            &contract_id,
+            source,
+            &mut LimitedCostTracker::new_free(),
+            version,
+            StacksEpochId::latest(),
+        )
+        .expect_err("expected parse error");
+        *err.err
     }
 
     #[test]
@@ -178,6 +193,99 @@ mod tests {
         // `<_foo>` inside a function signature should be caught too.
         assert!(!parses(
             "(define-trait t ((bar (<_foo>) (response uint uint))))",
+            ClarityVersion::Clarity5,
+        ));
+    }
+
+    #[test]
+    fn underscore_trait_reference_accepted_in_clarity6() {
+        // Symmetry with the rejection test above. We must define `_foo`
+        // first, otherwise the later `TraitsResolver` pass (which the
+        // pre-Clarity-6 test never reaches because the underscore check
+        // short-circuits earlier) would fail with `TraitReferenceUnknown`.
+        assert!(parses(
+            "(define-trait _foo ((m (uint) (response uint uint))))
+             (define-trait t ((bar (<_foo>) (response uint uint))))",
+            ClarityVersion::Clarity6,
+        ));
+    }
+
+    #[test]
+    fn underscore_in_let_binding_accepted_in_clarity6() {
+        // Symmetry with `underscore_prefix_in_let_binding_pre_clarity6_rejected`.
+        assert!(parses("(let ((_x 1)) (+ _x 1))", ClarityVersion::Clarity6));
+    }
+
+    #[test]
+    fn underscore_in_function_arg_accepted_in_clarity6() {
+        // Symmetry with `underscore_in_function_arg_rejected_pre_clarity6`.
+        assert!(parses(
+            "(define-public (foo (_addr principal)) (ok _addr))",
+            ClarityVersion::Clarity6,
+        ));
+    }
+
+    #[test]
+    fn underscore_in_tuple_key_rejected_pre_clarity6() {
+        // The pass descends into `Tuple` nodes — exercise that match arm via a
+        // tuple-literal whose key is underscore-prefixed.
+        assert!(!parses(
+            "(define-constant x { _k: 1 })",
+            ClarityVersion::Clarity5,
+        ));
+    }
+
+    #[test]
+    fn underscore_in_tuple_key_accepted_in_clarity6() {
+        assert!(parses(
+            "(define-constant x { _k: 1 })",
+            ClarityVersion::Clarity6,
+        ));
+    }
+
+    #[test]
+    fn underscore_in_sugared_field_identifier_rejected_pre_clarity6() {
+        // `.contract.trait` desugars to `SugaredFieldIdentifier`. The trait
+        // name `_t` should trigger the leading-`_` check via that arm.
+        assert!(!parses(
+            "(use-trait t .my-contract._t)",
+            ClarityVersion::Clarity5,
+        ));
+    }
+
+    #[test]
+    fn underscore_in_fully_qualified_field_identifier_rejected_pre_clarity6() {
+        // The fully-qualified `'<addr>.<contract>.<trait>` form yields a
+        // `FieldIdentifier(TraitIdentifier { name, ... })`; exercise that
+        // distinct match arm.
+        assert!(!parses(
+            "(use-trait t 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7.my-contract._t)",
+            ClarityVersion::Clarity5,
+        ));
+    }
+
+    #[test]
+    fn rejection_emits_underscore_identifier_not_allowed_kind() {
+        // Verify the specific `ParseErrorKind` rather than just success=false.
+        // Without this, the gate could regress to (say) `IllegalClarityName`
+        // and the boolean-only tests would still pass.
+        let err = parse_err(
+            "(define-constant _admin 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)",
+            ClarityVersion::Clarity5,
+        );
+        match err {
+            ParseErrorKind::UnderscoreIdentifierNotAllowed(name) => assert_eq!(name, "_admin"),
+            other => panic!("expected UnderscoreIdentifierNotAllowed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn leading_operator_names_unaffected_pre_clarity6() {
+        // Regression guard: the pass should leave operator names like `+`,
+        // `<=`, `*` alone — they are valid `ClarityName`s via the operator
+        // alternation arms and never start with `_`.
+        assert!(parses(
+            "(define-private (foo) (+ 1 2)) (define-private (bar) (<= 1 2))",
             ClarityVersion::Clarity5,
         ));
     }
