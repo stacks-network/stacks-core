@@ -25,8 +25,8 @@ use clarity::vm::types::MAX_TYPE_DEPTH;
 use clarity::vm::ClarityVersion;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
-    SetupContract, TestBlock, EPOCHS_TO_TEST,
+    clarity_versions_for_epoch, contract_deploy_consensus_test, tested_epochs_since, ConsensusTest,
+    ConsensusUtils, SetupContract, TestBlock, EPOCHS_TO_TEST,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::util_lib::boot::boot_code_test_addr;
@@ -1252,7 +1252,7 @@ fn static_check_error_at_block_unavailable() {
         (define-public (trigger-error)
             (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
                     u1)))",
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch34),
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch34),
         exclude_clarity_versions: &exclude_clarity_versions,
     );
 }

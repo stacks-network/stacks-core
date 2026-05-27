@@ -24,8 +24,9 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DE
 use clarity::vm::{ClarityVersion, ContractName, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
-    SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_ADDRESS, FAUCET_PRIV_KEY,
+    contract_call_consensus_test, contract_deploy_consensus_test, tested_epochs_since,
+    ConsensusTest, ConsensusUtils, SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_ADDRESS,
+    FAUCET_PRIV_KEY,
 };
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
@@ -234,7 +235,7 @@ fn runtime_check_error_memory_balance_exceeded_ccall() {
         // we only test epochs 2.4 and later because the call takes ~200 milion runtime cost,
         // if we test all epochs, the tenure limit will be exceeded and the last 2 calls in
         // epoch 3.3 will cause a block rejection.
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch24),
     );
 }
 
@@ -779,7 +780,7 @@ fn runtime_check_error_kind_union_type_value_error_ccall() {
                 (foo .contract-1))",
         function_name: "trigger-runtime-error",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch33),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
         setup_contracts: &[contract_1],
     );
@@ -916,7 +917,7 @@ fn runtime_check_error_kind_expected_contract_principal_value_ccall() {
                     true))"#,
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch33),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
     );
 }
@@ -1034,7 +1035,7 @@ fn runtime_check_error_kind_could_not_determine_type_ccall() {
         function_name: "trigger-error",
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch23],
-        call_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
+        call_epochs: &tested_epochs_since(StacksEpochId::Epoch24),
         exclude_clarity_versions: &[
             ClarityVersion::Clarity1,
             ClarityVersion::Clarity3,
@@ -1189,7 +1190,7 @@ fn arithmetic_zero_n_log_n_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "zero-n-log-n-deploy",
         contract_code: "(define-constant overflow (from-consensus-buff? int 0x))",
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch21),
         exclude_clarity_versions: &[ClarityVersion::Clarity1],
     );
 }
@@ -1210,7 +1211,7 @@ fn arithmetic_zero_n_log_n_ccall() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch21),
         exclude_clarity_versions: &[ClarityVersion::Clarity1],
     );
 }
