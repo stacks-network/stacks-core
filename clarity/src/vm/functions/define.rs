@@ -123,6 +123,9 @@ fn check_legal_define(
     name: &str,
     contract_context: &ContractContext,
 ) -> Result<(), RuntimeCheckErrorKind> {
+    if name == "_" {
+        return Err(RuntimeCheckErrorKind::BareUnderscoreReserved);
+    }
     if contract_context.is_name_used(name) {
         Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()))
     } else {

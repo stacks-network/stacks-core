@@ -195,6 +195,43 @@ fn test_match_opt_none_arm_with_discard_some() {
     assert_eq!(result, Value::Int(11));
 }
 
+/// SIP-04x: bare `_` is reserved as a discard pattern; it cannot name a
+/// top-level definition. Rejected by the analyzer's `check_name_used`.
+#[test]
+fn test_bare_underscore_as_define_name_rejected_in_clarity6() {
+    let program = "(define-constant _ 1)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// SIP-04x: bare `_` cannot name a function argument either.
+#[test]
+fn test_bare_underscore_as_function_arg_rejected_in_clarity6() {
+    let program = "(define-public (foo (_ uint)) (ok true)) (foo u1)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
 /// SIP-04x: a bare-`_` `match` branch must not be referenceable in its body.
 #[test]
 fn test_match_opt_discard_underscore_not_referenceable() {

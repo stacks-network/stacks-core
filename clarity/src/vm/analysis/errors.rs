@@ -405,6 +405,10 @@ pub enum StaticCheckErrorKind {
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
+    /// SIP-04x: bare `_` is reserved as a discard pattern in `let`/`match`
+    /// bindings and cannot be used to name a top-level definition or function
+    /// argument.
+    BareUnderscoreReserved,
     /// Name is a reserved word in Clarity and cannot be used.
     /// The `String` wraps the reserved name.
     ReservedWord(String),
@@ -610,6 +614,10 @@ pub enum RuntimeCheckErrorKind {
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
+    /// SIP-04x: bare `_` is reserved as a discard pattern in `let`/`match`
+    /// bindings and cannot be used to name a top-level definition or function
+    /// argument.
+    BareUnderscoreReserved,
 
     /// Referenced function is not defined in the current scope.
     /// The `String` wraps the non-existent function name.
@@ -1201,6 +1209,9 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName => "missing property name for stacks block info introspection".into(),
             StaticCheckErrorKind::GetTenureInfoExpectPropertyName => "missing property name for tenure info introspection".into(),
             StaticCheckErrorKind::NameAlreadyUsed(name) => format!("defining '{name}' conflicts with previous value"),
+            StaticCheckErrorKind::BareUnderscoreReserved => {
+                "'_' is reserved as a discard pattern and cannot be used as a name".into()
+            }
             StaticCheckErrorKind::ReservedWord(name) => format!("{name} is a reserved word"),
             StaticCheckErrorKind::NonFunctionApplication => "expecting expression of type function".into(),
             StaticCheckErrorKind::ExpectedListApplication => "expecting expression of type list".into(),

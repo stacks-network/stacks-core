@@ -167,6 +167,11 @@ impl ContractContext {
     }
 
     pub fn check_name_used(&self, name: &str) -> Result<(), StaticCheckError> {
+        if name == "_" {
+            return Err(StaticCheckError::new(
+                StaticCheckErrorKind::BareUnderscoreReserved,
+            ));
+        }
         if is_reserved_word(name, self.clarity_version) {
             return Err(StaticCheckError::new(StaticCheckErrorKind::ReservedWord(
                 name.to_string(),

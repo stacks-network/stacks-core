@@ -286,14 +286,17 @@ mod tests {
         ));
     }
 
-    /// The SIP carves out bare `_` as a discard pattern *only* inside
-    /// `let`/`match` bindings. Outside those positions (`define-constant
-    /// _ …`, function-arg names) bare `_` is a regular identifier whose
-    /// first char is `_`, so the AST pass treats it like `_admin`. Pinned
-    /// down so this can't silently drift if the SIP is later read more
-    /// strictly.
+    /// Bare `_` is reserved as a discard pattern; outside `let`/`match`
+    /// bindings it is rejected at the analyzer/runtime layer (see
+    /// `check_name_used` / `check_legal_define`). The AST pass itself
+    /// happily lets `_` through in Clarity 6+ — the rejection lives one
+    /// layer up so let/match discards can use the same character.
     #[test]
-    fn bare_underscore_as_define_name_accepted_in_clarity6() {
+    fn bare_underscore_passes_ast_pass_in_clarity6() {
+        // AST pass alone accepts bare `_` as a define name; the analyzer
+        // will reject it. The full-pipeline rejection is covered by
+        // `test_bare_underscore_as_define_name_rejected_in_clarity6` in
+        // `vm::tests::simple_apply_eval`.
         assert!(parses("(define-constant _ 1)", ClarityVersion::Clarity6));
     }
 
