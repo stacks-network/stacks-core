@@ -706,6 +706,7 @@
         (settle-rewards current-signer true bond-index)
         (settle-rewards signer true bond-index)
         (settle-staker-rewards current-signer true bond-index tx-sender)
+        (settle-staker-rewards signer true bond-index tx-sender)
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender first-reward-cycle num-cycles false))

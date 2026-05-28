@@ -2113,6 +2113,73 @@ test('bond signer update preserves old signer rewards and sends future rewards t
 });
 
 /**
+ * Regression: changing signer for an active bond must not let the staker
+ * double-collect already-distributed bond rewards on the new signer. Before
+ * the fix, `update-bond-registration` did not settle the staker's per-token
+ * snapshot for the new signer, so the new signer's `rpt-paid` defaulted to 0
+ * while shares were copied over. The staker's earned-on-new-signer would
+ * then equal `shares * (rpt-current - 0) / PRECISION` — a duplicate of the
+ * rewards already accrued on the old signer.
+ */
+test('bond signer update does not duplicate staker rewards on new signer', () => {
+  const signer1 = testSigner.identifier;
+  const signer2Contract = deployTestSigner('bond-update-dup-signer-2');
+  const signer2 = signer2Contract.identifier;
+  const aliceSbtc = 480000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1500n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockSigners: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      signerCalldata: null,
+      oldSignerManager: signer1,
+    }),
+    alice,
+  );
+
+  // Alice has already accrued the entire 1200 on signer1. Switching signers
+  // before claiming should not create a phantom claimable balance on signer2.
+  expect(rov(testSigner.getEarnedStakerRewards(alice, true, 0n))).toBe(1200n);
+  expect(rov(signer2Contract.getEarnedStakerRewards(alice, true, 0n))).toBe(0n);
+});
+
+/**
  * Claims all available STX-only rewards, then verifies a second zero-reward
  * claim fails without resetting the signer's paid reward accounting.
  */
