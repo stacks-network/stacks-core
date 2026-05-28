@@ -1360,25 +1360,16 @@ impl<T: MarfTrieId> MARF<T> {
         storage: &mut TrieStorageConnection<T>,
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
-        let Some(squash_height) = storage.squash_marf_height() else {
-            return MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)
-                .map(|value| value.map(u32::from));
-        };
-
-        if let Some(h) = storage.squashed_block_height(current_block_hash)? {
-            return Ok(Some(h));
+        // The block's own height lives in its trie. If it's a squashed-range
+        // block its trie isn't walkable; the read guard rejects it and the
+        // height comes from the side table. Archival MARFs never hit that arm.
+        match MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY) {
+            Err(Error::HistoricalReadInSquashedRange { block_height, .. }) => {
+                Ok(Some(block_height))
+            }
+            Err(e) => Err(e),
+            Ok(value) => Ok(value.map(u32::from)),
         }
-
-        let marf_height =
-            MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?.map(u32::from);
-        if marf_height.is_some_and(|h| h <= squash_height) {
-            return Err(Error::CorruptionError(format!(
-                "squashed MARF inconsistency: trie reports block \
-                 {current_block_hash} at height <= squash height \
-                 {squash_height} but marf_squashed_blocks has no entry"
-            )));
-        }
-        Ok(marf_height)
     }
 
     pub fn get_block_height_miner_tip(
@@ -1399,9 +1390,9 @@ impl<T: MarfTrieId> MARF<T> {
             return MARF::get_own_block_height(storage, current_block_hash);
         }
 
-        // Cross-block metadata remains MARF-backed.  If the caller is standing
-        // on a squashed block, the trie read is rejected and the target block
-        // height must come from the squashed-block side table instead.
+        // Read the height key from `current_block_hash`'s trie. If the current_block
+        // is below the squash height the read guard rejects the get_by_key, and the
+        // target's height comes from the side table instead.
         let hash_key = format!("{BLOCK_HASH_TO_HEIGHT_MAPPING_KEY}::{block_hash}");
         match MARF::get_by_key(storage, current_block_hash, &hash_key) {
             Ok(value) => Ok(value.map(u32::from)),

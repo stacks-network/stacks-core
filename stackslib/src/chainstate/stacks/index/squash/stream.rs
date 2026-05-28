@@ -33,6 +33,9 @@ use crate::chainstate::stacks::index::{blob_layout, BlockMap, Error, MarfTrieId,
 /// The squash collector writes tree nodes in DFS preorder, so inline children
 /// are expected to appear after their parent.
 pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Error> {
+    // Flush any buffered writes from earlier passes so the reader handle
+    // sees the latest node bytes. Just in case.
+    store.flush()?;
     let empty_hash = TrieHash::EMPTY;
     let node_count = store.len();
     let start = Instant::now();
@@ -47,6 +50,15 @@ pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Erro
         let ptrs = node.ptrs();
         let mut child_hashes = Vec::with_capacity(ptrs.len());
         for child_ptr in ptrs {
+            // After `remap_child_ptrs`, the squash invariant guarantees that
+            // no backpointers remain. A leftover backpointer would cause us
+            // to silently hash an empty child here, so fail instead.
+            if is_backptr(child_ptr.id()) {
+                return Err(Error::CorruptionError(format!(
+                    "squash invariant: node {idx} still has backpointer child \
+                     after remap; refusing to recompute hash"
+                )));
+            }
             if !is_inline_child_ptr(child_ptr) {
                 child_hashes.push(empty_hash);
             } else {
@@ -59,7 +71,7 @@ pub(super) fn recompute_content_hashes(store: &mut NodeStore) -> Result<(), Erro
                          parent < child < node_count"
                     )));
                 }
-                child_hashes.push(*store.hash(child_idx));
+                child_hashes.push(*store.get_hash(child_idx));
             }
         }
 
@@ -102,6 +114,8 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
 
     // Record the base offset so all writes are relative to blob start.
     let base = sink.stream_position().map_err(Error::IOError)?;
+    // We use CountingWriter to track the cursor locally. Otherwise using `BufWriter::stream_position()`
+    // would flush and seek on every offset lookup.
     let mut sink = CountingWriter::with_position(sink, base);
     let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
 
@@ -140,7 +154,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
             current.checked_sub(base).ok_or(Error::OverflowError)?;
 
         let mut node = store.read_node(idx)?;
-        let hash = store.hash(idx);
+        let hash = store.get_hash(idx);
 
         // Convert array-index pointers to byte offsets (relative to blob start)
         if !node.is_leaf() {
@@ -166,7 +180,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
         base.checked_add(header_size).ok_or(Error::OverflowError)?,
     ))
     .map_err(Error::IOError)?;
-    let root_written = write_nodetype_bytes(&mut sink, &root_node, store.hash(0))?;
+    let root_written = write_nodetype_bytes(&mut sink, &root_node, store.get_hash(0))?;
     debug_assert!(
         root_written <= root_reserved_size,
         "root wrote {root_written} bytes but only {root_reserved_size} were reserved"
@@ -174,10 +188,7 @@ pub(crate) fn stream_squash_blob<T: MarfTrieId, F: Write + Seek>(
 
     // Leave the caller positioned at the end of the blob, as if the write had
     // been a single forward stream.
-    sink.seek(SeekFrom::Start(
-        base.checked_add(total_size).ok_or(Error::OverflowError)?,
-    ))
-    .map_err(Error::IOError)?;
+    sink.seek(SeekFrom::Start(end)).map_err(Error::IOError)?;
 
     Ok(total_size)
 }
@@ -215,7 +226,7 @@ impl BlockMap for BackptrFreeBlockMap {
 ///
 /// Precondition: every child pointer of `node` has its backptr bit cleared.
 /// `BackptrFreeBlockMap` panics if that precondition is violated.
-fn compute_node_hash(node: &TrieNodeType, child_hashes: &[TrieHash]) -> TrieHash {
+pub(crate) fn compute_node_hash(node: &TrieNodeType, child_hashes: &[TrieHash]) -> TrieHash {
     debug_assert!(
         node.is_leaf() || node.ptrs().iter().all(|p| !is_backptr(p.id)),
         "compute_node_hash precondition violated: node still has backpointer children"

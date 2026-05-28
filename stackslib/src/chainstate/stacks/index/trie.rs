@@ -748,7 +748,7 @@ impl Trie {
     }
 
     /// Resolve the height of `block_header` from the MARF's own height-mapping
-    /// keys (the trie path).
+    /// keys (the trie path), or, for squashed blocks, from the side table.
     fn block_height_from_trie<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         block_header: &T,

@@ -412,18 +412,17 @@ pub fn bulk_read_block_entries<T: MarfTrieId>(
     Ok(result)
 }
 
-/// Bulk-update all `marf_data` entries to share the same blob offset/length,
-/// except for the tip block.  Called during squash finalization.
-pub fn bulk_update_blob_offsets<T: MarfTrieId>(
+/// Bulk-update all confirmed `marf_data` entries to share the same blob
+/// offset and length. Called during squash finalization.
+pub fn bulk_update_blob_offsets(
     conn: &Connection,
     offset: u64,
     length: u64,
-    tip_block_hash: &T,
 ) -> Result<usize, Error> {
     conn.execute(
         "UPDATE marf_data SET external_offset = ?1, external_length = ?2 \
-         WHERE block_hash != ?3 AND unconfirmed = 0",
-        params![u64_to_sql(offset)?, u64_to_sql(length)?, tip_block_hash],
+         WHERE unconfirmed = 0",
+        params![u64_to_sql(offset)?, u64_to_sql(length)?],
     )
     .map_err(|e| e.into())
 }

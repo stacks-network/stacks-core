@@ -37,6 +37,12 @@ use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::sql_vacuum;
 
 /// Positioned equivalent of `read_exact`.
+///
+/// Matches Unix `FileExt::read_exact_at` cursor behavior in non-concurrent
+/// use: the file cursor is unchanged after the call. The Windows
+/// `FileExt::seek_read` does mutate the cursor, so we save and restore it
+/// explicitly via the `Seek` impl on `&File`. This save/read/restore sequence
+/// is not atomic with other cursor-using operations on the same file handle.
 pub(crate) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -46,18 +52,56 @@ pub(crate) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io:
     #[cfg(windows)]
     {
         use std::os::windows::fs::FileExt;
-        let mut total = 0;
-        while total < buf.len() {
-            let n = file.seek_read(&mut buf[total..], offset + total as u64)?;
-            if n == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "read_exact_at: short read at end of file",
-                ));
+        // `Seek` is implemented for `&File`, so we can save and restore the
+        // cursor through a local mutable binding without a `&mut File`.
+        let mut handle: &fs::File = file;
+        let original_pos = handle.stream_position()?;
+        let read_result = (|| -> io::Result<()> {
+            let mut total = 0;
+            while total < buf.len() {
+                let read_offset = offset.checked_add(total as u64).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "read_exact_at: offset overflow",
+                    )
+                })?;
+                // `total` is kept within `buf` by the loop invariant
+                let unread = buf.get_mut(total..).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "read_exact_at: invalid buffer offset",
+                    )
+                })?;
+                match handle.seek_read(unread, read_offset) {
+                    Ok(0) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "read_exact_at: short read at end of file",
+                        ));
+                    }
+                    Ok(n) => {
+                        total += n;
+                    }
+                    // Match `read_exact`/`read_exact_at`: an interrupted
+                    // read is transient, so retry without advancing `total`.
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
             }
-            total += n;
+            Ok(())
+        })();
+        // If the read failed, propagate that error and let any restore
+        // error fall on the floor (it would just mask the real failure).
+        // If the read succeeded, surface a restore error so callers don't
+        // silently see a moved cursor.
+        let restore_result = handle.seek(SeekFrom::Start(original_pos)).map(|_| ());
+        match (read_result, restore_result) {
+            (Err(e), _) => Err(e),
+            (Ok(()), Err(e)) => Err(e),
+            (Ok(()), Ok(())) => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -512,7 +556,7 @@ impl TrieFile {
         let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
         self.read_blob_bytes_at(blob_offset, &mut buf)?;
 
-        let mut parent_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+        let mut parent_bytes = [0u8; BLOCK_HEADER_HASH_ENCODED_SIZE];
         parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
         let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
         root_bytes.copy_from_slice(

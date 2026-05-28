@@ -329,8 +329,7 @@ impl NodeStore {
 
     /// Overwrite the node at `idx` in place.
     ///
-    /// Call only after `flush` and only when the new serialization
-    /// length matches the original.
+    /// The new serialization length must match the original.
     /// Seals the store before writing.
     pub(crate) fn overwrite_node(&mut self, idx: usize, node: &TrieNodeType) -> Result<(), Error> {
         let offset = *self.file_offsets.get(idx).ok_or_else(|| {
@@ -421,10 +420,10 @@ impl NodeStore {
         usize::try_from(end - off).map_err(|_| Error::OverflowError)
     }
 
-    pub(crate) fn hash(&self, idx: usize) -> &TrieHash {
+    pub(crate) fn get_hash(&self, idx: usize) -> &TrieHash {
         self.hashes.get(idx).unwrap_or_else(|| {
             panic!(
-                "NodeStore::hash: index {idx} out of bounds (len={})",
+                "NodeStore::get_hash: index {idx} out of bounds (len={})",
                 self.hashes.len()
             )
         })

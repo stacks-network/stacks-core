@@ -21,17 +21,18 @@ use tempfile::tempdir;
 
 use super::marf::setup_marf;
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, read_nodetype, resolve_inline_child_offsets,
+    get_node_byte_len, get_node_hash, read_nodetype, resolve_inline_child_offsets,
 };
 use crate::chainstate::stacks::index::marf::{
-    MARFOpenOpts, MarfConnection, SquashStats, MARF, OWN_BLOCK_HEIGHT_KEY,
+    MARFOpenOpts, MarfConnection, SquashStats, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
+    OWN_BLOCK_HEIGHT_KEY,
 };
 use crate::chainstate::stacks::index::node::{
     is_u64_ptr, set_backptr, TrieNode as _, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
     TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::squash::{
-    deserialize_node, serialize_node, stream_squash_blob, NodeStore,
+    compute_node_hash, deserialize_node, serialize_node, stream_squash_blob, NodeStore,
 };
 use crate::chainstate::stacks::index::storage::{SquashBoundary, TrieHashCalculationMode};
 use crate::chainstate::stacks::index::{
@@ -832,8 +833,8 @@ fn test_squash_internal_blobs_extend_with_compression() {
     let dir = tempdir().unwrap();
     let src_db_path = dir.path().join("sort.sqlite");
 
-    let squash_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
-    let mut src = MARF::from_path(src_db_path.to_str().unwrap(), squash_opts.clone()).unwrap();
+    let src_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
+    let mut src = MARF::from_path(src_db_path.to_str().unwrap(), src_opts.clone()).unwrap();
 
     let b1 = StacksBlockId::from_bytes(&[1u8; 32]).unwrap();
     let b2 = StacksBlockId::from_bytes(&[2u8; 32]).unwrap();
@@ -867,7 +868,7 @@ fn test_squash_internal_blobs_extend_with_compression() {
     MARF::squash_to_path(
         src_db_path.to_str().unwrap(),
         dst_db_path.to_str().unwrap(),
-        squash_opts,
+        src_opts,
         &b2,
         SquashBoundary {
             marf_height: 1,
@@ -894,6 +895,45 @@ fn test_squash_internal_blobs_extend_with_compression() {
 // ---------------------------------------------------------------------------
 // Targeted unit tests for the disk-backed squash mechanisms
 // ---------------------------------------------------------------------------
+
+/// `compute_node_hash` must agree with `bits::get_node_hash` for any
+/// backptr-free node. If they ever diverge, every root-hash equivalence test
+/// would still pass on the squash output alone — this dedicated test catches
+/// such drift directly.
+#[test]
+fn test_compute_node_hash_matches_bits_get_node_hash() {
+    let child_hashes = [
+        TrieHash([1; 32]),
+        TrieHash([2; 32]),
+        TrieHash([3; 32]),
+        TrieHash::EMPTY,
+    ];
+
+    // Leaf: no children
+    let leaf = TrieLeaf {
+        path: vec![0xab, 0xcd],
+        data: MARFValue([7u8; 40]),
+    };
+    let leaf_via_bits = get_node_hash(&leaf, &[], &mut ());
+    let leaf_via_squash = compute_node_hash(&TrieNodeType::Leaf(leaf), &[]);
+    assert_eq!(leaf_via_bits, leaf_via_squash, "TrieLeaf hash drift");
+
+    // Node4 with three inline children and one empty slot.
+    let node4 = TrieNode4 {
+        path: vec![1, 2, 3],
+        ptrs: [
+            TriePtr::new(TrieNodeID::Leaf as u8, b'a', 100),
+            TriePtr::new(TrieNodeID::Leaf as u8, b'b', 200),
+            TriePtr::new(TrieNodeID::Leaf as u8, b'c', 300),
+            TriePtr::default(),
+        ],
+        cowptr: None,
+        patches: vec![],
+    };
+    let node4_via_bits = get_node_hash(&node4, &child_hashes, &mut ());
+    let node4_via_squash = compute_node_hash(&TrieNodeType::Node4(node4), &child_hashes);
+    assert_eq!(node4_via_bits, node4_via_squash, "TrieNode4 hash drift");
+}
 
 /// Helper: build a leaf node for tests.
 fn make_test_leaf(path: &[u8], value_byte: u8) -> TrieNodeType {
@@ -986,7 +1026,7 @@ fn test_node_store_roundtrip_all_variants() {
     let rt_leaf = store.read_node(0).unwrap();
     assert!(rt_leaf.is_leaf());
     assert_eq!(rt_leaf.path_bytes(), &[1, 2, 3]);
-    assert_eq!(*store.hash(0), leaf_hash);
+    assert_eq!(*store.get_hash(0), leaf_hash);
     assert_eq!(store.block_id(0), 10);
 
     // Node4 round-trip
@@ -1488,6 +1528,31 @@ fn test_get_block_height_of_same_pre_squash_block() {
     assert_eq!(height, Some(8));
 }
 
+/// Sanity: a complete squashed MARF opens and resolves the squash tip's own
+/// height to `squash_height` (the tip flows through the trie read path, not
+/// the side-table fallback).
+#[test]
+fn test_get_own_block_height_of_squash_tip() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("index.sqlite");
+    let (_, blocks, _) = setup_marf(src_path.to_str().unwrap(), 16, 1);
+
+    let squash_height: u32 = 12;
+    let (squashed_path, _) = squash_helper(
+        src_path.to_str().unwrap(),
+        &dir.path().join("squashed"),
+        blocks.last().unwrap(),
+        squash_height,
+    );
+
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut squashed = MARF::from_path(squashed_path.to_str().unwrap(), open_opts).unwrap();
+
+    let tip = &blocks[squash_height as usize];
+    let height = squashed.get_block_height_of(tip, tip).unwrap();
+    assert_eq!(height, Some(squash_height));
+}
+
 /// `squash_to_path` must follow the explicit `tip` argument, not the
 /// highest `block_id` in `marf_data`. Build a forked MARF where the
 /// canonical tip is inserted *before* the non-canonical fork, so picking by
@@ -1774,9 +1839,12 @@ fn test_resquash_rejects_height_at_or_below_existing_squash() {
 
     for bad_height in [1u32, 2u32] {
         let resquashed_dir = dir.path().join(format!("bad_{bad_height}"));
+        std::fs::create_dir_all(&resquashed_dir).unwrap();
+        let dst_db_path = resquashed_dir.join("index.sqlite");
+        let dst_blobs_path = resquashed_dir.join("index.sqlite.blobs");
         let result = MARF::squash_to_path(
             squashed_path.to_str().unwrap(),
-            resquashed_dir.join("index.sqlite").to_str().unwrap(),
+            dst_db_path.to_str().unwrap(),
             open_opts.clone(),
             &post,
             SquashBoundary {
@@ -1794,14 +1862,20 @@ fn test_resquash_rejects_height_at_or_below_existing_squash() {
             }
             other => panic!("expected CorruptionError for bad_height={bad_height}, got {other:?}"),
         }
+        assert!(
+            !dst_db_path.exists(),
+            "destination DB must not be created when source rejects (bad_height={bad_height})"
+        );
+        assert!(
+            !dst_blobs_path.exists(),
+            "destination .blobs must not be created when source rejects (bad_height={bad_height})"
+        );
     }
 }
 
 /// Parent walk should match the trie height index for a `commit_to` chain.
 #[test]
 fn test_parent_walk_matches_height_index_lookups() {
-    use crate::chainstate::stacks::index::marf::BLOCK_HEIGHT_TO_HASH_MAPPING_KEY;
-
     let dir = tempdir().unwrap();
     let src_path = dir.path().join("src.sqlite");
     let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
@@ -1866,7 +1940,7 @@ fn test_squash_rejects_existing_destination() {
     let result = MARF::squash_to_path(
         src_db_path.to_str().unwrap(),
         dst_db_path.to_str().unwrap(),
-        open_opts,
+        open_opts.clone(),
         blocks.last().unwrap(),
         SquashBoundary {
             marf_height: 1,
@@ -1884,7 +1958,6 @@ fn test_squash_rejects_existing_destination() {
     let dst_blobs_path = dir.path().join("dst.sqlite.blobs");
     std::fs::write(&dst_blobs_path, b"").unwrap();
 
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
     let result = MARF::squash_to_path(
         src_db_path.to_str().unwrap(),
         dst_db_path.to_str().unwrap(),
@@ -1900,38 +1973,6 @@ fn test_squash_rejects_existing_destination() {
         Err(Error::DestinationExists(path)) => assert_eq!(path, dst_blobs_path.to_str().unwrap()),
         other => panic!("expected DestinationExists for the .blobs collision, got {other:?}"),
     }
-}
-
-#[test]
-fn test_squash_rejects_compress_true() {
-    let dir = tempdir().unwrap();
-    let src_db_path = dir.path().join("index.sqlite");
-    let (_, blocks, _) = setup_marf(src_db_path.to_str().unwrap(), 2, 1);
-
-    let dst_dir = dir.path().join("squashed");
-    std::fs::create_dir_all(&dst_dir).unwrap();
-    let dst_db_path = dst_dir.join("index.sqlite");
-
-    let mut open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
-    open_opts.compress = true;
-
-    let result = MARF::squash_to_path(
-        src_db_path.to_str().unwrap(),
-        dst_db_path.to_str().unwrap(),
-        open_opts,
-        blocks.last().unwrap(),
-        SquashBoundary {
-            marf_height: 1,
-            bitcoin_height: 1,
-        },
-        "test",
-    );
-    assert!(result.is_err(), "compress=true should be rejected");
-    let err_msg = format!("{}", result.unwrap_err());
-    assert!(
-        err_msg.contains("compress=true"),
-        "error should mention compress=true: {err_msg}"
-    );
 }
 
 /// `stream_squash_blob` relies on NodeStore's root-first DFS preorder. If a
@@ -2118,12 +2159,10 @@ fn test_squash_extend_many_keys_patch_backptr_regression() {
     std::fs::create_dir_all(&dst_dir).unwrap();
     let dst_db_path = dst_dir.join("dst.sqlite");
 
-    // squash_to_path requires compress=false; compression is for the extend step.
-    let squash_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
     MARF::squash_to_path(
         src_db_path.to_str().unwrap(),
         dst_db_path.to_str().unwrap(),
-        squash_opts,
+        open_opts.clone(),
         &b2,
         SquashBoundary {
             marf_height: 1,
