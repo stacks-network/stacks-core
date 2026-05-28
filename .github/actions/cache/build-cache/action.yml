@@ -1,20 +1,21 @@
 name: Build Test Archive Caches
 description: |
-    Builds the nextest test archive and saves the cargo-target and
-    test-archive caches. The cargo registry cache is produced upstream by
-    cargo-fetch.yml and only restored here.
+    Builds nextest test archive cache
 
 runs:
   using: "composite"
   steps:
+    # Check if the target  cache exists
     - name: Check Cargo Target Cache
       uses: ./.github/actions/cache/cargo-target
       id: check_target_cache
 
+    # Check if the nextest archive cache exists
     - name: Check Test Archive Cache
       uses: ./.github/actions/cache/test-archive
       id: check_test_archive_cache
 
+    # Setup rust toolchain
     - name: Setup Rust Toolchain
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -23,6 +24,7 @@ runs:
       with:
         components: llvm-tools-preview
 
+    # Restore cargo cache
     - name: Restore Cargo Cache
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -31,6 +33,7 @@ runs:
       with:
         action: restore
 
+    #  Only install dependencies if cache miss (i.e. no existing data)
     - name: Install Dependencies
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -39,6 +42,7 @@ runs:
       with:
         tool: nextest
 
+    # Build the nextest archive
     - name: Build and Archive Tests
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -53,6 +57,7 @@ runs:
           --features monitoring_prom \
           --archive-file ~/test_archive.tar.zst
 
+    # Save the nextest archive to cache
     - name: Cache Nextest Archive
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -61,6 +66,7 @@ runs:
       with:
         action: save
 
+    # Save the target cache
     - name: Cache Cargo Target
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||

@@ -1,6 +1,7 @@
 name: Stacks Core Test Environment
 description: |
-  Sets up the testing environment for the Stacks Blockchain.
+    Sets up the testing environment for the Stacks Blockchain.
+
 
 inputs:
   btc-version:

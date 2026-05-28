@@ -19,15 +19,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Produce the shared cargo registry cache. Downstream jobs restore it
-  # read-only so their `cargo hack check` runs don't re-download every dep.
-  cargo-fetch:
-    uses: ./.github/workflows/cargo-fetch.yml
-
   # Native targets (Windows/Linux)
   native-targets:
     name: All Crates (Windows/Linux)
-    needs: cargo-fetch
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -42,11 +36,6 @@ jobs:
         uses: ./.github/actions/setup-rust-toolchain
         with:
           target: x86_64-pc-windows-gnu,x86_64-unknown-linux-gnu
-
-      - name: Restore Cargo Cache
-        uses: ./.github/actions/cache/cargo
-        with:
-          action: restore
 
       # Install cargo-hack tool
       - name: Install cargo-hack
@@ -74,7 +63,6 @@ jobs:
   # WASM targets - No caching needed as it runs in parallel with longer jobs
   wasm-targets:
     name: WASM targets
-    needs: cargo-fetch
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -89,11 +77,6 @@ jobs:
         uses: ./.github/actions/setup-rust-toolchain
         with:
           target: wasm32-unknown-unknown
-
-      - name: Restore Cargo Cache
-        uses: ./.github/actions/cache/cargo
-        with:
-          action: restore
 
       # Install cargo-hack tool
       - name: Install cargo-hack
@@ -127,7 +110,6 @@ jobs:
   # Fuzz targets with nightly toolchain
   fuzz-targets:
     name: Fuzz targets (nightly)
-    needs: cargo-fetch
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -142,11 +124,6 @@ jobs:
         uses: ./.github/actions/setup-rust-toolchain
         with:
           toolchain: nightly
-
-      - name: Restore Cargo Cache
-        uses: ./.github/actions/cache/cargo
-        with:
-          action: restore
 
       # Fuzz check clarity targets
       - name: Check fuzz targets (clarity)
