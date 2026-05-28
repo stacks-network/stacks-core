@@ -9,7 +9,7 @@ import {
 } from './utils';
 import { expect } from 'vitest';
 import { txErr } from '@clarigen/test';
-import { errorCodes, testSigner } from '../pox-5-helpers';
+import { errorCodes } from '../pox-5-helpers';
 
 export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
   fc
@@ -17,8 +17,11 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       amountUstx: fc.bigInt({ min: 1000000n, max: 10000000n }),
       numCycles: fc.integer({ min: 1, max: 12 }),
+      signerIndex: fc.nat(),
     })
-    .map((r) => ({
+    .map((r) => {
+      let pickedSigner: string | undefined;
+      return {
       check: (model: Readonly<Model>) =>
         model.signers.size > 0 && isStakerActive(model, r.sender),
       run: (model: Model, real: Real) => {
@@ -28,9 +31,13 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
         const bitcoinHeightBefore = real.network.burnBlockHeight;
         const stacksHeightBefore = real.network.stacksBlockHeight;
 
+        const registered = Array.from(model.signers);
+        const signer = registered[r.signerIndex % registered.length];
+        pickedSigner = signer;
+
         const receipt = txErr(
           real.contracts.pox5.stake({
-            signerManager: testSigner.identifier,
+            signerManager: signer,
             amountUstx: r.amountUstx,
             numCycles: BigInt(r.numCycles),
             startBurnHt: real.network.burnBlockHeight,
@@ -50,5 +57,6 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
         });
       },
       toString: () =>
-        `stake-err-already-staked(${getWalletNameByAddress(r.sender)})`,
-    }));
+        `stake-err-already-staked(${getWalletNameByAddress(r.sender)}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+      };
+    });

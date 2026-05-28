@@ -19,8 +19,8 @@ export const MineBitcoinBlocks = () =>
         refreshModel(model, real);
 
         logCommand({
-          action: 'mine-blocks',
-          value: `${r.blocks}`,
+          action: 'mine-btc-blocks',
+          value: `amount: ${r.blocks}`,
           bitcoinHeightBefore,
           stacksHeightBefore,
         });

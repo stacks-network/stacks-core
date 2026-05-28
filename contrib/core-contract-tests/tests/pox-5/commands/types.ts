@@ -21,7 +21,12 @@ export type StakerState = {
 export interface Model {
   /** Tracks per-address staker state. Absent means not staking. */
   stakers: Map<string, StakerState>;
-  // Tracks registered signer-manager principals.
+  /**
+   * Identifiers of every signer-manager contract deployed so far.
+   * `size` is the index used for naming the next deploy.
+   */
+  deployedSigners: Set<string>;
+  /** Subset of `deployedSigners` that has been registered with a key grant. */
   signers: Set<string>;
   /** Current simulated burn block height. */
   burnBlockHeight: bigint;

@@ -63,7 +63,7 @@ export function logCommand({
   if (value !== undefined) items.push(String(value));
   if (error !== undefined) items.push(`error ${error}`);
 
-  const columnWidth = 23;
+  const columnWidth = 25;
   const halfColumns = Math.floor(columnWidth / 2);
   const prettyPrint = items.map((content, index) =>
     index < 2 ? content.padEnd(halfColumns) : content.padEnd(columnWidth),

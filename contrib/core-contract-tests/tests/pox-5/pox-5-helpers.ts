@@ -194,28 +194,74 @@ export function signPerTransactionAuth({
   return hex.decode(data.slice(2) + data.slice(0, 2));
 }
 
-// /** Register the test signer with a valid signer key grant. Returns the signer key and pox address. */
-export function registerSigner(
-  { caller }: { caller: string } = { caller: deployer },
-) {
-  const signerSk = secp256k1.utils.randomSecretKey();
+/**
+ * Register a test-pox-5-signer instance with a valid signer key grant.
+ *
+ * Defaults to the project's `testSigner`; pass `signerManager` to register a
+ * different deployed instance (e.g. one returned by `deployTestSignerContract`).
+ * Passing both `seed` and `authId` makes the call fully deterministic;
+ * omitting them uses fresh entropy and the module-level auth-id counter.
+ */
+export function registerSigner({
+  signerManager = testSigner,
+  caller = deployer,
+  seed,
+  authId,
+}: {
+  signerManager?: typeof testSigner;
+  caller?: string;
+  seed?: Uint8Array;
+  authId?: bigint;
+} = {}) {
+  const signerSk = secp256k1.utils.randomSecretKey(seed);
   const signerKey = secp256k1.getPublicKey(signerSk, true);
-  const authId = grantAuthIdCounter++;
+  const resolvedAuthId = authId ?? grantAuthIdCounter++;
   const signature = signSignerKeyGrant({
-    signerManager: testSigner.identifier,
-    authId,
+    signerManager: signerManager.identifier,
+    authId: resolvedAuthId,
     signerSk,
   });
   txOk(
-    testSigner.registerSelf({
+    signerManager.registerSelf({
       signerKey,
-      signerManager: testSigner.identifier,
-      authId,
+      signerManager: signerManager.identifier,
+      authId: resolvedAuthId,
       signerSig: signature,
     }),
     caller,
   );
-  return { signerKey, signer: testSigner.identifier };
+  return { signerKey, signer: signerManager.identifier };
+}
+
+/**
+ * Deploy a fresh test-pox-5-signer contract instance (using the same source
+ * as the default `testSigner`) but do NOT register it. Returns a typed
+ * contract handle that can be passed to `registerSigner({ signerManager })`.
+ */
+export function deployTestSignerContract(name: string) {
+  const newId = `${accounts.deployer.address}.${name}`;
+  const signerSource = simnet.getContractSource(testSigner.identifier)!;
+  simnet.deployContract(
+    name,
+    signerSource,
+    // Runtime supports Clarity 6 (matches Clarinet.toml) but the SDK's
+    // type union still lags behind, so we cast away the literal-type check.
+    { clarityVersion: 6 },
+    accounts.deployer.address,
+  );
+  return testSignerHandle(newId);
+}
+
+/**
+ * Reconstruct a typed test-pox-5-signer contract handle for an identifier
+ * that was already deployed earlier in the session (e.g. tracked in the
+ * stateful test model).
+ */
+export function testSignerHandle(identifier: string): typeof testSigner {
+  return contractFactory(
+    project.contracts.testPox5Signer,
+    identifier,
+  ) as typeof testSigner;
 }
 
 export function registerSignerManager() {
