@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # SHA), prepares one chainstate copy
 # per worker core (reflink when supported, otherwise a full copy), 
 # runs validate-block across all workers in parallel via
-# tmux windows, and aggregates per-slice results into a dedicate log file.
+# tmux windows, and aggregates per-slice results into a dedicated log file.
 #
 # See usage() for flags descriptions
 #
@@ -56,23 +56,31 @@ bold_yellow() { _style "1;33" "$*"; }
 bold_green()  { _style "1;92" "$*"; }
 highlight()   { cyan "$*"; }
 
-# Logging helpers. All accept a printf-style format string + args.
-# println adds a trailing \n (Java/Go convention); print writes raw — used for
-# in-place updates with \r (e.g. progress bars in check_progress).
-# info goes to stdout; warn/error go to stderr so callers can filter noise.
-# error does NOT exit — callers decide control flow.
-# Note: [INFO]/[WARN]/[ERRO] are kept 4 chars wide so prefixes line up; don't "fix" ERRO to ERROR.
-println() { local fmt=${1:-}; shift || true; printf "${fmt}\n" "$@"; }
-print()   { local fmt=${1:-}; shift || true; printf "${fmt}"   "$@"; }
+# Logging helpers.
+# All accept a printf-style format string + args (wrapper around `printf`).
+# Output is written to stderr so stdout can remain for function results.
+eprintln() { 
+    local fmt=${1:-}
+    shift || true
+    printf "${fmt}\n" "$@" >&2
+}
+
+eprint() { 
+    local fmt=${1:-}
+    shift || true
+    printf "${fmt}" "$@" >&2
+}
+
 _log() {
     local prefix=$1 fmt=$2
     shift 2
     local ts="$(date +%Y-%m-%dT%H:%M:%S%z)"
     printf "[%s][%s] ${fmt}\n" "${prefix}" "${ts}" "$@" >&2
 }
-info()  { _log "$(blue   'INFO')" "$@"; }
-warn()  { _log "$(yellow 'WARN')" "$@"; }
-error() { _log "$(red    'ERRO')" "$@"; }
+
+info()  { _log "$(blue    'INFO')" "$@"; }
+warn()  { _log "$(yellow  'WARN')" "$@"; }
+error() { _log "$(red     'ERRO')" "$@"; }
 
 # Known --repo label
 declare -rA REPO_LABELS=(
@@ -208,13 +216,13 @@ EOF
 # Verify that cargo is installed in the expected path, not only $PATH
 install_cargo() {
     command -v "${HOME}/.cargo/bin/cargo" >/dev/null 2>&1 || {
-        println "Installing Rust via rustup"
+        eprintln "Installing Rust via rustup"
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || {
             error "installing Rust"
             exit 1
         }
     }
-    println "Exporting ${HOME}/.cargo/env"
+    eprintln "Exporting ${HOME}/.cargo/env"
     # shellcheck source=/dev/null
     source "${HOME}/.cargo/env"
     return 0
@@ -229,14 +237,14 @@ checkout_rev() {
     if git show-ref --verify --quiet "refs/remotes/origin/${REPO_REV}"; then
         # Branch case: create/reset a local branch tracking origin/${REPO_REV}.
         # `checkout -B` is force-create + reset to the upstream tip in one step.
-        println "Checking out branch $(highlight "${REPO_REV}") (tracking origin/${REPO_REV})"
+        eprintln "Checking out branch $(highlight "${REPO_REV}") (tracking origin/${REPO_REV})"
         git checkout -B "${REPO_REV}" "origin/${REPO_REV}" || {
             error "checking out branch ${REPO_REV}"
             exit 1
         }
     elif git rev-parse --verify --quiet "${REPO_REV}^{commit}" >/dev/null; then
         # Tag or commit SHA (short/full): detach HEAD at the resolved commit.
-        println "Checking out $(highlight "${REPO_REV}") (detached HEAD — tag or commit)"
+        eprintln "Checking out $(highlight "${REPO_REV}") (detached HEAD — tag or commit)"
         git checkout --detach "${REPO_REV}" || {
             error "checking out ${REPO_REV}"
             exit 1
@@ -572,7 +580,6 @@ validate_block_range() {
 
     local inspect_bin="${REPO_DIR}/target/release/stacks-inspect"
     local inspect_config="${REPO_DIR}/sample/conf/${NETWORK}-follower-conf.toml"
-    local inspect_prefix="${inspect_bin} --config ${inspect_config} validate-block"
 
     local block_diff=$((global_end - global_start + 1))
     local slices="${CORES}"
@@ -585,11 +592,11 @@ validate_block_range() {
     
     local range_label="${mode} validation"
     local range_start=$(phase_start "${range_label}")
-    println "************************************************************************"
-    println "Mode: $(highlight "${mode}")"
-    println "Block range: $(highlight "${global_start}-${global_end}") (${block_diff} blocks)"
-    println "Slices: $(highlight "${slices}") | Blocks/slice: $(highlight "${slice_blocks}")"
-    println "************************************************************************"
+    eprintln "************************************************************************"
+    eprintln "Mode: $(highlight "${mode}")"
+    eprintln "Block range: $(highlight "${global_start}-${global_end}") (${block_diff} blocks)"
+    eprintln "Slices: $(highlight "${slices}") | Blocks/slice: $(highlight "${slice_blocks}")"
+    eprintln "************************************************************************"
 
     local end_block_count=$starting_block
     local slice_counter=0
@@ -629,9 +636,11 @@ validate_block_range() {
         local log_file="${LOG_DIR}/slice${slice_counter}${log_append}.log"
         local progress_file="${LOG_DIR}/slice${slice_counter}${log_append}.progress"
         slice_progress_files+=("${progress_file}")
-        local inspect_cmd="${inspect_prefix} ${slice_path} ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
+        # tmux send-keys re-parses this string as shell source in the target window,
+        # so quote the paths so spaces / shell metacharacters survive re-parsing.
+        local inspect_cmd="\"${inspect_bin}\" --config \"${inspect_config}\" validate-block \"${slice_path}\" ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
         local cmd="${inspect_cmd} | ${tee_stage}stdbuf -oL tr '\\r' '\\n' | while IFS= read -r line; do if [[ \"\$line\" =~ ^Validating:[[:space:]]+[0-9]+% ]]; then printf '%s\\n' \"\$line\" > '${progress_file}'; elif [[ -n \"\$line\" ]]; then printf '%s\\n' \"\$line\" >> '${log_file}'; fi; done"
-        println "  $(highlight "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(highlight "${global_slice_start}-${global_slice_end}") :: Logging to: ${log_file}"
+        eprintln "  $(highlight "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(highlight "${global_slice_start}-${global_slice_end}") :: Logging to: ${log_file}"
         echo "Command: ${inspect_cmd}" > "${log_file}"
         echo "Validating blocks: ${global_slice_start}-${global_slice_end} (out of ${global_end})" >> "${log_file}"
         echo "Progress updates will be written to: ${progress_file}" >> "${log_file}"
@@ -769,34 +778,36 @@ compute_progress_pct() {
 check_progress() {
     local slice_progress=("$@")
     local progress=1
-    local sp="/-\|"
-    local count pct
+    local symbols="/-\|"
+    local count pct spinner
     # Give the pids a while to show up in the process table before checking if they're running
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
         if [ "${count}" -eq 0 ]; then
-            ${IS_TTY} && print "Waiting for processes to be spawned ... \033[0K\r"
+            ${IS_TTY} && eprint "Waiting for processes to be spawned ... \033[0K\r"
         else
             break
         fi
         sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
 
-    println "************************************************************************"
-    println "Checking Block Validation status"
-    println ' '
+    eprintln "************************************************************************"
+    eprintln "Checking Block Validation status"
+    eprintln ' '
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
         if [ "${count}" -gt 0 ]; then
             pct=$(compute_progress_pct "${slice_progress[@]}")
-            ${IS_TTY} && print "Block validation processes are currently active [ %s ] Progress: [ %s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "$(bold_yellow "${count}")" "$(bold_yellow "${pct}")"
+            spinner="${symbols:progress++%${#symbols}:1}"
+            ${IS_TTY} && eprint "Block validation processes are currently active [ %s ] Progress: [ %s ] ...  \b%s  \033[0K\r" \
+                            "$(bold_yellow "${count}")" "$(bold_yellow "${pct}")" "${spinner}"
         else
-            ${IS_TTY} && print "\rAll block validation processes finished\033[0K\n"
+            ${IS_TTY} && eprint "\rAll block validation processes finished\033[0K\n"
             break
         fi
         sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
-    println "************************************************************************"
+    eprintln "************************************************************************"
 }
 
 # Aggregate per-slice return codes and "Failed processing block" lines into
@@ -839,7 +850,7 @@ store_results() {
 
     if [ "${failed}" != "0" ]; then
         failure_count=$failed
-        println "Panic: $(red "$failure_count")"
+        eprintln "Panic: $(red "$failure_count")"
     fi
 
     # Use the $failed var here in case there is a panic, then $failure_count may show zero, but the validation was not successful
@@ -876,14 +887,19 @@ store_results() {
 check_dependencies() {
     local has_apt=1
     local has_sudo=1
-    local cmd rp package
-    for cmd in apt-get sudo curl tmux git aria2 tar gzip grep cargo pgrep tput find; do
-        # In Alpine, `find` might be linked to `busybox` and won't work
-        if [ "${cmd}" == "find" ] && [ -L "${cmd}" ]; then
-            rp="$(readlink "$(command -v "${cmd}" || echo "NOTLINK")")"
-            if [ "${rp}" == "/bin/busybox" ]; then
-            error "Busybox 'find' is not supported. Please install 'findutils' or similar."
-            exit 1
+    local cmd rp package find_path
+    for cmd in apt-get sudo curl tmux git aria2c tar gzip grep cargo pgrep tput find; do
+        # In Alpine, `find` may be a symlink to busybox, whose `find` lacks flags we use.
+        # Resolve the real `find` in $PATH first; `[ -L find ]` would only test a
+        # symlink literally named `find` in the current directory.
+        if [ "${cmd}" == "find" ]; then
+            find_path="$(command -v find || true)"
+            if [ -L "${find_path}" ]; then
+                rp="$(readlink "${find_path}")"
+                if [[ "${rp}" == *busybox* ]]; then
+                    error "Busybox 'find' is not supported. Please install 'findutils' or similar."
+                    exit 1
+                fi
             fi
         fi
 
@@ -905,14 +921,17 @@ check_dependencies() {
                 "pgrep")
                     package="procps"
                     ;;
+                "aria2c")
+                    package="aria2"
+                    ;;
                 *)
                     package="${cmd}"
                     ;;
             esac
 
             if [[ ${has_apt} = 0 ]] || [[ ${has_sudo} = 0 ]]; then
-            error "Missing command '${cmd}'"
-            exit 1
+                error "Missing command '${cmd}'"
+                exit 1
             fi
             (sudo apt-get update && sudo apt-get install -y "${package}") || {
                 error "installing $package"
@@ -1023,11 +1042,11 @@ confirm_abort() {
     IFS= read -r reply < /dev/tty || true
     case "${reply}" in
         y|Y|yes|YES)
-            println "$(red "Aborting.")" >&2
+            eprintln "$(red "Aborting.")"
             exit 130
             ;;
         *)
-            println "$(green "Continuing.")" >&2
+            eprintln "$(green "Continuing.")"
             trap 'confirm_abort' INT
             ;;
     esac
@@ -1078,4 +1097,7 @@ main() {
     phase_end "Validation" "${val_start}"
 }
 
-main "$@"
+# Run only when executed directly, not when sourced.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
