@@ -718,7 +718,7 @@ impl<T: MarfTrieId> MARF<T> {
         let mut dst = MARF::from_path(dst_path, dst_open_opts)?;
         apply_offline_squash_pragmas(dst.sqlite_conn())?;
 
-        // [1/8] [1/8] Load block entries
+        // [1/8] Load block entries
         let start = Instant::now();
         let mut block_entries = collect_block_entries(&mut src)?;
         step_durations.load_block_map = start.elapsed();
