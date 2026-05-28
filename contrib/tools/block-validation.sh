@@ -861,13 +861,33 @@ compute_progress_pct() {
     fi
 }
 
+# Timing helpers.
+# Usage:
+#   local t=$(timer_start)
+#   ...work...
+#   local elapsed=$(timer_stop "${t}")
+#   format_hms "${elapsed}"   # e.g. "00h20m30s"
+timer_start() {
+    date +%s
+}
+timer_stop() {
+    local start_epoch=$1
+    printf '%d' $(( $(date +%s) - start_epoch ))
+}
+# Format a seconds count as "HHhMMmSSs" (e.g. 1230 -> "00h20m30s").
+format_hms() {
+    local elapsed=$1
+    printf '%02dh%02dm%02ds' $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60))
+}
+
 # Pretty print the status output (simple spinner while pids are active)
 # Args: <progress_file>...   slice .progress files for the current phase, used to estimate %.
 check_progress() {
     local slice_progress=("$@")
     local progress=1
     local symbols="/-\|"
-    local count pct spinner
+    local count pct spinner elapsed
+    local timer=$(timer_start)
     # Give the pids a while to show up in the process table before checking if they're running
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
@@ -884,13 +904,15 @@ check_progress() {
     eprintln ' '
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
+        elapsed=$(timer_stop "${timer}")
         if [ "${count}" -gt 0 ]; then
             pct=$(compute_progress_pct "${slice_progress[@]}")
             spinner="${symbols:progress++%${#symbols}:1}"
-            ${IS_TTY} && eprint "Block validation processes are currently active [ %s ] Progress: [ %s ] ...  \b%s  \033[0K\r" \
-                            "$(bold_yellow "${count}")" "$(bold_yellow "${pct}")" "${spinner}"
+            ${IS_TTY} && eprint "Processes: [ %s ] Progress: [ %s ] Elapsed: [ %s ] ...  \b%s  \033[0K\r" \
+                            "$(bold_yellow "${count}")" "$(bold_yellow "${pct}")" "$(bold_yellow "$(format_hms "${elapsed}")")" "${spinner}"
         else
-            ${IS_TTY} && eprint "\rAll block validation processes finished\033[0K\n"
+            ${IS_TTY} && eprint "\rValidation completed in %s\033[0K\n" \
+                            "$(highlight "$(format_hms "${elapsed}")")"
             break
         fi
         sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
@@ -1158,17 +1180,15 @@ confirm_abort() {
 phase_start() {
     local label=$1
     info "$(highlight "${label}") started"
-    date +%s
+    timer_start
 }
 
-# Print a "<label> finished" timestamp line with elapsed HH:MM:SS since start_epoch.
+# Print a "<label> finished" timestamp line with elapsed HHhMMmSSs since start_epoch.
 # Usage: phase_end "Foo" "${foo_start}"
 phase_end() {
     local label=$1
     local start_epoch=$2
-    local end_epoch=$(date +%s)
-    local elapsed=$((end_epoch - start_epoch))
-    local duration=$(printf '%02d:%02d:%02d' $((elapsed / 3600)) $(((elapsed % 3600) / 60)) $((elapsed % 60)))
+    local duration=$(format_hms "$(timer_stop "${start_epoch}")")
     info "$(highlight "${label}") finished (duration: $(highlight "${duration}"))"
 }
 
