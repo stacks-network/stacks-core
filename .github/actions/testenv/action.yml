@@ -30,10 +30,6 @@ runs:
       with:
         action: restore
 
-    - name: Populate Cargo Registry For Offline Sub-Builds
-      shell: bash
-      run: cargo fetch --locked
-
     # Restore bitcoin cache data
     - name: Restore Bitcoin Binary Cache
       uses: ./.github/actions/cache/bitcoin

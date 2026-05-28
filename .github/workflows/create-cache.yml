@@ -64,38 +64,6 @@ jobs:
         id: test-archive
         uses: ./.github/actions/cache/test-archive
 
-  # Cache cargo data
-  cargo:
-    name: Cargo
-    needs: check-caches
-    runs-on: ubuntu-latest
-    if: needs.check-caches.outputs.cargo-cache-hit != 'true'
-    steps:
-      # Checkout the code
-      #   - the full workspace is required so `cargo fetch` can populate the registry cache for
-      #     offline test runners, including trybuild's nested Cargo invocations.
-      - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      # Setup rust toolchain
-      - name: Setup Rust Toolchain
-        uses: ./.github/actions/setup-rust-toolchain
-
-      # Populate the Cargo registry cache before saving it. The nextest archive contains compiled
-      # test binaries, but 'trybuild' compiles temporary crates at test runtime; those nested Cargo
-      # builds still need registry index/cache data when CI runs tests offline.
-      - name: Fetch Cargo Dependencies
-        shell: bash
-        run: cargo fetch --locked
-
-      # Save cargo cache
-      - name: Cargo Cache
-        uses: ./.github/actions/cache/cargo
-        with:
-          action: save
-
   # Cache the bitcoin binary
   bitcoin-binary:
     name: Bitcoin Binary
@@ -118,20 +86,19 @@ jobs:
         with:
           action: save
 
-  # Cache nextest archives for tests
+  # Build the nextest archive and populate the cargo, cargo-target, and
+  # test-archive caches. All three are saved from the same workspace build so
+  # the cargo registry reflects every crate the tests actually touch — this is
+  # what offline sub-builds (e.g. trybuild) depend on at test-run time.
   nextest-archive:
     name: Test Archive
-    needs:
-      - check-caches
-      - cargo
+    needs: check-caches
     runs-on: ubuntu-latest
-    # Run if test-archive is missing; tolerate cargo being skipped (cache already existed)
-    #   - If the cargo target cache (or the test-archive cache) is missing, then we'll need to rebuild the test archive and cache both the archive and cargo target (cargo archive is required for code coverage).
     if: >-
       !cancelled() &&
-      (needs.cargo.result == 'success' || needs.cargo.result == 'skipped') &&
-      (needs.check-caches.outputs.cargo-target-cache-hit != 'true' ||
-      needs.check-caches.outputs.test-archive-cache-hit != 'true')
+      (needs.check-caches.outputs.cargo-cache-hit != 'true' ||
+       needs.check-caches.outputs.cargo-target-cache-hit != 'true' ||
+       needs.check-caches.outputs.test-archive-cache-hit != 'true')
     steps:
       # Checkout the code
       - name: Checkout the latest code

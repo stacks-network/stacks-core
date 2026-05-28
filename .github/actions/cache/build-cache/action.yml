@@ -1,39 +1,52 @@
 name: Build Test Archive Caches
 description: |
-    Builds nextest test archive cache
+    Builds the nextest test archive and saves the cargo registry, target, and
+    test-archive caches populated by that build. The archive build is the
+    canonical full-workspace cargo invocation, so saving cargo state after it
+    captures every crate the workspace tests actually touch (including ones
+    that bare `cargo fetch` under-reports). Downstream test runners then see
+    a complete registry — necessary for offline sub-builds like trybuild.
 
 runs:
   using: "composite"
   steps:
-    # Check if the target  cache exists
+    # Probe cache states up front so each downstream step knows whether to
+    # act. Each cache is saved independently, so the "miss" conditions differ.
+    - name: Check Cargo Cache
+      uses: ./.github/actions/cache/cargo
+      id: check_cargo_cache
+
     - name: Check Cargo Target Cache
       uses: ./.github/actions/cache/cargo-target
       id: check_target_cache
 
-    # Check if the nextest archive cache exists
     - name: Check Test Archive Cache
       uses: ./.github/actions/cache/test-archive
       id: check_test_archive_cache
 
-    # Setup rust toolchain
+    # Toolchain is only needed when at least one cache is missing.
     - name: Setup Rust Toolchain
       if: |
+        steps.check_cargo_cache.outputs.cache-hit != 'true' ||
         steps.check_target_cache.outputs.cache-hit != 'true' ||
         steps.check_test_archive_cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/setup-rust-toolchain
       with:
         components: llvm-tools-preview
 
-    # Restore cargo cache
+    # Warm-start: restore the cargo cache when it exists. Skipped on a cargo
+    # cache miss — the archive build (or the fallback fetch below) will
+    # populate ~/.cargo from scratch.
     - name: Restore Cargo Cache
       if: |
-        steps.check_target_cache.outputs.cache-hit != 'true' ||
-        steps.check_test_archive_cache.outputs.cache-hit != 'true'
+        steps.check_cargo_cache.outputs.cache-hit == 'true' &&
+        (steps.check_target_cache.outputs.cache-hit != 'true' ||
+         steps.check_test_archive_cache.outputs.cache-hit != 'true')
       uses: ./.github/actions/cache/cargo
       with:
         action: restore
 
-    #  Only install dependencies if cache miss (i.e. no existing data)
+    # nextest is only needed when we're rebuilding the archive.
     - name: Install Dependencies
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -42,7 +55,8 @@ runs:
       with:
         tool: nextest
 
-    # Build the nextest archive
+    # Canonical full-workspace cargo invocation. Pulls every dep the workspace
+    # tests need into ~/.cargo, then archives the compiled test binaries.
     - name: Build and Archive Tests
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -57,7 +71,23 @@ runs:
           --features monitoring_prom \
           --archive-file ~/test_archive.tar.zst
 
-    # Save the nextest archive to cache
+    # Edge case: cargo cache missing but target + test-archive both hit. No
+    # archive rebuild needed; just populate the registry so we can save it.
+    - name: Fetch Cargo Dependencies
+      if: |
+        steps.check_cargo_cache.outputs.cache-hit != 'true' &&
+        steps.check_target_cache.outputs.cache-hit == 'true' &&
+        steps.check_test_archive_cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: cargo fetch --locked
+
+    # Save the cargo cache once the registry reflects every workspace dep.
+    - name: Cache Cargo
+      if: steps.check_cargo_cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/cache/cargo
+      with:
+        action: save
+
     - name: Cache Nextest Archive
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -66,7 +96,6 @@ runs:
       with:
         action: save
 
-    # Save the target cache
     - name: Cache Cargo Target
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
