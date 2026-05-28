@@ -13,31 +13,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! # PoX-5 Staker Lifecycle (Madhouse)
+//! Stateful PBT for the pox-5 locking primitives. A random sequence of
+//! `Stake`, `StakeUpdate`, `Unstake`, `AdvanceBurnHeight` commands runs
+//! against `MemoryBackingStore` plus a settable burn-height oracle, with a
+//! shadow model kept in lockstep.
 //!
-//! Stateful property-based testing of the pox-5 locking primitives. The
-//! test composes random sequences of `Stake`, `StakeUpdate`, `Unstake`, and
-//! `AdvanceBurnHeight` commands against a shared system-under-test
-//! (`MemoryBackingStore` + a configurable burn-height oracle), keeping a
-//! shadow model of the expected state in lockstep.
+//! Invariants checked after every command:
+//! 1. conservation: available + locked == TOTAL_USTX
+//! 2. auto-unlock: burn_height >= unlock_height implies locked_ustx == 0 on the SUT
+//! 3. monotonic locking: StakeUpdate never reduces locked_ustx
 //!
-//! After every command we verify three invariants:
-//! 1. **Conservation**: `available + locked == total_ustx` (constant).
-//! 2. **Auto-unlock**: `current_burn_height >= unlock_height` implies
-//!    `locked_ustx == 0` on the SUT.
-//! 3. **Monotonic locking**: `StakeUpdate` never reduces `locked_ustx`.
-//!
-//! Design notes:
-//! - The model is an explicit ADT (`enum AccountState`), not a blob of
-//!   `Option<…>` fields.
-//! - Generators produce only structurally valid arguments (`amount > 0`,
-//!   `unlock > 0`); whether the command is *legal in this state* is the
-//!   responsibility of `Command::check`. No `prop_assume!` in command
-//!   bodies.
-//! - One driving function (`pox5_staker_lifecycle_madhouse`) folds the
-//!   commands; per-command postconditions live inside each `apply`.
+//! Generators emit structurally valid args (amount > 0, unlock > 0); legality
+//! against the current state is decided by `Command::check`, never by
+//! `prop_assume!` inside `apply`.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use clarity::types::StacksEpochId;
@@ -59,25 +49,16 @@ use stacks_common::types::chainstate::{
 use crate::pox_5::{pox_lock_update_v5, pox_lock_v5, pox_unstake_v5};
 use crate::LockingError;
 
-/// Total STX balance the staker starts with. Big enough to absorb any
-/// random sequence of stakes/updates that the generators below produce.
+/// Starting STX balance. Large enough to absorb any sequence the generators emit.
 const TOTAL_USTX: u128 = 100_000_000_000;
 
-/// Cap for random `unlock_height` deltas. Burn height starts at 0 and the
-/// generators bound the unlock height to `current + 1..=current + WINDOW`,
-/// so this also caps how far in the future a lock can be scheduled.
+/// Cap on random unlock_height deltas.
 const UNLOCK_WINDOW: u64 = 1_000_000;
 
-/// Reward cycle length used by `Unstake` (when scheduling the new unlock).
+/// Reward cycle length used by `Unstake` for scheduling.
 const REWARD_CYCLE_LENGTH: u64 = 1_000;
 
-// ---------------------------------------------------------------------------
-// ConfigurableBurnStateDB — like NullBurnStateDB but with a settable tip
-// ---------------------------------------------------------------------------
-
-/// `BurnStateDB` whose `get_tip_burn_block_height` is controlled by a
-/// settable `AtomicU32`. All other methods mirror `NullBurnStateDB` (the
-/// defaults used by the existing in-memory test setup).
+/// `BurnStateDB` with a settable tip; other methods mirror `NullBurnStateDB`.
 #[derive(Debug)]
 struct ConfigurableBurnStateDB {
     burn_height: AtomicU32,
@@ -183,15 +164,9 @@ impl BurnStateDB for ConfigurableBurnStateDB {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Model: AccountState ADT + Pox5StakerState
-// ---------------------------------------------------------------------------
-
-/// Account-level model. Two states only — `Unlocked` and `Locked`.
-/// `Unstake` does NOT introduce a separate state; semantically it merely
-/// reschedules the `unlock_height`. The boolean `unstake_scheduled` is a
-/// marker for invariant 3 ("`StakeUpdate` doesn't run on an unstaking
-/// account") rather than a real state.
+/// Account model. `Unstake` is not a separate state: it only reschedules
+/// `unlock_height`. The `unstake_scheduled` flag exists so `StakeUpdate` can be
+/// rejected once an unstake is pending.
 #[derive(Debug, Clone, PartialEq)]
 enum AccountState {
     Unlocked,
@@ -233,8 +208,7 @@ impl Pox5StakerState {
         total - self.account.locked_amount()
     }
 
-    /// Apply the auto-unlock rule to the model: if the current burn height
-    /// has caught up to the lock's unlock height, the lock has expired.
+    /// If current burn height has reached unlock_height, the lock has expired.
     fn maybe_auto_unlock(&mut self) {
         if let AccountState::Locked { unlock_height, .. } = self.account {
             if self.current_burn_height >= unlock_height {
@@ -243,10 +217,6 @@ impl Pox5StakerState {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Test context: shared system-under-test
-// ---------------------------------------------------------------------------
 
 struct Pox5SystemUnderTest {
     store: MemoryBackingStore,
@@ -271,9 +241,7 @@ impl Pox5SystemUnderTest {
         }
     }
 
-    /// Run a closure with a fresh `ClarityDatabase` wired up to our
-    /// in-memory store + configurable burn state. Begins and commits a
-    /// transaction around the closure.
+    /// Begin/commit a transaction around `f` against a fresh `ClarityDatabase`.
     fn run<R, F>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut ClarityDatabase) -> R,
@@ -304,11 +272,8 @@ impl Pox5SystemUnderTest {
         self.burn_state_db.set_burn_height(h32);
     }
 
-    /// Read the SUT's CANONICAL view of the staker balance: (locked,
-    /// unlocked). Canonical means the snapshot's auto-unlock logic has
-    /// been applied (a lock past its unlock height collapses to
-    /// `locked = 0`, `unlocked = total`), matching what a Clarity contract
-    /// would observe via `stx-get-balance`.
+    /// (locked, unlocked) after canonicalization, matching what a Clarity
+    /// contract observes via `stx-get-balance`.
     fn balance_canonical(&mut self) -> (u128, u128) {
         let staker = self.staker.clone();
         self.run(|db| {
@@ -327,10 +292,23 @@ impl Pox5SystemUnderTest {
     }
 }
 
+// Per-bucket counters bumped by `check_invariants`. `pox5_coverage_smoke`
+// asserts each is > 0 so generator drift (e.g. `Unstake.check` getting stricter)
+// surfaces as a coverage failure rather than passing silently. Counters live in
+// the per-test context to avoid cross-talk between parallel tests.
+
+#[derive(Debug, Default, Clone, Copy)]
+struct CoverageCounters {
+    unlocked: u64,
+    locked_nosched: u64,
+    locked_sched: u64,
+}
+
 #[derive(Clone)]
 pub struct Pox5Context {
     sut: Arc<Mutex<Pox5SystemUnderTest>>,
     total_ustx: u128,
+    coverage: Arc<Mutex<CoverageCounters>>,
 }
 
 impl std::fmt::Debug for Pox5Context {
@@ -351,53 +329,38 @@ impl Pox5Context {
         Self {
             sut: Arc::new(Mutex::new(sut)),
             total_ustx: TOTAL_USTX,
+            coverage: Arc::new(Mutex::new(CoverageCounters::default())),
         }
     }
 
-    /// Reset the system-under-test to a fresh, funded state. Required
-    /// between proptest iterations because `proptest!` reruns the body
-    /// for shrinking even when `cases = 1`, and the SUT lives behind an
-    /// `Arc<Mutex<>>` shared across iterations.
+    /// Reset the SUT to a fresh, funded state between proptest iterations.
+    /// `proptest!` reruns the body for shrinking even at `cases = 1`, and the
+    /// SUT is shared via `Arc<Mutex<_>>`, so without this state would leak.
     fn reset_sut(&self) {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
         let mut fresh = Pox5SystemUnderTest::new(staker);
         fresh.fund(self.total_ustx);
         *self.sut.lock().unwrap() = fresh;
     }
-}
 
-// ---------------------------------------------------------------------------
-// Coverage classification
-// ---------------------------------------------------------------------------
-//
-// Per-bucket counters bumped by `check_invariants` on every step. A weak
-// `> 0` assertion in `pox5_coverage_smoke` proves the random walk
-// actually reaches every macro-state of the FSM — protects against a
-// silent generator drift where (e.g.) `Unstake.check` becomes stricter
-// and `unstake_scheduled = true` stops being sampled at all.
-
-static COVERAGE_UNLOCKED: AtomicU64 = AtomicU64::new(0);
-static COVERAGE_LOCKED_NOSCHED: AtomicU64 = AtomicU64::new(0);
-static COVERAGE_LOCKED_SCHED: AtomicU64 = AtomicU64::new(0);
-
-fn classify_state(model: &Pox5StakerState) {
-    match &model.account {
-        AccountState::Unlocked => {
-            COVERAGE_UNLOCKED.fetch_add(1, Ordering::Relaxed);
-        }
-        AccountState::Locked { unstake_scheduled: false, .. } => {
-            COVERAGE_LOCKED_NOSCHED.fetch_add(1, Ordering::Relaxed);
-        }
-        AccountState::Locked { unstake_scheduled: true, .. } => {
-            COVERAGE_LOCKED_SCHED.fetch_add(1, Ordering::Relaxed);
-        }
+    fn coverage_snapshot(&self) -> CoverageCounters {
+        *self.coverage.lock().unwrap()
     }
 }
 
-/// Invariants verified after every command. Returns immediately if any
-/// fails — the panic surfaces as a madhouse test failure with shrinking.
+fn classify_state(model: &Pox5StakerState, ctx: &Pox5Context) {
+    let mut c = ctx.coverage.lock().unwrap();
+    match &model.account {
+        AccountState::Unlocked => c.unlocked += 1,
+        AccountState::Locked { unstake_scheduled: false, .. } => c.locked_nosched += 1,
+        AccountState::Locked { unstake_scheduled: true, .. } => c.locked_sched += 1,
+    }
+}
+
+/// Invariants checked after every command. A failed assert panics out as a
+/// madhouse test failure with shrinking.
 fn check_invariants(model: &Pox5StakerState, ctx: &Pox5Context) {
-    classify_state(model);
+    classify_state(model, ctx);
     let mut sut = ctx.sut.lock().unwrap();
     let (sut_locked, sut_unlocked) = sut.balance_canonical();
 
@@ -418,10 +381,8 @@ fn check_invariants(model: &Pox5StakerState, ctx: &Pox5Context) {
         "model/SUT mismatch on canonical locked amount"
     );
 
-    // Invariant 2: auto-unlock — if the current burn height has reached or
-    // passed the unlock height, `has_locked_tokens()` must be false on the
-    // SUT (regardless of the raw `amount_locked` field, which reflects
-    // the snapshot pre-canonicalization).
+    // Invariant 2: once burn height reaches unlock_height, `has_locked_tokens()`
+    // must be false on the SUT (raw `amount_locked` reflects pre-canonicalization).
     if let AccountState::Locked { unlock_height, .. } = model.account {
         if model.current_burn_height >= unlock_height {
             assert!(
@@ -433,12 +394,7 @@ fn check_invariants(model: &Pox5StakerState, ctx: &Pox5Context) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
-/// Stake: lock `amount` ustx with unlock at `unlock_height`. Legal only
-/// when the account is currently unlocked.
+/// Stake `amount` ustx with unlock at `unlock_height`. Legal only when unlocked.
 struct Stake {
     ctx: Arc<Pox5Context>,
     amount: u128,
@@ -448,7 +404,6 @@ struct Stake {
 impl Command<Pox5StakerState, Pox5Context> for Stake {
     fn check(&self, state: &Pox5StakerState) -> bool {
         matches!(state.account, AccountState::Unlocked)
-            && self.amount > 0
             && self.amount <= state.available_ustx(self.ctx.total_ustx)
             && self.unlock_height > state.current_burn_height
     }
@@ -483,8 +438,7 @@ impl Command<Pox5StakerState, Pox5Context> for Stake {
 
     fn build(ctx: Arc<Pox5Context>) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
         let total = ctx.total_ustx;
-        // Range up to `total` (not `total/2`) so the full-balance edge is
-        // actually sampled — narrowing would silently skip the boundary.
+        // Up to `total` (not `total/2`) so the full-balance edge is sampled.
         let amount_strategy = 1u128..=total;
         let unlock_strategy = 1u64..=UNLOCK_WINDOW;
         (amount_strategy, unlock_strategy).prop_map(move |(amount, unlock_height)| {
@@ -497,9 +451,8 @@ impl Command<Pox5StakerState, Pox5Context> for Stake {
     }
 }
 
-/// StakeUpdate: extend or increase the lock. Legal only when locked and
-/// NOT yet unstaking, and the new total must be >= the current locked
-/// amount (monotonic locking — invariant 3).
+/// Extend or increase the lock. Legal only when locked, not unstaking, and
+/// `new_total >= locked_ustx` (invariant 3).
 struct StakeUpdate {
     ctx: Arc<Pox5Context>,
     new_total: u128,
@@ -516,7 +469,6 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
             } => {
                 !unstake_scheduled
                     && self.new_total >= locked_ustx
-                    && self.new_total <= self.ctx.total_ustx
                     && self.new_unlock_height > state.current_burn_height
             }
             _ => false,
@@ -542,7 +494,7 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
                     ..
                 } = &mut state.account
                 {
-                    // Monotonic locking — pre/post check.
+                    // Monotonic locking pre/post check.
                     assert!(
                         self.new_total >= *locked_ustx,
                         "monotonic locking violated by model: prev={}, new={}",
@@ -581,8 +533,8 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
     }
 }
 
-/// Unstake: reschedule the lock's unlock height to the start of the next
-/// reward cycle. Legal only when locked and not already unstaking.
+/// Reschedule the lock's unlock_height to the start of the next reward cycle.
+/// Legal only when locked and not already unstaking.
 struct Unstake {
     ctx: Arc<Pox5Context>,
 }
@@ -599,9 +551,8 @@ impl Command<Pox5StakerState, Pox5Context> for Unstake {
     }
 
     fn apply(&self, state: &mut Pox5StakerState) {
-        // Schedule the unlock at the start of the next reward cycle from
-        // the current burn height. Must be > current to satisfy
-        // `pox_unstake_v5`'s unlock_height > 0 + has_locked_tokens checks.
+        // Schedule unlock at start of next cycle; > current so `pox_unstake_v5`'s
+        // unlock_height > 0 + has_locked_tokens gates pass.
         let new_unlock = next_reward_cycle_start(state.current_burn_height);
         let staker = {
             let sut = self.ctx.sut.lock().unwrap();
@@ -637,9 +588,7 @@ impl Command<Pox5StakerState, Pox5Context> for Unstake {
     }
 }
 
-/// AdvanceBurnHeight: bumps the SUT-visible burn height by `delta` and
-/// updates the model. After advancement, the model applies auto-unlock if
-/// the new height has caught up.
+/// Bump the SUT-visible burn height by `delta` and run auto-unlock on the model.
 struct AdvanceBurnHeight {
     ctx: Arc<Pox5Context>,
     delta: u64,
@@ -647,7 +596,7 @@ struct AdvanceBurnHeight {
 
 impl Command<Pox5StakerState, Pox5Context> for AdvanceBurnHeight {
     fn check(&self, _state: &Pox5StakerState) -> bool {
-        self.delta > 0
+        true
     }
 
     fn apply(&self, state: &mut Pox5StakerState) {
@@ -674,27 +623,18 @@ impl Command<Pox5StakerState, Pox5Context> for AdvanceBurnHeight {
     }
 }
 
-/// Round `h` up to the next multiple of `REWARD_CYCLE_LENGTH`. Always
-/// strictly greater than `h`.
+/// Round `h` up to the next multiple of `REWARD_CYCLE_LENGTH` (strictly > h).
 fn next_reward_cycle_start(h: u64) -> u64 {
     let n = h / REWARD_CYCLE_LENGTH;
     (n + 1) * REWARD_CYCLE_LENGTH
 }
 
-// ---------------------------------------------------------------------------
-// Negative-path commands — adversarial pins on rejection errors
-// ---------------------------------------------------------------------------
-//
-// These commands DO call into the SUT (unlike the legal commands above
-// which only run when the state allows). Each is enabled by `check` only
-// in states where the operation is illegal, and `apply` asserts the
-// expected error variant.
-//
-// Without these, an interleaving regression that breaks (say)
-// `PoxAlreadyLocked` returning `Ok` would never surface in the FSM run —
-// the legal `Stake` command's `check` would just skip and we'd move on.
+// Negative-path commands. Each is enabled by `check` only in states where the
+// operation is illegal, and `apply` asserts the expected error variant. Without
+// these, a regression that turned (say) `PoxAlreadyLocked` into `Ok` would slip
+// past because the legal `Stake` command's `check` would just skip.
 
-/// Try to stake while already locked. Must produce `PoxAlreadyLocked`.
+/// Stake while already locked: must return `PoxAlreadyLocked`.
 struct IllegalStakeWhileLocked {
     ctx: Arc<Pox5Context>,
     amount: u128,
@@ -703,9 +643,9 @@ struct IllegalStakeWhileLocked {
 
 impl Command<Pox5StakerState, Pox5Context> for IllegalStakeWhileLocked {
     fn check(&self, state: &Pox5StakerState) -> bool {
-        // `pox_lock_v5` checks unlock_burn_height != 0, amount != 0, then
-        // has_locked_tokens. We supply amount > 0 and unlock > 0 so the
-        // failure is genuinely PoxAlreadyLocked, not an earlier gate.
+        // `pox_lock_v5` gates: unlock_burn_height != 0, amount != 0, then
+        // has_locked_tokens. amount > 0 and unlock > 0 keep the failure on
+        // PoxAlreadyLocked rather than an earlier gate.
         matches!(state.account, AccountState::Locked { .. })
             && self.amount > 0
             && self.unlock_height > state.current_burn_height
@@ -723,7 +663,7 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeWhileLocked {
                 "IllegalStakeWhileLocked expected PoxAlreadyLocked, got {other:?}"
             ),
         }
-        // Model is unchanged: the failed call must not mutate the SUT.
+        // Failed call must not mutate the SUT; model is unchanged.
         check_invariants(state, &self.ctx);
     }
 
@@ -748,9 +688,8 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeWhileLocked {
     }
 }
 
-/// Try to stake-update while NOT locked. Must produce
-/// `PoxExtendNotLocked`. (Args pass the earlier zero-amount/zero-height
-/// gates to ensure that's the rule we're hitting.)
+/// Stake-update while unlocked: must return `PoxExtendNotLocked`. Args clear
+/// the zero-amount/zero-height gates so that's the rule actually hit.
 struct IllegalStakeUpdateOnUnlocked {
     ctx: Arc<Pox5Context>,
     new_total: u128,
@@ -802,8 +741,8 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeUpdateOnUnlocked {
     }
 }
 
-/// Try to unstake while NOT locked. Must produce `PoxUnstakeNotLocked`.
-/// Supplies `new_unlock_height > 0` to bypass the earlier gate.
+/// Unstake while unlocked: must return `PoxUnstakeNotLocked`. `new_unlock_height
+/// > 0` clears the earlier gate.
 struct IllegalUnstakeOnUnlocked {
     ctx: Arc<Pox5Context>,
     new_unlock_height: u64,
@@ -811,7 +750,7 @@ struct IllegalUnstakeOnUnlocked {
 
 impl Command<Pox5StakerState, Pox5Context> for IllegalUnstakeOnUnlocked {
     fn check(&self, state: &Pox5StakerState) -> bool {
-        matches!(state.account, AccountState::Unlocked) && self.new_unlock_height > 0
+        matches!(state.account, AccountState::Unlocked)
     }
 
     fn apply(&self, state: &mut Pox5StakerState) {
@@ -845,9 +784,8 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalUnstakeOnUnlocked {
     }
 }
 
-/// Try to update-lock with `new_total < current locked_ustx`. Must
-/// produce `PoxInvalidIncrease` — `stake-update` cannot be used as a
-/// covert unstake.
+/// Update-lock with `new_total < locked_ustx`: must return `PoxInvalidIncrease`.
+/// `stake-update` is not a hidden unstake.
 struct IllegalDecreaseInUpdate {
     ctx: Arc<Pox5Context>,
     decrease: u128,
@@ -862,10 +800,9 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
                 unstake_scheduled,
                 ..
             } => {
-                // Need room to decrease (`locked > 1`), the unstake flag
-                // false (the unstake-in-progress path has its own rules),
-                // and the new unlock_height strictly > current to bypass
-                // the `unlock_burn_height <= burn_block_height` gate.
+                // Need `locked > 1` to have room to decrease, no pending
+                // unstake (which has its own rules), and `new_unlock_height >
+                // current` to clear the `unlock_burn_height <= burn_block_height` gate.
                 !unstake_scheduled
                     && *locked_ustx > 1
                     && self.decrease > 0
@@ -905,9 +842,7 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
     fn build(
         ctx: Arc<Pox5Context>,
     ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
-        // The `decrease` is bounded against the runtime locked amount in
-        // `check`, so here we pick freely from the universe of possible
-        // decrements.
+        // `decrease` is bounded against the runtime locked amount in `check`.
         (1u128..=ctx.total_ustx, 1u64..=UNLOCK_WINDOW).prop_map(
             move |(decrease, new_unlock)| {
                 CommandWrapper::new(IllegalDecreaseInUpdate {
@@ -920,23 +855,16 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test entry point
-// ---------------------------------------------------------------------------
-
-/// Drive the staker through a sequence of random legal operations and
-/// verify the invariants after every step.
+/// Drive the staker through a random sequence of commands, checking invariants
+/// after each.
 ///
-/// We deliberately do NOT use madhouse's `scenario!` macro here: the macro
-/// creates the test context once and shares it across proptest iterations.
-/// Because `proptest!` reruns the body during shrinking (even with
-/// `cases = 1`), the SUT would leak burn-height advancement and balance
-/// state across iterations. We expand the macro by hand and reset the SUT
-/// at the start of every iteration so each command sequence starts from a
-/// clean slate.
+/// The madhouse `scenario!` macro is intentionally NOT used: it builds the
+/// context once and shares it across iterations, but `proptest!` reruns the
+/// body for shrinking (even at `cases = 1`), and burn-height + balance state
+/// would leak across iterations. Expanding the macro by hand lets us reset the
+/// SUT per iteration.
 ///
-/// Set `MADHOUSE=1` to switch from deterministic ordering (commands in
-/// declaration order) to random permutation mode.
+/// `MADHOUSE=1` switches from declaration order to random permutation.
 #[test]
 #[cfg_attr(test, tag(t_prop))]
 fn pox5_staker_lifecycle_madhouse() {
@@ -985,23 +913,16 @@ fn pox5_staker_lifecycle_madhouse() {
     }
 }
 
-/// Asserts that random walks of the FSM actually reach every
-/// macro-state of `AccountState`. Bumps per-bucket atomic counters in
-/// `classify_state` (called from `check_invariants` after every
-/// command), then asserts every counter is `> 0` after 50 walks.
+/// Coverage smoke: random walks must reach every `AccountState` variant. Uses
+/// the same command alphabet (legal + IllegalX) as `pox5_staker_lifecycle_madhouse`
+/// so coverage tracks the test that actually runs in CI.
 ///
-/// If a future change makes `Unstake.check` stricter (e.g., only inside
-/// a reward cycle window) so the generator silently stops producing
-/// `unstake_scheduled = true`, this smoke fails — separating "the
-/// generator doesn't reach X" from "X doesn't hold".
+/// Fails if generator drift (e.g. `Unstake.check` getting stricter) silently
+/// stops sampling a state, separating "generator never reaches X" from
+/// "invariant on X is broken".
 #[test]
 #[cfg_attr(test, tag(t_prop))]
 fn pox5_coverage_smoke() {
-    // Reset counters so we measure only this test's walks.
-    COVERAGE_UNLOCKED.store(0, Ordering::Relaxed);
-    COVERAGE_LOCKED_NOSCHED.store(0, Ordering::Relaxed);
-    COVERAGE_LOCKED_SCHED.store(0, Ordering::Relaxed);
-
     let ctx = Arc::new(Pox5Context::new());
     let config = proptest::test_runner::Config {
         cases: 50,
@@ -1015,6 +936,10 @@ fn pox5_coverage_smoke() {
             StakeUpdate::build(ctx.clone()),
             Unstake::build(ctx.clone()),
             AdvanceBurnHeight::build(ctx.clone()),
+            IllegalStakeWhileLocked::build(ctx.clone()),
+            IllegalStakeUpdateOnUnlocked::build(ctx.clone()),
+            IllegalUnstakeOnUnlocked::build(ctx.clone()),
+            IllegalDecreaseInUpdate::build(ctx.clone()),
         ],
         4..=24,
     ))| {
@@ -1023,25 +948,24 @@ fn pox5_coverage_smoke() {
         execute_commands(&commands, &mut state);
     });
 
-    let unlocked = COVERAGE_UNLOCKED.load(Ordering::Relaxed);
-    let locked_nosched = COVERAGE_LOCKED_NOSCHED.load(Ordering::Relaxed);
-    let locked_sched = COVERAGE_LOCKED_SCHED.load(Ordering::Relaxed);
+    let c = ctx.coverage_snapshot();
 
     assert!(
-        unlocked > 0,
-        "Unlocked state never observed across 50 walks — generator drift?"
+        c.unlocked > 0,
+        "Unlocked never sampled across 50 walks (generator drift?)"
     );
     assert!(
-        locked_nosched > 0,
-        "Locked-no-unstake never observed across 50 walks — Stake.check() too strict?"
+        c.locked_nosched > 0,
+        "Locked-no-unstake never sampled across 50 walks (Stake.check too strict?)"
     );
     assert!(
-        locked_sched > 0,
-        "Locked+unstake_scheduled never observed across 50 walks — Unstake.check() too strict?"
+        c.locked_sched > 0,
+        "Locked+unstake_scheduled never sampled across 50 walks (Unstake.check too strict?)"
     );
 
-    // Surface the distribution so a degraded run is debuggable.
+    // Print distribution to make a degraded run debuggable.
     eprintln!(
-        "pox5_coverage_smoke: unlocked={unlocked} locked_nosched={locked_nosched} locked_sched={locked_sched}"
+        "pox5_coverage_smoke: unlocked={} locked_nosched={} locked_sched={}",
+        c.unlocked, c.locked_nosched, c.locked_sched,
     );
 }
