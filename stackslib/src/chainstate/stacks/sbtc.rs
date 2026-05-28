@@ -670,31 +670,36 @@ mod tests {
     use pinny::tag;
     use proptest::prelude::*;
 
+    thread_local! {
+        /// Lazily-built `Secp256k1` context, reused across every iteration of
+        /// `arb_valid_xonly_pubkey`. `Secp256k1::new` precomputes
+        /// multiplication tables on construction; reusing the same context
+        /// keeps the proptest budget on the property itself, not on context
+        /// setup.
+        static SECP_CTX: Secp256k1<secp256k1::All> = Secp256k1::new();
+    }
+
     /// Arbitrary 32-byte sequence that is a valid x-only secp256k1 point.
     ///
-    /// Constructive (not filter-based): generate a non-zero scalar `< n`,
-    /// derive the public key on the curve, take its x-coordinate. Always
-    /// succeeds on first try — no rejection budget burned, deterministic
-    /// shrinking down to the all-zeros tail.
+    /// Maps a uniform 32-byte input through `SecretKey -> PublicKey -> x`.
+    /// `SecretKey::from_slice` rejects only the all-zeros scalar and bytes
+    /// `>= n` (curve order); both events have probability ~2^-128 over a
+    /// uniform random input, so the rejection budget is effectively never
+    /// touched. We keep `prop_filter_map` for total correctness rather than
+    /// `unwrap`-ing on a panic that would only ever fire under cosmic-ray
+    /// bit-flip conditions.
     fn arb_valid_xonly_pubkey() -> impl Strategy<Value = [u8; 32]> {
-        // MSB capped at `0xfc` keeps the scalar comfortably below the curve
-        // order n (whose MSB starts at `0xff`); 31 trailing arbitrary bytes
-        // give us 31*8 + 7 = 255 bits of entropy. The whole strategy never
-        // produces zero (`msb >= 1`), so `SecretKey::from_slice` cannot fail.
-        (1u8..=0xfcu8, any::<[u8; 31]>()).prop_map(|(msb, tail)| {
-            let mut sk_bytes = [0u8; 32];
-            sk_bytes[0] = msb;
-            sk_bytes[1..].copy_from_slice(&tail);
-            let secp = Secp256k1::new();
-            let sk = secp256k1::SecretKey::from_slice(&sk_bytes)
-                .expect("non-zero scalar < n");
-            let pk = secp256k1::PublicKey::from_secret_key(&secp, &sk);
-            // 33-byte compressed encoding: `[parity, x[0..32]]`. Drop the
-            // parity byte to get x-only.
-            let compressed = pk.serialize();
-            let mut xonly = [0u8; 32];
-            xonly.copy_from_slice(&compressed[1..]);
-            xonly
+        any::<[u8; 32]>().prop_filter_map("scalar not in [1, n)", |sk_bytes| {
+            let sk = secp256k1::SecretKey::from_slice(&sk_bytes).ok()?;
+            SECP_CTX.with(|secp| {
+                let pk = secp256k1::PublicKey::from_secret_key(secp, &sk);
+                // 33-byte compressed encoding: `[parity, x[0..32]]`. Drop the
+                // parity byte to get x-only.
+                let compressed = pk.serialize();
+                let mut xonly = [0u8; 32];
+                xonly.copy_from_slice(&compressed[1..]);
+                Some(xonly)
+            })
         })
     }
 
