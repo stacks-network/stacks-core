@@ -963,7 +963,11 @@ check_dependencies() {
     local has_apt=1
     local has_sudo=1
     local cmd rp package find_path
-    for cmd in apt-get sudo curl tmux git aria2c tar gzip grep cargo pgrep tput find; do
+    local -a required=(
+        apt-get sudo curl tmux git aria2c tar zstd grep cargo pgrep tput
+        find xargs awk sed nproc stat stdbuf
+    )
+    for cmd in "${required[@]}"; do
         # In Alpine, `find` may be a symlink to busybox, whose `find` lacks flags we use.
         # Resolve the real `find` in $PATH first; `[ -L find ]` would only test a
         # symlink literally named `find` in the current directory.
@@ -998,6 +1002,15 @@ check_dependencies() {
                     ;;
                 "aria2c")
                     package="aria2"
+                    ;;
+                "awk")
+                    package="gawk"
+                    ;;
+                "find"|"xargs")
+                    package="findutils"
+                    ;;
+                "nproc"|"stat"|"stdbuf")
+                    package="coreutils"
                     ;;
                 *)
                     package="${cmd}"
