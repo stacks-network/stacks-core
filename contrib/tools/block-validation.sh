@@ -517,18 +517,29 @@ setup_logs() {
     }
 }
 
+# EXIT trap handler: kill the tmux session so worker processes don't outlive the
+# script (e.g. when the user confirms abort via confirm_abort, or set -e trips
+# after windows are running). Logs are persisted to ${LOG_DIR}, so the live
+# panes aren't needed for post-mortem.
+cleanup_tmux() {
+    tmux kill-session -t "${TMUX_SESSION}" &> /dev/null || true
+}
+
 # Delete any existing tmux session and recreate. Pre-creates one window per worker
 # core so validate_block_range can just send-keys into existing windows regardless
 # of which scenario (or order of scenarios) is run.
 setup_tmux() {
     if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
         info "Cleaning existing tmux session: ${TMUX_SESSION}"
-        eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
+        cleanup_tmux
     fi
     tmux new-session -d -s "${TMUX_SESSION}" -n "slice0" || {
         error "creating tmux session $(highlight "${TMUX_SESSION}")"
         exit 1
     }
+    # Register cleanup as soon as the session exists, so a failure in the
+    # window-creation loop below still tears the session down.
+    trap cleanup_tmux EXIT
     local i
     for ((i=1; i<CORES; i++)); do
         tmux new-window -t "${TMUX_SESSION}" -d -n "slice${i}" || {
