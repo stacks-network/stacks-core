@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <version> [--signer]" >&2
