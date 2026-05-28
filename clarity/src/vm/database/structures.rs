@@ -1162,6 +1162,71 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         Ok(())
     }
 
+    /// Reset an existing pox-5 lock to `new_total_locked` and reschedule it to
+    /// unlock at `unlock_burn_height`, in a single step. Unlike
+    /// [`Self::increase_lock_v5`], the new amount may be lower than the
+    /// current locked amount (the difference is returned to the unlocked
+    /// balance); unlike [`Self::update_unlock_v5`], the amount may also change.
+    ///
+    /// Backs every pox-5 cross-mode roll-over the contract permits:
+    /// bond → bond (`register-for-bond` from a previous bond), stake → bond
+    /// (`register-for-bond` from an STX-only stake), and bond → stake (`stake`
+    /// from a previous bond). In every case the lock is carried over (never
+    /// released) to the new position's amount and unlock height.
+    ///
+    /// Errors if `self` was not already locked by pox-5, if the requested
+    /// unlock height is not in the future, or if the account cannot cover
+    /// `new_total_locked`.
+    pub fn set_lock_v5(
+        &mut self,
+        new_total_locked: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), VmExecutionError> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
+        if unlocked > 0 {
+            debug!("Consolidated after set-token-lock");
+        }
+
+        if !self.has_locked_tokens()? {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
+        }
+
+        if !self.is_v5_locked()? {
+            // caller needs to have checked this
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-5".into()).into(),
+            );
+        }
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
+        }
+
+        let total_amount = self
+            .balance
+            .amount_unlocked()
+            .checked_add(self.balance.amount_locked())
+            .expect("STX balance overflowed u128");
+        let amount_unlocked = total_amount
+            .checked_sub(new_total_locked)
+            .expect("STX underflow: more is locked than total balance");
+
+        self.balance = STXBalance::LockedPoxFive {
+            amount_unlocked,
+            amount_locked: new_total_locked,
+            unlock_height: unlock_burn_height,
+        };
+        Ok(())
+    }
+
     /// Return true iff `self` represents a snapshot that has a lock
     ///  created by PoX v5.
     pub fn is_v5_locked(&mut self) -> Result<bool, VmExecutionError> {

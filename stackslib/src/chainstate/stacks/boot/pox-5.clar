@@ -55,6 +55,8 @@
 ;; A staker tried to modify the next reward cycle's state during the prepare
 ;; phase.
 (define-constant ERR_STAKE_IN_PREPARE_PHASE (err u46))
+;; A staker tried to rollover a bond too early
+(define-constant ERR_ROLLOVER_TOO_EARLY (err u47))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -531,10 +533,33 @@
     )
     (let (
             (signer (contract-of signer-manager))
+            ;; Compute the sats being staked for this bond.
             (sats-total (try! (match btc-lockup
                 l1-lockups (verify-l1-lockups tx-sender bond-index l1-lockups)
-                sbtc-amount (lock-sbtc sbtc-amount)
+                sbtc-amount (ok sbtc-amount)
             )))
+            ;; Any bond the staker is currently a member of. Some value here
+            ;; means this is a roll-over from an ending bond into a later one.
+            (existing-membership (map-get? protocol-bond-memberships tx-sender))
+            ;; sBTC currently custodied for the staker's existing bond (0 if they
+            ;; have none, or if the existing bond is an L1 lock).
+            (old-sbtc (match existing-membership
+                m (if (get is-l1-lock m)
+                    u0
+                    (get-staker-shares-staked-for-cycle tx-sender true
+                        (get bond-index m) (get signer m)
+                    ))
+                u0
+            ))
+            ;; sBTC this new bond needs custodied (0 on the L1 path).
+            (new-sbtc (if (is-ok btc-lockup)
+                u0
+                sats-total
+            ))
+            ;; Any STX-only stake the staker has. Present means this
+            ;; `register-for-bond` is a roll-over from an ending stx-only
+            ;; stake into a bond.
+            (existing-stake (map-get? staker-info tx-sender))
             (bond (unwrap! (map-get? protocol-bonds bond-index) ERR_BOND_NOT_FOUND))
             (allowance (unwrap!
                 (map-get? protocol-bond-allowances {
@@ -550,10 +575,7 @@
             (current-total-staked (get-total-shares-staked-for-cycle true bond-index))
             (current-signer-staked (get-signer-shares-staked-for-cycle signer true bond-index))
         )
-        ;; Check that the current reward cycle is not in the prepare phase
-        (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
-            ERR_STAKE_IN_PREPARE_PHASE
-        )
+        (try! (verify-not-prepare-phase))
         ;; Verify that they're sending enough STX
         (asserts!
             (>= amount-ustx
@@ -568,8 +590,19 @@
             ERR_BOND_ALREADY_STARTED
         )
 
-        ;; Cannot be already staked
-        (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
+        ;; An existing STX-only stake is allowed only if its term ends no
+        ;; later than this bond's first reward cycle (no overlap). A stx-only
+        ;; stake has no L1 collateral, so there's no L1-unlock-window gate
+        ;; here -- the lock just extends forward via the node-side handler.
+        (asserts!
+            (match existing-stake
+                stake-info (<= (+ (get first-reward-cycle stake-info)
+                                  (get num-cycles stake-info))
+                               first-reward-cycle)
+                true
+            )
+            ERR_ALREADY_STAKED
+        )
 
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
@@ -583,9 +616,34 @@
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        (asserts! (is-none (get-bond-membership tx-sender))
+        ;; Reject if an existing membership *overlaps* this bond. An existing
+        ;; bond whose staking term ends no later than this bond's first cycle
+        ;; (e.g. rolling from bond N into bond N+6) is allowed.
+        (asserts!
+            (match existing-membership
+                existing (<= (+ BOND_LENGTH_CYCLES
+                                (bond-period-to-reward-cycle (get bond-index existing))
+                             )
+                             first-reward-cycle)
+                true
+            )
             ERR_ALREADY_REGISTERED
         )
+
+        ;; A rollover from a non-overlapping existing bond may only happen in
+        ;; that bond's L1 unlock window, the last 1/2 cycle.
+        (asserts!
+            (match existing-membership
+                existing (>= burn-block-height
+                    (get-bond-l1-unlock-height (get bond-index existing)))
+                true
+            )
+            ERR_ROLLOVER_TOO_EARLY
+        )
+
+        ;; Move the staker's custodied sBTC into this bond, transferring only the
+        ;; net difference vs. any bond they're rolling over from.
+        (try! (roll-sbtc tx-sender old-sbtc new-sbtc))
 
         (map-set protocol-bond-memberships tx-sender {
             bond-index: bond-index,
@@ -622,6 +680,16 @@
         (try! (add-staker-to-signer-cycles tx-sender signer first-reward-cycle
             BOND_LENGTH_CYCLES amount-ustx false
         ))
+
+        ;; If this was a roll-over from an STX-only stake, clear the
+        ;; staker-info entry so `stake-update` / `unstake` can no longer
+        ;; reach the now-stale stake. The stake's signer-cycle memberships
+        ;; through its original term stay intact (the staker keeps
+        ;; participating and earning through that term).
+        (if (is-some existing-stake)
+            (map-delete staker-info tx-sender)
+            true
+        )
 
         (ok {
             signer: signer,
@@ -669,10 +737,7 @@
             ))
             (num-cycles (- bond-end-cycle first-reward-cycle))
         )
-        ;; Check that the current reward cycle is not in the prepare phase
-        (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
-            ERR_STAKE_IN_PREPARE_PHASE
-        )
+        (try! (verify-not-prepare-phase))
 
         ;; Check that the old signer is the current signer
         (asserts! (is-eq old-signer current-signer)
@@ -793,11 +858,25 @@
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
             ;; the first cycle in which their stx are unlocked
             (unlock-cycle (+ first-reward-cycle num-cycles))
+            ;; Any bond the staker is currently a member of. Some value here
+            ;; indicates this `stake` is a roll-over from an ending bond into
+            ;; STX-only.
+            (existing-membership (map-get? protocol-bond-memberships tx-sender))
+            ;; sBTC currently custodied for the staker's existing bond (0 if
+            ;; they have none, or if the existing bond is an L1 lock). On a
+            ;; bond-to-stake rollover the full custody is refunded below.
+            (old-sbtc (match existing-membership
+                m (if (get is-l1-lock m)
+                    u0
+                    (get-staker-shares-staked-for-cycle tx-sender true
+                        (get bond-index m) (get signer m)
+                    ))
+                u0
+            ))
+            (stx-balance (stx-account tx-sender))
+            (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
-        ;; Check that the current reward cycle is not in the prepare phase
-        (asserts! (not (is-in-prepare-phase current-cycle))
-            ERR_STAKE_IN_PREPARE_PHASE
-        )
+        (try! (verify-not-prepare-phase))
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles amount-ustx u0 false
@@ -818,16 +897,51 @@
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        ;; Cannot be already staked
+        ;; Cannot already be STX-only staking. Re-extending an existing stake
+        ;; goes through `stake-update`, not a second `stake` call.
         (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
 
-        ;;  tx-sender principal must not be in a bond membership
-        (asserts! (is-none (get-bond-membership tx-sender)) ERR_ALREADY_STAKED)
+        ;; A roll-over from an existing bond is allowed when the bond's term
+        ;; ends no later than this stake's first reward cycle. Already-active
+        ;; bonds are rejected (overlap). Same shape as the
+        ;; `register-for-bond` gate.
+        (asserts!
+            (match existing-membership
+                existing (<= (+ BOND_LENGTH_CYCLES
+                                (bond-period-to-reward-cycle (get bond-index existing))
+                             )
+                             first-reward-cycle)
+                true
+            )
+            ERR_ALREADY_STAKED
+        )
 
-        ;;  the Staker must have sufficient unlocked funds
-        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+        ;; A roll-over from an ending bond may only happen once that bond's
+        ;; L1 collateral would have unlocked -- the same window an L1 bond
+        ;; holder has to redirect their BTC. Keeps parity with the
+        ;; `register-for-bond` gate so a bond's STX / sBTC can't be released
+        ;; ahead of the bond's L1 unlock height.
+        (asserts!
+            (match existing-membership
+                existing (>= burn-block-height
+                    (get-bond-l1-unlock-height (get bond-index existing)))
+                true
+            )
+            ERR_ROLLOVER_TOO_EARLY
+        )
+
+        ;;  the Staker must have sufficient total funds (locked + unlocked).
+        ;;  On a roll-over the staker's STX is still locked by the ending
+        ;;  bond; the node-side handler extends that lock to the new amount,
+        ;;  so checking only `stx-get-balance` (unlocked) would falsely fail.
+        (asserts! (>= total-balance amount-ustx)
             ERR_INSUFFICIENT_STX
         )
+
+        ;; Refund any sBTC custodied for the rolled-over bond (zero-target
+        ;; net transfer). No-op when there is no existing bond, or when the
+        ;; existing bond is an L1 lock.
+        (try! (roll-sbtc tx-sender old-sbtc u0))
 
         (try! (add-staker-to-signer-cycles tx-sender signer first-reward-cycle
             num-cycles amount-ustx true
@@ -839,6 +953,15 @@
             num-cycles: num-cycles,
             signer: signer,
         })
+
+        ;; If this was a roll-over from a bond, clear the bond membership so
+        ;; `unstake-sbtc` / `update-bond-registration` can no longer reach
+        ;; the old bond. The old bond's reward shares stay through its term;
+        ;; only the management pointer is gone.
+        (if (is-some existing-membership)
+            (map-delete protocol-bond-memberships tx-sender)
+            true
+        )
 
         (ok {
             signer: signer,
@@ -877,10 +1000,7 @@
             (first-reward-cycle (+ current-cycle u1))
             (num-cycles (- unlock-cycle current-cycle u1))
         )
-        ;; Check that the current reward cycle is not in the prepare phase
-        (asserts! (not (is-in-prepare-phase current-cycle))
-            ERR_STAKE_IN_PREPARE_PHASE
-        )
+        (try! (verify-not-prepare-phase))
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles new-lock-amount u0 false
@@ -1438,13 +1558,40 @@
     )
 )
 
-(define-private (lock-sbtc (amount uint))
+;; Move a staker's custodied sBTC from `old-sbtc` to `new-sbtc`, transferring
+;; only the net difference: pull the increase from the staker, or refund the
+;; decrease. `total-sbtc-staked` is updated by the net change. A registration
+;; with no rollover passes `old-sbtc` of `u0`, which transfers the full amount.
+;; A no-op when the two are equal.
+(define-private (roll-sbtc
+        (staker principal)
+        (old-sbtc uint)
+        (new-sbtc uint)
+    )
     (begin
-        (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-            transfer amount tx-sender current-contract none
-        ))
-        (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) amount))
-        (ok amount)
+        (if (> new-sbtc old-sbtc)
+            (let ((delta (- new-sbtc old-sbtc)))
+                (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                    transfer delta tx-sender current-contract none
+                ))
+                (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) delta))
+            )
+            (if (> old-sbtc new-sbtc)
+                (let ((delta (- old-sbtc new-sbtc)))
+                    (try! (as-contract?
+                        ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                            "sbtc-token" delta
+                        ))
+                        (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                            transfer delta tx-sender staker none
+                        ))
+                    ))
+                    (var-set total-sbtc-staked (- (var-get total-sbtc-staked) delta))
+                )
+                true
+            )
+        )
+        (ok true)
     )
 )
 
@@ -2127,6 +2274,17 @@
         (- (reward-cycle-to-burn-height (+ current-cycle u1))
             (var-get pox-prepare-cycle-length)
         ))
+)
+
+;; Reject calls that would modify the next reward cycle's signer / staker
+;; set during the current cycle's prepare phase, when that set is frozen.
+;; Used by `stake`, `stake-update`, `register-for-bond`, and
+;; `update-bond-registration` as `(try! (verify-not-prepare-phase))`.
+(define-private (verify-not-prepare-phase)
+    (ok (asserts!
+        (not (is-in-prepare-phase (current-pox-reward-cycle)))
+        ERR_STAKE_IN_PREPARE_PHASE
+    ))
 )
 
 (define-read-only (is-bond-active-at-height

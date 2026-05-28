@@ -288,8 +288,83 @@ pub fn pox_lock_update_v5(
     Ok(out_balance)
 }
 
-/// Handle responses from stake in pox-5 -- functions that *lock up* STX
-fn handle_stake_lockup_pox_v5(
+/// Roll an existing pox-5 lock forward into a new position: reschedule the
+/// unlock to `unlock_burn_height` and reset the locked amount to
+/// `new_total_locked`, which may be higher OR lower than the current lock
+/// (any freed STX returns to the unlocked balance). Does NOT touch the
+/// account nonce. Returns the resulting balance.
+///
+/// Used for any cross-mode roll-over the pox-5 contract permits: bond →
+/// bond (`register-for-bond` from a previous bond), stake → bond
+/// (`register-for-bond` from an STX-only stake), and bond → stake (`stake`
+/// from a previous bond). The contract gates which transitions are legal;
+/// at the node level we trust the call. In every case the STX lock is
+/// carried over rather than released and re-acquired, so there is no gap.
+///
+/// # Errors
+/// - Returns `PoxInvalidUnlockHeight` if the `unlock_burn_height` is zero.
+/// - Returns `PoxInvalidLockAmount` if the `new_total_locked` is zero.
+/// - Returns `PoxExtendNotLocked` if the account isn't currently locked.
+///   The pox-5 contract only reaches this path with an active prior lock
+///   (existing bond membership or stx-only stake), so this should surface
+///   as an invariant violation.
+/// - Returns `PoxInsufficientBalance` if the account can't cover
+///   `new_total_locked`.
+pub fn pox_rollover_v5(
+    db: &mut ClarityDatabase,
+    principal: &PrincipalData,
+    unlock_burn_height: u64,
+    new_total_locked: u128,
+) -> Result<STXBalance, LockingError> {
+    if unlock_burn_height == 0 {
+        return Err(LockingError::PoxInvalidUnlockHeight);
+    }
+    if new_total_locked == 0 {
+        return Err(LockingError::PoxInvalidLockAmount);
+    }
+
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+    if !snapshot.has_locked_tokens()? {
+        return Err(LockingError::PoxExtendNotLocked);
+    }
+
+    let bal = snapshot.canonical_balance_repr()?;
+    let total_amount = bal
+        .amount_unlocked()
+        .checked_add(bal.amount_locked())
+        .ok_or(LockingError::PoxBalanceOverflow)?;
+    if total_amount < new_total_locked {
+        return Err(LockingError::PoxInsufficientBalance);
+    }
+
+    snapshot.set_lock_v5(new_total_locked, unlock_burn_height)?;
+
+    let out_balance = snapshot.canonical_balance_repr()?;
+
+    debug!(
+        "PoX v5 lock rolled forward";
+        "pox_locked_ustx" => out_balance.amount_locked(),
+        "available_ustx" => out_balance.amount_unlocked(),
+        "unlock_burn_height" => unlock_burn_height,
+        "account" => %principal,
+    );
+
+    snapshot.save()?;
+    Ok(out_balance)
+}
+
+/// Handle responses from pox-5 entry points that lock STX for a staker:
+/// `stake` (STX-only) and `register-for-bond` (protocol bond). A first-time
+/// call (no existing pox-5 lock) acquires a fresh lock via
+/// [`pox_lock_v5`]; a roll-over (the account is already locked from an
+/// ending bond or stake) carries the lock forward via
+/// [`pox_rollover_v5`] -- the amount may go up or down and the
+/// unlock height is rescheduled, so the lock never releases. The contract
+/// is responsible for gating the roll-over (non-overlap + L1 unlock window
+/// for bond sources); if the contract returns ok, this handler trusts the
+/// call is legitimate.
+fn handle_lockup_pox_v5(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
@@ -316,13 +391,33 @@ fn handle_stake_lockup_pox_v5(
         ParsedStakeResult::ContractErr => return Ok(None),
     };
 
-    match pox_lock_v5(
-        &mut global_context.database,
-        &staker,
-        locked_amount,
-        unlock_height,
-    ) {
-        Ok(_) => {
+    // A staker rolling from one bond/stake position into another is already
+    // locked; carry the lock forward instead of acquiring a fresh one (which
+    // would fail with `PoxAlreadyLocked`). A first-time call locks fresh.
+    let already_locked = {
+        let mut snapshot = global_context.database.get_stx_balance_snapshot(&staker)?;
+        snapshot.has_locked_tokens()?
+    };
+
+    let lock_result = if already_locked {
+        pox_rollover_v5(
+            &mut global_context.database,
+            &staker,
+            unlock_height,
+            locked_amount,
+        )
+        .map(|_| ())
+    } else {
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            locked_amount,
+            unlock_height,
+        )
+    };
+
+    match lock_result {
+        Ok(()) => {
             // Log the staking in the asset map
             global_context.log_stacking(&staker, locked_amount)?;
 
@@ -462,7 +557,7 @@ pub fn handle_contract_call(
     // Execute function specific logic to complete the lock-up
     let lock_event_opt = match function_name {
         "stake" | "register-for-bond" => {
-            handle_stake_lockup_pox_v5(global_context, function_name, value)?
+            handle_lockup_pox_v5(global_context, function_name, value)?
         }
         "stake-update" => handle_stake_lockup_update_pox_v5(global_context, function_name, value)?,
         "unstake" => handle_unstake_pox_v5(global_context, function_name, value)?,
@@ -740,7 +835,7 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, total_amount);
 
         let response = make_stake_ok_response(&staker, lock_amount, unlock_height);
-        let event = handle_stake_lockup_pox_v5(&mut global_context, "stake", &response)
+        let event = handle_lockup_pox_v5(&mut global_context, "stake", &response)
             .expect("handler should succeed");
 
         // Should produce an STXLockEvent
@@ -771,7 +866,7 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
 
         let err_response = Value::error(Value::UInt(1)).unwrap();
-        let event = handle_stake_lockup_pox_v5(&mut global_context, "stake", &err_response)
+        let event = handle_lockup_pox_v5(&mut global_context, "stake", &err_response)
             .expect("handler should succeed");
 
         assert!(event.is_none());
@@ -879,7 +974,7 @@ mod tests {
         let response = make_stake_ok_response(&staker, lock_amount, 10_000);
         // The contract is supposed to prevent this; hitting this path used
         // to panic but now surfaces as a graceful Internal/Expect error.
-        let err = handle_stake_lockup_pox_v5(&mut global_context, "stake", &response)
+        let err = handle_lockup_pox_v5(&mut global_context, "stake", &response)
             .expect_err("expected an Internal error");
         match err {
             VmExecutionError::Internal(VmInternalError::Expect(_)) => {}
@@ -961,34 +1056,126 @@ mod tests {
         }
     }
 
+    // `stake` on an already-locked account rolls the existing lock forward
+    // (bond → STX-only stake rollover). At the node level the function name
+    // is the only difference vs `register-for-bond` — the lock-state path is
+    // `handle_lockup_pox_v5` → `pox_rollover_v5`, identical to the bond →
+    // bond rollover tests above. We cover same/higher/lower at the dispatch
+    // boundary to anchor the cross-mode hand-off and the
+    // [`handle_lockup_pox_v5`] routing.
+
+    /// Bond → stake, new amount equal to current locked.
     #[test]
-    fn handle_stake_lockup_already_locked_returns_runtime_error() {
+    fn handle_stake_on_locked_account_rolls_forward_same_amount() {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
         let total_amount = 1_000_000;
-        let lock_amount = 300_000u128;
-        let unlock_height = 10_000u64;
+        let lock_amount = 400_000u128;
+        let bond_unlock = 10_000u64;
+        let stake_unlock = 24_000u64;
 
         let mut store = MemoryBackingStore::new();
         let mut global_context = setup_global_context(&mut store, &staker, total_amount);
 
-        // Lock once directly so the account already has locked tokens.
         pox_lock_v5(
             &mut global_context.database,
             &staker,
             lock_amount,
-            unlock_height,
+            bond_unlock,
         )
         .expect("initial lock should succeed");
 
-        // A second lockup attempt must surface as a graceful runtime error,
-        // not a FATAL panic.
-        let response = make_stake_ok_response(&staker, lock_amount, unlock_height);
-        let err = handle_stake_lockup_pox_v5(&mut global_context, "stake", &response)
-            .expect_err("expected PoxAlreadyLocked runtime error");
-        match err {
-            VmExecutionError::Runtime(RuntimeError::PoxAlreadyLocked, None) => {}
-            other => panic!("expected PoxAlreadyLocked runtime error, got: {other:?}"),
+        let response = make_stake_ok_response(&staker, lock_amount, stake_unlock);
+        let event = handle_lockup_pox_v5(&mut global_context, "stake", &response)
+            .expect("handler should succeed")
+            .expect("expected an STXLockEvent");
+        match event {
+            StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
+                assert_eq!(data.locked_amount, lock_amount);
+                assert_eq!(data.unlock_height, stake_unlock);
+            }
+            other => panic!("Expected STXLockEvent, got: {other:?}"),
         }
+
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        let bal = snapshot.balance();
+        assert_eq!(bal.amount_locked(), lock_amount);
+        assert_eq!(bal.unlock_height(), stake_unlock);
+    }
+
+    /// Bond → stake, new amount higher than current locked.
+    #[test]
+    fn handle_stake_on_locked_account_rolls_forward_higher_amount() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let bond_lock = 300_000u128;
+        let stake_amount = 600_000u128;
+        let bond_unlock = 10_000u64;
+        let stake_unlock = 24_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            bond_lock,
+            bond_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let response = make_stake_ok_response(&staker, stake_amount, stake_unlock);
+        handle_lockup_pox_v5(&mut global_context, "stake", &response)
+            .expect("handler should succeed")
+            .expect("expected an STXLockEvent");
+
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        let bal = snapshot.balance();
+        assert_eq!(bal.amount_locked(), stake_amount);
+        assert_eq!(bal.unlock_height(), stake_unlock);
+        assert_eq!(bal.amount_unlocked(), total_amount - stake_amount);
+    }
+
+    /// Bond → stake, new amount lower than current locked. The freed STX
+    /// returns to the unlocked balance.
+    #[test]
+    fn handle_stake_on_locked_account_rolls_forward_lower_amount() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let bond_lock = 600_000u128;
+        let stake_amount = 250_000u128;
+        let bond_unlock = 10_000u64;
+        let stake_unlock = 24_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            bond_lock,
+            bond_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let response = make_stake_ok_response(&staker, stake_amount, stake_unlock);
+        handle_lockup_pox_v5(&mut global_context, "stake", &response)
+            .expect("handler should succeed")
+            .expect("expected an STXLockEvent");
+
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        let bal = snapshot.balance();
+        assert_eq!(bal.amount_locked(), stake_amount);
+        assert_eq!(bal.unlock_height(), stake_unlock);
+        assert_eq!(bal.amount_unlocked(), total_amount - stake_amount);
     }
 
     // ── Dispatcher tests (handle_contract_call) ──
@@ -1153,7 +1340,7 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, total_amount);
 
         let response = make_register_for_bond_ok_response(&staker, lock_amount, unlock_height);
-        let event = handle_stake_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
+        let event = handle_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
             .expect("handler should succeed");
 
         let event = event.expect("expected an STXLockEvent");
@@ -1181,9 +1368,8 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
 
         let err_response = Value::error(Value::UInt(11)).unwrap();
-        let event =
-            handle_stake_lockup_pox_v5(&mut global_context, "register-for-bond", &err_response)
-                .expect("handler should succeed");
+        let event = handle_lockup_pox_v5(&mut global_context, "register-for-bond", &err_response)
+            .expect("handler should succeed");
 
         assert!(event.is_none());
 
@@ -1194,33 +1380,123 @@ mod tests {
         assert_eq!(balance.amount_locked(), 0);
     }
 
+    /// Rolling a bond forward keeps the lock and reschedules it to the new
+    /// bond's unlock height, with the locked amount unchanged.
     #[test]
-    fn handle_register_for_bond_already_locked_returns_runtime_error() {
+    fn handle_register_for_bond_rolls_forward_same_amount() {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
         let total_amount = 1_000_000;
         let lock_amount = 400_000u128;
-        let unlock_height = 12_000u64;
+        let first_unlock = 12_000u64;
+        let next_unlock = 24_000u64;
 
         let mut store = MemoryBackingStore::new();
         let mut global_context = setup_global_context(&mut store, &staker, total_amount);
 
-        // Pre-existing lock (e.g. user already called `stake`) must surface as a
-        // graceful runtime error, not a FATAL panic, when register-for-bond runs.
+        // Bond 0 lock already in place.
         pox_lock_v5(
             &mut global_context.database,
             &staker,
             lock_amount,
-            unlock_height,
+            first_unlock,
         )
         .expect("initial lock should succeed");
 
-        let response = make_register_for_bond_ok_response(&staker, lock_amount, unlock_height);
-        let err = handle_stake_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
-            .expect_err("expected PoxAlreadyLocked runtime error");
-        match err {
-            VmExecutionError::Runtime(RuntimeError::PoxAlreadyLocked, None) => {}
-            other => panic!("expected PoxAlreadyLocked runtime error, got: {other:?}"),
+        // Registering for the next bond rolls the lock forward (no PoxAlreadyLocked).
+        let response = make_register_for_bond_ok_response(&staker, lock_amount, next_unlock);
+        let event = handle_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
+            .expect("handler should succeed")
+            .expect("expected an STXLockEvent");
+        match event {
+            StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
+                assert_eq!(data.locked_amount, lock_amount);
+                assert_eq!(data.unlock_height, next_unlock);
+            }
+            other => panic!("Expected STXLockEvent, got: {other:?}"),
         }
+
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        let bal = snapshot.balance();
+        assert_eq!(bal.amount_locked(), lock_amount);
+        assert_eq!(bal.unlock_height(), next_unlock);
+        assert_eq!(bal.amount_unlocked(), total_amount - lock_amount);
+    }
+
+    /// Rolling forward may lock *more* in the new bond; the extra is taken from
+    /// the unlocked balance.
+    #[test]
+    fn handle_register_for_bond_rolls_forward_higher_amount() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let initial_lock = 400_000u128;
+        let new_total = 600_000u128;
+        let first_unlock = 12_000u64;
+        let next_unlock = 24_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            initial_lock,
+            first_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let response = make_register_for_bond_ok_response(&staker, new_total, next_unlock);
+        handle_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
+            .expect("handler should succeed")
+            .expect("expected an STXLockEvent");
+
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        let bal = snapshot.balance();
+        assert_eq!(bal.amount_locked(), new_total);
+        assert_eq!(bal.unlock_height(), next_unlock);
+        assert_eq!(bal.amount_unlocked(), total_amount - new_total);
+    }
+
+    /// Rolling forward may lock *less* in the new bond; the difference returns
+    /// to the unlocked balance.
+    #[test]
+    fn handle_register_for_bond_rolls_forward_lower_amount() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let initial_lock = 600_000u128;
+        let new_total = 400_000u128;
+        let first_unlock = 12_000u64;
+        let next_unlock = 24_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            initial_lock,
+            first_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let response = make_register_for_bond_ok_response(&staker, new_total, next_unlock);
+        handle_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
+            .expect("handler should succeed")
+            .expect("expected an STXLockEvent");
+
+        let snapshot = global_context
+            .database
+            .get_stx_balance_snapshot(&staker)
+            .expect("Failed to get balance");
+        let bal = snapshot.balance();
+        assert_eq!(bal.amount_locked(), new_total);
+        assert_eq!(bal.unlock_height(), next_unlock);
+        assert_eq!(bal.amount_unlocked(), total_amount - new_total);
     }
 
     #[test]
@@ -1325,6 +1601,184 @@ mod tests {
         )
         .expect_err("expected PoxInvalidIncrease");
         assert!(matches!(err, LockingError::PoxInvalidIncrease));
+    }
+
+    // ── Direct tests for pox_rollover_v5 ──
+    //
+    // `pox_rollover_v5` is the lock-state primitive backing every cross-mode
+    // roll-over (bond → bond, stake → bond, bond → stake). Happy-path and
+    // error-path coverage here pins down the invariants the higher-level
+    // [`handle_lockup_pox_v5`] dispatcher relies on.
+
+    /// Roll-over with the same locked amount: the lock is rescheduled to the
+    /// new unlock height; `amount_locked` and `amount_unlocked` are unchanged.
+    #[test]
+    fn pox_rollover_v5_same_amount() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let lock_amount = 400_000u128;
+        let initial_unlock = 10_000u64;
+        let next_unlock = 24_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            lock_amount,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let new_balance = pox_rollover_v5(
+            &mut global_context.database,
+            &staker,
+            next_unlock,
+            lock_amount,
+        )
+        .expect("rollover should succeed");
+        assert_eq!(new_balance.amount_locked(), lock_amount);
+        assert_eq!(new_balance.unlock_height(), next_unlock);
+        assert_eq!(new_balance.amount_unlocked(), total_amount - lock_amount);
+    }
+
+    /// Roll-over to a higher amount: the additional STX is pulled from the
+    /// unlocked balance into the lock.
+    #[test]
+    fn pox_rollover_v5_higher_amount() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let initial_lock = 300_000u128;
+        let new_total = 600_000u128;
+        let initial_unlock = 10_000u64;
+        let next_unlock = 24_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            initial_lock,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let new_balance = pox_rollover_v5(
+            &mut global_context.database,
+            &staker,
+            next_unlock,
+            new_total,
+        )
+        .expect("rollover should succeed");
+        assert_eq!(new_balance.amount_locked(), new_total);
+        assert_eq!(new_balance.unlock_height(), next_unlock);
+        assert_eq!(new_balance.amount_unlocked(), total_amount - new_total);
+    }
+
+    /// Roll-over to a lower amount: the freed STX returns to the unlocked
+    /// balance. (This is the case `pox_lock_update_v5` does not allow.)
+    #[test]
+    fn pox_rollover_v5_lower_amount() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let initial_lock = 600_000u128;
+        let new_total = 250_000u128;
+        let initial_unlock = 10_000u64;
+        let next_unlock = 24_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            initial_lock,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let new_balance = pox_rollover_v5(
+            &mut global_context.database,
+            &staker,
+            next_unlock,
+            new_total,
+        )
+        .expect("rollover should succeed");
+        assert_eq!(new_balance.amount_locked(), new_total);
+        assert_eq!(new_balance.unlock_height(), next_unlock);
+        assert_eq!(new_balance.amount_unlocked(), total_amount - new_total);
+    }
+
+    /// A zero `unlock_burn_height` is an invalid request (pre-snapshot check).
+    #[test]
+    fn pox_rollover_v5_zero_unlock_height_returns_err() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+
+        let err = pox_rollover_v5(&mut global_context.database, &staker, 0, 100_000)
+            .expect_err("expected PoxInvalidUnlockHeight");
+        assert!(matches!(err, LockingError::PoxInvalidUnlockHeight));
+    }
+
+    /// A zero `new_total_locked` is an invalid request (pre-snapshot check).
+    #[test]
+    fn pox_rollover_v5_zero_amount_returns_err() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+
+        let err = pox_rollover_v5(&mut global_context.database, &staker, 10_000, 0)
+            .expect_err("expected PoxInvalidLockAmount");
+        assert!(matches!(err, LockingError::PoxInvalidLockAmount));
+    }
+
+    /// Calling `pox_rollover_v5` on an account that isn't currently locked
+    /// is an invariant violation — the contract should never reach this path
+    /// without a prior bond membership or stx-only stake.
+    #[test]
+    fn pox_rollover_v5_not_locked_returns_err() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+
+        // No prior lock — has_locked_tokens is false.
+        let err = pox_rollover_v5(&mut global_context.database, &staker, 10_000, 500_000)
+            .expect_err("expected PoxExtendNotLocked");
+        assert!(matches!(err, LockingError::PoxExtendNotLocked));
+    }
+
+    /// A rollover that asks to lock more than the account holds (unlocked +
+    /// locked) must surface as `PoxInsufficientBalance`.
+    #[test]
+    fn pox_rollover_v5_insufficient_balance_returns_err() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 500_000;
+        let initial_lock = 300_000u128;
+        let initial_unlock = 10_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            initial_lock,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        // Ask for more than the account's total balance.
+        let err = pox_rollover_v5(
+            &mut global_context.database,
+            &staker,
+            24_000,
+            total_amount + 1,
+        )
+        .expect_err("expected PoxInsufficientBalance");
+        assert!(matches!(err, LockingError::PoxInsufficientBalance));
     }
 
     // ── unstake tests ──
