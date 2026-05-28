@@ -9,7 +9,7 @@ import {
   rewardCycleToBurnHeight,
   trackCommandRun,
 } from './utils';
-import { txOk } from '@clarigen/test';
+import { rov, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
 
 export const Stake = (accounts: Real['accounts']) =>
@@ -29,12 +29,12 @@ export const Stake = (accounts: Real['accounts']) =>
           refreshModel(model, real);
           trackCommandRun(model, 'stake');
 
-          const bitcoinHeightBefore = real.network.burnBlockHeight;
-          const stacksHeightBefore = real.network.stacksBlockHeight;
-
+          // Arrange
           const registered = Array.from(model.signers);
           const signer = registered[r.signerIndex % registered.length];
           pickedSigner = signer;
+          const bitcoinHeightBefore = real.network.burnBlockHeight;
+          const stacksHeightBefore = real.network.stacksBlockHeight;
           const expectedFirstStakedRewardCycle = currentRewardCycle(model) + 1n;
           const expectedUnlockCycle =
             expectedFirstStakedRewardCycle + BigInt(r.numCycles);
@@ -42,6 +42,10 @@ export const Stake = (accounts: Real['accounts']) =>
             rewardCycleToBurnHeight(model, expectedUnlockCycle) +
             model.rewardCycleLength / 2n;
 
+          const stackerInfoBefore = rov(
+            real.contracts.pox5.getStakerInfo(r.sender),
+          );
+          // Act
           const receipt = txOk(
             real.contracts.pox5.stake({
               signerManager: signer,
@@ -53,6 +57,11 @@ export const Stake = (accounts: Real['accounts']) =>
             r.sender,
           );
 
+          // Assert
+
+          // Model predicted the sender was not already staking; contract
+          // should agree.
+          expect(stackerInfoBefore).toBeNull();
           expect(receipt.value.firstRewardCycle).toBe(
             expectedFirstStakedRewardCycle,
           );
@@ -61,7 +70,16 @@ export const Stake = (accounts: Real['accounts']) =>
           expect(receipt.value.signer).toBe(signer);
           expect(receipt.value.staker).toBe(r.sender);
           expect(receipt.value.amountUstx).toBe(r.amountUstx);
+          // Contract's getStakerInfo now reflects the freshly persisted staker
+          // and matches what the model is about to record.
+          expect(rov(real.contracts.pox5.getStakerInfo(r.sender))).toEqual({
+            amountUstx: r.amountUstx,
+            firstRewardCycle: expectedFirstStakedRewardCycle,
+            numCycles: BigInt(r.numCycles),
+            signer,
+          });
 
+          // Update model
           model.stakers.set(r.sender, {
             amountUstx: r.amountUstx,
             firstRewardCycle: expectedFirstStakedRewardCycle,

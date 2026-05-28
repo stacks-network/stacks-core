@@ -6,7 +6,9 @@ import {
   refreshModel,
   trackCommandRun,
 } from './utils';
-import { registerSigner, testSignerHandle } from '../pox-5-helpers';
+import { rov } from '@clarigen/test';
+import { expect } from 'vitest';
+import { pox5, registerSigner, testSignerHandle } from '../pox-5-helpers';
 
 export const RegisterSigner = (accounts: Real['accounts']) =>
   fc
@@ -33,19 +35,25 @@ export const RegisterSigner = (accounts: Real['accounts']) =>
           refreshModel(model, real);
           trackCommandRun(model, 'register-signer');
 
+          // Arrange
           const signerId = pickSignerId(model)!;
           pickedSignerId = signerId;
           const signerManager = testSignerHandle(signerId);
-
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
 
-          registerSigner({
+          // Act
+          const { signerKey } = registerSigner({
             signerManager,
             caller: r.caller,
             seed: r.seed,
             authId: r.authId,
           });
+
+          // Assert
+          expect(rov(pox5.getSignerInfo(signerId))).toEqual(signerKey);
+
+          // Update model
           model.signers.add(signerId);
 
           logCommand({
