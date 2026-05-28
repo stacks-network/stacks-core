@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.4.0.0.3]
+
+### Added
+
+* Allow non-blocking event dispatching. This is off by default, but can be enabled in the node configuration.
+* Introduced caching for contracts loaded/parsed within the context of a single Clarity transaction, reducing resource usage for many calls to the same contract.
+* Add defensive memory allocation checks for miners and signers. This adds two new config options: `max_assembly_mem_bytes` and `block_proposal_max_tx_mem_bytes`
+* Bump MARF index DB schema to v3: add squash metadata tables (`marf_squash_info`, `marf_squashed_blocks`) and the storage foundation for the MARF squashing pipeline.
+* Add support for u64 children pointer offsets in the MARF trie, using a mixed u32/u64 encoding with a 0x20 bit flag for backward compatibility
+
+### Changed
+
+* Exposed `MockSignature::signature` field and `MockProposal::signer_signature_hash()` method as `pub` in `libsigner::v0::messages`, enabling external consumers (observer/indexer tooling) to recover signer pubkeys from mock signer messages without maintaining a local copy of these types.
+
+### Fixed
+
+* Fixed potential overflow in signer threshold arithmetic by widening intermediate computations to `u64` ([#7189](https://github.com/stacks-network/stacks-core/pull/7189))
+* Mark a transaction as problematic when it hits the execution time limit.
+* Fixed the miner reporting of the reason it stopped mining to prometheus metrics.
+
 ## [3.4.0.0.2]
 
 ### Added
