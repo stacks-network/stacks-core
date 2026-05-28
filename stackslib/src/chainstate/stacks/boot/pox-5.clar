@@ -541,16 +541,9 @@
             ;; Any bond the staker is currently a member of. Some value here
             ;; means this is a roll-over from an ending bond into a later one.
             (existing-membership (map-get? protocol-bond-memberships tx-sender))
-            ;; sBTC currently custodied for the staker's existing bond (0 if they
-            ;; have none, or if the existing bond is an L1 lock).
-            (old-sbtc (match existing-membership
-                m (if (get is-l1-lock m)
-                    u0
-                    (get-staker-shares-staked-for-cycle tx-sender true
-                        (get bond-index m) (get signer m)
-                    ))
-                u0
-            ))
+            ;; sBTC currently custodied for the staker's existing bond (0 if
+            ;; they have none, or if the existing bond is an L1 lock).
+            (old-sbtc (get-staker-custodied-sbtc tx-sender))
             ;; sBTC this new bond needs custodied (0 on the L1 path).
             (new-sbtc (if (is-ok btc-lockup)
                 u0
@@ -620,26 +613,13 @@
         ;; bond whose staking term ends no later than this bond's first cycle
         ;; (e.g. rolling from bond N into bond N+6) is allowed.
         (asserts!
-            (match existing-membership
-                existing (<= (+ BOND_LENGTH_CYCLES
-                                (bond-period-to-reward-cycle (get bond-index existing))
-                             )
-                             first-reward-cycle)
-                true
-            )
+            (not (bond-overlaps-new-position? existing-membership first-reward-cycle))
             ERR_ALREADY_REGISTERED
         )
 
         ;; A rollover from a non-overlapping existing bond may only happen in
         ;; that bond's L1 unlock window, the last 1/2 cycle.
-        (asserts!
-            (match existing-membership
-                existing (>= burn-block-height
-                    (get-bond-l1-unlock-height (get bond-index existing)))
-                true
-            )
-            ERR_ROLLOVER_TOO_EARLY
-        )
+        (try! (verify-bond-rollover-window existing-membership))
 
         ;; Move the staker's custodied sBTC into this bond, transferring only the
         ;; net difference vs. any bond they're rolling over from.
@@ -865,14 +845,7 @@
             ;; sBTC currently custodied for the staker's existing bond (0 if
             ;; they have none, or if the existing bond is an L1 lock). On a
             ;; bond-to-stake rollover the full custody is refunded below.
-            (old-sbtc (match existing-membership
-                m (if (get is-l1-lock m)
-                    u0
-                    (get-staker-shares-staked-for-cycle tx-sender true
-                        (get bond-index m) (get signer m)
-                    ))
-                u0
-            ))
+            (old-sbtc (get-staker-custodied-sbtc tx-sender))
             (stx-balance (stx-account tx-sender))
             (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
@@ -906,13 +879,7 @@
         ;; bonds are rejected (overlap). Same shape as the
         ;; `register-for-bond` gate.
         (asserts!
-            (match existing-membership
-                existing (<= (+ BOND_LENGTH_CYCLES
-                                (bond-period-to-reward-cycle (get bond-index existing))
-                             )
-                             first-reward-cycle)
-                true
-            )
+            (not (bond-overlaps-new-position? existing-membership first-reward-cycle))
             ERR_ALREADY_STAKED
         )
 
@@ -921,14 +888,7 @@
         ;; holder has to redirect their BTC. Keeps parity with the
         ;; `register-for-bond` gate so a bond's STX / sBTC can't be released
         ;; ahead of the bond's L1 unlock height.
-        (asserts!
-            (match existing-membership
-                existing (>= burn-block-height
-                    (get-bond-l1-unlock-height (get bond-index existing)))
-                true
-            )
-            ERR_ROLLOVER_TOO_EARLY
-        )
+        (try! (verify-bond-rollover-window existing-membership))
 
         ;;  the Staker must have sufficient total funds (locked + unlocked).
         ;;  On a roll-over the staker's STX is still locked by the ending
@@ -2284,6 +2244,69 @@
     (ok (asserts!
         (not (is-in-prepare-phase (current-pox-reward-cycle)))
         ERR_STAKE_IN_PREPARE_PHASE
+    ))
+)
+
+;; The sBTC the staker currently has custodied in pox-5, derived from their
+;; bond membership. Returns u0 when the staker has no bond membership, or
+;; when their existing bond is an L1 lock (no sBTC is custodied for L1
+;; bonds). Used by `register-for-bond` and `stake` to compute the source
+;; side of a `roll-sbtc` net transfer.
+(define-read-only (get-staker-custodied-sbtc (staker principal))
+    (match (map-get? protocol-bond-memberships staker)
+        m (if (get is-l1-lock m)
+            u0
+            (get-staker-shares-staked-for-cycle staker true
+                (get bond-index m) (get signer m)
+            ))
+        u0
+    )
+)
+
+;; True if `existing-membership` (when present) would overlap a new staking
+;; term starting at `new-first-reward-cycle`. A bond whose term ends at or
+;; before the new first cycle is non-overlapping. Callers wrap this in
+;; their own `asserts!` so they can pick the appropriate error code
+;; (`ERR_ALREADY_REGISTERED` in `register-for-bond`, `ERR_ALREADY_STAKED`
+;; in `stake`).
+(define-read-only (bond-overlaps-new-position?
+        (existing-membership (optional {
+            bond-index: uint,
+            amount-ustx: uint,
+            signer: principal,
+            is-l1-lock: bool,
+        }))
+        (new-first-reward-cycle uint)
+    )
+    (match existing-membership
+        existing (> (+ BOND_LENGTH_CYCLES
+                       (bond-period-to-reward-cycle (get bond-index existing))
+                    )
+                    new-first-reward-cycle)
+        false
+    )
+)
+
+;; Reject a rollover attempt before the existing bond's L1 collateral would
+;; have unlocked -- same window an L1 bond holder has to redirect their
+;; BTC. No-op when there is no existing bond. Used by `register-for-bond`
+;; and `stake` as `(try! (verify-bond-rollover-window existing-membership))`,
+;; same shape as `verify-not-prepare-phase`.
+(define-private (verify-bond-rollover-window
+        (existing-membership (optional {
+            bond-index: uint,
+            amount-ustx: uint,
+            signer: principal,
+            is-l1-lock: bool,
+        }))
+    )
+    (ok (asserts!
+        (match existing-membership
+            existing (>= burn-block-height
+                (get-bond-l1-unlock-height (get bond-index existing)))
+            true
+        )
+        ERR_ROLLOVER_TOO_EARLY
     ))
 )
 
