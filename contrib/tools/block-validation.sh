@@ -313,9 +313,11 @@ configure_chainstate() {
         local download_dir="${WORK_DIR}/downloads"
         local archive_path="${download_dir}/${NETWORK}-stacks-blockchain-latest.tar.zst"
         
-        if [ -f "${archive_path}" ]; then
+        # Archive is "complete" only if the file exists AND aria2c's .aria2
+        # sidecar is gone. Otherwise allow aria2c to try resuming a partial download.
+        if [ -f "${archive_path}" ] && [ ! -f "${archive_path}.aria2" ]; then
             info "Chainstate archive found. It will be reused: $(highlight "${archive_path}")"
-        else     
+        else
             mkdir -p "${download_dir}"
             info "Downloading latest ${NETWORK} chainstate archive $(highlight "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst")"
             local url="https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst"
@@ -1178,7 +1180,6 @@ main() {
     post_input_config
     check_dependencies
     ${IS_TTY} && tput reset
-    ${IS_TTY} && trap 'confirm_abort' INT
 
     # Validation preparation
     local prep_start=$(phase_start "Preparation")
@@ -1190,6 +1191,11 @@ main() {
     phase_end "Preparation" "${prep_start}"
 
     # Validation execution
+    # Note:
+    # - Not all parts of the script support safe Ctrl+C interruption.
+    # - Validation is the longest-running phase and therefore the primary focus for interruption handling.
+    # - At present, only the validation progress display is safely interruptible.
+    ${IS_TTY} && trap 'confirm_abort' INT
     local val_start=$(phase_start "Validation")
     run_validation
     store_results
