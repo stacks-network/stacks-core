@@ -1,6 +1,6 @@
 name: Target Cache
 description: |
-    Rust target cache (used for codecov)
+  Rust target cache (used for codecov)
 
 inputs:
   action:
@@ -14,7 +14,7 @@ inputs:
   cache-key:
     description: "Cache Key name"
     required: false
-    default: ${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}-cargo
+    default: ${{ github.event.repository.name }}-${{ github.event.pull_request.head.sha || github.sha }}-cargo-target
 
 outputs:
   cache-hit:
