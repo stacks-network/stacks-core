@@ -165,11 +165,11 @@ jobs:
         with:
           tools: nextest
       
-      # Install mold linker (faster than default)      
+      # Install mold linker and clang (faster than default)      
       - name: Install mold Linker
         run: |
           sudo apt-get update
-          sudo apt-get install -y mold
+          sudo apt-get install -y mold clang
 
       # Restore the cargo cache IF it exists
       - name: Restore Cargo Cache
@@ -201,7 +201,7 @@ jobs:
       - name: Build and Archive Tests
         shell: bash
         env:
-          RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold"
+          RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         run: |
           # Capture the archive file input, then expand the leading ~ to $HOME
           INPUT_FILE="${{ inputs.archive-file }}"
