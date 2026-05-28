@@ -1314,5 +1314,51 @@ mod tests {
             // closes, flip this to `prop_assert!(!verify_merkle(...))`.
             prop_assert!(verify_merkle(h_cc, root, 1, 2, &[h_ab]));
         }
+
+        /// `cost_input_verify_merkle_proof` must return exactly the
+        /// siblings-list length: the cost scales linearly with the proof
+        /// depth, and a wrong length lets an attacker either over- or
+        /// under-charge the verification gas. Pins the function against
+        /// `Ok(0)` / `Ok(1)` / fall-through mutants that lose the length
+        /// signal.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_cost_verify_merkle_proof_equals_siblings_len(
+            siblings_len in 0usize..=VERIFY_MERKLE_PROOF_MAX_DEPTH as usize,
+            leaf in any::<[u8; 32]>(),
+            root in any::<[u8; 32]>(),
+            tx_index in any::<u128>(),
+            tx_count in any::<u128>(),
+        ) {
+            let siblings: Vec<Value> = (0..siblings_len)
+                .map(|_| Value::buff_from(vec![0u8; 32]).unwrap())
+                .collect();
+            let args = vec![
+                Value::buff_from(leaf.to_vec()).unwrap(),
+                Value::buff_from(root.to_vec()).unwrap(),
+                Value::UInt(tx_index),
+                Value::UInt(tx_count),
+                Value::cons_list_unsanitized(siblings).unwrap(),
+            ];
+            let cost = cost_input_verify_merkle_proof(&args).unwrap();
+            prop_assert_eq!(cost, siblings_len as u64);
+        }
+
+        /// `cost_input_get_bitcoin_tx_output` must return exactly the
+        /// raw-tx buffer length. Same mutant-killing rationale as the
+        /// merkle counterpart above.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_cost_get_bitcoin_tx_output_equals_buffer_len(
+            tx_bytes in prop::collection::vec(any::<u8>(), 0..=2048),
+            vout in any::<u128>(),
+        ) {
+            let args = vec![
+                Value::buff_from(tx_bytes.clone()).unwrap(),
+                Value::UInt(vout),
+            ];
+            let cost = cost_input_get_bitcoin_tx_output(&args).unwrap();
+            prop_assert_eq!(cost, tx_bytes.len() as u64);
+        }
     }
 }
