@@ -24,7 +24,7 @@ use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, ResponseData};
-use clarity::vm::{ClarityVersion, Value as ClarityValue};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 
@@ -39,12 +39,14 @@ use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksTransaction,
-    TransactionContractCall, TransactionPayload, TransactionSmartContract,
-    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionContractCall, TransactionPayload,
+    TransactionPostCondition, TransactionPostConditionMode, TransactionSmartContract,
+    TransactionVersion, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
-    make_contract_call, make_contract_publish_versioned, make_stacks_transfer_tx, to_addr,
+    make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
+    make_stacks_transfer_tx, make_unsigned_tx, to_addr,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::tests::NakamotoBootPlan;
@@ -1036,7 +1038,7 @@ impl ContractConsensusTest<'_> {
     /// * `contract_code` - Clarity source code of the contract
     /// * `function_name` - Contract function to test
     /// * `function_args` - Arguments passed to `function_name` on every call
-    /// * `exclude_clarity_versions` - List of Clarity versions to exclude from testing. For each epoch to test, at least one clarity version must be available.
+    /// * `clarity_versions` - List of Clarity versions to include in testing. For each epoch to test, at least one clarity version must be available.
     /// * `setup_contracts` - Contracts that must be deployed before epoch-specific logic runs
     ///
     /// # Panics
@@ -1053,20 +1055,29 @@ impl ContractConsensusTest<'_> {
         contract_code: &str,
         function_name: &str,
         function_args: &[ClarityValue],
-        exclude_clarity_versions: &[ClarityVersion],
+        mut clarity_versions: &[ClarityVersion],
         setup_contracts: &[SetupContract],
     ) -> Self {
         assert!(
             !deploy_epochs.is_empty(),
             "At least one deploy epoch is required"
         );
+
+        // If not specified, enable all clarity versions.
+        if clarity_versions.is_empty() {
+            clarity_versions = ClarityVersion::ALL;
+        }
+
         for epoch in deploy_epochs {
             let supported_versions = clarity_versions_for_epoch(*epoch);
             assert!(
                 supported_versions
                     .iter()
-                    .any(|version| !exclude_clarity_versions.contains(version)),
-                "Epoch {epoch} does not have any Clarity versions available after applying exclusions",
+                    .any(|version| clarity_versions.contains(version)),
+                "Epoch {epoch} does not have any of the requested Clarity versions available. \
+                 Requested: {:?}. Supported for this epoch: {:?}",
+                clarity_versions,
+                supported_versions,
             );
         }
         let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
@@ -1131,15 +1142,15 @@ impl ContractConsensusTest<'_> {
 
             if deploy_epochs.contains(epoch) {
                 let clarity_versions_per_epoch = clarity_versions_for_epoch(*epoch);
-                // Exclude the clarity versions that are in the exclude_clarity_versions list.
-                let clarity_versions = clarity_versions_per_epoch
+                // Keep only the clarity versions that are in the clarity_versions include list.
+                let versions_iter = clarity_versions_per_epoch
                     .iter()
-                    .filter(|v| !exclude_clarity_versions.contains(v));
+                    .filter(|v| clarity_versions.contains(v));
 
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
                 // Each deployment is a separate TestBlock
-                for &version in clarity_versions {
+                for &version in versions_iter {
                     let version_tag = version.to_string().replace(' ', "");
                     let name = format!("{contract_name}-{epoch_name}-{version_tag}");
                     contract_deploys_per_epoch
@@ -1600,7 +1611,7 @@ impl TestTxFactory {
 /// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
 /// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
-/// * `exclude_clarity_versions` — *(optional)* Clarity versions to exclude from testing. For each epoch to test, at least one clarity version must be available. Defaults to an empty list (all versions tested).
+/// * `clarity_versions` — *(optional)* Clarity versions to include in testing. For each epoch to test, at least one clarity version must be available. Defaults to [`ClarityVersion::ALL`] (all versions tested).
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy once before the main contract logic.
 ///
 /// # Example
@@ -1630,7 +1641,7 @@ macro_rules! contract_call_consensus_test {
         function_args: $function_args:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
-        $(exclude_clarity_versions: $exclude_clarity_versions:expr,)?
+        $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
@@ -1643,8 +1654,8 @@ macro_rules! contract_call_consensus_test {
             $(let call_epochs = $call_epochs;)?
             let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
             $(let setup_contracts = $setup_contracts;)?
-            let exclude_clarity_versions: &[clarity::vm::ClarityVersion] = &[];
-            $(let exclude_clarity_versions = $exclude_clarity_versions;)?
+            let clarity_versions: &[clarity::vm::ClarityVersion] = clarity::vm::ClarityVersion::ALL;
+            $(let clarity_versions = $clarity_versions;)?
             let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
                 function_name!(),
                 vec![],
@@ -1654,7 +1665,7 @@ macro_rules! contract_call_consensus_test {
                 $contract_code,
                 $function_name,
                 $function_args,
-                exclude_clarity_versions,
+                clarity_versions,
                 setup_contracts,
             );
             let result = contract_test.run();
@@ -1682,7 +1693,7 @@ pub(crate) use contract_call_consensus_test;
 /// * `contract_name` — Name of the contract being tested.
 /// * `contract_code` — The Clarity source code of the contract.
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
-/// * `exclude_clarity_versions` — *(optional)* Clarity versions to exclude from testing. For each epoch to test, at least one clarity version must be available. Defaults to an empty list (all versions tested).
+/// * `clarity_versions` — *(optional)* Clarity versions to include in testing. For each epoch to test, at least one clarity version must be available. Defaults to [`ClarityVersion::ALL`] (all versions tested).
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy before the main contract.
 ///
 /// # Example
@@ -1702,7 +1713,7 @@ macro_rules! contract_deploy_consensus_test {
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
-        $(exclude_clarity_versions: $exclude_clarity_versions:expr,)?
+        $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
@@ -1715,7 +1726,7 @@ macro_rules! contract_deploy_consensus_test {
                 function_args: &[],  // No function calls, just deploys
                 deploy_epochs: deploy_epochs,
                 call_epochs: &[],    // No function calls, just deploys
-                $(exclude_clarity_versions: $exclude_clarity_versions,)?
+                $(clarity_versions: $clarity_versions,)?
                 $(setup_contracts: $setup_contracts,)?
             );
         }
@@ -1800,6 +1811,61 @@ impl ConsensusUtils {
             &[],
         );
         StacksTransaction::consensus_deserialize(&mut call_tx.as_slice()).unwrap()
+    }
+
+    /// Like `new_call_tx` but accepts function arguments.
+    pub fn new_call_tx_with_args(
+        nonce: u64,
+        contract_name: &str,
+        funct_name: &str,
+        args: &[ClarityValue],
+    ) -> StacksTransaction {
+        make_contract_call_tx(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            200,
+            CHAIN_ID_TESTNET,
+            &to_addr(&FAUCET_PRIV_KEY),
+            ContractName::try_from(contract_name.to_string()).unwrap(),
+            ClarityName::try_from(funct_name.to_string()).unwrap(),
+            args,
+        )
+    }
+
+    /// Build a contract-call transaction with custom post-condition mode and
+    /// post-conditions.
+    pub fn new_call_tx_with_postconds(
+        nonce: u64,
+        contract_name: &str,
+        funct_name: &str,
+        args: &[ClarityValue],
+        mode: TransactionPostConditionMode,
+        postconds: Vec<TransactionPostCondition>,
+    ) -> StacksTransaction {
+        let payload = TransactionContractCall {
+            address: FAUCET_ADDRESS.clone(),
+            contract_name: ContractName::try_from(contract_name.to_string()).unwrap(),
+            function_name: ClarityName::try_from(funct_name.to_string()).unwrap(),
+            function_args: args.to_vec(),
+        };
+
+        let mut unsigned_tx = make_unsigned_tx(
+            payload.into(),
+            &FAUCET_PRIV_KEY,
+            None,
+            nonce,
+            None,
+            200,
+            CHAIN_ID_TESTNET,
+            TransactionAnchorMode::OnChainOnly,
+            TransactionVersion::Testnet,
+        );
+        unsigned_tx.post_condition_mode = mode;
+        unsigned_tx.post_conditions = postconds;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(&FAUCET_PRIV_KEY).unwrap();
+        tx_signer.get_tx().unwrap()
     }
 }
 
