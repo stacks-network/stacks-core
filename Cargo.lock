@@ -4322,6 +4322,7 @@ dependencies = [
  "clarity 0.0.1",
  "clarity-cli",
  "serde_json",
+ "stacks-codec",
  "stacks-common 0.0.1",
  "stackslib 0.0.1",
  "tempfile",
@@ -4331,6 +4332,11 @@ dependencies = [
 [[package]]
 name = "stacks-codec"
 version = "0.1.0"
+dependencies = [
+ "clarity-types 0.0.1",
+ "serde",
+ "stacks-common 0.0.1",
+]
 
 [[package]]
 name = "stacks-common"
@@ -4359,7 +4365,6 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-codec",
  "thiserror 1.0.65",
  "toml",
  "winapi 0.3.9",
@@ -4563,6 +4568,7 @@ dependencies = [
  "sha2 0.10.8",
  "siphasher",
  "slog",
+ "stacks-codec",
  "stacks-common 0.0.1",
  "stdext",
  "stx-genesis",

@@ -24,7 +24,7 @@ use crate::chainstate::stacks::index::node::{
     TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{TrieHashCalculationMode, TrieStorageConnection};
-use crate::chainstate::stacks::index::{Error, MarfTrieId, TrieHasher, TrieLeaf};
+use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId, TrieHasher, TrieLeaf};
 use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::util::macros::is_trace;
 
@@ -747,6 +747,26 @@ impl Trie {
         }
     }
 
+    /// Resolve the height of `block_header` from the MARF's own height-mapping
+    /// keys (the trie path), or, for squashed blocks, from the side table.
+    fn block_height_from_trie<T: MarfTrieId>(
+        storage: &mut TrieStorageConnection<T>,
+        block_header: &T,
+    ) -> Result<u32, Error> {
+        MARF::get_block_height_miner_tip(storage, block_header, block_header)
+            .map_err(|e| match e {
+                Error::NotFoundError => Error::CorruptionError(format!(
+                    "Could not obtain block height for block {block_header}: not found"
+                )),
+                x => x,
+            })?
+            .ok_or_else(|| {
+                Error::CorruptionError(format!(
+                    "Could not obtain block height for block {block_header}: got None"
+                ))
+            })
+    }
+
     /// Perform the reads, lookups, etc. for computing the ancestor byte vector.
     /// This method _does not_ restore the previously open block on failure, the caller will do that.
     fn inner_get_trie_ancestor_hashes_bytes<T: MarfTrieId>(
@@ -761,40 +781,40 @@ impl Trie {
         // here is where some mind-bending things begin to happen.
         //   we want to find the block at a given _height_. but how to do so?
         //   use the data stored already in the MARF.
-        let cur_block_height =
-            MARF::get_block_height_miner_tip(storage, &cur_block_header, &cur_block_header)
-                .map_err(|e| match e {
-                    Error::NotFoundError => Error::CorruptionError(format!(
-                        "Could not obtain block height for block {}: not found",
-                        &cur_block_header
-                    )),
-                    x => x,
-                })?
-                .ok_or_else(|| {
-                    Error::CorruptionError(format!(
-                        "Could not obtain block height for block {}: got None",
-                        &cur_block_header
-                    ))
-                })?;
+        let cur_block_height = Self::block_height_from_trie(storage, &cur_block_header)?;
 
         let mut log_depth = 0;
         while log_depth < 32 && (1u32 << log_depth) <= cur_block_height {
-            let prev_block_header = MARF::get_block_at_height(
-                storage,
-                cur_block_height - (1u32 << log_depth),
-                &cur_block_header,
-            )?
-            .ok_or_else(|| {
-                Error::CorruptionError(format!(
-                    "Could not obtain block hash at block height {}",
-                    cur_block_height - (1u32 << log_depth)
-                ))
-            })?;
+            let ancestor_height = cur_block_height - (1u32 << log_depth);
+            let prev_block_header =
+                MARF::get_block_at_height(storage, ancestor_height, &cur_block_header)?
+                    .ok_or_else(|| {
+                        Error::CorruptionError(format!(
+                            "Could not obtain block hash at block height {ancestor_height}"
+                        ))
+                    })?;
 
-            storage.open_block(&prev_block_header)?;
-
-            let root_ptr = storage.root_trieptr();
-            let ancestor_hash = storage.read_node_hash_bytes(&root_ptr)?;
+            // Use the per-height archival root from the side-table when the
+            // ancestor falls inside the squashed range; otherwise fall back to
+            // opening the ancestor's own trie blob.
+            let ancestor_hash = if storage
+                .squash_height()
+                .is_some_and(|h| ancestor_height <= h)
+            {
+                trie_sql::read_squashed_block_root_hash_by_height(
+                    storage.sqlite_conn(),
+                    ancestor_height,
+                )?
+                .ok_or_else(|| {
+                    Error::CorruptionError(format!(
+                        "Could not obtain squashed root hash at height {ancestor_height}"
+                    ))
+                })?
+            } else {
+                storage.open_block(&prev_block_header)?;
+                let root_ptr = storage.root_trieptr();
+                storage.read_node_hash_bytes(&root_ptr)?
+            };
 
             trace!(
                 "Include root hash {} from block {} in ancestor #{}",
