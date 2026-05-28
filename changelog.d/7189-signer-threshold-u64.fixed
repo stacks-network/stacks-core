@@ -1,0 +1,1 @@
+Fixed potential overflow in signer threshold arithmetic by widening intermediate computations to `u64` ([#7189](https://github.com/stacks-network/stacks-core/pull/7189))
