@@ -2,7 +2,8 @@
 #   https://github.com/rust-lang/rust-clippy#usage
 #   https://rust-lang.github.io/rust-clippy/master/index.html
 #
-name: Clippy Checks
+name: "Checks: Clippy"
+run-name: "Checks: Clippy [${{ github.ref_name }}]"
 
 # Only run when:
 #   - PRs are (re)opened against develop branch
@@ -32,8 +33,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  clippy-checks:
-    name: Clippy Check
+  clippy-stacks:
+    name: Clippy Check (stacks)
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -51,6 +52,22 @@ jobs:
       # Run clippy with clippy-stacks alias in .cargo/config.toml
       - name: Clippy
         run: cargo clippy-stacks
+
+  clippy-stacks-lib:
+    name: Clippy Check (stackslib)
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Setup the default rust toolchain with clippy
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          components: clippy
 
       # Run clippy with clippy-stackslib alias in .cargo/config.toml
       - name: Clippy Stackslib
