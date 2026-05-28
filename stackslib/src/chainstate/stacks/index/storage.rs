@@ -26,8 +26,9 @@ use rusqlite::{Connection, OpenFlags, Transaction};
 use sha2::Digest;
 
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_byte_len_compressed, read_hash_bytes, read_nodetype,
-    read_root_hash, write_nodetype_bytes, write_nodetype_bytes_compressed,
+    get_node_byte_len, get_node_byte_len_compressed, is_inline_child_ptr, read_hash_bytes,
+    read_nodetype, read_root_hash, reserved_root_size, resolve_inline_child_offsets,
+    write_nodetype_bytes, write_nodetype_bytes_compressed,
 };
 use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
@@ -38,7 +39,8 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
-    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher, MAX_PATCH_DEPTH,
+    blob_layout, trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher,
+    MAX_PATCH_DEPTH,
 };
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
@@ -746,7 +748,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // count get_nodetype load time for write_children_hashes_same_block benchmark, but
             // only if that code path will be exercised.
             for ptr in node.ptrs().iter() {
-                if !is_backptr(ptr.id()) && !ptr.is_empty() {
+                if is_inline_child_ptr(ptr) {
                     if let Some(start_node_time) = start_node_time.take() {
                         // count the time taken to load the root node in this case,
                         // but only do so once.
@@ -838,44 +840,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
     }
 
-    /// Compute the reserved on-disk size for a root written after its children.
-    fn reserved_root_size(base_len: usize, ptrs: &[TriePtr]) -> Result<u64, Error> {
-        let base_len = base_len as u64;
-        let inline_count = ptrs
-            .iter()
-            .filter(|p| !p.is_empty() && !is_backptr(p.id))
-            .count() as u64;
-        let inline_ptr_growth = inline_count.checked_mul(4).ok_or(Error::OverflowError)?;
-        base_len
-            .checked_add(inline_ptr_growth)
-            .ok_or(Error::OverflowError)
-    }
-
-    /// Rewrite inline child pointers from in-memory indices to file offsets.
-    fn update_inline_child_ptrs(ptrs: &mut [TriePtr], file_offsets: &[u64]) -> Result<(), Error> {
-        for ptr in ptrs.iter_mut() {
-            if ptr.is_empty() || is_backptr(ptr.id) {
-                continue;
-            }
-
-            let child_idx = ptr.try_ptr_into_usize()?;
-            let Some(&offset) = file_offsets.get(child_idx) else {
-                return Err(Error::CorruptionError("Child index out of range".into()));
-            };
-            // 0 is the sentinel for "not yet placed": valid offsets are always
-            // past the 36-byte header + root reservation.
-            if offset == 0 {
-                return Err(Error::CorruptionError(
-                    "Child offset not yet written".into(),
-                ));
-            }
-
-            ptr.ptr = offset;
-        }
-
-        Ok(())
-    }
-
     /// Walk through the buffered TrieNodes and dump them to f.
     /// This consumes this TrieRAM instance.
     ///
@@ -885,7 +849,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// blob (immediately after the header) assuming u64 pointers,
     /// and it is written last once all child offsets are known.
     pub(crate) fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
-        let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
         let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).try_ptr_into_u32()?;
 
         // Step 1: collect nodes in root-first DFS order.
@@ -897,7 +861,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 let (node, _) = self.get_nodetype(ptr)?;
                 if !node.is_leaf() {
                     for child in node.ptrs().iter() {
-                        if !child.is_empty() && !is_backptr(child.id) {
+                        if is_inline_child_ptr(child) {
                             stack.push(child.try_ptr_into_u32()?);
                         }
                     }
@@ -923,14 +887,14 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // 4 * n_inline_children bytes) between the root and the first descendant.
         let root_reserved_size = {
             let (root_node, _) = self.get_nodetype(root_mem_ptr)?;
-            Self::reserved_root_size(get_node_byte_len(root_node), root_node.ptrs())?
+            reserved_root_size(get_node_byte_len(root_node), root_node.ptrs())?
         };
 
-        // Write the blob header (parent hash + reserved 4-byte block-id field set to 0).
+        // Write the fixed blob header.
         f.rewind()?;
         f.write_all(self.parent.as_bytes())
             .map_err(Error::IOError)?;
-        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
+        f.seek(SeekFrom::Start(blob_layout::RESERVED_FIELD_OFFSET as u64))?;
         f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
 
         f.seek(SeekFrom::Start(header_size + root_reserved_size))?;
@@ -953,10 +917,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
             })?;
 
             if !entry.0.is_leaf() {
-                Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+                resolve_inline_child_offsets(entry.0.ptrs_mut(), &file_offsets)?;
             }
 
-            write_nodetype_bytes(f, &entry.0, entry.1)?;
+            write_nodetype_bytes(f, &entry.0, &entry.1)?;
         }
 
         let end_offset = f.stream_position()?;
@@ -968,10 +932,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
             .ok_or_else(|| Error::CorruptionError("Invalid root pointer in dump_consume".into()))?;
 
         if !entry.0.is_leaf() {
-            Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+            resolve_inline_child_offsets(entry.0.ptrs_mut(), &file_offsets)?;
         }
         f.seek(SeekFrom::Start(header_size))?;
-        let root_written = write_nodetype_bytes(f, &entry.0, entry.1)?;
+        let root_written = write_nodetype_bytes(f, &entry.0, &entry.1)?;
         debug_assert!(
             root_written <= root_reserved_size,
             "root wrote {root_written} bytes but only {root_reserved_size} were reserved"
@@ -1067,7 +1031,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         storage_tx: &mut TrieStorageTransaction<T>,
         f: &mut F,
     ) -> Result<u64, Error> {
-        let header_size = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let header_size = blob_layout::ROOT_NODE_OFFSET as u64;
         let max_patch_depth = MAX_PATCH_DEPTH as usize;
         let root_mem_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).try_ptr_into_u32()?;
 
@@ -1121,12 +1085,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         let node_inline = node
                             .ptrs()
                             .iter()
-                            .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                            .filter(|p| is_inline_child_ptr(p))
                             .map(|p| p.chr());
                         let diff_inline = patch_node
                             .ptr_diff
                             .iter()
-                            .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                            .filter(|p| is_inline_child_ptr(p))
                             .map(|p| p.chr());
                         node_inline.eq(diff_inline)
                     } else {
@@ -1137,7 +1101,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 // Push children onto the DFS stack.
                 if !node.is_leaf() {
                     for child in node.ptrs().iter() {
-                        if !child.is_empty() && !is_backptr(child.id) {
+                        if is_inline_child_ptr(child) {
                             let idx = child.try_ptr_into_u32()?;
                             stack.push(idx);
                         }
@@ -1169,18 +1133,18 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // 4 * n_inline_children bytes) between the root and the first descendant.
         let root_reserved_size = {
             if let Some(patch) = root_dp.patch() {
-                Self::reserved_root_size(TRIEHASH_ENCODED_SIZE + patch.size(), &patch.ptr_diff)?
+                reserved_root_size(TRIEHASH_ENCODED_SIZE + patch.size(), &patch.ptr_diff)?
             } else {
                 let (root_node, _) = self.get_nodetype(root_mem_ptr)?;
-                Self::reserved_root_size(get_node_byte_len_compressed(root_node), root_node.ptrs())?
+                reserved_root_size(get_node_byte_len_compressed(root_node), root_node.ptrs())?
             }
         };
 
-        // Write the blob header.
+        // Write the fixed blob header.
         f.rewind()?;
         f.write_all(self.parent.as_bytes())
             .map_err(Error::IOError)?;
-        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
+        f.seek(SeekFrom::Start(blob_layout::RESERVED_FIELD_OFFSET as u64))?;
         f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
 
         // Seek past the reserved root space.
@@ -1219,13 +1183,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 Error::CorruptionError("Node index out of range in dump_compressed_consume".into())
             })? = f.stream_position()?;
             if let Some(patch) = dp.patch_mut() {
-                Self::update_inline_child_ptrs(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
+                resolve_inline_child_offsets(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
             } else {
                 let entry = self.data.get_mut(dp_idx).ok_or_else(|| {
                     Error::CorruptionError("Invalid node pointer in dump_compressed_consume".into())
                 })?;
                 if !entry.0.is_leaf() {
-                    Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+                    resolve_inline_child_offsets(entry.0.ptrs_mut(), &file_offsets)?;
                 }
             }
             write_dump_ptr(f, dp, &self.data)?;
@@ -1235,13 +1199,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         // Step 4: write the root node into its reserved space.
         if let Some(patch) = root_dp.patch_mut() {
-            Self::update_inline_child_ptrs(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
+            resolve_inline_child_offsets(patch.ptr_diff.as_mut_slice(), &file_offsets)?;
         } else {
             let entry = self.data.get_mut(root_dp.ptr() as usize).ok_or_else(|| {
                 Error::CorruptionError("Invalid root pointer in dump_compressed_consume".into())
             })?;
             if !entry.0.is_leaf() {
-                Self::update_inline_child_ptrs(entry.0.ptrs_mut(), &file_offsets)?;
+                resolve_inline_child_offsets(entry.0.ptrs_mut(), &file_offsets)?;
             }
         }
         f.seek(SeekFrom::Start(header_size))?;
@@ -1266,7 +1230,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let parent_hash_bytes = read_hash_bytes(f)?;
         let parent_hash = T::from_bytes(parent_hash_bytes);
 
-        let root_disk_ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let root_disk_ptr = blob_layout::ROOT_NODE_OFFSET as u64;
 
         let root_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, root_disk_ptr);
         let (mut root_node, root_hash) = read_nodetype(f, &root_ptr)
@@ -1277,7 +1241,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         if let TrieNodeType::Node256(ref mut data) = root_node {
             // queue children in the same order we stored them
             for ptr in data.ptrs.iter_mut() {
-                if ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id()) {
+                if is_inline_child_ptr(ptr) {
                     frontier.push_back(*ptr);
 
                     // fix up ptrs
@@ -1313,7 +1277,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 };
 
                 for ptr in ptrs {
-                    if ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id()) {
+                    if is_inline_child_ptr(ptr) {
                         frontier.push_back(*ptr);
 
                         // fix up ptrs
@@ -2525,6 +2489,11 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         self.data.squash_info.as_ref()
     }
 
+    /// Returns the configured squash height, if this storage is squashed.
+    pub fn squash_height(&self) -> Option<u32> {
+        self.squash_info().map(|info| info.height)
+    }
+
     /// Set cached squashing metadata for this storage connection.
     pub(crate) fn set_squash_info(&mut self, squash_info: Option<SquashInfo>) {
         self.data.set_squash_info(squash_info);
@@ -2533,6 +2502,90 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     /// Returns a reference to the underlying SQLite connection.
     pub(crate) fn sqlite_conn(&self) -> &Connection {
         &self.db
+    }
+
+    /// Warm the file-backed blob offset cache.
+    ///
+    /// No-op for SQLite-internal storage.
+    pub fn warm_trie_offsets(&mut self) -> Result<(), Error> {
+        let db: &Connection = &self.db;
+        if let Some(trie_file) = self.blobs.as_deref_mut() {
+            trie_file.warm_trie_offsets(db)?;
+        }
+        Ok(())
+    }
+
+    /// Read `(parent_hash, root_hash)` for a block.
+    pub fn read_parent_and_root_hash(&mut self, block_id: u32) -> Result<(T, TrieHash), Error> {
+        let db: &Connection = &self.db;
+        match self.blobs.as_deref_mut() {
+            Some(trie_file) => trie_file.read_parent_and_root_hash::<T>(db, block_id),
+            None => {
+                let mut blob = db.blob_open(
+                    rusqlite::DatabaseName::Main,
+                    "marf_data",
+                    "data",
+                    block_id.into(),
+                    true,
+                )?;
+                let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
+                blob.read_exact(&mut buf)?;
+                let mut parent_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+                parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
+                let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+                root_bytes.copy_from_slice(
+                    &buf[blob_layout::ROOT_NODE_OFFSET
+                        ..blob_layout::ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE],
+                );
+                Ok((T::from_bytes(parent_bytes), TrieHash(root_bytes)))
+            }
+        }
+    }
+
+    /// Read this block's height from the squashed-block side table.
+    ///
+    /// Returns `None` for archival MARFs and for blocks outside the squashed
+    /// range.
+    pub fn squashed_block_height(&self, block_hash: &T) -> Result<Option<u32>, Error> {
+        if !self.is_squashed() {
+            return Ok(None);
+        }
+
+        trie_sql::read_squashed_block_height_by_hash(self.sqlite_conn(), block_hash)
+    }
+
+    /// Read this block's archival MARF root hash from the squashed-block side
+    /// table.
+    ///
+    /// Returns `None` for archival MARFs and for blocks outside the squashed
+    /// range.
+    pub fn squashed_block_root_hash(&self, block_hash: &T) -> Result<Option<TrieHash>, Error> {
+        if !self.is_squashed() {
+            return Ok(None);
+        }
+
+        trie_sql::read_squashed_block_root_hash_by_hash(self.sqlite_conn(), block_hash)
+    }
+
+    /// Reject trie traversal below the squash height, where blocks share the
+    /// squash blob.
+    pub fn check_historical_read_allowed(&self, block_hash: &T) -> Result<(), Error> {
+        let Some(squash_height) = self.squash_height() else {
+            return Ok(());
+        };
+
+        let Some(block_height) = self.squashed_block_height(block_hash)? else {
+            return Ok(());
+        };
+
+        if block_height < squash_height {
+            return Err(Error::HistoricalReadInSquashedRange {
+                block_height,
+                squash_height,
+            });
+        }
+
+        Ok(())
     }
 
     pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &T, bytes: Vec<TrieHash>) {
@@ -2544,6 +2597,11 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     }
 
     pub fn get_root_hash_at(&mut self, tip: &T) -> Result<TrieHash, Error> {
+        // Squashed historical blocks keep their archival roots in SQL.
+        if let Some(root_hash) = self.squashed_block_root_hash(tip)? {
+            return Ok(root_hash);
+        }
+
         let cur_block_hash = self.get_cur_block();
 
         self.open_block(tip)?;
@@ -2632,14 +2690,12 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     /// Generate a mapping between Trie root hashes and the blocks that contain them.
     ///
     /// For squashed MARFs, blocks within the squashed range (0..=H) share a
-    /// single shared trie storage whose stored trie hash was computed at height H. The
-    /// standard blob-scanning approach would produce collisions (all blocks
-    /// get the same trie hash). Instead, for each squashed block at height
-    /// K we re-derive the trie hash by combining the squash trie's content
-    /// hash with the archival ancestor hashes at height K from the SQL
-    /// metadata. This mirrors what the proof verifier computes when it
-    /// processes a segment proof inside the squash trie and the subsequent
-    /// initial shunt.
+    /// single shared trie storage whose stored trie hash was computed at height H.
+    /// The standard blob-scanning approach would produce collisions (all blocks
+    /// get the same trie hash). For each squashed block at height K we
+    /// substitute the per-height archival root hash recorded in
+    /// `marf_squashed_blocks` so that the table maps each historical block to
+    /// its own archival root.
     #[cfg(test)]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
         let mut ret = self.inner_read_persisted_root_to_blocks()?;
@@ -2648,17 +2704,17 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         // All blocks at heights 0..=H share a single squash trie, so
         // `inner_read_persisted_root_to_blocks` maps them all to the same
         // trie hash. Replace those entries with the per-height archival
-        // trie hashes stored during squashing. These are the hashes that
-        // the proof verifier expects (the squash shunt at idx = -1 injects
-        // the archival trie hash directly).
+        // trie hashes stored during squashing.
         if let Some(info) = self.data.squash_info.clone() {
             for h in 0..=info.height {
-                let Some(bh) = trie_sql::read_squash_block_hash::<T>(self.sqlite_conn(), h)? else {
+                let Some(bh) =
+                    trie_sql::read_squashed_block_hash_by_height::<T>(self.sqlite_conn(), h)?
+                else {
                     continue;
                 };
 
                 let Some(archival_trie_hash) =
-                    trie_sql::read_squash_archival_marf_root_hash(self.sqlite_conn(), h)?
+                    trie_sql::read_squashed_block_root_hash_by_height(self.sqlite_conn(), h)?
                 else {
                     continue;
                 };
@@ -2902,9 +2958,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
     /// Get the TriePtr::ptr() value for a trie's root node if the node is stored to disk.
     pub fn root_ptr_disk() -> u64 {
-        // first 32 bytes are the block parent hash
-        //   next 4 are the identifier
-        (BLOCK_HEADER_HASH_ENCODED_SIZE as u64) + 4
+        blob_layout::ROOT_NODE_OFFSET as u64
     }
 
     /// Read a node's children's hashes into the provided <Write> implementation.
