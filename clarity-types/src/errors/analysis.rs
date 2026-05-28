@@ -1117,7 +1117,8 @@ fn formatted_expected_types(expected_types: &[TypeSignature]) -> String {
 impl DiagnosableError for StaticCheckErrorKind {
     fn message(&self) -> String {
         match &self {
-            StaticCheckErrorKind::SupertypeTooLarge => "supertype of two types is too large".into(),            StaticCheckErrorKind::Expects(s) => format!("unexpected interpreter behavior: {s}"),
+            StaticCheckErrorKind::SupertypeTooLarge => "supertype of two types is too large".into(),
+            StaticCheckErrorKind::Expects(s) => format!("unexpected interpreter behavior: {s}"),
             StaticCheckErrorKind::Unreachable(s) => format!("unexpected and unacceptable interpreter behavior: {s}"),
             StaticCheckErrorKind::BadMatchOptionSyntax(source) =>
                 format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
