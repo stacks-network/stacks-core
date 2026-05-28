@@ -1,7 +1,6 @@
 name: Stacks Core Test Environment
 description: |
-    Sets up the testing environment for the Stacks Blockchain.
-
+  Sets up the testing environment for the Stacks Blockchain.
 
 inputs:
   btc-version:
@@ -30,6 +29,10 @@ runs:
       uses: ./.github/actions/cache/cargo
       with:
         action: restore
+
+    - name: Populate Cargo Registry For Offline Sub-Builds
+      shell: bash
+      run: cargo fetch --locked
 
     # Restore bitcoin cache data
     - name: Restore Bitcoin Binary Cache
