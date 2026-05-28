@@ -45,6 +45,8 @@ pub mod deps_common {
     pub mod ctrlc;
 }
 
+pub mod alloc_tracker;
+
 pub mod bitvec;
 
 pub mod consts {

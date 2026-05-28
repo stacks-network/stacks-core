@@ -1,0 +1,18 @@
+# This is a wrapper since this action is used in several workflows. goal is to have a single file to update to a new commit
+name: Install Tools
+description: |
+  Wrapper for the `taiki-e/install-action` action to install required tools.
+inputs:
+  tool:
+    description: Comma-separated list of tools to install
+    required: true
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    # Install the defined input.tool
+    - name: Install cargo-nextest (testenv fallback)
+      uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.75.21
+      with:
+        tool: ${{ inputs.tool }}
