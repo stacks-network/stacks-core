@@ -36,6 +36,8 @@ mod crypto;
 mod datamaps;
 mod defines;
 #[cfg(test)]
+mod epoch_gating;
+#[cfg(test)]
 mod post_conditions;
 mod principals;
 #[cfg(test)]

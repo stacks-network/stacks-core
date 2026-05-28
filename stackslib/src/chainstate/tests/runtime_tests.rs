@@ -32,7 +32,8 @@ use crate::chainstate::stacks::boot::test::{
 };
 use crate::chainstate::tests::consensus::{
     clarity_versions_for_epoch, contract_call_consensus_test, contract_deploy_consensus_test,
-    ConsensusTest, ConsensusUtils, ContractConsensusTest, TestBlock, EPOCHS_TO_TEST, SK_1,
+    max_tested_epoch, tested_epochs_since, ConsensusTest, ConsensusUtils, ContractConsensusTest,
+    TestBlock, EPOCHS_TO_TEST, SK_1,
 };
 use crate::core::test_util::to_addr;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -584,7 +585,7 @@ fn stack_depth_too_deep_call_chain_cdeploy() {
             &contract_code,
             "",
             &[],
-            &[],
+            ClarityVersion::ALL,
             &[],
         )
         .run();
@@ -616,10 +617,10 @@ fn stack_depth_too_deep_call_chain_ccall() {
 
     let mut epoch_blocks = HashMap::new();
     let mut nonce = 0;
-    let deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20);
+    let deploy_epochs = tested_epochs_since(StacksEpochId::Epoch20);
     let mut contract_names = Vec::new();
 
-    for epoch in deploy_epochs {
+    for epoch in &deploy_epochs {
         let contract_code = build_contract(max_call_stack_depth_for_epoch(*epoch));
         let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
         let clarity_versions = clarity_versions_for_epoch(*epoch);
@@ -668,9 +669,6 @@ fn stack_depth_too_deep_call_chain_ccall() {
 /// [`StaticCheckErrorKind::AtBlockUnavailable`].
 #[test]
 fn unknown_block_header_hash_fork() {
-    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
-    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
-
     contract_call_consensus_test!(
         contract_name: "unknown-hash",
         contract_code: "
@@ -684,7 +682,7 @@ fn unknown_block_header_hash_fork() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: &deploy_epochs,
+        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
         call_epochs: &[StacksEpochId::Epoch33],
     );
 }
@@ -697,9 +695,6 @@ fn unknown_block_header_hash_fork() {
 /// [`StaticCheckErrorKind::AtBlockUnavailable`] during deployment.
 #[test]
 fn bad_block_hash() {
-    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
-    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
-
     contract_call_consensus_test!(
         contract_name: "bad-block-hash",
         contract_code: "
@@ -713,7 +708,7 @@ fn bad_block_hash() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: &deploy_epochs,
+        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
         call_epochs: &[StacksEpochId::Epoch33],
     );
 }
@@ -844,7 +839,7 @@ fn defunct_pox_contracts() {
         })
     }
 
-    let epoch_blocks = HashMap::from([(StacksEpochId::latest(), blocks)]);
+    let epoch_blocks = HashMap::from([(max_tested_epoch(), blocks)]);
 
     let results = ConsensusTest::new(function_name!(), initial_balances, epoch_blocks).run();
 
@@ -871,6 +866,6 @@ fn block_time_not_available() {
         function_args: &[ClarityValue::UInt(1)],
         deploy_epochs: &[StacksEpochId::Epoch33],
         call_epochs: &[StacksEpochId::Epoch33],
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     )
 }

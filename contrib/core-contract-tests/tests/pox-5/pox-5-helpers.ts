@@ -71,6 +71,69 @@ export function serializeLockupScript({
   ]);
 }
 
+/**
+ * Build a fake-but-parseable L1 lockup output for a register-for-bond call.
+ * The code requires real Bitcoin tx bytes, and the merkle-proof check is
+ * satisfied via the single-tx shortcut (block merkle-root equals the
+ * canonical txid).
+ */
+export function buildL1Lockup({
+  staker,
+  sats,
+  bondIndex,
+  unlockBytes = new Uint8Array(),
+  earlyUnlockBytes = new Uint8Array(),
+}: {
+  staker: string;
+  sats: bigint;
+  bondIndex: bigint;
+  unlockBytes?: Uint8Array;
+  earlyUnlockBytes?: Uint8Array;
+}) {
+  const unlockBurnHeight = rov(pox5.getBondL1UnlockHeight(bondIndex));
+  const lockupScript = serializeLockupScript({
+    stacker: staker,
+    unlockBurnHeight,
+    unlockBytes,
+    earlyUnlockBytes,
+  });
+  const outputScript = toWitnessOutput(lockupScript);
+
+  const txBytes = BTC.RawTx.encode({
+    version: 1,
+    segwitFlag: false,
+    inputs: [
+      {
+        txid: new Uint8Array(32),
+        index: 0xffffffff,
+        finalScriptSig: new Uint8Array(),
+        sequence: 0xffffffff,
+      },
+    ],
+    outputs: [{ amount: sats, script: outputScript }],
+    witnesses: undefined,
+    lockTime: 0,
+  });
+
+  // Canonical (non-segwit) txid = double-sha256 of the serialized tx, in
+  // internal byte order. Place it as the merkle-root field (bytes 36..68)
+  // so the contract's single-tx shortcut matches.
+  const txid = sha256(sha256(txBytes));
+  const header = new Uint8Array(80);
+  header.set(txid, 36);
+
+  return {
+    amount: sats,
+    outputIndex: 0n,
+    header,
+    leafHashes: [] as Uint8Array[],
+    txCount: 1n,
+    txIndex: 0n,
+    height: 0n,
+    tx: txBytes,
+  };
+}
+
 export function sbtcBalance(address: string): bigint {
   return rovOk(sbtc.getBalance(address));
 }

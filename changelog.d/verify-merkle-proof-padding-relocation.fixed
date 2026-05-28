@@ -1,0 +1,1 @@
+Tightens the Clarity 6 `verify-merkle-proof` builtin so that it rejects CVE-2012-2459-style "inflated `tx-count`" forgeries that relocate the last real leaf of an odd-sized tree into the duplicated-padding region (e.g. presenting the same real Bitcoin tx as `(tx-index 3, tx-count 4)` against the merkle root of a 3-tx block).

@@ -6,11 +6,13 @@ import {
   ok,
 } from '@clarigen/core';
 import { Cl, ClarityType } from '@stacks/transactions';
+import { hex } from '@scure/base';
 import { accounts } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
 import { filterEvents, rov, rovErr, rovOk, txErr, txOk } from '@clarigen/test';
 import { mineUntil, stxToUStx } from '../test-helpers';
 import {
+  buildL1Lockup,
   deployTestSigner,
   errorCodes,
   expectAllSignersHaveKeys,
@@ -97,6 +99,33 @@ test('can calculate bond start height correctly', () => {
   expect(rov(pox5.bondPeriodToBurnHeight(1n))).toBe(
     rov(pox5.rewardCycleToBurnHeight(1n)) + REWARD_CYCLE_LENGTH * 2n,
   );
+});
+
+/**
+ * `uint-to-buff-le` encodes a uint as a little-endian buffer. The contract's
+ * bounds check accepts `n < u65536`, so the boundaries to verify are 0, 255,
+ * 256 (the 1→2 byte transition), 65535 (max valid), and 65536 (must panic).
+ */
+test('uint-to-buff-le encodes values < 256 as a single byte', () => {
+  expect(hex.encode(rov(pox5.uintToBuffLe(0n)))).toEqual('00');
+  expect(hex.encode(rov(pox5.uintToBuffLe(1n)))).toEqual('01');
+  expect(hex.encode(rov(pox5.uintToBuffLe(75n)))).toEqual('4b');
+  expect(hex.encode(rov(pox5.uintToBuffLe(255n)))).toEqual('ff');
+});
+
+test('uint-to-buff-le encodes values in [256, 65535] as two little-endian bytes', () => {
+  expect(hex.encode(rov(pox5.uintToBuffLe(256n)))).toEqual('0001');
+  expect(hex.encode(rov(pox5.uintToBuffLe(257n)))).toEqual('0101');
+  expect(hex.encode(rov(pox5.uintToBuffLe(0x1234n)))).toEqual('3412');
+  expect(hex.encode(rov(pox5.uintToBuffLe(0xff00n)))).toEqual('00ff');
+  expect(hex.encode(rov(pox5.uintToBuffLe(0xfffen)))).toEqual('feff');
+  expect(hex.encode(rov(pox5.uintToBuffLe(0xffffn)))).toEqual('ffff');
+});
+
+test('uint-to-buff-le panics on values >= 65536', () => {
+  expect(() => rov(pox5.uintToBuffLe(65536n))).toThrow();
+  expect(() => rov(pox5.uintToBuffLe(0x10000n))).toThrow();
+  expect(() => rov(pox5.uintToBuffLe(2n ** 64n))).toThrow();
 });
 
 /**
@@ -1291,17 +1320,7 @@ test('only early unlock admin can announce l1 early exit', () => {
       amountUstx: aliceUstx,
       btcLockup: ok({
         outputs: [
-          {
-            amount: aliceSats,
-            txid: new Uint8Array(32),
-            outputIndex: 0n,
-            header: new Uint8Array(80),
-            leafHashes: [],
-            txCount: 0n,
-            txIndex: 0n,
-            height: 0n,
-            tx: new Uint8Array(1000),
-          },
+          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1387,17 +1406,7 @@ test('l1 early exit prevents future bond rewards but leaves stx delegated', () =
       amountUstx: aliceUstx,
       btcLockup: ok({
         outputs: [
-          {
-            amount: aliceSats,
-            txid: new Uint8Array(32),
-            outputIndex: 0n,
-            header: new Uint8Array(80),
-            leafHashes: [],
-            txCount: 0n,
-            txIndex: 0n,
-            height: 0n,
-            tx: new Uint8Array(1000),
-          },
+          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1454,17 +1463,7 @@ test('l1 early exit does not erase already accrued bond rewards', () => {
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          {
-            amount: aliceSats,
-            txid: new Uint8Array(32),
-            outputIndex: 0n,
-            header: new Uint8Array(80),
-            leafHashes: [],
-            txCount: 0n,
-            txIndex: 0n,
-            height: 0n,
-            tx: new Uint8Array(1000),
-          },
+          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
         unlockBytes: new Uint8Array(),
       }),
@@ -1734,17 +1733,7 @@ test('sbtc unstake rejects invalid signer, l1 bonds, and excess withdrawal', () 
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          {
-            amount: aliceSbtc,
-            txid: new Uint8Array(32),
-            outputIndex: 0n,
-            header: new Uint8Array(80),
-            leafHashes: [],
-            txCount: 0n,
-            txIndex: 0n,
-            height: 0n,
-            tx: new Uint8Array(1000),
-          },
+          buildL1Lockup({ staker: bob, sats: aliceSbtc, bondIndex: 0n }),
         ],
         unlockBytes: new Uint8Array(),
       }),

@@ -132,18 +132,14 @@ pub mod tenure_extend;
 pub mod tx_replay;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
-    /// Run the test until the epoch 3 boundary
-    pub fn boot_to_epoch_3(&self) {
-        TEST_MINE_SKIP.set(true);
-        boot_to_epoch_3_reward_set(
-            &self.running_nodes.conf,
-            &self.running_nodes.counters.blocks_processed,
-            &self.signer_stacks_private_keys,
-            &self.signer_stacks_private_keys,
-            &self.running_nodes.btc_regtest_controller,
-            Some(self.num_stacking_cycles),
-        );
-
+    /// Poll until the reward set for the next reward cycle is available.
+    ///
+    /// If the coordinator hasn't yet determined the PoX anchor block and the
+    /// burn chain is still short of the next cycle boundary, mine another
+    /// burn block to give it the nudge it needs. Once past the boundary,
+    /// just wait — the anchor block had to be chosen from blocks before the
+    /// boundary, so mining more won't help.
+    pub fn wait_for_next_reward_set_calculation(&self) {
         info!("Waiting for signer set calculation.");
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
@@ -188,8 +184,22 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             }
         })
         .expect("Timed out waiting for reward set calculation");
-
         info!("Signer set calculated");
+    }
+
+    /// Run the test until the epoch 3 boundary
+    pub fn boot_to_epoch_3(&self) {
+        TEST_MINE_SKIP.set(true);
+        boot_to_epoch_3_reward_set(
+            &self.running_nodes.conf,
+            &self.running_nodes.counters.blocks_processed,
+            &self.signer_stacks_private_keys,
+            &self.signer_stacks_private_keys,
+            &self.running_nodes.btc_regtest_controller,
+            Some(self.num_stacking_cycles),
+        );
+
+        self.wait_for_next_reward_set_calculation();
 
         // Manually consume one more block to ensure signers refresh their state
         info!("Waiting for signers to initialize.");
@@ -478,6 +488,17 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 .all(|(addr, initial)| get_account(&http_origin, addr).nonce >= initial + 1))
         })
         .expect("Timed out waiting for per-signer contract publishes to confirm");
+        // Nonces advancing only proves the publish txs were mined; a static-
+        // check failure (e.g. trait drift) still consumes the nonce without
+        // instantiating the contract, which would surface as a misleading
+        // NoSuchContract panic on register-self below. Assert here instead.
+        for (signer_addr, per_signer_name, _) in &contract_principals {
+            assert!(
+                contract_source_exists(&http_origin, signer_addr, per_signer_name),
+                "per-signer contract {signer_addr}.{per_signer_name} did not instantiate; \
+                 check for trait drift between pox5_signer_manager_source() and pox-5.clar's signer-manager-trait",
+            );
+        }
 
         // Step 2: call register-self on each per-signer contract. Each
         // signer signs its own grant.
@@ -568,29 +589,33 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
 }
 
 /// Source for the per-signer signer-manager contract published by
-/// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]. `validate-stake!` is
-/// a no-op (always ok) and `register-self` forwards a signer-key grant +
-/// `register-signer` call to pox-5 under `as-contract?`.
+/// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]. `validate-stake!` and
+/// `checkpoint-staker` are no-ops (always ok); `register-self` forwards a
+/// signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
 fn pox5_signer_manager_source() -> &'static str {
     r#"
 (impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 
 (define-public (validate-stake!
-    ;; #[allow(unused_binding)]
-    (staker principal)
-    ;; #[allow(unused_binding)]
-    (amount-ustx uint)
-    ;; #[allow(unused_binding)]
-    (amount-sats uint)
-    ;; #[allow(unused_binding)]
-    (num-cycles uint)
-    ;; #[allow(unused_binding)]
-    (is-bond bool)
-    ;; #[allow(unused_binding)]
-    (signer-calldata (optional (buff 500)))
-  )
-  (ok true)
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (checkpoint-staker
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (is-bond bool)
+    )
+    (ok true)
 )
 
 (define-public (register-self
@@ -751,31 +776,7 @@ impl SignerTest<SpawnedSigner> {
             target_height,
             &self.running_nodes.conf,
         );
-        debug!("Waiting for signer set calculation.");
-        // Make sure the signer set is calculated before continuing or signers may not
-        // recognize that they are registered signers in the subsequent burn block event
-        let reward_cycle = self.get_current_reward_cycle().wrapping_add(1);
-        wait_for(60, || {
-            match self.stacks_client.get_reward_set_signers(reward_cycle) {
-                Ok(Some(reward_set)) => {
-                    debug!("Signer set: {reward_set:?}");
-                    Ok(true)
-                }
-                Ok(None) => Ok(false),
-                Err(e) => {
-                    // The node may return a 400 PoXAnchorBlockRequired while
-                    // the coordinator is still processing the prepare phase.
-                    // All prepare phase burn blocks have been mined; just wait
-                    // for the coordinator to catch up.
-                    debug!(
-                        "Reward set not yet available: {e}. Waiting for coordinator to catch up."
-                    );
-                    Ok(false)
-                }
-            }
-        })
-        .expect("Failed to calculate reward set");
-        debug!("Signer set calculated");
+        self.wait_for_next_reward_set_calculation();
         // Manually consume one more block to ensure signers refresh their state
         debug!("Waiting for signers to initialize.");
         info!("Advancing to the first full Epoch 2.5 reward cycle boundary...");
@@ -1499,6 +1500,19 @@ impl MultipleMinerTest {
                 }))
         })
         .expect("Timed out waiting for per-signer publishes on both nodes");
+        // Nonces advancing only proves the publish txs were mined; a static-
+        // check failure (e.g. trait drift) still consumes the nonce without
+        // instantiating the contract, which would surface as a misleading
+        // NoSuchContract panic on register-self below. Check both nodes.
+        for (signer_addr, per_signer_name, _) in &contract_principals {
+            for origin in [&http_origin_1, &http_origin_2] {
+                assert!(
+                    contract_source_exists(origin, signer_addr, per_signer_name),
+                    "per-signer contract {signer_addr}.{per_signer_name} did not instantiate on {origin}; \
+                     check for trait drift between pox5_signer_manager_source() and pox-5.clar's signer-manager-trait",
+                );
+            }
+        }
 
         // Step 2: register-self on each per-signer contract. Each signer
         // signs its own grant.
@@ -1755,6 +1769,10 @@ impl MultipleMinerTest {
         )
     }
 
+    fn node_2_http(&self) -> String {
+        format!("http://{}", &self.conf_node_2.node.rpc_bind)
+    }
+
     /// Sends a transfer tx to the stacks node and waits for the stacks node to mine it
     /// Returns the txid of the transfer tx.
     pub fn send_and_mine_transfer_tx(&mut self, timeout_secs: u64) -> Result<String, String> {
@@ -1773,7 +1791,31 @@ impl MultipleMinerTest {
         contract_name: &str,
         contract_src: &str,
     ) -> String {
-        let http_origin = self.node_http();
+        self.send_contract_publish_to(&self.node_http(), sender_nonce, contract_name, contract_src)
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node.
+    pub fn send_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
+        self.send_contract_publish_to(
+            &self.node_2_http(),
+            sender_nonce,
+            contract_name,
+            contract_src,
+        )
+    }
+
+    fn send_contract_publish_to(
+        &self,
+        http_origin: &str,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
         let contract_tx = make_contract_publish(
             &self.sender_sk,
             sender_nonce,
@@ -1782,7 +1824,7 @@ impl MultipleMinerTest {
             contract_name,
             contract_src,
         );
-        submit_tx(&http_origin, &contract_tx)
+        submit_tx(http_origin, &contract_tx)
     }
 
     /// Sends a contract publish tx to the stacks node and waits for the stacks node to mine it
@@ -1797,6 +1839,34 @@ impl MultipleMinerTest {
         let stacks_height_before = self.get_peer_stacks_tip_height();
 
         let txid = self.send_contract_publish(sender_nonce, contract_name, contract_src);
+
+        // wait for the new block to be mined
+        wait_for(timeout_secs, || {
+            Ok(self.get_peer_stacks_tip_height() > stacks_height_before)
+        })
+        .unwrap();
+
+        // wait for the observer to see it
+        self.wait_for_test_observer_blocks(timeout_secs);
+
+        if last_block_contains_txid(&txid) {
+            Ok(txid)
+        } else {
+            Err(txid)
+        }
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node and waits for it to be mined.
+    pub fn send_and_mine_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+        timeout_secs: u64,
+    ) -> Result<String, String> {
+        let stacks_height_before = self.get_peer_stacks_tip_height();
+
+        let txid = self.send_contract_publish_to_node_2(sender_nonce, contract_name, contract_src);
 
         // wait for the new block to be mined
         wait_for(timeout_secs, || {
