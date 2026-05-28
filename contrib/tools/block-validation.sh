@@ -354,6 +354,9 @@ configure_validation_slices() {
     local chainstate_fp=""
     if [ -f "${chainstate_sentinel}" ]; then
         chainstate_fp=$(stat -c '%Y:%s' "${chainstate_sentinel}")
+    else
+        error "chainstate file not found: ${chainstate_sentinel}"
+        exit 1
     fi
 
     # Reuse the existing scratch dir if the previous run used the same chainstate
@@ -404,17 +407,21 @@ configure_validation_slices() {
         exit 1
     }
 
-    # Check if reflink is enabled for the filesystem by copying a test file
+    # Probe reflink by mirroring the real CHAIN_DIR -> SCRATCH_DIR copy. A self-copy
+    # within SCRATCH_DIR wouldn't catch the case where CHAIN_DIR and SCRATCH_DIR are
+    # on different logical volumes (reflink requires src/dest on the same filesystem).
     local reflink=0
-    touch "${SCRATCH_DIR}/reflink_test"
-    if cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null; then
+    local reflink_probe_dst="${SCRATCH_DIR}/reflink_test"
+    if cp --reflink=always "${chainstate_sentinel}" "${reflink_probe_dst}" 2>/dev/null; then
         reflink=1
         info "$(green "Reflink is supported"): chainstate slice copies will be fast and space-efficient"
     else
-        warn "reflink is not enabled for this filesystem, chainstate copy will be slower"
+        warn "reflink not available, chainstate slice copies will be slower and take more space. Possible causes:"
+        warn "  - chain dir ($(highlight "${CHAIN_DIR}")) and scatch dir ($(highlight "${SCRATCH_DIR}")) are on different logical volumes"
+        warn "  - filesystem does not support reflink (only supported on XFS, Btrfs, ZFS, or APFS)"
     fi
-    # Remove the test files, silently failing if the file(s) don't exist
-    rm "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy"  2>/dev/null
+    # Remove the test file, silently failing if it doesn't exist
+    rm -f "${reflink_probe_dst}" 2>/dev/null
     
     # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
     if [[ ${reflink} -ne "1" ]]; then
