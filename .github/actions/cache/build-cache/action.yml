@@ -1,21 +1,12 @@
 name: Build Test Archive Caches
 description: |
-    Builds the nextest test archive and saves the cargo registry, target, and
-    test-archive caches populated by that build. The archive build is the
-    canonical full-workspace cargo invocation, so saving cargo state after it
-    captures every crate the workspace tests actually touch (including ones
-    that bare `cargo fetch` under-reports). Downstream test runners then see
-    a complete registry — necessary for offline sub-builds like trybuild.
+    Builds the nextest test archive and saves the cargo-target and
+    test-archive caches. The cargo registry cache is produced upstream by
+    cargo-fetch.yml and only restored here.
 
 runs:
   using: "composite"
   steps:
-    # Probe cache states up front so each downstream step knows whether to
-    # act. Each cache is saved independently, so the "miss" conditions differ.
-    - name: Check Cargo Cache
-      uses: ./.github/actions/cache/cargo
-      id: check_cargo_cache
-
     - name: Check Cargo Target Cache
       uses: ./.github/actions/cache/cargo-target
       id: check_target_cache
@@ -24,29 +15,22 @@ runs:
       uses: ./.github/actions/cache/test-archive
       id: check_test_archive_cache
 
-    # Toolchain is only needed when at least one cache is missing.
     - name: Setup Rust Toolchain
       if: |
-        steps.check_cargo_cache.outputs.cache-hit != 'true' ||
         steps.check_target_cache.outputs.cache-hit != 'true' ||
         steps.check_test_archive_cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/setup-rust-toolchain
       with:
         components: llvm-tools-preview
 
-    # Warm-start: restore the cargo cache when it exists. Skipped on a cargo
-    # cache miss — the archive build (or the fallback fetch below) will
-    # populate ~/.cargo from scratch.
     - name: Restore Cargo Cache
       if: |
-        steps.check_cargo_cache.outputs.cache-hit == 'true' &&
-        (steps.check_target_cache.outputs.cache-hit != 'true' ||
-         steps.check_test_archive_cache.outputs.cache-hit != 'true')
+        steps.check_target_cache.outputs.cache-hit != 'true' ||
+        steps.check_test_archive_cache.outputs.cache-hit != 'true'
       uses: ./.github/actions/cache/cargo
       with:
         action: restore
 
-    # nextest is only needed when we're rebuilding the archive.
     - name: Install Dependencies
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -55,8 +39,6 @@ runs:
       with:
         tool: nextest
 
-    # Canonical full-workspace cargo invocation. Pulls every dep the workspace
-    # tests need into ~/.cargo, then archives the compiled test binaries.
     - name: Build and Archive Tests
       if: |
         steps.check_target_cache.outputs.cache-hit != 'true' ||
@@ -70,23 +52,6 @@ runs:
           --locked \
           --features monitoring_prom \
           --archive-file ~/test_archive.tar.zst
-
-    # Edge case: cargo cache missing but target + test-archive both hit. No
-    # archive rebuild needed; just populate the registry so we can save it.
-    - name: Fetch Cargo Dependencies
-      if: |
-        steps.check_cargo_cache.outputs.cache-hit != 'true' &&
-        steps.check_target_cache.outputs.cache-hit == 'true' &&
-        steps.check_test_archive_cache.outputs.cache-hit == 'true'
-      shell: bash
-      run: cargo fetch --locked
-
-    # Save the cargo cache once the registry reflects every workspace dep.
-    - name: Cache Cargo
-      if: steps.check_cargo_cache.outputs.cache-hit != 'true'
-      uses: ./.github/actions/cache/cargo
-      with:
-        action: save
 
     - name: Cache Nextest Archive
       if: |

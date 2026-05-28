@@ -25,6 +25,11 @@ concurrency:
   cancel-in-progress: ${{ github.head_ref != '' }}
 
 jobs:
+  # Produce the shared cargo registry cache. This is the only writer of the
+  # cargo cache; downstream jobs in this workflow only read it.
+  cargo-fetch:
+    uses: ./.github/workflows/cargo-fetch.yml
+
   # Check which caches already exist before creating them
   check-caches:
     name: Check Caches
@@ -86,18 +91,19 @@ jobs:
         with:
           action: save
 
-  # Build the nextest archive and populate the cargo, cargo-target, and
-  # test-archive caches. All three are saved from the same workspace build so
-  # the cargo registry reflects every crate the tests actually touch — this is
-  # what offline sub-builds (e.g. trybuild) depend on at test-run time.
+  # Build the nextest archive, populating the cargo-target and test-archive
+  # caches. The cargo registry cache it relies on is produced upstream by
+  # `cargo-fetch` and restored read-only.
   nextest-archive:
     name: Test Archive
-    needs: check-caches
+    needs:
+      - cargo-fetch
+      - check-caches
     runs-on: ubuntu-latest
     if: >-
       !cancelled() &&
-      (needs.check-caches.outputs.cargo-cache-hit != 'true' ||
-       needs.check-caches.outputs.cargo-target-cache-hit != 'true' ||
+      needs.cargo-fetch.result == 'success' &&
+      (needs.check-caches.outputs.cargo-target-cache-hit != 'true' ||
        needs.check-caches.outputs.test-archive-cache-hit != 'true')
     steps:
       # Checkout the code

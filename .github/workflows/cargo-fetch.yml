@@ -1,0 +1,97 @@
+# Github workflow: produce the shared cargo registry cache.
+#
+# This is the single producer of the cargo cache. Downstream workflows
+# (create-cache.yml, cargo-hack-check.yml) call this and then restore the
+# saved cache read-only — keeping the cache single-writer per the project's
+# scoping policy.
+#
+# Fetches cover every consumer target so the saved cache is complete:
+#   - x86_64-unknown-linux-gnu (nextest archive build, cargo-hack native)
+#   - x86_64-pc-windows-gnu    (cargo-hack native)
+#   - wasm32-unknown-unknown   (cargo-hack wasm)
+#   - clarity/fuzz             (cargo-hack fuzz nightly; separate workspace)
+#   - stackslib/fuzz           (cargo-hack fuzz nightly; separate workspace)
+
+name: Cargo Fetch
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Two callers (create-cache.yml and cargo-hack-check.yml) may invoke this in
+# parallel under ci.yml. The concurrency group serialises them so the second
+# invocation finds the cache already saved and short-circuits.
+concurrency:
+  group: cargo-fetch-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  cargo-fetch:
+    name: Cargo Fetch
+    runs-on: ubuntu-latest
+    steps:
+      # Full checkout — `cargo fetch` needs every workspace Cargo.toml plus
+      # the fuzz sub-workspaces' manifests.
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Probe cache state. Everything below short-circuits on hit.
+      - name: Check Cargo Cache
+        id: check_cache
+        uses: ./.github/actions/cache/cargo
+
+      - name: Setup Rust Toolchain
+        if: steps.check_cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          target: x86_64-pc-windows-gnu,x86_64-unknown-linux-gnu,wasm32-unknown-unknown
+
+      # Multi-target fetch — covers all downstream consumer targets in a
+      # single resolver run.
+      - name: Fetch Workspace Dependencies
+        if: steps.check_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cargo fetch --locked \
+            --target x86_64-unknown-linux-gnu \
+            --target x86_64-pc-windows-gnu \
+            --target wasm32-unknown-unknown
+
+      # Fuzz manifests are separate workspaces (each has its own Cargo.lock)
+      # and aren't reached by the workspace-root fetch above.
+      - name: Fetch Fuzz Manifest Dependencies
+        if: steps.check_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cargo fetch --locked --manifest-path clarity/fuzz/Cargo.toml
+          cargo fetch --locked --manifest-path stackslib/fuzz/Cargo.toml
+
+      # Fail loudly on a mysteriously-undersized cache. Prior incident: an
+      # earlier `cargo fetch --locked` run produced only ~7 MB (sparse index
+      # only, no .crate sources) — likely CARGO_HOME mismatch. We'd rather
+      # fail this job than silently save a useless cache that breaks every
+      # downstream consumer.
+      - name: Verify Cargo Cache Population
+        if: steps.check_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== ~/.cargo/registry sizes ==="
+          du -sh ~/.cargo/registry ~/.cargo/registry/* 2>&1 || true
+          count=$(find ~/.cargo/registry/cache -name '*.crate' -type f 2>/dev/null | wc -l)
+          echo "registry/cache contains $count .crate files"
+          if [ "$count" -lt 200 ]; then
+            echo "::error::cargo registry under-populated ($count < 200 .crate files); cache would be useless to downstream consumers"
+            exit 1
+          fi
+
+      - name: Save Cargo Cache
+        if: steps.check_cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache/cargo
+        with:
+          action: save
