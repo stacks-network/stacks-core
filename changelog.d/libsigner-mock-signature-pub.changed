@@ -1,1 +1,0 @@
-Exposed `MockSignature::signature` field and `MockProposal::signer_signature_hash()` method as `pub` in `libsigner::v0::messages`, enabling external consumers (observer/indexer tooling) to recover signer pubkeys from mock signer messages without maintaining a local copy of these types.
