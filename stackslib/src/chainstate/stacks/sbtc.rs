@@ -16,33 +16,28 @@
 //! sBTC P2TR (taproot) deposit-script derivation.
 //!
 //! The per-cycle sBTC recipient is a witness-v1 P2TR output committing to a
-//! script tree with two leaves:
+//! 2-leaf script tree:
 //!
-//! * **deposit**: `<deposit-data> OP_DROP OP_PUSHBYTES_32 <x-only-pubkey> OP_CHECKSIG`
+//! - deposit: `<deposit-data> OP_DROP OP_PUSHBYTES_32 <x-only-pubkey> OP_CHECKSIG`
 //!   where `<deposit-data> = <max-fee:u64-be> || <consensus-encoded recipient principal>`.
-//! * **reclaim**: `<lock_time push> OP_CSV <user-supplied-bytes>`. For PoX-5
-//!   scaffolding we use `lock_time = u16::MAX` and `[OP_RETURN]` as the
-//!   user-supplied bytes — that disables the reclaim path entirely.
+//! - reclaim: `<lock_time push> OP_CSV <user-supplied-bytes>`. PoX-5 scaffolding
+//!   uses `lock_time = u16::MAX` and `[OP_RETURN]` for user bytes, disabling
+//!   the reclaim path.
 //!
 //! The taproot internal key is the BIP-0341 NUMS x-coordinate (no known
-//! discrete logarithm), so neither leaf is reachable via key-path; only via
-//! script-path through the two leaves.
+//! discrete log), so neither leaf is reachable via key-path; only script-path
+//! through the two leaves.
 //!
-//! ## Vendoring note
+//! Taproot primitives (tagged hashes, leaf/branch hashing, key tweak) are
+//! implemented inline against `sha2::Sha256` and `secp256k1`'s
+//! `XOnlyPublicKey::add_tweak`. Pulling in the `bitcoin` crate would add a
+//! second `secp256k1` version and a `bitcoin::script::PushBytes` impl that
+//! ambiguates `[u8; N].as_ref()` elsewhere. The reference fixtures in the
+//! test module validate the inline impl byte-for-byte against the sBTC source.
 //!
-//! The taproot-specific primitives (tagged hashes, leaf hashing, branch
-//! hashing, key tweak) are implemented inline below using `sha2::Sha256`
-//! and `secp256k1`'s `XOnlyPublicKey::add_tweak`. This avoids a workspace
-//! dependency on the `bitcoin` crate (which would otherwise pull in a
-//! second `secp256k1` version and add a `bitcoin::script::PushBytes`
-//! impl that ambiguates `[u8; N].as_ref()` elsewhere in the codebase).
-//! The 5 reference fixtures in the test module validate the implementation
-//! byte-for-byte against an external sBTC source.
-//!
-//! This module imports `secp256k1` directly rather than going through the
-//! project's `Secp256k1PublicKey` wrapper. That's a deliberate exception:
-//! the wrapper doesn't expose `XOnlyPublicKey` or `add_tweak`, and adding
-//! that surface for one consumer isn't worth it.
+//! `secp256k1` is imported directly rather than via `Secp256k1PublicKey`
+//! because the project wrapper does not expose `XOnlyPublicKey` /
+//! `add_tweak`, and widening it for one consumer is not worth it.
 
 use clarity::vm::types::PrincipalData;
 use secp256k1::{Scalar, Secp256k1, XOnlyPublicKey};
@@ -234,6 +229,45 @@ mod tests {
     use stacks_common::util::hash::{hex_bytes, to_hex};
 
     use super::*;
+
+    /// Bitcoin varint reference table covering each branch + boundary of
+    /// `write_compact_size`:
+    /// - `n < 0xfd`: single byte
+    /// - `0xfd <= n <= 0xffff`: `0xfd` + u16 LE
+    /// - `0x10000 <= n <= 0xffff_ffff`: `0xfe` + u32 LE
+    /// - `n >= 0x1_0000_0000`: `0xff` + u64 LE
+    ///
+    /// A wrong encoding feeds into the sBTC P2TR deposit script and changes
+    /// the taproot output hash, sending funds to the wrong on-chain address.
+    /// Explicit fixtures pin each branch so a comparator flip surfaces.
+    #[test]
+    fn compact_size_boundary_table() {
+        let cases: &[(u64, &[u8])] = &[
+            (0, &[0x00]),
+            (1, &[0x01]),
+            (252, &[0xfc]),
+            (253, &[0xfd, 0xfd, 0x00]),
+            (0xffff, &[0xfd, 0xff, 0xff]),
+            (0x10000, &[0xfe, 0x00, 0x00, 0x01, 0x00]),
+            (0xffff_ffff, &[0xfe, 0xff, 0xff, 0xff, 0xff]),
+            (
+                0x1_0000_0000,
+                &[0xff, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00],
+            ),
+            (
+                u64::MAX,
+                &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+            ),
+        ];
+        for (n, expected) in cases {
+            let mut buf = Vec::new();
+            write_compact_size(&mut buf, *n);
+            assert_eq!(
+                buf, *expected,
+                "write_compact_size({n}) = {buf:?}, expected {expected:?}"
+            );
+        }
+    }
 
     /// Reference fixtures generated from stacks-sbtc/sbtc's
     /// `sbtc::deposits::to_script_pubkey` via
@@ -658,43 +692,34 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Property tests.
-    //
-    // These probe the derivation invariants — determinism, sensitivity to
-    // each input dimension, robustness against malformed pubkeys, and
-    // wrapper/generic agreement — across a randomized search space that
-    // the hand-picked reference fixtures above cannot exhaustively cover.
-    // ---------------------------------------------------------------------
+    // Property tests covering derivation invariants: determinism, per-input
+    // sensitivity, rejection of malformed pubkeys, and wrapper/generic
+    // agreement across a randomized search space the reference fixtures above
+    // cannot exhaustively cover.
 
     use pinny::tag;
     use proptest::prelude::*;
 
     thread_local! {
-        /// Lazily-built `Secp256k1` context, reused across every iteration of
-        /// `arb_valid_xonly_pubkey`. `Secp256k1::new` precomputes
-        /// multiplication tables on construction; reusing the same context
-        /// keeps the proptest budget on the property itself, not on context
-        /// setup.
+        /// Lazily-built `Secp256k1` context, reused across iterations.
+        /// `Secp256k1::new` precomputes multiplication tables; sharing the
+        /// context keeps the proptest budget on the property, not setup.
         static SECP_CTX: Secp256k1<secp256k1::All> = Secp256k1::new();
     }
 
-    /// Arbitrary 32-byte sequence that is a valid x-only secp256k1 point.
+    /// 32 bytes that form a valid x-only secp256k1 point.
     ///
     /// Maps a uniform 32-byte input through `SecretKey -> PublicKey -> x`.
-    /// `SecretKey::from_slice` rejects only the all-zeros scalar and bytes
-    /// `>= n` (curve order); both events have probability ~2^-128 over a
-    /// uniform random input, so the rejection budget is effectively never
-    /// touched. We keep `prop_filter_map` for total correctness rather than
-    /// `unwrap`-ing on a panic that would only ever fire under cosmic-ray
-    /// bit-flip conditions.
+    /// `SecretKey::from_slice` rejects only zero and `>= n` (curve order);
+    /// both have probability ~2^-128 over uniform input, so the rejection
+    /// budget is effectively untouched. `prop_filter_map` is kept for total
+    /// correctness rather than `unwrap`-ing.
     fn arb_valid_xonly_pubkey() -> impl Strategy<Value = [u8; 32]> {
         any::<[u8; 32]>().prop_filter_map("scalar not in [1, n)", |sk_bytes| {
             let sk = secp256k1::SecretKey::from_slice(&sk_bytes).ok()?;
             SECP_CTX.with(|secp| {
                 let pk = secp256k1::PublicKey::from_secret_key(secp, &sk);
-                // 33-byte compressed encoding: `[parity, x[0..32]]`. Drop the
-                // parity byte to get x-only.
+                // Compressed: `[parity, x[0..32]]`; drop parity for x-only.
                 let compressed = pk.serialize();
                 let mut xonly = [0u8; 32];
                 xonly.copy_from_slice(&compressed[1..]);
@@ -703,9 +728,8 @@ mod tests {
         })
     }
 
-    /// Arbitrary 33-byte compressed secp256k1 pubkey: prefix `0x02`/`0x03`
-    /// followed by a valid x-coordinate. Matches what
-    /// `get-current-aggregate-pubkey` returns to the PoX-5 wrapper.
+    /// 33-byte compressed secp256k1 pubkey: prefix `0x02`/`0x03` + valid
+    /// x-coordinate. Matches `get-current-aggregate-pubkey`'s output.
     fn arb_valid_compressed_pubkey_33() -> impl Strategy<Value = [u8; 33]> {
         (arb_valid_xonly_pubkey(), prop_oneof![Just(0x02u8), Just(0x03u8)]).prop_map(
             |(xonly, prefix)| {
@@ -718,23 +742,20 @@ mod tests {
     }
 
     /// Standard principal (version < 32, arbitrary 20-byte hash).
-    /// Construction is total — `version < 32` is guaranteed by the range,
-    /// so `StandardPrincipalData::new` cannot fail.
+    /// `version < 32` is enforced by the range, so construction is total.
     fn arb_standard_principal() -> impl Strategy<Value = StandardPrincipalData> {
         (0u8..32u8, any::<[u8; 20]>()).prop_map(|(version, bytes)| {
             StandardPrincipalData::new(version, bytes).expect("version < 32 by construction")
         })
     }
 
-    /// Structurally-valid Clarity contract name. Uses a fixed `t-` prefix
-    /// followed by an arbitrary suffix in `[a-z0-9-]` of length 0..=37.
-    /// Total length 2..=39, well under the 40-char cap.
+    /// Valid Clarity contract name: fixed `t-` prefix + `[a-z0-9-]{0,37}`,
+    /// total length 2..=39 (under the 40-char cap).
     ///
-    /// Why the fixed prefix: no Clarity reserved keyword starts with a
-    /// single letter followed by `-` (they are full words like `tx-sender`,
-    /// `block-height`, `as-contract`). So `t-XXX` is guaranteed never to
-    /// collide with a reserved name — and `ContractName::try_from` cannot
-    /// reject the output. The name is constructively valid by shape.
+    /// Why the fixed prefix: every Clarity reserved keyword is a full word
+    /// (`tx-sender`, `block-height`, `as-contract`), never `<letter>-<x>`.
+    /// `t-XXX` therefore cannot collide with a reserved name and
+    /// `ContractName::try_from` cannot reject it.
     fn arb_contract_name() -> impl Strategy<Value = ContractName> {
         prop::collection::vec(
             prop_oneof![b'a'..=b'z', b'0'..=b'9', Just(b'-')],
@@ -750,9 +771,8 @@ mod tests {
         })
     }
 
-    /// Standard- or Contract-variant principal. Both arms are weighted
-    /// uniformly; the recipient sensitivity tests below assume both shapes
-    /// are routinely exercised.
+    /// Standard- or Contract-variant principal, uniformly weighted. The
+    /// recipient sensitivity tests below assume both shapes are exercised.
     fn arb_principal_data() -> impl Strategy<Value = PrincipalData> {
         prop_oneof![
             arb_standard_principal().prop_map(PrincipalData::Standard),
@@ -762,20 +782,14 @@ mod tests {
         ]
     }
 
-    /// Cap user-reclaim scripts at sBTC's `MAX_RECLAIM_SCRIPT_LENGTH`
-    /// (2048 bytes) — anything larger is rejected by the validator
-    /// upstream of this helper.
+    /// sBTC's `MAX_RECLAIM_SCRIPT_LENGTH` (2048). Larger inputs are rejected
+    /// upstream by the validator.
     const MAX_USER_RECLAIM_SCRIPT_LEN: usize = 2048;
 
-    // ----------------------------------------------------------------
-    // Generator validity properties
-    //
-    // A generator bug masquerades as N implementation bugs across
-    // unrelated downstream properties. These cheap, self-contained
-    // proptests pin each custom generator to its claimed invariant so
-    // a future refactor that breaks the generator surfaces here, not
-    // as confusing false-positives elsewhere.
-    // ----------------------------------------------------------------
+    // Generator validity properties. A generator bug masquerades as N bugs
+    // across unrelated downstream properties; these proptests pin each
+    // generator to its claimed invariant so a refactor that breaks the
+    // generator surfaces here, not as false positives elsewhere.
 
     proptest! {
         /// `arb_valid_xonly_pubkey` claims to produce 32 bytes that are
