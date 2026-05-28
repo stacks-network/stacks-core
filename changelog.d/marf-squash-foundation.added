@@ -1,1 +1,0 @@
-Bump MARF index DB schema to v3: add squash metadata tables (`marf_squash_info`, `marf_squashed_blocks`) and the storage foundation for the MARF squashing pipeline.
