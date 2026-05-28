@@ -343,6 +343,12 @@ configure_chainstate() {
 # existing scratch dir if its .scratch_meta matches the current chainstate fingerprint
 # and slice count; otherwise wipes and rebuilds, using reflink when the filesystem
 # supports it (falls back to a single full copy plus marf.sqlite.blobs symlinks).
+#
+# When reflink isn't available AND is_range_nakamoto_only is true, copies only
+# the subset stacks-inspect needs for Epoch 3+ validation (burnchain/,
+# chainstate/vm/, and chainstate/blocks/nakamoto.sqlite*) and skips the thousands
+# of pre-nakamoto block subdirs. Gated on reflink because with reflink each
+# per-slice copy is metadata-only and skipping those subdirs barely helps.
 configure_validation_slices() {
     local meta_file="${SCRATCH_DIR}/.scratch_meta"
     local expected_slices="${CORES}"
@@ -359,21 +365,48 @@ configure_validation_slices() {
         exit 1
     fi
 
+    # Probe reflink up-front so we can decide whether to apply the nakamoto-only
+    # copy optimization (only worthwhile when reflink is unavailable). The probe
+    # mirrors the real CHAIN_DIR -> SCRATCH_DIR copy: a self-copy within SCRATCH_DIR
+    # wouldn't catch the case where CHAIN_DIR and SCRATCH_DIR are on different
+    # logical volumes (reflink requires src/dest on the same filesystem).
+    mkdir -p "${SCRATCH_DIR}"
+    local reflink=0
+    local reflink_probe_dst="${SCRATCH_DIR}/reflink_test"
+    if cp --reflink=always "${chainstate_sentinel}" "${reflink_probe_dst}" 2>/dev/null; then
+        reflink=1
+        info "$(green "Reflink is supported"): chainstate slice copies will be fast and space-efficient"
+    else
+        warn "reflink not available, chainstate slice copies will be slower and take more space. Possible causes:"
+        warn "  - chain dir ($(highlight "${CHAIN_DIR}")) and scatch dir ($(highlight "${SCRATCH_DIR}")) are on different logical volumes"
+        warn "  - filesystem does not support reflink (only supported on XFS, Btrfs, ZFS, or APFS)"
+    fi
+    # Remove the test file, silently failing if it doesn't exist
+    rm -f "${reflink_probe_dst}" 2>/dev/null
+
+    local nakamoto_only=0
+    if [[ ${reflink} -eq 0 ]] && is_range_nakamoto_only; then
+        nakamoto_only=1
+    fi
+
     # Reuse the existing scratch dir if the previous run used the same chainstate
-    # (path AND fingerprint) and produced the same number of slices, and every
-    # expected slice still has a valid chainstate db. 
+    # (path AND fingerprint), same slice count, and same nakamoto_only flag (a
+    # naka-only slice is missing the pre-naka blocks/* needed by a non-naka-only run),
+    # and every expected slice still has a valid chainstate db.
     if [ -d "${SCRATCH_DIR}" ] && [ -f "${meta_file}" ]; then
-        local prev_chainstate="" prev_slices="" prev_chainstate_fp=""
+        local prev_chainstate="" prev_slices="" prev_chainstate_fp="" prev_naka_only=""
         while IFS='=' read -r key value; do
             case "${key}" in
-                CHAIN_DIR) prev_chainstate="${value}" ;;
+                CHAIN_DIR)        prev_chainstate="${value}" ;;
                 SLICES)           prev_slices="${value}" ;;
                 CHAINSTATE_FP)    prev_chainstate_fp="${value}" ;;
+                NAKAMOTO_ONLY)    prev_naka_only="${value}" ;;
             esac
         done < "${meta_file}"
         if [ "${prev_chainstate}" == "${CHAIN_DIR}" ] \
             && [ "${prev_slices}" == "${expected_slices}" ] \
             && [ "${prev_chainstate_fp}" == "${chainstate_fp}" ] \
+            && [ "${prev_naka_only}" == "${nakamoto_only}" ] \
             && [ -n "${chainstate_fp}" ]; then
             local all_valid=1
             for ((i=0; i<expected_slices; i++)); do
@@ -392,41 +425,46 @@ configure_validation_slices() {
         fi
     fi
 
-    # If we got here, we need to build the slice dirs from the local chainstate. 
+    # If we got here, we need to build the slice dirs from the local chainstate.
     # First clean up any existing scratch dir contents since we're not reusing it.
-    if [ -d "${SCRATCH_DIR}" ]; then
-        info "Deleting existing scratch dir contents: $(highlight "${SCRATCH_DIR}")"
-        find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P "${expected_slices}" -n 500 rm -rf || {
-            error "deleting dir contents: ${SCRATCH_DIR}"
-            exit 1
-        }
-    fi
+    info "Deleting existing scratch dir contents: $(highlight "${SCRATCH_DIR}")"
+    find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P "${expected_slices}" -n 500 rm -rf || {
+        error "deleting dir contents: ${SCRATCH_DIR}"
+        exit 1
+    }
     info "Creating scratch and slice dirs"
-    (mkdir -p "${SLICE_DIR}0" && cd "${SCRATCH_DIR}") || {
+    mkdir -p "${SLICE_DIR}0" || {
         error "creating dir ${SLICE_DIR}0"
         exit 1
     }
 
-    # Probe reflink by mirroring the real CHAIN_DIR -> SCRATCH_DIR copy. A self-copy
-    # within SCRATCH_DIR wouldn't catch the case where CHAIN_DIR and SCRATCH_DIR are
-    # on different logical volumes (reflink requires src/dest on the same filesystem).
-    local reflink=0
-    local reflink_probe_dst="${SCRATCH_DIR}/reflink_test"
-    if cp --reflink=always "${chainstate_sentinel}" "${reflink_probe_dst}" 2>/dev/null; then
-        reflink=1
-        info "$(green "Reflink is supported"): chainstate slice copies will be fast and space-efficient"
+    # Build slice0 from CHAIN_DIR. Split by reflink availability:
+    #   - reflink on : full reflink copy (per-slice copies are metadata-only and cheap)
+    #   - reflink off: either selective naka-only copy (when nakamoto_only=1) or a
+    #                  plain full copy, then move+symlink marf.sqlite.blobs so the
+    #                  per-slice copies share that one big inode.
+    if [[ ${reflink} -eq 1 ]]; then
+        info "Copying ${CHAIN_DIR} -> $(highlight "${SLICE_DIR}0")"
+        cp -r --reflink=always "${CHAIN_DIR}"/* "${SLICE_DIR}0" 2>/dev/null
     else
-        warn "reflink not available, chainstate slice copies will be slower and take more space. Possible causes:"
-        warn "  - chain dir ($(highlight "${CHAIN_DIR}")) and scatch dir ($(highlight "${SCRATCH_DIR}")) are on different logical volumes"
-        warn "  - filesystem does not support reflink (only supported on XFS, Btrfs, ZFS, or APFS)"
-    fi
-    # Remove the test file, silently failing if it doesn't exist
-    rm -f "${reflink_probe_dst}" 2>/dev/null
-    
-    # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
-    if [[ ${reflink} -ne "1" ]]; then
-        info "Copying ${CHAIN_DIR} ->  $(highlight "${SLICE_DIR}0")"
-        cp -r "${CHAIN_DIR}"/* "${SLICE_DIR}0"
+        if [[ ${nakamoto_only} -eq 1 ]]; then
+            info "Copying nakamoto-only subset of ${CHAIN_DIR} -> $(highlight "${SLICE_DIR}0")"
+            mkdir -p "${SLICE_DIR}0/chainstate/blocks"
+            cp -r "${CHAIN_DIR}/burnchain"     "${SLICE_DIR}0/"           || { error "copying burnchain";    exit 1; }
+            cp -r "${CHAIN_DIR}/chainstate/vm" "${SLICE_DIR}0/chainstate/" || { error "copying chainstate/vm"; exit 1; }
+            # nakamoto.sqlite{,-wal,-shm} — glob covers all three; -shm is recreated by SQLite if missing.
+            if ! compgen -G "${CHAIN_DIR}/chainstate/blocks/nakamoto.sqlite*" >/dev/null; then
+                error "nakamoto.sqlite not found in ${CHAIN_DIR}/chainstate/blocks (chainstate too old for naka-only run?)"
+                exit 1
+            fi
+            cp "${CHAIN_DIR}"/chainstate/blocks/nakamoto.sqlite* "${SLICE_DIR}0/chainstate/blocks/" || {
+                error "copying nakamoto.sqlite"
+                exit 1
+            }
+        else
+            info "Copying ${CHAIN_DIR} -> $(highlight "${SLICE_DIR}0")"
+            cp -r "${CHAIN_DIR}"/* "${SLICE_DIR}0"
+        fi
 
         info "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> $(highlight "${SCRATCH_DIR}/marf.sqlite.blobs")"
         mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/ || {
@@ -438,10 +476,7 @@ configure_validation_slices() {
             error "creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
             exit 1
         }
-    else 
-        info "Copying ${CHAIN_DIR} ->  $(highlight "${SLICE_DIR}0")"
-        cp -r --reflink=always "${CHAIN_DIR}"/* "${SLICE_DIR}0" 2>/dev/null
-    fi 
+    fi
 
     # Sanity check that the chainstate db exists in slice0 before copying
     if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
@@ -449,15 +484,16 @@ configure_validation_slices() {
         exit 1
     fi
 
-    # Create one slice copy per worker core.
-    # note: decrement by 1 since we already have ${SLICE_DIR}0
-    local cp_args=(-r)
+    # Create one slice copy per worker core (decrement by 1 since slice0 exists).
+    # With reflink, the per-slice copy is metadata-only; without, the bulk of the
+    # data is the marf symlink so the actual copy is still small.
+    local slice_cp_args=(-r)
     if [[ ${reflink} -eq 1 ]]; then
-        cp_args+=(--reflink=always)
+        slice_cp_args+=(--reflink=always)
     fi
     for ((i=1;i<=$(( CORES - 1 ));i++)); do
         info "Copying ${SLICE_DIR}0 -> $(highlight "${SLICE_DIR}${i}")"
-        cp "${cp_args[@]}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
+        cp "${slice_cp_args[@]}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
             error "copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
             exit 1
         }
@@ -468,6 +504,7 @@ configure_validation_slices() {
         printf 'CHAIN_DIR=%s\n' "${CHAIN_DIR}"
         printf 'SLICES=%s\n' "${expected_slices}"
         printf 'CHAINSTATE_FP=%s\n' "${chainstate_fp}"
+        printf 'NAKAMOTO_ONLY=%s\n' "${nakamoto_only}"
     } > "${meta_file}"
 }
 
@@ -505,6 +542,9 @@ setup_tmux() {
 # Query stacks-inspect for the total number of blocks in the given epoch.
 # Args: <mode>  (pre-nakamoto | nakamoto)
 # Prints the total to stdout; errors go to stderr.
+# Always reads from CHAIN_DIR (the canonical chainstate) so callers don't need
+# slices to exist, and so the answer is consistent whether called during slice
+# prep or while workers are running.
 get_total_blocks() {
     local mode=$1
     local range_command
@@ -512,24 +552,52 @@ get_total_blocks() {
         nakamoto)     range_command="naka-index-range" ;;
         pre-nakamoto) range_command="index-range" ;;
         *)
-            error "get_total_blocks: invalid mode '${mode}'" >&2
+            error "get_total_blocks: invalid mode '${mode}'"
             exit 1
             ;;
     esac
     local inspect_bin="${REPO_DIR}/target/release/stacks-inspect"
     local inspect_config="${REPO_DIR}/sample/conf/${NETWORK}-follower-conf.toml"
     local count_output
-    if ! count_output=$("${inspect_bin}" --config "${inspect_config}" validate-block "${SLICE_DIR}0" "${range_command}" 2>/dev/null); then
-        error "retrieving total ${mode} blocks from chainstate" >&2
+    if ! count_output=$("${inspect_bin}" --config "${inspect_config}" validate-block "${CHAIN_DIR}" "${range_command}" 2>/dev/null); then
+        error "retrieving total ${mode} blocks from chainstate"
         exit 1
     fi
     local total
     total=$(printf '%s\n' "${count_output}" | awk -F " " '{print $NF}')
     if [ -z "${total}" ]; then
-        error "parsing block count for ${mode}" >&2
+        error "parsing block count for ${mode}"
         exit 1
     fi
     printf '%s' "${total}"
+}
+
+# Returns 0 (true) if the current RANGE only validates Epoch 3+ (nakamoto) blocks,
+# 1 (false) otherwise. Used by configure_validation_slices to skip copying the
+# thousands of pre-nakamoto chainstate/blocks/* subdirs into each slice when
+# they won't be read.
+is_range_nakamoto_only() {
+    case "${RANGE}" in
+        nakamoto)               return 0 ;;
+        test|pre-nakamoto|full) return 1 ;;
+        *)
+            local start end
+            if [[ "${RANGE}" =~ ^([0-9]+):([0-9]+)$ ]]; then
+                start=${BASH_REMATCH[1]}
+                end=${BASH_REMATCH[2]}
+            elif [[ "${RANGE}" =~ ^([0-9]+)[+]([0-9]+)$ ]]; then
+                start=${BASH_REMATCH[1]}
+                end=$((start + BASH_REMATCH[2] - 1))
+            else
+                return 1
+            fi
+            local pre_total
+            pre_total=$(get_total_blocks pre-nakamoto)
+            # Range fully above the epoch2/3 boundary => nakamoto-only.
+            # Straddling ranges still need pre-naka blocks (run_validation splits them).
+            [ "${start}" -ge "${pre_total}" ] && [ "${end}" -ge "${pre_total}" ]
+            ;;
+    esac
 }
 
 # Validate an inclusive global block range within a single epoch. Converts to the
