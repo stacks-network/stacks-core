@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   # Generate list of tests to run
-  #  - split into batched matrices of size BATCH_SIZE defined in the env var above (via .github/scripts/bitcoin-tests.sh)
+  #  - split into batched matrices of size BATCH_SIZE defined in the env var above (via .github/scripts/bitcoin_tests.sh)
   generate-tests:
     name: Generate Batched Test Matrix
     if: always() && !cancelled()
