@@ -291,6 +291,29 @@
     uint
 )
 
+;; Represents a snapshot of `rewards-per-token` at the last
+;; time of rewards settlement for this specific staker
+(define-map staker-rewards-per-token-settled-for-cycle
+    {
+        is-bond: bool,
+        index: uint,
+        signer: principal,
+        staker: principal,
+    }
+    uint
+)
+
+;; Represents pending, but unclaimed rewards for a staker
+(define-map staker-unclaimed-rewards-for-cycle
+    {
+        is-bond: bool,
+        index: uint,
+        signer: principal,
+        staker: principal,
+    }
+    uint
+)
+
 ;; The role that is allowed to set bond parameters.
 ;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
 ;; configured admin before deploy.
@@ -334,11 +357,6 @@
     (validate-stake!
         ;; staker, first-index, num-indexes, amount-ustx, amount-sats, is-bond, signer-calldata
         (principal uint uint uint uint bool (optional (buff 500)))
-        (response bool uint)
-    )
-    (checkpoint-staker
-        ;; staker, first-index, num-indexes, is-bond
-        (principal uint uint bool)
         (response bool uint)
     )
 ))
@@ -580,6 +598,10 @@
             ERR_ALREADY_REGISTERED
         )
 
+        ;; Settle rewards before updating state
+        (settle-rewards signer true bond-index)
+        (settle-staker-rewards signer true bond-index tx-sender)
+
         (map-set protocol-bond-memberships tx-sender {
             bond-index: bond-index,
             amount-ustx: amount-ustx,
@@ -589,7 +611,6 @@
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
         )
-        (settle-rewards signer true bond-index)
         (map-set total-shares-staked-for-cycle {
             index: bond-index,
             is-bond: true,
@@ -675,23 +696,16 @@
             signer-calldata
         ))
 
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker tx-sender bond-index
-            u1 true
-        )
-            ok-val ok-val
-            err-val true
-        )
-
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
+        ;; Settle rewards before mutating related state
         (settle-rewards current-signer true bond-index)
         (settle-rewards signer true bond-index)
+        (settle-staker-rewards current-signer true bond-index tx-sender)
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender first-reward-cycle num-cycles false))
@@ -883,18 +897,6 @@
             ERR_INSUFFICIENT_STX
         )
 
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker tx-sender
-            first-reward-cycle (- prev-unlock-cycle current-cycle u1) false
-        )
-            ;; Allow any errors
-            ok-val
-            ok-val
-            err-val
-            true
-        )
-
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender (+ u1 current-cycle)
             (- prev-unlock-cycle current-cycle u1) true
@@ -946,16 +948,9 @@
         (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
         (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
 
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker staker bond-index u1
-            true
-        )
-            ok-val ok-val
-            err-val true
-        )
-
+        ;; Settle rewards before updating state
         (settle-rewards signer true bond-index)
+        (settle-staker-rewards signer true bond-index staker)
 
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
@@ -1017,16 +1012,8 @@
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        ;; Call `signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? signer-manager checkpoint-staker staker bond-index u1
-            true
-        )
-            ok-val ok-val
-            err-val true
-        )
-
-        ;; Take a snapshot of the signer's current rewards
+        ;; Take a snapshot of the staker's and signer's current rewards
+        (settle-staker-rewards signer true bond-index tx-sender)
         (settle-rewards signer true bond-index)
 
         (map-set staker-shares-staked-for-cycle {
@@ -1091,16 +1078,6 @@
         ;; do not allow during a prepare phase
         (asserts! (not (is-in-prepare-phase current-cycle))
             ERR_UNSTAKE_IN_PREPARE_PHASE
-        )
-
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker tx-sender
-            (+ current-cycle u1) (- prev-unlock-cycle current-cycle u1)
-            false
-        )
-            ok-val ok-val
-            err-val true
         )
 
         ;; Remove the staker from all existing cycles
@@ -1195,8 +1172,9 @@
             (new-delegated (- cur-delegated-for-signer amount))
             (is-in-signer-set (is-some (get-signer-set-item-for-cycle signer cycle)))
         )
-        ;; Crystallize STX-only rewards before mutating anything
+        ;; Settle STX-only rewards before mutating anything
         (settle-rewards signer false cycle)
+        (settle-staker-rewards signer false cycle staker)
         (if is-in-signer-set
             (if (< new-delegated SIGNER_SET_MIN_USTX)
                 ;; They've crossed back below the threshold - remove from the signer set
@@ -1345,6 +1323,7 @@
         )
         ;; Crystallize STX-only rewards before mutating anything
         (settle-rewards signer false cycle)
+        (settle-staker-rewards signer false cycle staker)
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
                 (map-set signer-shares-staked-for-cycle {
@@ -1707,22 +1686,47 @@
 
 ;; Get the total amount of rewards earned since the last
 ;; rewards snapshot.
-;;
-;; `earned = (shares * (rpt - rptPaid)) / PRECISION + pending`
 (define-read-only (get-earned
         (signer principal)
         (is-bond bool)
         (index uint)
     )
-    (let (
-            (shares (get-signer-shares-staked-for-cycle signer is-bond index))
-            (rpt-current (get-rewards-per-token-for-cycle is-bond index))
-            (rpt-paid (get-signer-rewards-per-token-settled-for-cycle signer is-bond index))
-            (pending (get-signer-unclaimed-rewards-for-cycle signer is-bond index))
-            (newly-earned (/ (* shares (- rpt-current rpt-paid)) PRECISION))
-        )
-        (+ pending newly-earned)
+    (compute-earned-rewards
+        (get-signer-shares-staked-for-cycle signer is-bond index)
+        (get-rewards-per-token-for-cycle is-bond index)
+        (get-signer-rewards-per-token-settled-for-cycle signer is-bond index)
+        (get-signer-unclaimed-rewards-for-cycle signer is-bond index)
     )
+)
+
+;; Get the total amount of _staker_ rewards earned since the last
+;; rewards snapshot.
+(define-read-only (get-earned-staker-rewards
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+        (staker principal)
+    )
+    (compute-earned-rewards
+        (get-staker-shares-staked-for-cycle staker is-bond index signer)
+        (get-rewards-per-token-for-cycle is-bond index)
+        (get-staker-rewards-per-token-settled-for-cycle signer is-bond index
+            staker
+        )
+        (get-staker-unclaimed-rewards-for-cycle signer is-bond index staker)
+    )
+)
+
+;; Pure math formula for computing rewards earned since the last snapshot
+;;
+;; `earned = (shares * (rpt - rptPaid)) / PRECISION + pending`
+(define-read-only (compute-earned-rewards
+        (shares uint)
+        (rpt-current uint)
+        (rpt-paid uint)
+        (pending uint)
+    )
+    (+ pending (/ (* shares (- rpt-current rpt-paid)) PRECISION))
 )
 
 (define-public (claim-rewards
@@ -1768,6 +1772,28 @@
             bond-totals: bond-totals,
             total-rewards: total-rewards,
         })
+    )
+)
+
+;; As a signer manager contract, mark a specific staker as having claimed
+;; rewards. This is used to mutate internal rewards settlement state.
+;;
+;; This is only callable by the signer manager contract.
+(define-public (claim-staker-rewards-for-signer
+        (staker principal)
+        (is-bond bool)
+        (index uint)
+    )
+    (let ((rewards-info (settle-staker-rewards contract-caller is-bond index staker)))
+        (map-set staker-unclaimed-rewards-for-cycle {
+            is-bond: is-bond,
+            index: index,
+            signer: contract-caller,
+            staker: staker,
+        }
+            u0
+        )
+        (ok rewards-info)
     )
 )
 
@@ -1821,7 +1847,7 @@
 )
 
 ;; Update all earned-but-unclaimed rewards for a signer, and update the snapshot
-;; (signer-rewards-per-token-paid) for the signer.
+;; (signer-rewards-per-token-settled-for-cycle) for the signer.
 ;;
 ;; This MUST be called before any update to `signer-shares-staked-for-cycle`,
 ;; because changes to that state will effect rewards calculations.
@@ -1845,6 +1871,44 @@
             is-bond: is-bond,
             index: index,
             signer: signer,
+        }
+            rewards-per-token
+        )
+        {
+            earned: earned,
+            rewards-per-token: rewards-per-token,
+        }
+    )
+)
+
+;; Update all earned-but-unclaimed rewards for a staker, and update the snapshot
+;; (staker-rewards-per-token-settled-for-cycle) for the staker.
+;;
+;; This MUST be called before any update to `staker-shares-staked-for-cycle`,
+;; because changes to that state will effect rewards calculations.
+(define-private (settle-staker-rewards
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+        (staker principal)
+    )
+    (let (
+            (earned (get-earned-staker-rewards signer is-bond index staker))
+            (rewards-per-token (get-rewards-per-token-for-cycle is-bond index))
+        )
+        (map-set staker-unclaimed-rewards-for-cycle {
+            is-bond: is-bond,
+            index: index,
+            signer: signer,
+            staker: staker,
+        }
+            earned
+        )
+        (map-set staker-rewards-per-token-settled-for-cycle {
+            is-bond: is-bond,
+            index: index,
+            signer: signer,
+            staker: staker,
         }
             rewards-per-token
         )
@@ -2313,6 +2377,38 @@
     )
     (default-to u0
         (map-get? signer-unclaimed-rewards-for-cycle {
+            signer: signer,
+            is-bond: is-bond,
+            index: index,
+        })
+    )
+)
+
+(define-read-only (get-staker-rewards-per-token-settled-for-cycle
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+        (staker principal)
+    )
+    (default-to u0
+        (map-get? staker-rewards-per-token-settled-for-cycle {
+            staker: staker,
+            signer: signer,
+            is-bond: is-bond,
+            index: index,
+        })
+    )
+)
+
+(define-read-only (get-staker-unclaimed-rewards-for-cycle
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+        (staker principal)
+    )
+    (default-to u0
+        (map-get? staker-unclaimed-rewards-for-cycle {
+            staker: staker,
             signer: signer,
             is-bond: is-bond,
             index: index,
