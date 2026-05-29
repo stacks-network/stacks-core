@@ -865,12 +865,12 @@ compute_progress_pct() {
 # Usage:
 #   local t=$(timer_start)
 #   ...work...
-#   local elapsed=$(timer_stop "${t}")
+#   local elapsed=$(timer_elapsed "${t}")
 #   format_hms "${elapsed}"   # e.g. "00h20m30s"
 timer_start() {
     date +%s
 }
-timer_stop() {
+timer_elapsed() {
     local start_epoch=$1
     printf '%d' $(( $(date +%s) - start_epoch ))
 }
@@ -904,7 +904,7 @@ check_progress() {
     eprintln ' '
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
-        elapsed=$(timer_stop "${timer}")
+        elapsed=$(timer_elapsed "${timer}")
         if [ "${count}" -gt 0 ]; then
             pct=$(compute_progress_pct "${slice_progress[@]}")
             spinner="${symbols:progress++%${#symbols}:1}"
@@ -1188,7 +1188,7 @@ phase_start() {
 phase_end() {
     local label=$1
     local start_epoch=$2
-    local duration=$(format_hms "$(timer_stop "${start_epoch}")")
+    local duration=$(format_hms "$(timer_elapsed "${start_epoch}")")
     info "$(highlight "${label}") finished (duration: $(highlight "${duration}"))"
 }
 
