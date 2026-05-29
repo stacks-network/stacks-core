@@ -22,7 +22,6 @@ use super::{
     StaticCheckError, StaticCheckErrorKind, TypeChecker, check_argument_count,
     check_arguments_at_least, no_type,
 };
-use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
@@ -310,7 +309,7 @@ fn eval_with_new_binding(
     // Clarity 6: bare `_` discards the matched value — don't place the
     // name in the typing context for the branch body.
     let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER
-        && checker.clarity_version >= ClarityVersion::Clarity6;
+        && checker.clarity_version.allows_underscore_prefix();
     if !is_discard {
         checker.contract_context.check_name_used(&bind_name)?;
 

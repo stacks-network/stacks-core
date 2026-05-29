@@ -314,7 +314,7 @@ fn check_special_let(
             // Clarity 6: bare `_` is a discard binding — still type-check
             // the value (so type errors surface) but don't add to scope.
             let is_discard = var_name.as_str() == DISCARD_IDENTIFIER
-                && checker.clarity_version >= ClarityVersion::Clarity6;
+                && checker.clarity_version.allows_underscore_prefix();
             if !is_discard {
                 checker.contract_context.check_name_used(var_name)?;
                 if out_context.lookup_variable_type(var_name).is_some() {

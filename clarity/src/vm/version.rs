@@ -94,6 +94,15 @@ impl ClarityVersion {
     pub fn protects_logn_cost_fn(&self) -> bool {
         self >= &ClarityVersion::Clarity5
     }
+
+    /// Beginning in Clarity 6, identifiers may begin with `_`:
+    ///   1. Any identifier can start with `_` (e.g. `_foo`, `_admin`).
+    ///   2. A bare `_` can be used in `let` / `match` expressions to
+    ///      discard the result of an expression. The expression is
+    ///      evaluated, but the result cannot be referenced
+    pub fn allows_underscore_prefix(&self) -> bool {
+        self >= &ClarityVersion::Clarity6
+    }
 }
 
 impl FromStr for ClarityVersion {

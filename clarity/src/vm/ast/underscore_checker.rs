@@ -38,7 +38,7 @@ impl BuildASTPass for UnderscoreIdentifierChecker {
         version: ClarityVersion,
         _epoch: StacksEpochId,
     ) -> ParseResult<()> {
-        if version >= ClarityVersion::Clarity6 {
+        if version.allows_underscore_prefix() {
             return Ok(());
         }
         check(&contract_ast.pre_expressions)

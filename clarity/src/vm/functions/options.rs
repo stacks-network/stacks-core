@@ -132,7 +132,10 @@ fn eval_with_new_binding(
     // Clarity 6: bare `_` discards the matched value — execute the branch
     // without binding the name.
     let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER
-        && *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity6;
+        && invoke_ctx
+            .contract_context
+            .get_clarity_version()
+            .allows_underscore_prefix();
     if !is_discard
         && (vm::is_reserved(
             &bind_name,

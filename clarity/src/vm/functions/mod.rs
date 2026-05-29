@@ -811,7 +811,7 @@ fn special_let(
             // Clarity 6: bare `_` is a discard binding — evaluate the value
             // (preserving `try!`/`unwrap!` short-circuit) but don't bind it.
             let is_discard = binding_name.as_str() == DISCARD_IDENTIFIER
-                && *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity6;
+                && invoke_ctx.contract_context.get_clarity_version().allows_underscore_prefix();
 
             if !is_discard
                 && (is_reserved(binding_name, invoke_ctx.contract_context.get_clarity_version()) ||
