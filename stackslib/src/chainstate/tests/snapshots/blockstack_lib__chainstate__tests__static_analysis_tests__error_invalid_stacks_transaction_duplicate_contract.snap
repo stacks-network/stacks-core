@@ -51,34 +51,4 @@ expression: result
     evaluated_epoch: Epoch34,
     error: "Invalid Stacks block c3ad206426d09bff20a1d8e6513e51cd3a0743a731c91d5626caf5a35358b7f8: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
   )),
-<<<<<<< HEAD
-<<<<<<< HEAD
-  Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block e4631b58701f035d7be87f93528cfa1a2bf2f60c1834308c1574c20a02f8e172: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
-  )),
-  Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 6bff44ca36e425c614249bf5f0514ae4b967b47bc769351dd49e0017e9df7752: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
-  )),
-  Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 2ff506b0ce246e9c62e6c119ca721012a248292ad35b1f108e90ef03c3807023: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
-  )),
-  Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 84bfd40cb3066de7226a7a6bae721cd490b38bbacde83b1a748314e1e47b2a5a: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
-  )),
-  Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block ebfd8c41054cd442f434cc6b6f9c25afe738f65dd09547ba508140d26c06a6e2: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
-  )),
-  Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch40,
-    error: "Invalid Stacks block 5db82c344cdf3e0fccadeeb7672686b21379d888bf91585d3862da73e16c7c38: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
-  )),
-=======
->>>>>>> pox-wf-integration
-=======
->>>>>>> test/l1-bond-integration
 ]

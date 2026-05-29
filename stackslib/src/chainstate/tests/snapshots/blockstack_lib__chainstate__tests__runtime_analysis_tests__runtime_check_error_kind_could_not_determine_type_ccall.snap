@@ -241,40 +241,4 @@ expression: result
       runtime: 799,
     ),
   )),
-<<<<<<< HEAD
-<<<<<<< HEAD
-  Success(ExpectedBlockOutput(
-    marf_hash: "eea99083f1c2756878ef94bebfc579ae223b68b7d7620c82b4eafc1af6734b86",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
-        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 720,
-          read_count: 3,
-          runtime: 799,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 720,
-      read_count: 3,
-      runtime: 799,
-    ),
-  )),
-=======
->>>>>>> pox-wf-integration
-=======
->>>>>>> test/l1-bond-integration
 ]

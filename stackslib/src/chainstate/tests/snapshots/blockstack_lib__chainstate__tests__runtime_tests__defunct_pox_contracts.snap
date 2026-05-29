@@ -4,18 +4,8 @@ expression: results
 ---
 [
   Success(ExpectedBlockOutput(
-<<<<<<< HEAD
-<<<<<<< HEAD
-    marf_hash: "f183976543453f6507fce6dc59bb307fb7e108b0e80ab81776b6672cdc727d9e",
-    evaluated_epoch: Epoch40,
-=======
     marf_hash: "59ce7122ce3d083dd403bfcfeb95716640102076fe040c1b46422ef1d930c64d",
     evaluated_epoch: Epoch34,
->>>>>>> pox-wf-integration
-=======
-    marf_hash: "59ce7122ce3d083dd403bfcfeb95716640102076fe040c1b46422ef1d930c64d",
-    evaluated_epoch: Epoch34,
->>>>>>> test/l1-bond-integration
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -44,18 +34,8 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-<<<<<<< HEAD
-<<<<<<< HEAD
-    marf_hash: "6512eee2de8aaf399f249abc6feb61f720f0e6da2c05e8e869ca862c4da8629e",
-    evaluated_epoch: Epoch40,
-=======
     marf_hash: "ec45b927f5e9bc24fda9064bb928d841941ace1eb03cb7362e36db9a79bca09f",
     evaluated_epoch: Epoch34,
->>>>>>> pox-wf-integration
-=======
-    marf_hash: "ec45b927f5e9bc24fda9064bb928d841941ace1eb03cb7362e36db9a79bca09f",
-    evaluated_epoch: Epoch34,
->>>>>>> test/l1-bond-integration
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-2, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -84,18 +64,8 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-<<<<<<< HEAD
-<<<<<<< HEAD
-    marf_hash: "57ae08c52ea04fed5a390bd4c12aa38b98683dbb5d6bfd70bd61dda0134f1201",
-    evaluated_epoch: Epoch40,
-=======
     marf_hash: "dfda39cf7b12a432c3cae018e7b83eb15e824ee0aaa6219c1c7245212fdefe49",
     evaluated_epoch: Epoch34,
->>>>>>> pox-wf-integration
-=======
-    marf_hash: "dfda39cf7b12a432c3cae018e7b83eb15e824ee0aaa6219c1c7245212fdefe49",
-    evaluated_epoch: Epoch34,
->>>>>>> test/l1-bond-integration
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-3, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -124,18 +94,8 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-<<<<<<< HEAD
-<<<<<<< HEAD
-    marf_hash: "b3adc0e35bda9c8eab2ce7a024762ca4cd840420f7c6e6cd021b53d9d9962afb",
-    evaluated_epoch: Epoch40,
-=======
     marf_hash: "79fde90263608315a469a382bf6291c6265bf67ffbd4ace37a788dbf749913ca",
     evaluated_epoch: Epoch34,
->>>>>>> pox-wf-integration
-=======
-    marf_hash: "79fde90263608315a469a382bf6291c6265bf67ffbd4ace37a788dbf749913ca",
-    evaluated_epoch: Epoch34,
->>>>>>> test/l1-bond-integration
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",
