@@ -1,15 +1,14 @@
 # Github workflow to run epoch tests
 
-name: Tests::Epoch
+name: "Tests: Epoch"
 
 on:
-  workflow_dispatch:
-    inputs:
-      build-cache:
-        type: boolean
-        default: true
-        description: Build the test cache before running tests
   workflow_call:
+    inputs:
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -20,7 +19,6 @@ permissions:
 env:
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
-  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
 
 # Configure concurrency
@@ -29,23 +27,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Always run create-cache regardless of trigger — downstream jobs depend on it.
-  create-cache:
-    name: Create Test Cache
-    if: ${{ inputs.build-cache }}
-    uses: ./.github/workflows/create-cache.yml
-
   # Epoch integration tests with code coverage
   epoch-tests:
     name: Epoch Tests
-    needs: create-cache
-    if: always() && !cancelled() && needs.create-cache.result != 'failure'
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     strategy:
       # Continue with the test matrix even if we've had a failure
       fail-fast: false
-      # Run a maximum of 32 concurrent tests from the test matrix
-      max-parallel: 32
       matrix:
         test-name:
           - tests::epoch_205::test_cost_limit_switch_version205
@@ -77,24 +66,14 @@ jobs:
           sparse-checkout: |
             .github
 
-      # Download cache(s) and configure the runner to run test(s)
-      - name: Setup Test Environment
-        uses: ./.github/actions/testenv
-
-      # Run test matrix using restored cache of archive file
-      #   - test will timeout after env.TEST_TIMEOUT minutes
-      - name: Run Tests
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
-          test-name: ${{ matrix.test-name }}
-
-      # Create and upload code coverage file
-      - name: Code Coverage
-        if: github.event.repository.visibility == 'public'
-        uses: ./.github/actions/codecov
-        with:
-          test-name: ${{ matrix.test-name }}
+          test-names: ${{ matrix.test-name }}
+          codecov-test-name: ${{ matrix.test-name }}
+          archive-file: ${{ inputs.archive-file }}
 
   # Check that all jobs in this workflow have succeeded.
   #   - will not run if the job is cancelled
