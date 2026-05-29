@@ -52,9 +52,9 @@ export function trackCommandRun(model: Model, commandName: string) {
   model.statistics.set(commandName, count + 1);
 }
 
-export function reportCommandRuns(model: Model) {
+export function reportCommandRuns(statistics: Model["statistics"]) {
   console.log("\nCommand execution counts:");
-  const orderedStatistics = Array.from(model.statistics.entries()).sort(
+  const orderedStatistics = Array.from(statistics.entries()).sort(
     ([keyA], [keyB]) => {
       return keyA.localeCompare(keyB);
     },
