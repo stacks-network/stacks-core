@@ -305,11 +305,8 @@ pub fn read_squashed_block_height_by_hash<T: MarfTrieId>(
     block_hash: &T,
 ) -> Result<Option<u32>, Error> {
     let result: Option<i64> = conn
-        .query_row(
-            "SELECT height FROM marf_squashed_blocks WHERE block_hash = ?1",
-            params![block_hash.as_bytes()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT height FROM marf_squashed_blocks WHERE block_hash = ?1")?
+        .query_row(params![block_hash.as_bytes()], |row| row.get(0))
         .optional()?;
 
     result

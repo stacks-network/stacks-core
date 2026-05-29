@@ -236,6 +236,54 @@ fn test_squashed_marf_can_extend_past_snapshot_height() {
     assert_eq!(own_height, MARFValue::from(3u32));
 }
 
+/// The read guard short-circuits reads of the in-RAM block being extended (always above the
+/// squash height, so never in `marf_squashed_blocks`). Verify a squashed MARF can be extended
+/// past the snapshot and the new block read back, while a pre-squash read is still rejected.
+#[test]
+fn test_squash_uncommitted_extension_read_allowed() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("index.sqlite");
+    let (_, blocks, _) = setup_marf(src_path.to_str().unwrap(), 64, 4);
+
+    let squash_height: u32 = 48;
+    let (squashed_path, _) = squash_helper(
+        src_path.to_str().unwrap(),
+        &dir.path().join("squashed"),
+        blocks.last().unwrap(),
+        squash_height,
+    );
+
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut squashed = MARF::from_path(squashed_path.to_str().unwrap(), open_opts).unwrap();
+
+    // Extend past the squash tip; committing reads the uncommitted block via the short-circuit.
+    let parent = blocks[squash_height as usize].clone();
+    let new_block = StacksBlockId::from_bytes(&[0xab; 32]).unwrap();
+    squashed.begin(&parent, &new_block).unwrap();
+    squashed
+        .insert("k_post_squash", MARFValue::from_value("v_post_squash"))
+        .unwrap();
+    squashed.commit().unwrap();
+
+    // The post-squash block is above the squash height, so the read is allowed.
+    assert_eq!(
+        squashed.get(&new_block, "k_post_squash").unwrap(),
+        Some(MARFValue::from_value("v_post_squash")),
+    );
+
+    // The guard still rejects a genuine pre-squash historical read.
+    match squashed.get(&blocks[10], "k1") {
+        Err(Error::HistoricalReadInSquashedRange {
+            block_height,
+            squash_height: sh,
+        }) => {
+            assert_eq!(block_height, 10);
+            assert_eq!(sh, squash_height);
+        }
+        other => panic!("expected HistoricalReadInSquashedRange, got {other:?}"),
+    }
+}
+
 /// Verify that `get_root_hash_at` and `get_block_height_of` return correct
 /// per-height values for blocks *inside* the squashed range.  Without the
 /// squash-aware overrides these would return the shared blob's root hash

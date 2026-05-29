@@ -2577,6 +2577,14 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             return Ok(());
         };
 
+        // A block being extended in RAM is always above the squash height, so it is never in
+        // `marf_squashed_blocks`. Skip the per-read SQL probe for it.
+        if let Some((ref uncommitted_bhh, _)) = self.data.uncommitted_writes {
+            if block_hash == uncommitted_bhh {
+                return Ok(());
+            }
+        }
+
         let Some(block_height) = self.squashed_block_height(block_hash)? else {
             return Ok(());
         };
