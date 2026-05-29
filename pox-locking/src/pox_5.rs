@@ -1814,5 +1814,25 @@ mod tests {
                 "expected PoxMalformedResponse, got {err:?}"
             );
         }
+
+        /// Rule: a pox-5 `(err ...)` payload is typed `uint`; any non-uint err
+        /// payload must surface as `PoxMalformedResponse` (the `expect_u128`
+        /// gate on the err arm). Complements the ok-shape malformed properties.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_parse_pox_stake_result_err_non_uint(
+            b in any::<bool>(),
+            n in any::<i128>(),
+            which in 0u8..=1,
+        ) {
+            let payload = if which == 0 { Value::Bool(b) } else { Value::Int(n) };
+            let bad = Value::error(payload).unwrap();
+            let err = parse_pox_stake_result(&bad)
+                .expect_err("non-uint err payload must surface as PoxMalformedResponse");
+            prop_assert!(
+                matches!(err, LockingError::PoxMalformedResponse(_)),
+                "expected PoxMalformedResponse, got {err:?}"
+            );
+        }
     }
 }
