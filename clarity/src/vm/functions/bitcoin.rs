@@ -1031,7 +1031,12 @@ mod tests {
     }
 
     proptest! {
-        /// Any canonical proof we hand to the verifier must verify.
+        /// Any canonical proof we hand to the verifier must verify. The
+        /// synthesizer (`synth_canonical_proof`) shares the padding/hashing
+        /// logic with `verify_merkle`, so this pins determinism and tree-shape
+        /// agreement, not the rejection paths; those are covered by the
+        /// tampering/wrong-depth/cross-tree properties and the real-mainnet
+        /// fixtures below.
         #[tag(t_prop)]
         #[test]
         fn prop_merkle_roundtrip_verifies(

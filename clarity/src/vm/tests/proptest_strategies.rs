@@ -35,6 +35,13 @@ use crate::vm::functions::bitcoin::GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN;
 /// tests synthesize proofs valid by construction against the hardened
 /// `verify_merkle` (which rejects non-canonical padding-slot siblings and
 /// non-padding sibling==cur collisions) without materializing 2^24-leaf trees.
+///
+/// This shares the padding/hashing logic with `verify_merkle` by design, so a
+/// roundtrip through it pins determinism and that synthesis and verification
+/// agree on the canonical tree shape — NOT the soundness of `verify_merkle`'s
+/// rejection paths. The independent ground truth for the hashing itself is the
+/// real-mainnet fixtures (`real_genesis_coinbase_tx`, `real_pizza_tx`,
+/// `real_mainnet_segwit_tx`) in `vm::functions::bitcoin::tests`.
 pub(crate) fn synth_canonical_proof(
     leaf: [u8; 32],
     tx_index: u128,
