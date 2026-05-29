@@ -3528,7 +3528,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum total size (in bytes) of data allowed to be read from Clarity data
     /// space (variables, maps) during a read-only call.
     /// ---
-    /// @default: `100_000` (100 KB).
+    /// @default: `200_000` (~200 KB).
     /// @units: bytes
     pub read_only_call_limit_read_length: Option<u64>,
     /// Maximum number of distinct write operations allowed during a read-only call.
@@ -3541,7 +3541,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum number of distinct read operations from Clarity data space allowed
     /// during a read-only call.
     /// ---
-    /// @default: `30`
+    /// @default: `100`
     pub read_only_call_limit_read_count: Option<u64>,
     /// Runtime cost limit for an individual read-only function call. This represents
     /// computation effort within the Clarity VM.

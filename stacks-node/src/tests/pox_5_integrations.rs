@@ -812,13 +812,14 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
     enable_epoch_4_0(&mut naka_conf);
     // Shorten the reward cycle so the 12-cycle mine from bond 0's start into
     // bond 6's gap window stays tractable (~120 burn blocks vs ~240 at the
-    // 20-block default). Keep `pox_prepare_length` very small: the rollover
-    // window between bond 0's L1 unlock and bond 6's start is `L/2 = 5`
-    // burns, and `ERR_STAKE_IN_PREPARE_PHASE` carves the last
-    // `prepare_length` of those off. A 2-block setup-bond/register-for-bond
-    // round-trip plus 1 block of prepare leaves enough margin.
+    // 20-block default), then adjust as needed to meet requirements.
     naka_conf.burnchain.pox_reward_length = Some(10);
-    naka_conf.burnchain.pox_prepare_length = Some(1);
+    naka_conf.burnchain.pox_prepare_length = Some(3);
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch25].end_height = 225;
+        epochs[StacksEpochId::Epoch30].start_height = 225;
+    }
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
