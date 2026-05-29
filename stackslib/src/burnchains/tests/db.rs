@@ -1465,6 +1465,56 @@ fn store_watched_outputs() {
 }
 
 #[test]
+fn watched_outputs_duplicate_pk_rejected() {
+    // Re-storing the same (txid, vout, block_hash) must error on the UNIQUE
+    // PRIMARY KEY rather than silently overwriting. `store_watched_outputs`
+    // uses a plain `INSERT`, not `INSERT OR REPLACE`; a silent overwrite here
+    // would let a replayed/re-org'd block clobber a recorded amount.
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+    let burnchain = Burnchain::regtest(":memory:");
+    let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+    let block_hash = BurnchainHeaderHash([7u8; 32]);
+    let header = BurnchainBlockHeader {
+        block_height: 1,
+        block_hash: block_hash.clone(),
+        parent_block_hash: first_bhh,
+        num_txs: 0,
+        timestamp: 1,
+    };
+    let original = WatchedP2WSHOutput {
+        txid: Txid([3u8; 32]),
+        vout: 0,
+        witness_script_hash: WitnessScriptHash([0xaau8; 32]),
+        amount: 1_000,
+    };
+
+    let db_tx = db.tx_begin().unwrap();
+    db_tx.store_burnchain_db_entry(&header).unwrap();
+    db_tx.store_watched_outputs(&header, &[original.clone()]).unwrap();
+    db_tx.commit().unwrap();
+
+    // Same PK (txid, vout, block_hash), different amount + script hash.
+    let collision = WatchedP2WSHOutput {
+        txid: original.txid.clone(),
+        vout: original.vout,
+        witness_script_hash: WitnessScriptHash([0xbbu8; 32]),
+        amount: 9_999,
+    };
+    let db_tx = db.tx_begin().unwrap();
+    let result = db_tx.store_watched_outputs(&header, &[collision]);
+    assert!(
+        result.is_err(),
+        "duplicate (txid, vout, block_hash) must be rejected, got {result:?}"
+    );
+    drop(db_tx);
+
+    // The original row is untouched: not overwritten by the failed insert.
+    let retrieved = BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash).unwrap();
+    assert_eq!(retrieved, vec![original]);
+}
+
+#[test]
 fn prune_watched_outputs() {
     let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
     let burnchain = Burnchain::regtest(":memory:");
