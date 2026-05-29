@@ -935,6 +935,7 @@ pub fn buff_to_array<const N: usize>(value: &Value) -> Option<[u8; N]> {
     }
 }
 
+/// Helper to coerce a Clarity buffer value into a Vec<u8> if-and-only-if buff.len() <= max_size
 pub fn buff_to_vec(value: &Value, max_size: usize) -> Option<Vec<u8>> {
     match value {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= max_size => {
