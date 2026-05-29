@@ -616,7 +616,7 @@ impl StacksChainState {
 
     /// Pre-check a transaction -- make sure it's well-formed.
     ///
-    /// If `auth_verificication_mode_override` is `Some(_)`, it specifies whether
+    /// If `auth_verification_mode_override` is `Some(_)`, it specifies whether
     /// transaction signatures should be verified to be the low-S variant, or if
     /// high-S is allowed. If it's `None`, this decision is made based on consensus
     /// rules for the specified epoch.
@@ -624,7 +624,7 @@ impl StacksChainState {
         config: &DBConfig,
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
-        auth_verificication_mode_override: Option<TransactionAuthVerificationMode>,
+        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
     ) -> Result<(), Error> {
         // valid auth?
         if !tx.auth.is_supported_in_epoch(epoch_id) {
@@ -636,7 +636,7 @@ impl StacksChainState {
 
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
-        let verification_mode = auth_verificication_mode_override.unwrap_or_else(|| {
+        let verification_mode = auth_verification_mode_override.unwrap_or_else(|| {
             if epoch_id.allows_tx_signatures_with_high_s() {
                 TransactionAuthVerificationMode::AllowHighS
             } else {
@@ -1686,14 +1686,14 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
-        auth_verificication_mode_override: Option<TransactionAuthVerificationMode>,
+        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         Self::process_transaction_with_check(
             clarity_block,
             tx,
             quiet,
             max_execution_time,
-            auth_verificication_mode_override,
+            auth_verification_mode_override,
             |_| Ok(()),
         )
     }
@@ -1705,7 +1705,7 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
-        auth_verificication_mode_override: Option<TransactionAuthVerificationMode>,
+        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
@@ -1715,7 +1715,7 @@ impl StacksChainState {
             &clarity_block.config,
             tx,
             epoch,
-            auth_verificication_mode_override,
+            auth_verification_mode_override,
         )?;
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
