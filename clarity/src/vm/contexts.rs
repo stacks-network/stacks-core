@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
+use stacks_common::alloc_tracker::{AllocationCounter, thread_allocated};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -275,6 +276,58 @@ pub enum ExecutionTimeTracker {
     },
 }
 
+/// Per-`eval` abort check. This operates alongside the execution time
+/// tracker.
+///
+/// The `None` variant is a no-op (the common case during
+/// block append/replay); other variants encode specific abort
+/// conditions and are dispatched statically via match.
+#[derive(Clone)]
+pub enum AbortCallback {
+    /// No abort check.
+    None,
+    /// Abort when net heap allocation since `baseline` exceeds
+    /// `limit_bytes` (per-thread).
+    ///
+    /// Used by miner block assembly and proposal validation.
+    MemAbort {
+        baseline: AllocationCounter,
+        limit_bytes: u64,
+    },
+    /// Test fixture: always aborts with the given reason.
+    #[cfg(test)]
+    AlwaysAbort(String),
+}
+
+impl AbortCallback {
+    /// Run the abort check.
+    ///
+    /// Returns:
+    ///   * `Ok(())` to continue
+    ///   * `Err(reason)` to abort execution with
+    ///     `RuntimeCheckErrorKind::AbortedByExecutionHook`.
+    pub fn check(&self) -> Result<(), String> {
+        match self {
+            Self::None => Ok(()),
+            Self::MemAbort {
+                baseline,
+                limit_bytes,
+            } => {
+                let net_alloc = thread_allocated().net_allocated(baseline);
+                if net_alloc > *limit_bytes {
+                    Err(format!(
+                        "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            #[cfg(test)]
+            Self::AlwaysAbort(reason) => Err(reason.clone()),
+        }
+    }
+}
+
 /** GlobalContext represents the outermost context for a single transaction's
      execution. It tracks an asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
@@ -294,6 +347,11 @@ pub struct GlobalContext<'a, 'hooks> {
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: ExecutionTimeTracker,
+    /// Callback checked at every `eval` call. When `check()` returns
+    /// `Err(reason)`, execution is aborted with
+    /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
+    /// default `AbortCallback::None` is a no-op.
+    pub abort_callback: AbortCallback,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -739,6 +797,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         }
     }
 
+    /// Set an abort callback that will be checked at every `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.context.abort_callback = callback;
+    }
+
     pub fn get_exec_environment<'b>(
         &'b mut self,
         sender: Option<PrincipalData>,
@@ -1088,7 +1151,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
         let result = {
             let nested_view = InvocationContext {
-                contract_context: &contract.contract_context,
+                contract_context: &contract,
                 sender: invoke_ctx.sender.clone(),
                 caller: invoke_ctx.caller.clone(),
                 sponsor: invoke_ctx.sponsor.clone(),
@@ -1212,10 +1275,13 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
         self.global_context.add_memory(contract_size)?;
 
+        // NOTE: When contract caching is used, then the memory counters here will drop the
+        // `contract_size` after the contract execution has completed, but the contracts will remain
+        // in the cache (up to the cache eviction policy's limits).
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
-            let func = contract.contract_context.lookup_function(tx_name)
+            let func = contract.lookup_function(tx_name)
                 .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
             if !allow_private && !func.is_public() {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
@@ -1251,7 +1317,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 return Err(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&contract.contract_context), allow_private);
+            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&*contract), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1418,7 +1484,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
         match result {
             Ok(contract) => {
-                let data_size = contract.contract_context.data_size;
+                let data_size = contract.data_size;
                 self.global_context
                     .database
                     .insert_contract(&contract_identifier, contract)?;
@@ -1703,6 +1769,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -1805,7 +1872,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         &mut self,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
-        contract_context: ContractContext,
+        contract_context: &ContractContext,
         f: F,
     ) -> std::result::Result<A, E>
     where
@@ -1823,7 +1890,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 call_stack: &mut callstack,
             };
             let invoke_ctx = InvocationContext {
-                contract_context: &contract_context,
+                contract_context,
                 sender: Some(sender.clone()),
                 caller: Some(sender),
                 sponsor,

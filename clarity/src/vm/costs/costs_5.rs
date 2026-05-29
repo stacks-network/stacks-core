@@ -474,4 +474,8 @@ impl CostValues for Costs5 {
     fn cost_get_bitcoin_tx_output(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Ok(ExecutionCost::runtime(linear(n >> 10, 125, 291)))
     }
+
+    fn cost_ed25519verify(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(linear(n >> 10, 125, 7880)))
+    }
 }
