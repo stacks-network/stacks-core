@@ -1030,6 +1030,27 @@ mod tests {
         }
     }
 
+    /// `buff_to_array_32` must reject any buffer whose length is not exactly 32
+    /// and return `None`, never panic. Clarity `(buff 32)` is a *maximum*
+    /// length, so a shorter buffer is a type-valid argument to
+    /// `verify-merkle-proof`; without the length guard the `copy_from_slice`
+    /// below would panic on a short buffer — a node-crash vector on consensus
+    /// input. The 32-byte case is accepted.
+    #[test]
+    fn buff_to_array_32_rejects_non_32_length() {
+        for len in [0usize, 1, 31, 33, 64, 100] {
+            let v = Value::buff_from(vec![0xabu8; len]).unwrap();
+            assert!(
+                buff_to_array_32(&v).is_none(),
+                "buffer of length {len} must be rejected, not coerced",
+            );
+        }
+        let exact = Value::buff_from(vec![0x07u8; 32]).unwrap();
+        assert_eq!(buff_to_array_32(&exact), Some([0x07u8; 32]));
+        // A non-buffer value is also rejected.
+        assert!(buff_to_array_32(&Value::UInt(32)).is_none());
+    }
+
     proptest! {
         /// Any canonical proof we hand to the verifier must verify. The
         /// synthesizer (`synth_canonical_proof`) shares the padding/hashing
