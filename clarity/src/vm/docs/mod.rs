@@ -1435,8 +1435,11 @@ function returns `true` iff hashing pairwise up the tree in the order described 
 
 `tx-count` pins down the canonical Bitcoin tree shape and is required to defend against
 CVE-2012-2459-style attacks where an intermediate node in an odd-row-padded tree could
-otherwise be passed off as a leaf. The function rejects any proof whose path length doesn't
-match `ceil(log2(tx-count))` and any `tx-index` not less than `tx-count`.
+otherwise be passed off as a leaf, or where the last real leaf of an odd-sized tree
+could be relocated into the duplicated-padding region by inflating `tx-count`. The
+function rejects any proof whose path length doesn't match `ceil(log2(tx-count))`, any
+`tx-index` not less than `tx-count`, and any sibling whose value is inconsistent with the
+canonical tree shape implied by the supplied `tx-count`.
 
 All 32-byte hashes (leaf, root, siblings) are passed in *internal* (raw) byte order, not
 the display (reversed) order conventionally used for Bitcoin txids and block hashes. The
