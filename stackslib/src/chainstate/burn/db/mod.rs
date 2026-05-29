@@ -34,7 +34,7 @@ pub mod sortdb;
 
 pub type DBConn = Connection;
 
-impl_byte_array_from_column!(Txid);
+impl_byte_array_from_column_only!(Txid);
 impl_byte_array_from_column_only!(ConsensusHash);
 impl_byte_array_from_column_only!(Hash160);
 impl_byte_array_from_column_only!(BlockHeaderHash);

@@ -34,6 +34,7 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 chrono = { version = "0.4.19", optional = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
+stacks-codec = { path = "../stacks-codec" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"

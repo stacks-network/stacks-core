@@ -3,7 +3,7 @@ name: Install Tools
 description: |
   Wrapper for the `taiki-e/install-action` action to install required tools.
 inputs:
-  tool:
+  tools:
     description: Comma-separated list of tools to install
     required: true
     default: ""
@@ -12,7 +12,7 @@ runs:
   using: "composite"
   steps:
     # Install the defined input.tool
-    - name: Install cargo-nextest (testenv fallback)
-      uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.75.21
+    - name: Install Tool(s)
+      uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2.79.3
       with:
-        tool: ${{ inputs.tool }}
+        tool: ${{ inputs.tools }}

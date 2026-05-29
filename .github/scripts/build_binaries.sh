@@ -32,7 +32,7 @@ export CARGO_TERM_COLOR=always
 
 ## ── Check for required binaries ─────────────────────────────────────────────
 missing=0
-for cmd in apt-get rustup cargo; do
+for cmd in rustup cargo; do
     if ! command -v "${cmd}" > /dev/null 2>&1; then
         error "Missing required command: $(hl "${cmd}")"
         missing=1
@@ -106,9 +106,11 @@ case "${MATRIX_CPU}" in
                 ;;
             macos)
                 info "Installing dependencies for $(hl "macOS arm64") build"
-                # macOS arm64 — no extra deps, use native CPU
+                # macOS arm64 — no extra deps; no CPU tuning because the
+                # job cross-compiles from an Intel runner (`macos-latest-large`),
+                # so `-C target-cpu=native` would emit x86_64 feature flags
+                # against the aarch64 backend and fail codegen.
                 target="aarch64-apple-darwin"
-                target_cpu="native"
                 ;;
             *)
                 error "Unsupported arch $(hl "${MATRIX_ARCH}") for cpu $(hl "${MATRIX_CPU}")"
@@ -203,10 +205,11 @@ case "${target}" in
         }
         ;;
 
-    # macOS aarch64 — native CPU tuning, no cross-linker needed
+    # macOS aarch64 — cross-compiled from an Intel runner, so no CPU tuning
+    # and no cross-linker (the Apple toolchain handles aarch64 natively).
     aarch64-apple-darwin)
-        info "Building $(hl "${target}"): ${CMD} ${bins} --target ${target} --config build.rustflags=\"\\\"-C target-cpu=${target_cpu}\\\"\""
-        ${CMD} ${bins} --target "${target}" --config build.rustflags="\"-C target-cpu=${target_cpu}\"" || {
+        info "Building $(hl "${target}"): ${CMD} ${bins} --target ${target}"
+        ${CMD} ${bins} --target "${target}" || {
             error "Build failed for target $(hl "${target}")"
             exit 1
         }

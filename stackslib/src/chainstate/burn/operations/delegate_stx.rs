@@ -210,6 +210,17 @@ impl DelegateStxOp {
             return Err(op_error::DelegateStxMustBePositive);
         }
 
+        if let Some(height) = self.until_burn_height {
+            if height > i64::MAX as u64 {
+                warn!(
+                    "Invalid DelegateStxOp: until_burn_height exceeds i64::MAX";
+                    "until_burn_height" => height,
+                    "txid" => %self.txid,
+                );
+                return Err(op_error::InvalidInput);
+            }
+        }
+
         Ok(())
     }
 }

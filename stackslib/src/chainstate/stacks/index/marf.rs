@@ -24,6 +24,7 @@ use rusqlite::{Connection, Transaction};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
+pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::node::{
@@ -35,7 +36,9 @@ use crate::chainstate::stacks::index::storage::{
     TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::{Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
+use crate::chainstate::stacks::index::{
+    trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
+};
 use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -208,6 +211,10 @@ pub trait MarfConnection<T: MarfTrieId> {
         key: &str,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         self.with_conn(|conn| {
+            // Squash-aware proofs are not currently supported.
+            if conn.is_squashed() {
+                return Err(Error::UnsupportedOnSquashedMarf("get_with_proof"));
+            }
             let marf_value = match MARF::get_by_key(conn, block_hash, key)? {
                 None => return Ok(None),
                 Some(x) => x,
@@ -223,6 +230,10 @@ pub trait MarfConnection<T: MarfTrieId> {
         hash: &TrieHash,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         self.with_conn(|conn| {
+            // Squash-aware proofs are not currently supported.
+            if conn.is_squashed() {
+                return Err(Error::UnsupportedOnSquashedMarf("get_with_proof_from_hash"));
+            }
             let marf_value = match MARF::get_by_path(conn, block_hash, hash)? {
                 None => return Ok(None),
                 Some(x) => x,
@@ -1133,6 +1144,8 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<Option<TrieLeaf>, Error> {
         trace!("MARF::get_path({block_hash:?}) {path:?}");
 
+        storage.check_historical_read_allowed(block_hash)?;
+
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash).inspect_err(|_e| {
             test_debug!("Failed to open block {block_hash:?}: {_e:?}");
@@ -1326,12 +1339,34 @@ impl<T: MarfTrieId> MARF<T> {
         result.map(|option_result| option_result.map(|leaf| leaf.data))
     }
 
+    /// Read `OWN_BLOCK_HEIGHT_KEY` for the block the caller is standing on.
+    ///
+    /// In a squashed MARF the shared squashed blob's `OWN_BLOCK_HEIGHT_KEY`
+    /// is pinned at the squash height for every block in the squashed range,
+    /// so the per-block height must come from `marf_squashed_blocks` instead.
+    /// A trie answer of `h <= squash_height` with no side-table entry means
+    /// the squash metadata is corrupted.
+    fn get_own_block_height(
+        storage: &mut TrieStorageConnection<T>,
+        current_block_hash: &T,
+    ) -> Result<Option<u32>, Error> {
+        // The block's own height lives in its trie. If it's a squashed-range
+        // block its trie isn't walkable; the read guard rejects it and the
+        // height comes from the side table. Archival MARFs never hit that arm.
+        match MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY) {
+            Err(Error::HistoricalReadInSquashedRange { block_height, .. }) => {
+                Ok(Some(block_height))
+            }
+            Err(e) => Err(e),
+            Ok(value) => Ok(value.map(u32::from)),
+        }
+    }
+
     pub fn get_block_height_miner_tip(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
-        let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
         #[cfg(test)]
         {
             // used in testing in order to short-circuit block-height lookups
@@ -1341,13 +1376,21 @@ impl<T: MarfTrieId> MARF<T> {
             }
         }
 
-        let marf_value = if block_hash == current_block_hash {
-            MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?
-        } else {
-            MARF::get_by_key(storage, current_block_hash, &hash_key)?
-        };
+        if block_hash == current_block_hash {
+            return MARF::get_own_block_height(storage, current_block_hash);
+        }
 
-        Ok(marf_value.map(u32::from))
+        // Read the height key from `current_block_hash`'s trie. If the current_block
+        // is below the squash height the read guard rejects the get_by_key, and the
+        // target's height comes from the side table instead.
+        let hash_key = format!("{BLOCK_HASH_TO_HEIGHT_MAPPING_KEY}::{block_hash}");
+        match MARF::get_by_key(storage, current_block_hash, &hash_key) {
+            Ok(value) => Ok(value.map(u32::from)),
+            Err(Error::HistoricalReadInSquashedRange { .. }) => {
+                storage.squashed_block_height(block_hash)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn get_block_height(
@@ -1388,6 +1431,22 @@ impl<T: MarfTrieId> MARF<T> {
 
         if height == current_block_height {
             return Ok(Some(current_block_hash.clone()));
+        }
+
+        // Squashed MARFs keep historical height -> block mappings in
+        // `marf_squashed_blocks`, not in per-height trie state. When the
+        // caller is inside the squashed range, answer from the side table
+        // and preserve the usual "no future blocks" behavior.
+        if let Some(squash_height) = storage.squash_height() {
+            if current_block_height <= squash_height {
+                if height > current_block_height {
+                    return Ok(None);
+                }
+                return trie_sql::read_squashed_block_hash_by_height::<T>(
+                    storage.sqlite_conn(),
+                    height,
+                );
+            }
         }
 
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
@@ -1486,6 +1545,10 @@ impl<T: MarfTrieId> MARF<T> {
         key: &str,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let mut conn = self.storage.connection();
+        // Squash-aware proofs are not currently supported.
+        if conn.is_squashed() {
+            return Err(Error::UnsupportedOnSquashedMarf("get_with_proof"));
+        }
         let marf_value = match MARF::get_by_key(&mut conn, block_hash, key)? {
             None => return Ok(None),
             Some(x) => x,
@@ -1500,6 +1563,10 @@ impl<T: MarfTrieId> MARF<T> {
         path: &TrieHash,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let mut conn = self.storage.connection();
+        // Squash-aware proofs are not currently supported.
+        if conn.is_squashed() {
+            return Err(Error::UnsupportedOnSquashedMarf("get_with_proof_from_hash"));
+        }
         let marf_value = match MARF::get_by_path(&mut conn, block_hash, path)? {
             None => return Ok(None),
             Some(x) => x,
@@ -1765,6 +1832,8 @@ impl<T: MarfTrieId> MARF<T> {
     where
         F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
     {
+        storage.check_historical_read_allowed(block_hash)?;
+
         let (original_block_hash, original_block_id) = storage.get_cur_block_and_id();
         let result = Self::for_each_leaf_inner(storage, block_hash, &mut handle_leaf);
 
