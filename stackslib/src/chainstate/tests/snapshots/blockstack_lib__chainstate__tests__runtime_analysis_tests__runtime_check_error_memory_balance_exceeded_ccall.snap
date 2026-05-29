@@ -1279,6 +1279,7 @@ expression: result
       runtime: 199232461,
     ),
   )),
+<<<<<<< HEAD
   Success(ExpectedBlockOutput(
     marf_hash: "694daf5f9f5315edbbbe0d8c4b48fb177ce0e79511b50d74bf0d3453e2040c68",
     evaluated_epoch: Epoch40,
@@ -2131,4 +2132,6 @@ expression: result
     evaluated_epoch: Epoch40,
     error: "Invalid Stacks block 1c23cd63c0e13156534a02b9910a2380d752572d182e65f77cedf4e4c1774398: CostOverflowError(ExecutionCost { write_length: 12810, write_count: 12, read_length: 46180580, read_count: 72, runtime: 4874946178 }, ExecutionCost { write_length: 12810, write_count: 12, read_length: 48279697, read_count: 75, runtime: 5000777969 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
+=======
+>>>>>>> pox-wf-integration
 ]

@@ -51,6 +51,7 @@ expression: result
     evaluated_epoch: Epoch34,
     error: "Invalid Stacks block c3ad206426d09bff20a1d8e6513e51cd3a0743a731c91d5626caf5a35358b7f8: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
   )),
+<<<<<<< HEAD
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
     error: "Invalid Stacks block e4631b58701f035d7be87f93528cfa1a2bf2f60c1834308c1574c20a02f8e172: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
@@ -75,4 +76,6 @@ expression: result
     evaluated_epoch: Epoch40,
     error: "Invalid Stacks block 5db82c344cdf3e0fccadeeb7672686b21379d888bf91585d3862da73e16c7c38: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
   )),
+=======
+>>>>>>> pox-wf-integration
 ]

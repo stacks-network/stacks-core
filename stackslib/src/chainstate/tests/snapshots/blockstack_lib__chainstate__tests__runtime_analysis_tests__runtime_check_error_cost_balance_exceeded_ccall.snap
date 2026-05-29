@@ -963,6 +963,7 @@ expression: result
     evaluated_epoch: Epoch34,
     error: "Invalid Stacks block e10f278f06c99decd6e9e52951da6c3bedc0623eb976ab026d77276a566c6132: CostOverflowError(ExecutionCost { write_length: 1275935, write_count: 20, read_length: 5, read_count: 5, runtime: 52204921 }, ExecutionCost { write_length: 1275935, write_count: 20, read_length: 480031, read_count: 15001, runtime: 59926682 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
+<<<<<<< HEAD
   Success(ExpectedBlockOutput(
     marf_hash: "835b87096e858ebff2aaa0cf8ae536b08976fa46e39814d5fb63965a0911caee",
     evaluated_epoch: Epoch40,
@@ -1275,4 +1276,6 @@ expression: result
     evaluated_epoch: Epoch40,
     error: "Invalid Stacks block 27a2063829a032551f24d41e6c28ce618e97e0780fd977620cf68df262ed6754: CostOverflowError(ExecutionCost { write_length: 1531122, write_count: 24, read_length: 6, read_count: 6, runtime: 62645905 }, ExecutionCost { write_length: 1531122, write_count: 24, read_length: 480014, read_count: 15001, runtime: 70367165 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
   )),
+=======
+>>>>>>> pox-wf-integration
 ]

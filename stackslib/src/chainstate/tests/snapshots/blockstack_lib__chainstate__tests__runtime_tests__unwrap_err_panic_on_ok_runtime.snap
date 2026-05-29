@@ -1743,6 +1743,7 @@ expression: result
       runtime: 556,
     ),
   )),
+<<<<<<< HEAD
   Success(ExpectedBlockOutput(
     marf_hash: "246836d23d0ec04ddca5937d73299904ae0a3558bd6685a81759e857e2f10301",
     evaluated_epoch: Epoch40,
@@ -2991,4 +2992,6 @@ expression: result
       runtime: 556,
     ),
   )),
+=======
+>>>>>>> pox-wf-integration
 ]
