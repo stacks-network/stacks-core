@@ -4336,6 +4336,39 @@ export const contracts = {
           bigint
         >
       >,
+      verifyBondRolloverWindow: {
+        name: 'verify-bond-rollover-window',
+        access: 'private',
+        args: [
+          {
+            name: 'existing-membership',
+            type: {
+              optional: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'is-l1-lock', type: 'bool' },
+                  { name: 'signer', type: 'principal' },
+                ],
+              },
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          existingMembership: TypedAbiArg<
+            {
+              amountUstx: number | bigint;
+              bondIndex: number | bigint;
+              isL1Lock: boolean;
+              signer: string;
+            } | null,
+            'existingMembership'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
       verifyL1Lockups: {
         name: 'verify-l1-lockups',
         access: 'private',
@@ -5034,6 +5067,44 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      bondOverlapsNewPosition_q: {
+        name: 'bond-overlaps-new-position?',
+        access: 'read_only',
+        args: [
+          {
+            name: 'existing-membership',
+            type: {
+              optional: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'is-l1-lock', type: 'bool' },
+                  { name: 'signer', type: 'principal' },
+                ],
+              },
+            },
+          },
+          { name: 'new-first-reward-cycle', type: 'uint128' },
+        ],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<
+        [
+          existingMembership: TypedAbiArg<
+            {
+              amountUstx: number | bigint;
+              bondIndex: number | bigint;
+              isL1Lock: boolean;
+              signer: string;
+            } | null,
+            'existingMembership'
+          >,
+          newFirstRewardCycle: TypedAbiArg<
+            number | bigint,
+            'newFirstRewardCycle'
+          >,
+        ],
+        boolean
+      >,
       bondPeriodToBurnHeight: {
         name: 'bond-period-to-burn-height',
         access: 'read_only',
@@ -5548,6 +5619,12 @@ export const contracts = {
         ],
         bigint
       >,
+      getStakerCustodiedSbtc: {
+        name: 'get-staker-custodied-sbtc',
+        access: 'read_only',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[staker: TypedAbiArg<string, 'staker'>], bigint>,
       getStakerInfo: {
         name: 'get-staker-info',
         access: 'read_only',
