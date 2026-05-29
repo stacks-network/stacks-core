@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::types::MAX_VALUE_SIZE;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::ed25519::ed25519_verify;
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
 use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
@@ -28,6 +30,7 @@ use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     RuntimeCheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
 };
+use crate::vm::functions::{buff_to_array, buff_to_vec};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value};
 use crate::vm::{ClarityVersion, LocalContext, eval};
@@ -330,4 +333,44 @@ pub fn special_secp256r1_verify(
     };
 
     Ok(Value::Bool(verify_result.is_ok()))
+}
+
+pub fn native_ed25519_verify(args: Vec<Value>) -> Result<Value, VmExecutionError> {
+    // (ed25519-verify message signature public-key)
+    // message: (buff MAX_VALUE_SIZE), signature: (buff 64), public-key: (buff 32)
+
+    let [message_value, signature_value, public_key_value]: [Value; 3] = args
+        .try_into()
+        .map_err(|_| VmInternalError::Expect("ed25519-verify received wrong arity".into()))?;
+
+    let message = buff_to_vec(&message_value, MAX_VALUE_SIZE as usize).ok_or_else(|| {
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_MAX),
+            message_value.to_error_string(),
+        )
+    })?;
+    let signature = buff_to_array::<64>(&signature_value).ok_or_else(|| {
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_64),
+            signature_value.to_error_string(),
+        )
+    })?;
+    let public_key = buff_to_array::<32>(&public_key_value).ok_or_else(|| {
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_32),
+            public_key_value.to_error_string(),
+        )
+    })?;
+
+    let verify_result = ed25519_verify(&message, &signature, &public_key);
+
+    Ok(Value::Bool(verify_result.is_ok()))
+}
+
+pub fn cost_input_ed25519_verify(args: &[Value]) -> Result<u64, VmExecutionError> {
+    let len = match args.first() {
+        Some(Value::Sequence(SequenceData::Buffer(BuffData { data }))) => data.len(),
+        _ => 0,
+    };
+    Ok(u64::try_from(len).unwrap_or(u64::MAX))
 }
