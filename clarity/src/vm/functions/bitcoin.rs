@@ -914,7 +914,7 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::{OutPoint, TxIn, TxOut};
     use stacks_common::deps_common::bitcoin::network::serialize::serialize as btc_serialize;
 
-    use crate::vm::tests::proptest_strategies::{arb_simple_tx, compute_root_from_proof};
+    use crate::vm::tests::proptest_strategies::arb_simple_tx;
 
     /// Walk a Bitcoin-style merkle proof bottom-up using the canonical tree
     /// shape implied by `tx_count`, forcing the duplicated-padding sibling
@@ -989,12 +989,12 @@ mod tests {
             tx_index in 0u128..tx_count,
             leaf in Just(leaf),
             tx_count in Just(tx_count),
-            siblings in prop::collection::vec(
+            raw_siblings in prop::collection::vec(
                 any::<[u8; 32]>(),
                 canonical_merkle_depth(tx_count) as usize,
             ),
         ) -> ([u8; 32], [u8; 32], u128, u128, Vec<[u8; 32]>) {
-            let root = compute_root_from_proof(leaf, tx_index, &siblings);
+            let (siblings, root) = synth_canonical_proof(leaf, tx_index, tx_count, &raw_siblings);
             (leaf, root, tx_index, tx_count, siblings)
         }
     }

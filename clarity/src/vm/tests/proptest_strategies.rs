@@ -29,29 +29,38 @@ use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use crate::vm::functions::bitcoin::GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN;
 
-/// Walk a Bitcoin-style merkle proof bottom-up and return the implied root.
-/// Lets tests synthesize valid proofs at the full 0..=24 depth range without
-/// materializing 2^24-leaf trees.
-pub(crate) fn compute_root_from_proof(
+/// Walk a Bitcoin-style merkle proof bottom-up using the canonical tree shape
+/// implied by `tx_count`, forcing the duplicated-padding sibling at every
+/// odd-row edge to equal the running hash. Returns `(siblings, root)`. Lets
+/// tests synthesize proofs valid by construction against the hardened
+/// `verify_merkle` (which rejects non-canonical padding-slot siblings and
+/// non-padding sibling==cur collisions) without materializing 2^24-leaf trees.
+pub(crate) fn synth_canonical_proof(
     leaf: [u8; 32],
     tx_index: u128,
-    siblings: &[[u8; 32]],
-) -> [u8; 32] {
+    tx_count: u128,
+    raw_siblings: &[[u8; 32]],
+) -> (Vec<[u8; 32]>, [u8; 32]) {
+    let mut siblings = Vec::with_capacity(raw_siblings.len());
     let mut cur = leaf;
     let mut idx = tx_index;
+    let mut row_count = tx_count;
     let mut buf = [0u8; 64];
-    for sibling in siblings {
+    for raw in raw_siblings {
+        let sibling = if (idx | 1) >= row_count { cur } else { *raw };
+        siblings.push(sibling);
         if idx & 1 == 1 {
-            buf[..32].copy_from_slice(sibling);
+            buf[..32].copy_from_slice(&sibling);
             buf[32..].copy_from_slice(&cur);
         } else {
             buf[..32].copy_from_slice(&cur);
-            buf[32..].copy_from_slice(sibling);
+            buf[32..].copy_from_slice(&sibling);
         }
         cur = Sha256dHash::from_data(&buf).0;
         idx >>= 1;
+        row_count = (row_count + 1) >> 1;
     }
-    cur
+    (siblings, cur)
 }
 
 /// Empty witness (non-segwit serialization) or 1..=4 witness items of

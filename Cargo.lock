@@ -809,7 +809,7 @@ dependencies = [
  "criterion",
  "integer-sqrt",
  "lazy_static",
- "madhouse",
+ "madhouse 0.2.0",
  "mutants",
  "pinny",
  "proptest",
@@ -2499,6 +2499,14 @@ dependencies = [
 
 [[package]]
 name = "madhouse"
+version = "0.2.0"
+source = "git+https://github.com/stacks-network/madhouse-rs.git?tag=0.2.0#a0983d0f7d43c4b2a765df7f46b7ee28f160924d"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "madhouse"
 version = "0.2.1"
 source = "git+https://github.com/stacks-network/madhouse-rs.git?rev=f83f8ea649182c40b9dbd1b90f8de86261b91fe7#f83f8ea649182c40b9dbd1b90f8de86261b91fe7"
 dependencies = [
@@ -3100,7 +3108,7 @@ name = "pox-locking"
 version = "2.4.0"
 dependencies = [
  "clarity 0.0.1",
- "madhouse",
+ "madhouse 0.2.0",
  "mutants",
  "pinny",
  "proptest",
@@ -4437,7 +4445,7 @@ dependencies = [
  "libc",
  "libsigner 0.0.1",
  "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "madhouse",
+ "madhouse 0.2.1",
  "mockito",
  "mutants",
  "pico-args",
@@ -4546,7 +4554,7 @@ dependencies = [
  "insta",
  "lazy_static",
  "libstackerdb 0.0.1",
- "madhouse",
+ "madhouse 0.2.1",
  "mio 0.6.23",
  "mutants",
  "nix",

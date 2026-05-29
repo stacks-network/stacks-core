@@ -35,7 +35,7 @@ use stacks_common::util::hash::to_hex;
 use crate::vm::functions::bitcoin::{
     GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN, VERIFY_MERKLE_PROOF_MAX_DEPTH,
 };
-use crate::vm::tests::proptest_strategies::{arb_simple_tx, compute_root_from_proof};
+use crate::vm::tests::proptest_strategies::{arb_simple_tx, synth_canonical_proof};
 use crate::vm::types::{TupleData, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
@@ -63,41 +63,6 @@ fn execute(snippet: &str) -> Value {
     execute_with_parameters(snippet, TEST_CLARITY, TEST_EPOCH, false)
         .expect("execution should succeed")
         .expect("should return a value")
-}
-
-/// Walk a Bitcoin-style merkle proof bottom-up using the canonical tree
-/// shape implied by `tx_count`, forcing the duplicated-padding sibling at
-/// every odd-row edge to equal the running hash. Returns the synthesized
-/// `(siblings, root)` pair. Lets us synthesize valid proofs at the full
-/// 0..=24 depth range without materializing 2^24-leaf trees in memory.
-/// The canonical tree-construction direction is covered independently by
-/// the real-mainnet unit tests in `vm::functions::bitcoin::tests`.
-fn synth_canonical_proof(
-    leaf: [u8; 32],
-    tx_index: u128,
-    tx_count: u128,
-    raw_siblings: &[[u8; 32]],
-) -> (Vec<[u8; 32]>, [u8; 32]) {
-    let mut siblings = Vec::with_capacity(raw_siblings.len());
-    let mut cur = leaf;
-    let mut idx = tx_index;
-    let mut row_count = tx_count;
-    let mut buf = [0u8; 64];
-    for raw in raw_siblings {
-        let sibling = if (idx | 1) >= row_count { cur } else { *raw };
-        siblings.push(sibling);
-        if idx & 1 == 1 {
-            buf[..32].copy_from_slice(&sibling);
-            buf[32..].copy_from_slice(&cur);
-        } else {
-            buf[..32].copy_from_slice(&cur);
-            buf[32..].copy_from_slice(&sibling);
-        }
-        cur = Sha256dHash::from_data(&buf).0;
-        idx >>= 1;
-        row_count = (row_count + 1) >> 1;
-    }
-    (siblings, cur)
 }
 
 /// `ceil(log2(n))` for `n >= 2`, 0 for `n <= 1`. Local copy of the helper in
