@@ -3745,10 +3745,11 @@ impl NakamotoChainState {
         boundary: SquashBoundary,
         cycle: u64,
         first_burn_height: u64,
-        reward_cycle_length: u64,
-        prepare_length: u64,
+        pox_constants: &PoxConstants,
     ) -> Result<Option<RewardSet>, ChainstateError> {
-        if reward_cycle_length == 0 {
+        let reward_cycle_length = u64::from(pox_constants.reward_cycle_length);
+        if reward_cycle_length == 0 || cycle == 0 {
+            // Cycle 0 (genesis) has no stored reward set, and a zero-length cycle is degenerate.
             return Ok(None);
         }
         // Reward sets for `cycle` are calculated in the prepare phase of
@@ -3756,7 +3757,7 @@ impl NakamotoChainState {
         // boundary, no row could have been copied - skip the SQL entirely.
         let cycle_prepare_start = first_burn_height
             .saturating_add(cycle.saturating_mul(reward_cycle_length))
-            .saturating_sub(prepare_length)
+            .saturating_sub(u64::from(pox_constants.prepare_length))
             .saturating_add(1);
         if cycle_prepare_start > u64::from(boundary.bitcoin_height) {
             return Ok(None);
@@ -3764,30 +3765,32 @@ impl NakamotoChainState {
         // We're operating on the Stacks-indexed MARF here, so the boundary's
         // `marf_height` is a Stacks block height.
         let squash_stacks_height = boundary.marf_height;
+
+        // The reward set for `cycle` is written during the previous cycle, so search the bitcoin
+        // heights of cycle `cycle - 1`: from its first block up to cycle `cycle`'s first block.
+        let bitcoin_lo = pox_constants.reward_cycle_to_block_height(first_burn_height, cycle - 1);
+        let bitcoin_hi = pox_constants
+            .reward_cycle_to_block_height(first_burn_height, cycle)
+            .saturating_sub(1);
+
+        // CROSS JOIN keeps the small nakamoto_reward_sets as the outer table: SQLite does not
+        // reorder a CROSS JOIN, so each row is probed into nakamoto_block_headers via the
+        // index_block_hash index instead of scanning the headers table.
         let sql = "\
             SELECT n.reward_set, n.index_block_hash \
             FROM nakamoto_reward_sets n \
-            JOIN nakamoto_block_headers h ON n.index_block_hash = h.index_block_hash \
-            WHERE h.block_height < ?1 \
-              AND CASE \
-                    WHEN (h.burn_header_height - ?2) % ?3 = 0 \
-                      THEN (h.burn_header_height - ?2) / ?3 \
-                    ELSE (h.burn_header_height - ?2) / ?3 + 1 \
-                  END = ?4";
+            CROSS JOIN nakamoto_block_headers h \
+            WHERE n.index_block_hash = h.index_block_hash \
+              AND h.block_height < ?1 \
+              AND h.burn_header_height >= ?2 \
+              AND h.burn_header_height <= ?3";
         let mut stmt = chainstate_db.prepare(sql)?;
-        let mut rows = stmt.query(params![
-            i64::from(squash_stacks_height),
-            i64::try_from(first_burn_height)
-                .map_err(|_| ChainstateError::DBError(DBError::ParseError))?,
-            i64::try_from(reward_cycle_length)
-                .map_err(|_| ChainstateError::DBError(DBError::ParseError))?,
-            i64::try_from(cycle).map_err(|_| ChainstateError::DBError(DBError::ParseError))?,
-        ])?;
-        let Some(first) = rows.next()? else {
+        let mut rows = stmt.query(params![i64::from(squash_stacks_height), bitcoin_lo, bitcoin_hi])?;
+        let Some(first_row) = rows.next()? else {
             return Ok(None);
         };
-        let rs_json: String = first.get(0)?;
-        let first_block: StacksBlockId = first.get(1)?;
+        let rs_json: String = first_row.get(0)?;
+        let first_block: StacksBlockId = first_row.get(1)?;
         while let Some(other) = rows.next()? {
             let other_json: String = other.get(0)?;
             if other_json != rs_json {

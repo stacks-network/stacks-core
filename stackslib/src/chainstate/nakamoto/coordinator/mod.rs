@@ -126,8 +126,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                 boundary,
                 cycle,
                 sortdb.first_block_height,
-                u64::from(sortdb.pox_constants.reward_cycle_length),
-                u64::from(sortdb.pox_constants.prepare_length),
+                &sortdb.pox_constants,
             )? {
                 ensure_usable_nakamoto_reward_set(&reward_set, debug_log)?;
                 inf_or_debug!(

@@ -411,6 +411,11 @@ const SQL_BOUNDARY: SquashBoundary = SquashBoundary {
     bitcoin_height: u32::MAX,
 };
 
+/// PoxConstants with the small reward-cycle (200) and prepare (50) lengths these tests use.
+fn sql_pox_constants() -> PoxConstants {
+    PoxConstants::new(200, 50, 26, 25, 5, 0, 0, 0, 0, 0, 0)
+}
+
 #[test]
 fn try_read_squashed_reward_set_of_cycle_match_below_squash() {
     let mut chainstate = real_chainstate("reward-set-match-below-squash");
@@ -423,8 +428,7 @@ fn try_read_squashed_reward_set_of_cycle_match_below_squash() {
         SQL_BOUNDARY,
         5,
         100,
-        200,
-        50,
+        &sql_pox_constants(),
     )
     .unwrap();
     assert_eq!(result, Some(reward_set));
@@ -442,8 +446,7 @@ fn try_read_squashed_reward_set_of_cycle_at_boundary_not_returned() {
         SQL_BOUNDARY,
         5,
         100,
-        200,
-        50,
+        &sql_pox_constants(),
     )
     .unwrap();
     assert_eq!(result, None);
@@ -462,8 +465,7 @@ fn try_read_squashed_reward_set_of_cycle_duplicate_byte_equal_blobs_return_one()
         SQL_BOUNDARY,
         5,
         100,
-        200,
-        50,
+        &sql_pox_constants(),
     )
     .unwrap();
     assert_eq!(result, Some(reward_set));
@@ -484,8 +486,7 @@ fn try_read_squashed_reward_set_of_cycle_duplicate_distinct_blobs_fail_loudly() 
         SQL_BOUNDARY,
         5,
         100,
-        200,
-        50,
+        &sql_pox_constants(),
     )
     .unwrap_err();
     let msg = expect_expects_error(err);
@@ -518,8 +519,7 @@ fn try_read_squashed_reward_set_of_cycle_gate_blocks_when_prepare_above_boundary
         boundary,
         5,
         100,
-        200,
-        50,
+        &sql_pox_constants(),
     )
     .unwrap();
     assert_eq!(result, None);
