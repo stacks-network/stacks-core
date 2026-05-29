@@ -32,6 +32,7 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 chrono = { version = "0.4.19", optional = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
+stacks-codec = { path = "../stacks-codec" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
@@ -61,6 +62,7 @@ stdext = "0.3.1"
 stx-genesis = { path = "../stx-genesis"}
 clarity = { features = ["default", "testing"], path = "../clarity" }
 stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
+stacks-codec = { features = ["default", "testing"], path = "../stacks-codec" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 mutants = "0.0.3"
@@ -69,6 +71,7 @@ chrono = "0.4.19"
 tempfile = "3.3"
 pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+madhouse = { workspace = true }
 insta = { version = "1.37.0", features = ["ron"] }
 
 [features]

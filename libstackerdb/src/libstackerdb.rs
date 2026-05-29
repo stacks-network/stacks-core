@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ pub const STACKERDB_MAX_CHUNK_SIZE: u32 = 16 * 1024 * 1024;
 /// CHUNK_SIZE constant for signers StackerDBs (2MB)
 pub const SIGNERS_STACKERDB_CHUNK_SIZE: usize = 2 * 1024 * 1024; // 2MB
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 mod tests;
 
 #[derive(Debug)]

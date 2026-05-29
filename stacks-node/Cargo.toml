@@ -44,6 +44,7 @@ tokio = "1.15"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 clarity = { path = "../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
+stacks-codec = { path = "../stacks-codec", features = ["testing"] }
 stacks = { package = "stackslib", path = "../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../stacks-signer", features = ["testing"] }
 stacks-inspect = { path = "../contrib/stacks-inspect", default-features = false }
@@ -56,7 +57,7 @@ tempfile = "3.3"
 mockito = "1.5"
 serial_test = "3.2.0"
 pinny = { workspace = true }
-madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", tag = "0.2.0" }
+madhouse = { workspace = true }
 proptest = "1.6.*"
 stdext = "0.3.1"
 testcontainers =  { version = "0.27.0", features = ["blocking"] }

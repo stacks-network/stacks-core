@@ -23,6 +23,7 @@ use std::{env, fs, io};
 #[cfg(test)]
 use rusqlite::params;
 use rusqlite::Connection;
+use stacks_common::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
 
 use crate::chainstate::stacks::index::bits::{
     read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
@@ -31,9 +32,78 @@ use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 use crate::chainstate::stacks::index::storage::NodeHashReader;
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::chainstate::stacks::index::{blob_layout, trie_sql, Error, MarfTrieId};
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::sql_vacuum;
+
+/// Positioned equivalent of `read_exact`.
+///
+/// Matches Unix `FileExt::read_exact_at` cursor behavior in non-concurrent
+/// use: the file cursor is unchanged after the call. The Windows
+/// `FileExt::seek_read` does mutate the cursor, so we save and restore it
+/// explicitly via the `Seek` impl on `&File`. This save/read/restore sequence
+/// is not atomic with other cursor-using operations on the same file handle.
+pub(crate) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_exact_at(buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileExt;
+        // `Seek` is implemented for `&File`, so we can save and restore the
+        // cursor through a local mutable binding without a `&mut File`.
+        let mut handle: &fs::File = file;
+        let original_pos = handle.stream_position()?;
+        let read_result = (|| -> io::Result<()> {
+            let mut total = 0;
+            while total < buf.len() {
+                let read_offset = offset.checked_add(total as u64).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "read_exact_at: offset overflow",
+                    )
+                })?;
+                // `total` is kept within `buf` by the loop invariant
+                let unread = buf.get_mut(total..).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "read_exact_at: invalid buffer offset",
+                    )
+                })?;
+                match handle.seek_read(unread, read_offset) {
+                    Ok(0) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "read_exact_at: short read at end of file",
+                        ));
+                    }
+                    Ok(n) => {
+                        total += n;
+                    }
+                    // Match `read_exact`/`read_exact_at`: an interrupted
+                    // read is transient, so retry without advancing `total`.
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            }
+            Ok(())
+        })();
+        // If the read failed, propagate that error and let any restore
+        // error fall on the floor (it would just mask the real failure).
+        // If the read succeeded, surface a restore error so callers don't
+        // silently see a moved cursor.
+        let restore_result = handle.seek(SeekFrom::Start(original_pos)).map(|_| ());
+        match (read_result, restore_result) {
+            (Err(e), _) => Err(e),
+            (Ok(()), Err(e)) => Err(e),
+            (Ok(()), Ok(())) => Ok(()),
+        }
+    }
+}
 
 /// Mapping between block IDs and trie offsets
 pub type TrieIdOffsets = HashMap<u32, u64>;
@@ -104,6 +174,15 @@ impl TrieFile {
                 }
             }
         }
+    }
+
+    /// Durably sync blob data to disk.
+    /// No-op for RAM-backed TrieFiles.
+    pub fn sync_data(&mut self) -> Result<(), io::Error> {
+        if let TrieFile::Disk(ref mut data) = self {
+            data.fd.sync_data()?;
+        }
+        Ok(())
     }
 
     /// Get a copy of the path to this TrieFile.
@@ -326,14 +405,34 @@ impl<'a> TrieFileNodeHashReader<'a> {
 impl NodeHashReader for TrieFileNodeHashReader<'_> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
         let trie_offset = self.file.get_trie_offset(self.db, self.block_id)?;
-        self.file
-            .seek(SeekFrom::Start(trie_offset + (ptr.ptr() as u64)))?;
+        self.file.seek(SeekFrom::Start(trie_offset + ptr.ptr()))?;
         let hash_buff = read_hash_bytes(self.file)?;
         w.write_all(&hash_buff).map_err(|e| e.into())
     }
 }
 
 impl TrieFile {
+    /// Warm the offset cache from confirmed `marf_data` rows.
+    pub fn warm_trie_offsets(&mut self, db: &Connection) -> Result<(), Error> {
+        let mut stmt =
+            db.prepare("SELECT block_id, external_offset FROM marf_data WHERE unconfirmed = 0")?;
+        let rows = stmt.query_map([], |row| {
+            let block_id: u32 = row.get(0)?;
+            let offset_i64: i64 = row.get(1)?;
+            Ok((block_id, offset_i64))
+        })?;
+        let offsets_cache = match self {
+            TrieFile::RAM(ref mut ram) => &mut ram.trie_offsets,
+            TrieFile::Disk(ref mut disk) => &mut disk.trie_offsets,
+        };
+        for row in rows {
+            let (block_id, offset_i64) = row?;
+            let offset = u64::try_from(offset_i64).map_err(|_| Error::OverflowError)?;
+            offsets_cache.insert(block_id, offset);
+        }
+        Ok(())
+    }
+
     /// Determine the file offset in the TrieFile where a serialized trie starts.
     /// The offsets are stored in the given DB, and are cached indefinitely once loaded.
     pub fn get_trie_offset(&mut self, db: &Connection, block_id: u32) -> Result<u64, Error> {
@@ -362,7 +461,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieHash, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
         let hash_buff = read_hash_bytes(self)?;
         Ok(TrieHash(hash_buff))
     }
@@ -376,7 +475,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
         read_nodetype_at_head(self, ptr.id())
     }
 
@@ -388,7 +487,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieNodeType, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
         read_nodetype_at_head_nohash(self, ptr.id())
     }
 
@@ -401,7 +500,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieHash, Error> {
         let (offset, _length) = trie_sql::get_external_trie_offset_length_by_bhh(db, bhh)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
         let hash_buff = read_hash_bytes(self)?;
         Ok(TrieHash(hash_buff))
     }
@@ -443,11 +542,49 @@ impl TrieFile {
         self.seek(SeekFrom::Start(offset))?;
         self.write_all(buf)?;
         self.flush()?;
-
-        if let TrieFile::Disk(ref mut data) = self {
-            data.fd.sync_data()?;
-        }
+        self.sync_data()?;
         Ok(offset)
+    }
+
+    /// Read `(parent_hash, root_hash)` from a block's blob header.
+    pub fn read_parent_and_root_hash<T: MarfTrieId>(
+        &mut self,
+        db: &Connection,
+        block_id: u32,
+    ) -> Result<(T, TrieHash), Error> {
+        let blob_offset = self.get_trie_offset(db, block_id)?;
+        let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
+        self.read_blob_bytes_at(blob_offset, &mut buf)?;
+
+        let mut parent_bytes = [0u8; BLOCK_HEADER_HASH_ENCODED_SIZE];
+        parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
+        let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+        root_bytes.copy_from_slice(
+            &buf[blob_layout::ROOT_NODE_OFFSET
+                ..blob_layout::ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE],
+        );
+        Ok((T::from_bytes(parent_bytes), TrieHash(root_bytes)))
+    }
+
+    /// Read blob bytes without moving the file cursor.
+    fn read_blob_bytes_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), Error> {
+        match self {
+            TrieFile::Disk(disk) => read_exact_at(&disk.fd, buf, offset).map_err(Error::IOError),
+            TrieFile::RAM(ram) => {
+                let bytes = ram.fd.get_ref();
+                let start = usize::try_from(offset).map_err(|_| Error::OverflowError)?;
+                let end = start.checked_add(buf.len()).ok_or(Error::OverflowError)?;
+                let slice = bytes.get(start..end).ok_or_else(|| {
+                    Error::CorruptionError(format!(
+                        "TrieFile::RAM read out of bounds: offset {start} + len {} > buffer len {}",
+                        buf.len(),
+                        bytes.len()
+                    ))
+                })?;
+                buf.copy_from_slice(slice);
+                Ok(())
+            }
+        }
     }
 }
 

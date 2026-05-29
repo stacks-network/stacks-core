@@ -27,12 +27,14 @@ use stacks_common::types::chainstate::{
 use crate::util_lib::db::Error as db_error;
 
 pub mod bits;
+pub mod blob_layout;
 pub mod cache;
 pub mod file;
 pub mod marf;
 pub mod node;
 pub mod profile;
 pub mod proofs;
+pub mod squash;
 pub mod storage;
 pub mod trie;
 pub mod trie_sql;
@@ -265,6 +267,18 @@ pub enum Error {
     OverflowError,
     Patch(Option<TrieHash>, TrieNodePatch),
     NodeTooDeep,
+    /// Read at a block strictly below the squash height of a squashed MARF.
+    /// The squashed MARF only retains the canonical state at H, so per-block
+    /// historical reads in `0..H` cannot be served.
+    HistoricalReadInSquashedRange {
+        block_height: u32,
+        squash_height: u32,
+    },
+    /// Operation is not supported on a squashed MARF (e.g. proof generation).
+    UnsupportedOnSquashedMarf(&'static str),
+    /// A destination path required to be empty already exists. Carries the
+    /// offending path.
+    DestinationExists(String),
 }
 
 impl From<io::Error> for Error {
@@ -335,6 +349,20 @@ impl fmt::Display for Error {
                 write!(f, "Read patch node instead of expected node: {p:?}")
             }
             Error::NodeTooDeep => write!(f, "Node is too deeply buried under patches"),
+            Error::HistoricalReadInSquashedRange {
+                block_height,
+                squash_height,
+            } => write!(
+                f,
+                "Historical read at height {block_height} below squash height {squash_height} \
+                 is not supported on a squashed MARF"
+            ),
+            Error::UnsupportedOnSquashedMarf(op) => {
+                write!(f, "Operation `{op}` is not supported on a squashed MARF")
+            }
+            Error::DestinationExists(ref p) => {
+                write!(f, "Destination path already exists: {p}")
+            }
         }
     }
 }
