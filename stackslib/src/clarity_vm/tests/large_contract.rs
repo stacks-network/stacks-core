@@ -47,6 +47,7 @@ use crate::chainstate::tests::consensus::{
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityError, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::clarity_vm::tests::test_utils::apply_transitions_for_epoch;
 use crate::util_lib::boot::boot_code_id;
 
 fn test_block_headers(n: u8) -> StacksBlockId {
@@ -755,19 +756,12 @@ pub fn rollback_log_memory_test(
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
+            &parent,
             &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
             burn_db,
@@ -821,20 +815,12 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
+            &parent,
             &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
             burn_db,
@@ -896,20 +882,12 @@ pub fn argument_memory_test(
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
     let burn_db = &generate_test_burn_state_db(epoch_id);
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
+            &parent,
             &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
             burn_db,
@@ -969,20 +947,12 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
+            &parent,
             &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
             burn_db,
@@ -1080,20 +1050,12 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
     let burn_db = &generate_test_burn_state_db(epoch_id);
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    let parent = apply_transitions_for_epoch(&mut clarity_instance, epoch_id);
 
     {
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
+            &parent,
             &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
             burn_db,
