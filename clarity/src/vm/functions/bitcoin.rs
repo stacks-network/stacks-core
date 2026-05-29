@@ -1255,44 +1255,33 @@ mod tests {
             ));
         }
 
-        /// Pins the CVE-2012-2459 gap in the CURRENT implementation.
+        /// A CVE-2012-2459 *deflation* collision is accepted by `verify_merkle`,
+        /// by design. Bitcoin pads odd rows by duplicating the last node, so a
+        /// 3-leaf block `[A, B, C]` has shape `[A, B, C, C]` and
+        /// `root = H(H(A, B), H(C, C))`. The node `H(C, C)` is also a valid leaf
+        /// of a 2-leaf tree with sibling `H(A, B)` and the same root, so
+        /// presenting it at index 1 with `tx_count = 2` verifies: an honest
+        /// 2-leaf proof that happens to collide with the 3-leaf root.
         ///
-        /// Bitcoin pads odd rows by duplicating the last node, so a
-        /// 3-leaf block `[A, B, C]` has the tree shape `[A, B, C, C]`
-        /// and `root = H(H(A, B), H(C, C))`. An attacker who presents
-        /// `H(C, C)` as a leaf at index 1 with `tx_count = 2` (the next
-        /// smaller power of two) and sibling `H(A, B)` produces a walk
-        /// that reaches the genuine `root` — `verify_merkle` accepts the
-        /// forgery for any `(a, b, c)`.
+        /// The builtin cannot reject this without an authenticated `tx_count` —
+        /// from `(leaf, root, tx_index, tx_count, siblings)` alone it cannot tell
+        /// the root came from a 3-leaf tree. Upstream commit 9fccbe7bea closed
+        /// the complementary *inflation* variant (claiming a larger `tx_count`
+        /// to relocate the last real leaf into the padded region) via the
+        /// per-level sibling-shape checks; this deflation collision is
+        /// fundamental to Merkle proofs and is not closeable here.
         ///
-        /// **Why it slips through.** `verify_merkle` only enforces
-        ///  1. `tx_index < tx_count`,
-        ///  2. `siblings.len() == canonical_depth(tx_count)`.
+        /// Real callers are safe regardless: pox-5.clar's `validate-l1-lockup`
+        /// passes a `leaf` of `SHA256d(tx-bytes)` from a parsed transaction and a
+        /// `root` authenticated against the burnchain header. Hitting the
+        /// collision would need a txid equal to an internal node `H(C, C)` — a
+        /// SHA256d preimage — so the leaf can never be aimed at an internal node.
         ///
-        /// Both hold here: `1 < 2`, and `canonical_depth(2) == 1 ==
-        /// siblings.len()`. The walk then reaches the real root because
-        /// `H(C, C)` legitimately sits one hop below the root in the
-        /// original 3-leaf tree.
-        ///
-        /// **Mitigation lives outside this function.** Callers of
-        /// `verify-merkle-proof` MUST validate `tx_count` against an
-        /// authoritative source (the block header). The builtin alone
-        /// cannot tell whether a claimed `tx_count` matches the tree
-        /// the `root` was derived from.
-        ///
-        /// **This test is GREEN against the current code.** It asserts
-        /// the *buggy* behavior (forgery accepted) so CI continuously
-        /// guards our understanding of the gap. The day the builtin is
-        /// hardened (e.g. with caller-side `tx_count` validation moved
-        /// into the builtin itself), this test will fail and we'll know
-        /// to flip the assertion and update the public docs accordingly.
-        ///
-        /// The property is universal over `(a, b, c)` because the
-        /// forgery construction depends on no structure of the inputs
-        /// beyond their being 32-byte values.
+        /// The assertion pins this accepted-by-design behavior; flip it only if
+        /// the builtin is ever changed to reject honest small-tree proofs.
         #[tag(t_prop)]
         #[test]
-        fn prop_merkle_intermediate_as_leaf_forgery_currently_accepted(
+        fn prop_merkle_deflated_tx_count_collision_accepted(
             a in any::<[u8; 32]>(),
             b in any::<[u8; 32]>(),
             c in any::<[u8; 32]>(),
@@ -1309,9 +1298,8 @@ mod tests {
             buf[32..].copy_from_slice(&h_cc);
             let root = Sha256dHash::from_data(&buf).0;
 
-            // The forgery: claim h_cc as a leaf in a 2-leaf tree with
-            // sibling h_ab. Today the builtin accepts it. When the gap
-            // closes, flip this to `prop_assert!(!verify_merkle(...))`.
+            // h_cc is a valid leaf of the 2-leaf tree [_, h_cc] with sibling
+            // h_ab; the walk reaches the real 3-leaf root. Accepted by design.
             prop_assert!(verify_merkle(h_cc, root, 1, 2, &[h_ab]));
         }
 

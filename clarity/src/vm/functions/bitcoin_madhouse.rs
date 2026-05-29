@@ -232,11 +232,11 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyHonestProof {
     }
 }
 
-/// CVE-2012-2459 forgery on a fresh 3-leaf tree, both gap directions:
-/// accepted at attacker-supplied `tx_count = 2` (known gap, see
-/// `prop_merkle_intermediate_as_leaf_forgery_currently_accepted` in `bitcoin.rs`),
-/// rejected at the real `tx_count = 3` (depth-check defense for callers that
-/// validate `tx_count`).
+/// CVE-2012-2459 collision on a fresh 3-leaf tree, both directions:
+/// accepted at the deflated `tx_count = 2` (the intermediate node `H(c, c)`
+/// is a valid 2-leaf leaf that collides with the 3-leaf root — accepted by
+/// design, see `prop_merkle_deflated_tx_count_collision_accepted` in
+/// `bitcoin.rs`), rejected at the real `tx_count = 3` (depth check).
 ///
 /// Does not touch the tree pool: each call builds a fresh tree from `(a, b, c)`.
 struct VerifyForge3 {
@@ -258,11 +258,11 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyForge3 {
         let h_cc = hash_pair(&self.c, &self.c);
         let root = hash_pair(&h_ab, &h_cc);
 
-        // Forgery: H(c, c) as leaf at index 1 of a "2-leaf tree" with sibling
-        // H(a, b). The walk lands on the genuine root.
+        // H(c, c) is a valid leaf of the 2-leaf tree [_, H(c, c)] with sibling
+        // H(a, b); the walk lands on the genuine 3-leaf root. Accepted by design.
         assert!(
             verify_merkle(h_cc, root, 1, 2, &[h_ab]),
-            "CVE forgery should be ACCEPTED with claimed tx_count=2 (gap)"
+            "deflated tx_count=2 collision should be ACCEPTED by design"
         );
 
         // With truthful tx_count=3 the proof is rejected because
