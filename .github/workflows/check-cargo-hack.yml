@@ -1,6 +1,6 @@
 # Cargo hack to check features on different targets/toolchains
 
-name: Cargo Hack Check
+name: "Check: Cargo Hack"
 
 on:
   workflow_call:
@@ -41,7 +41,7 @@ jobs:
       - name: Install cargo-hack
         uses: ./.github/actions/install-tool
         with:
-          tool: cargo-hack
+          tools: cargo-hack
 
       # Install tools for Windows
       - name: Install Windows cross-compilation tools
@@ -62,7 +62,7 @@ jobs:
 
   # WASM targets - No caching needed as it runs in parallel with longer jobs
   wasm-targets:
-    name: WASM targets
+    name: WASM Targets
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -82,7 +82,7 @@ jobs:
       - name: Install cargo-hack
         uses: ./.github/actions/install-tool
         with:
-          tool: cargo-hack
+          tools: cargo-hack
 
       # Run cargo-hack for WASM Web
       - name: Run cargo hack check (WASM Web)
@@ -109,7 +109,7 @@ jobs:
 
   # Fuzz targets with nightly toolchain
   fuzz-targets:
-    name: Fuzz targets (nightly)
+    name: Fuzz Targets (Nightly)
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
