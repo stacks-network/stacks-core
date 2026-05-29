@@ -792,6 +792,20 @@ mod tests {
     // generator surfaces here, not as false positives elsewhere.
 
     proptest! {
+        /// `tap_branch_hash` lex-sorts its inputs (BIP-341), so it is
+        /// commutative. Pins the sort directly: dropping or reversing it makes
+        /// `H(a || b) != H(b || a)` for `a != b`, failing this property. The
+        /// reference fixtures only exercise the sort when their two leaves
+        /// happen to reorder, so this is the direct guard.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_tap_branch_hash_commutes(
+            a in any::<[u8; 32]>(),
+            b in any::<[u8; 32]>(),
+        ) {
+            prop_assert_eq!(tap_branch_hash(a, b), tap_branch_hash(b, a));
+        }
+
         /// `arb_valid_xonly_pubkey` claims to produce 32 bytes that are
         /// always a valid x-only secp256k1 point. Pins that claim.
         #[tag(t_prop)]
