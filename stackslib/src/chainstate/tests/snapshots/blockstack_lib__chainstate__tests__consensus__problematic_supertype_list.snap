@@ -652,6 +652,7 @@ expression: result
     ),
   )),
 <<<<<<< HEAD
+<<<<<<< HEAD
   Success(ExpectedBlockOutput(
     marf_hash: "602906276e18a3c930407ec8eb67b5f410f1bb48aa4b1f44ff01c930b6e924ae",
     evaluated_epoch: Epoch40,
@@ -822,4 +823,6 @@ expression: result
   )),
 =======
 >>>>>>> pox-wf-integration
+=======
+>>>>>>> test/l1-bond-integration
 ]

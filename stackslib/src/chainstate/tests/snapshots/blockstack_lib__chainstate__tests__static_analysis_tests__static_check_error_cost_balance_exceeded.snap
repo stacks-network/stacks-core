@@ -23,6 +23,7 @@ expression: result
     evaluated_epoch: Epoch34,
     error: "Invalid Stacks block 6bf88ddc44e2e6038e13accd616365e3f789b885edf5e4defcde2cc59f797b59: CostOverflowError(ExecutionCost { write_length: 0, write_count: 0, read_length: 0, read_count: 0, runtime: 0 }, ExecutionCost { write_length: 75013, write_count: 1, read_length: 1020001, read_count: 15001, runtime: 135168502 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
 <<<<<<< HEAD
+<<<<<<< HEAD
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch40,
@@ -49,5 +50,7 @@ expression: result
     error: "Invalid Stacks block 7d6ddfa9c342e38e3c23d67abdda1efe23d0e555dacbce69854d515d3df4c6e3: CostOverflowError(ExecutionCost { write_length: 0, write_count: 0, read_length: 0, read_count: 0, runtime: 0 }, ExecutionCost { write_length: 75013, write_count: 1, read_length: 1020001, read_count: 15001, runtime: 135168502 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
 =======
 >>>>>>> pox-wf-integration
+=======
+>>>>>>> test/l1-bond-integration
   )),
 ]
