@@ -3933,45 +3933,6 @@ export const contracts = {
           bigint
         >
       >,
-      getBitcoinTxOutput_q: {
-        name: 'get-bitcoin-tx-output?',
-        access: 'private',
-        args: [
-          { name: 'tx-bytes', type: { buffer: { length: 100000 } } },
-          { name: 'output-index', type: 'uint128' },
-          { name: 'amount', type: 'uint128' },
-          { name: 'script', type: { buffer: { length: 34 } } },
-        ],
-        outputs: {
-          type: {
-            response: {
-              ok: {
-                tuple: [
-                  { name: 'amount', type: 'uint128' },
-                  { name: 'script', type: { buffer: { length: 34 } } },
-                  { name: 'txid', type: { buffer: { length: 32 } } },
-                ],
-              },
-              error: 'uint128',
-            },
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          txBytes: TypedAbiArg<Uint8Array, 'txBytes'>,
-          outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
-          amount: TypedAbiArg<number | bigint, 'amount'>,
-          script: TypedAbiArg<Uint8Array, 'script'>,
-        ],
-        Response<
-          {
-            amount: bigint;
-            script: Uint8Array;
-            txid: Uint8Array;
-          },
-          bigint
-        >
-      >,
       lockSbtc: {
         name: 'lock-sbtc',
         access: 'private',
@@ -4309,6 +4270,23 @@ export const contracts = {
                       name: 'expected-script-hash',
                       type: { buffer: { length: 34 } },
                     },
+                    {
+                      name: 'seen-outpoints',
+                      type: {
+                        list: {
+                          type: {
+                            tuple: [
+                              { name: 'output-index', type: 'uint128' },
+                              {
+                                name: 'txid',
+                                type: { buffer: { length: 32 } },
+                              },
+                            ],
+                          },
+                          length: 10,
+                        },
+                      },
+                    },
                     { name: 'sum', type: 'uint128' },
                   ],
                 },
@@ -4325,6 +4303,20 @@ export const contracts = {
                   {
                     name: 'expected-script-hash',
                     type: { buffer: { length: 34 } },
+                  },
+                  {
+                    name: 'seen-outpoints',
+                    type: {
+                      list: {
+                        type: {
+                          tuple: [
+                            { name: 'output-index', type: 'uint128' },
+                            { name: 'txid', type: { buffer: { length: 32 } } },
+                          ],
+                        },
+                        length: 10,
+                      },
+                    },
                   },
                   { name: 'sum', type: 'uint128' },
                 ],
@@ -4352,6 +4344,10 @@ export const contracts = {
             Response<
               {
                 expectedScriptHash: Uint8Array;
+                seenOutpoints: {
+                  outputIndex: number | bigint;
+                  txid: Uint8Array;
+                }[];
                 sum: number | bigint;
               },
               number | bigint
@@ -4362,6 +4358,10 @@ export const contracts = {
         Response<
           {
             expectedScriptHash: Uint8Array;
+            seenOutpoints: {
+              outputIndex: bigint;
+              txid: Uint8Array;
+            }[];
             sum: bigint;
           },
           bigint
@@ -4433,30 +4433,6 @@ export const contracts = {
           >,
         ],
         Response<bigint, bigint>
-      >,
-      verifyMerkleProof: {
-        name: 'verify-merkle-proof',
-        access: 'private',
-        args: [
-          { name: 'leaf-hash', type: { buffer: { length: 32 } } },
-          { name: 'root-hash', type: { buffer: { length: 32 } } },
-          { name: 'tx-index', type: 'uint128' },
-          { name: 'tx-count', type: 'uint128' },
-          {
-            name: 'leaf-hashes',
-            type: { list: { type: { buffer: { length: 32 } }, length: 14 } },
-          },
-        ],
-        outputs: { type: 'bool' },
-      } as TypedAbiFunction<
-        [
-          leafHash: TypedAbiArg<Uint8Array, 'leafHash'>,
-          rootHash: TypedAbiArg<Uint8Array, 'rootHash'>,
-          txIndex: TypedAbiArg<number | bigint, 'txIndex'>,
-          txCount: TypedAbiArg<number | bigint, 'txCount'>,
-          leafHashes: TypedAbiArg<Uint8Array[], 'leafHashes'>,
-        ],
-        boolean
       >,
       allowContractCaller: {
         name: 'allow-contract-caller',
@@ -5162,7 +5138,7 @@ export const contracts = {
           { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
-        outputs: { type: { buffer: { length: 5141 } } },
+        outputs: { type: { buffer: { length: 4109 } } },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
@@ -5910,15 +5886,6 @@ export const contracts = {
         [cycle: TypedAbiArg<number | bigint, 'cycle'>],
         bigint
       >,
-      rewardCycleToUnlockHeight: {
-        name: 'reward-cycle-to-unlock-height',
-        access: 'read_only',
-        args: [{ name: 'cycle', type: 'uint128' }],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
-        bigint
-      >,
       serializeCScriptNum: {
         name: 'serialize-c-script-num',
         access: 'read_only',
@@ -6452,6 +6419,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_DUPLICATE_LOCKUP_OUTPOINT: {
+        name: 'ERR_DUPLICATE_LOCKUP_OUTPOINT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INSUFFICIENT_STX: {
         name: 'ERR_INSUFFICIENT_STX',
         type: {
@@ -6474,6 +6451,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_BTC_HEADER: {
         name: 'ERR_INVALID_BTC_HEADER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_LOCKUP_AMOUNT: {
+        name: 'ERR_INVALID_LOCKUP_AMOUNT',
         type: {
           response: {
             ok: 'none',
@@ -6914,6 +6901,10 @@ export const contracts = {
         isOk: false,
         value: 40n,
       },
+      ERR_INVALID_LOCKUP_AMOUNT: {
+        isOk: false,
+        value: 45n,
+      },
       ERR_INVALID_LOCKUP_SCRIPT: {
         isOk: false,
         value: 42n,
@@ -7032,8 +7023,8 @@ export const contracts = {
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'pox-5',
   },
   pox_4_test: {
@@ -9515,8 +9506,8 @@ export const contracts = {
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'signer-manager',
   },
   signers: {
@@ -10965,8 +10956,8 @@ export const contracts = {
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'test-pox-5-signer',
   },
 } as const;
