@@ -14,7 +14,6 @@ import {
   testSigner,
 } from './pox-5-helpers';
 
-// ERR_REENTRANT_CALL = (err u46) — clarigen types must be regenerated after patch
 const ERR_REENTRANT_CALL = 46n;
 
 const alice = accounts.wallet_1.address;
