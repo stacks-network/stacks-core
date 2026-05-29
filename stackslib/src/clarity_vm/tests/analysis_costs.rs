@@ -30,6 +30,7 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::costs::get_simple_test;
+use crate::core::GENESIS_EPOCH;
 
 fn setup_tracked_cost_test(
     use_mainnet: bool,
@@ -64,13 +65,20 @@ fn setup_tracked_cost_test(
         ContractName::from_literal("contract-trait"),
     );
 
+    let genesis_burn_state_db = UnitTestBurnStateDB {
+        epoch_id: GENESIS_EPOCH,
+    };
     let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
+
+    // The opening to GENESIS_EPOCH (Epoch20) so that the cost
+    // tracker can load `costs` v1 from the MARF; the later cost contracts are
+    // deployed within this block by `initialize_epoch_2_05/2_1`.
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0; 32]),
             &TEST_HEADER_DB,
-            &burn_state_db,
+            &genesis_burn_state_db,
         )
         .commit_block();
 
@@ -79,7 +87,7 @@ fn setup_tracked_cost_test(
             &StacksBlockId([0; 32]),
             &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
-            &burn_state_db,
+            &genesis_burn_state_db,
         );
 
         if epoch > StacksEpochId::Epoch20 {
