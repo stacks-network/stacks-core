@@ -810,24 +810,13 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     enable_epoch_4_0(&mut naka_conf);
-    // Shorten the reward cycle so the 12-cycle mine from bond 0's start into
-    // bond 6's gap window stays tractable (~120 burn blocks vs ~240 at the
-    // 20-block default), then adjust as needed to meet requirements.
-    naka_conf.burnchain.pox_reward_length = Some(10);
-    naka_conf.burnchain.pox_prepare_length = Some(3);
-    {
-        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
-        epochs[StacksEpochId::Epoch25].end_height = 225;
-        epochs[StacksEpochId::Epoch30].start_height = 225;
-    }
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
-    let sender_signer_sk = Secp256k1PrivateKey::random();
-    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-
     let signer_sk = signers.signer_keys[0].clone();
     let signer_pk = StacksPublicKey::from_private(&signer_sk);
+    let sender_signer_sk = signer_sk.clone();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
 
     let sender_addr = tests::to_addr(&sender_sk);
     let deploy_fee = 3000;
