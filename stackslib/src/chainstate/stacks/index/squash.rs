@@ -83,9 +83,9 @@ fn fmt_duration(d: Duration) -> String {
 
 /// Use faster SQLite settings while building the fresh squash output.
 ///
-/// The destination is deleted on failure, so rollback journaling and fsyncs
-/// are not useful during the one-shot build. Restore defaults before returning
-/// the completed MARF.
+/// If the build fails the partial output is expected to be discarded, so
+/// rollback journaling and fsyncs add no value during the one-shot build.
+/// Call [`restore_default_squash_pragmas`] before returning the completed MARF.
 fn apply_offline_squash_pragmas(conn: &rusqlite::Connection) -> Result<(), Error> {
     conn.pragma_update(None, "journal_mode", "OFF")?;
     conn.pragma_update(None, "synchronous", "OFF")?;

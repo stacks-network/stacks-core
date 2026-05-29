@@ -664,7 +664,8 @@ impl TrieFile {
         let mut next_prefetch_idx: usize = 0;
 
         for (i, (_block_id, block_hash, offset)) in sorted_entries.iter().enumerate() {
-            // Top up the prefetch window, one new request per iteration.
+            // Keep the prefetch window `LOOKAHEAD` entries ahead of the read.
+            // The first iteration primes it; later iterations add one each.
             let target = i + LOOKAHEAD;
             while next_prefetch_idx < target {
                 let Some(entry) = sorted_entries.get(next_prefetch_idx) else {
