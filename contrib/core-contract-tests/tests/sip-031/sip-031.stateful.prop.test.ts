@@ -40,7 +40,7 @@ test('SIP-031 Stateful', async () => {
       // Reset simnet so each property iteration (and each shrinking
       // attempt) runs against a fresh chain. Without this, model and
       // simnet can accumulate divergent state across runs.
-      await simnet.initSession(process.cwd(), './Clarinet.toml', null);
+      await simnet.initSession(process.cwd(), global.options.clarinet.manifestPath);
 
       const model: Model = {
         balance: 0n,
