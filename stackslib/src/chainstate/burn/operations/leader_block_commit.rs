@@ -1024,6 +1024,17 @@ impl LeaderBlockCommitOp {
                 );
                 return Err(op_error::BlockCommitNoParent);
             }
+            if !has_parent
+                && maybe_shadow_block
+                && tx
+                    .get_block_snapshot_by_height(parent_block_height)?
+                    .is_none()
+            {
+                warn!("Invalid block commit: no shadow parent block in this fork";
+                      "apparent_sender" => %apparent_sender_repr
+                );
+                return Err(op_error::BlockCommitNoParent);
+            }
         }
 
         /////////////////////////////////////////////////////////////////////////////////////

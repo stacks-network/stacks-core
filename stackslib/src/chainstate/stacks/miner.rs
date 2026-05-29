@@ -44,8 +44,7 @@ use crate::chainstate::nakamoto::miner::make_mem_abort_callback;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
-    convert_clarity_error_to_transaction_result, handle_clarity_runtime_error,
-    ClarityRuntimeTxError,
+    finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
@@ -705,6 +704,15 @@ impl TransactionResult {
                     tx_events,
                     reason,
                 }),
+                ClarityRuntimeTxError::ExecutionTimeExpired => {
+                    // This transaction took too long to execute. Consider it problematic.
+                    info!("Problematic transaction caused ExecutionTimeExpired";
+                          "txid" => %tx.txid(),
+                          "origin" => %tx.get_origin().get_address(false),
+                          "payload" => ?tx.payload,
+                    );
+                    return (true, Error::ExecutionTimeExpired);
+                }
             },
             Error::InvalidFee => {
                 // The transaction didn't have enough STX left over after it was run.
@@ -718,6 +726,15 @@ impl TransactionResult {
                       "payload" => ?tx.payload,
                 );
                 return (true, Error::InvalidFee);
+            }
+            Error::ExecutionTimeExpired => {
+                // The transaction took too long to execute. Consider it problematic.
+                info!("Problematic transaction caused ExecutionTimeExpired";
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
+                return (true, Error::ExecutionTimeExpired);
             }
             e => e,
         };
@@ -1091,9 +1108,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
 
         let quiet = !cfg!(test);
+        let cost_before = clarity_tx.cost_so_far();
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet, None) {
             Ok((_fee, receipt)) => TransactionResult::success(&tx, receipt),
-            Err(e) => convert_clarity_error_to_transaction_result(clarity_tx, &tx, e),
+            Err(e) => finalize_failed_transaction(clarity_tx, &tx, &cost_before, e),
         }
     }
 
@@ -2492,11 +2510,12 @@ impl BlockBuilder for StacksBlockBuilder {
                 );
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
+            let cost_before = clarity_tx.cost_so_far();
             let (fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
-                        return convert_clarity_error_to_transaction_result(clarity_tx, tx, e);
+                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
                     }
                 };
             info!("Include tx";
@@ -2535,11 +2554,12 @@ impl BlockBuilder for StacksBlockBuilder {
                 );
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
+            let cost_before = clarity_tx.cost_so_far();
             let (fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
-                        return convert_clarity_error_to_transaction_result(clarity_tx, tx, e);
+                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
                     }
                 };
             debug!(

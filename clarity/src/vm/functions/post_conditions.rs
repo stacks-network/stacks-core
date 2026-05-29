@@ -22,7 +22,9 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
+use crate::vm::costs::{
+    CostErrors, CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost,
+};
 use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
     check_arguments_at_least,
@@ -295,13 +297,66 @@ pub fn special_restrict_assets(
         .into());
     }
 
-    let mut allowances = Vec::with_capacity(allowance_len);
-    for allowance in allowance_list {
-        allowances.push(eval_allowance(allowance, exec_state, invoke_ctx, context)?);
-    }
+    let starting_memory = exec_state.global_context.cost_track.get_memory();
+    let mut memory_use: u64 = 0;
 
-    // Create a new evaluation context, so that we can rollback if the
-    // post-conditions are violated
+    finally_drop_memory!( exec_state, memory_use; {
+        let mut allowances = Vec::with_capacity(allowance_len);
+        for allowance in allowance_list {
+            let allowance = eval_allowance(allowance, exec_state, invoke_ctx, context)?;
+            let allowance_memory = u64::try_from(allowance.size_in_bytes()?)
+                .map_err(|_| VmInternalError::Expect("Allowance size too large".into()))?;
+
+            match exec_state.add_memory(allowance_memory) {
+                Ok(()) => {
+                    memory_use = memory_use.checked_add(allowance_memory).ok_or_else(|| {
+                        VmInternalError::Expect(
+                            "restrict-assets allowance memory overflowed".into(),
+                        )
+                    })?;
+                }
+                Err(CostErrors::MemoryBalanceExceeded(used, limit)) => {
+                    memory_use = used.checked_sub(starting_memory).ok_or_else(|| {
+                        VmInternalError::Expect(
+                            "restrict-assets allowance memory cleanup underflowed".into(),
+                        )
+                    })?;
+                    return Err(
+                        RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(used, limit).into(),
+                    );
+                }
+                Err(e) => return Err(e.into()),
+            }
+
+            allowances.push(allowance);
+        }
+
+        evaluate_body_with_allowance_check(
+            &asset_owner,
+            allowances,
+            body_exprs,
+            invoke_ctx,
+            exec_state,
+            context,
+        )
+    })
+}
+
+/// Evaluate the body of a post-condition scope inside a rollback sub-context, then enforce
+/// the accumulated `allowances` against the resulting asset map.
+///
+/// On allowance violation the sub-context is rolled back and the caller gets back
+/// `(err <violation-index>)`. On an error from `check_allowances` the sub-context is rolled
+/// back and the error is propagated. Otherwise the sub-context is committed and the body
+/// result is wrapped in `(ok ...)`.
+fn evaluate_body_with_allowance_check(
+    asset_owner: &PrincipalData,
+    allowances: Vec<Allowance>,
+    body_exprs: &[SymbolicExpression],
+    invoke_ctx: &InvocationContext,
+    exec_state: &mut ExecutionState,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
     let epoch = *exec_state.epoch();
     exec_state.global_context.begin();
 
@@ -322,7 +377,7 @@ pub fn special_restrict_assets(
     // If the allowances are violated:
     // - Rollback the context
     // - Return an error with the index of the violated allowance
-    match check_allowances(&asset_owner, allowances, asset_maps, epoch) {
+    match check_allowances(asset_owner, allowances, asset_maps, epoch) {
         Ok(None) => {}
         Ok(Some(violation_index)) => {
             exec_state.global_context.roll_back()?;
@@ -394,63 +449,18 @@ pub fn special_as_contract(
         exec_state.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
         memory_use += cost_constants::AS_CONTRACT_MEMORY;
 
-        let contract_principal: PrincipalData = invoke_ctx.contract_context.contract_identifier.clone().into();
-        let epoch = *exec_state.epoch();
+        let contract_principal: PrincipalData =
+            invoke_ctx.contract_context.contract_identifier.clone().into();
         let nested_view = invoke_ctx.with_principal(contract_principal.clone());
 
-        // Create a new evaluation context, so that we can rollback if the
-        // post-conditions are violated
-        exec_state.global_context.begin();
-
-        // Evaluate the body expressions inside a closure so `?` only exits the closure
-        let eval_result: Result<Option<Value>, VmExecutionError> = (|| -> Result<Option<Value>, VmExecutionError> {
-            let mut last_result = None;
-            for expr in body_exprs {
-                let result = eval(expr, exec_state, &nested_view, context)?.clone_with_cost(exec_state)?;
-                last_result.replace(result);
-            }
-            Ok(last_result)
-        })();
-
-        let asset_maps = exec_state.global_context.get_readonly_asset_map()?;
-
-        // If the allowances are violated:
-        // - Rollback the context
-        // - Return an error with the index of the violated allowance
-        match check_allowances(
+        evaluate_body_with_allowance_check(
             &contract_principal,
             allowances,
-            asset_maps,
-            epoch,
-        ) {
-            Ok(None) => {}
-            Ok(Some(violation_index)) => {
-                exec_state.global_context.roll_back()?;
-                return Ok(Value::error(Value::UInt(violation_index))?);
-            }
-            Err(e) => {
-                exec_state.global_context.roll_back()?;
-                return Err(e);
-            }
-        }
-
-        exec_state.global_context.commit()?;
-
-        // No allowance violation, so handle the result of the body evaluation
-        match eval_result {
-            Ok(Some(last)) => {
-                // body completed successfully — commit and return ok(last)
-                Ok(Value::okay(last)?)
-            }
-            Ok(None) => {
-                // Body had no expressions (shouldn't happen due to argument checks)
-                Err(VmInternalError::Expect("Failed to get body result".into()).into())
-            }
-            Err(e) => {
-                // Runtime error inside body, pass it up
-                Err(e)
-            }
-        }
+            body_exprs,
+            &nested_view,
+            exec_state,
+            context,
+        )
     })
 }
 
