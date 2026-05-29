@@ -3933,45 +3933,6 @@ export const contracts = {
           bigint
         >
       >,
-      getBitcoinTxOutput_q: {
-        name: 'get-bitcoin-tx-output?',
-        access: 'private',
-        args: [
-          { name: 'tx-bytes', type: { buffer: { length: 100000 } } },
-          { name: 'output-index', type: 'uint128' },
-          { name: 'amount', type: 'uint128' },
-          { name: 'script', type: { buffer: { length: 34 } } },
-        ],
-        outputs: {
-          type: {
-            response: {
-              ok: {
-                tuple: [
-                  { name: 'amount', type: 'uint128' },
-                  { name: 'script', type: { buffer: { length: 34 } } },
-                  { name: 'txid', type: { buffer: { length: 32 } } },
-                ],
-              },
-              error: 'uint128',
-            },
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          txBytes: TypedAbiArg<Uint8Array, 'txBytes'>,
-          outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
-          amount: TypedAbiArg<number | bigint, 'amount'>,
-          script: TypedAbiArg<Uint8Array, 'script'>,
-        ],
-        Response<
-          {
-            amount: bigint;
-            script: Uint8Array;
-            txid: Uint8Array;
-          },
-          bigint
-        >
-      >,
       lockSbtc: {
         name: 'lock-sbtc',
         access: 'private',
@@ -4434,30 +4395,6 @@ export const contracts = {
         ],
         Response<bigint, bigint>
       >,
-      verifyMerkleProof: {
-        name: 'verify-merkle-proof',
-        access: 'private',
-        args: [
-          { name: 'leaf-hash', type: { buffer: { length: 32 } } },
-          { name: 'root-hash', type: { buffer: { length: 32 } } },
-          { name: 'tx-index', type: 'uint128' },
-          { name: 'tx-count', type: 'uint128' },
-          {
-            name: 'leaf-hashes',
-            type: { list: { type: { buffer: { length: 32 } }, length: 14 } },
-          },
-        ],
-        outputs: { type: 'bool' },
-      } as TypedAbiFunction<
-        [
-          leafHash: TypedAbiArg<Uint8Array, 'leafHash'>,
-          rootHash: TypedAbiArg<Uint8Array, 'rootHash'>,
-          txIndex: TypedAbiArg<number | bigint, 'txIndex'>,
-          txCount: TypedAbiArg<number | bigint, 'txCount'>,
-          leafHashes: TypedAbiArg<Uint8Array[], 'leafHashes'>,
-        ],
-        boolean
-      >,
       allowContractCaller: {
         name: 'allow-contract-caller',
         access: 'public',
@@ -4781,7 +4718,7 @@ export const contracts = {
           { name: 'reward-cycle-length', type: 'uint128' },
           { name: 'begin-pox5-reward-cycle', type: 'uint128' },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'none' } } },
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<
         [
           firstBurnHeight: TypedAbiArg<number | bigint, 'firstBurnHeight'>,
@@ -4795,7 +4732,7 @@ export const contracts = {
             'beginPox5RewardCycle'
           >,
         ],
-        Response<boolean, null>
+        Response<boolean, bigint>
       >,
       setupBond: {
         name: 'setup-bond',
@@ -6482,6 +6419,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_LOCKUP_AMOUNT: {
+        name: 'ERR_INVALID_LOCKUP_AMOUNT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_LOCKUP_SCRIPT: {
         name: 'ERR_INVALID_LOCKUP_SCRIPT',
         type: {
@@ -6604,6 +6551,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_READ_TX_OUT_OF_BOUNDS: {
         name: 'ERR_READ_TX_OUT_OF_BOUNDS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_REENTRANT_CALL: {
+        name: 'ERR_REENTRANT_CALL',
         type: {
           response: {
             ok: 'none',
@@ -6841,195 +6798,22 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      signerManagerCallActive: {
+        name: 'signer-manager-call-active',
+        type: 'bool',
+        access: 'variable',
+      } as TypedAbiVariable<boolean>,
       totalSbtcStaked: {
         name: 'total-sbtc-staked',
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
     },
-    constants: {
-      BOND_GAP_CYCLES: 2n,
-      BOND_LENGTH_CYCLES: 12n,
-      ERR_ACTIVE_BOND_NOT_INCLUDED: {
-        isOk: false,
-        value: 33n,
-      },
-      ERR_ALREADY_REGISTERED: {
-        isOk: false,
-        value: 9n,
-      },
-      ERR_ALREADY_STAKED: {
-        isOk: false,
-        value: 19n,
-      },
-      ERR_BOND_ALREADY_SETUP: {
-        isOk: false,
-        value: 4n,
-      },
-      ERR_BOND_ALREADY_STARTED: {
-        isOk: false,
-        value: 43n,
-      },
-      ERR_BOND_NOT_ACTIVE: {
-        isOk: false,
-        value: 31n,
-      },
-      ERR_BOND_NOT_FOUND: {
-        isOk: false,
-        value: 7n,
-      },
-      eRR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK: {
-        isOk: false,
-        value: 35n,
-      },
-      ERR_CANNOT_SETUP_BOND_TOO_LATE: {
-        isOk: false,
-        value: 3n,
-      },
-      ERR_CANNOT_SETUP_BOND_TOO_SOON: {
-        isOk: false,
-        value: 2n,
-      },
-      ERR_CANNOT_UNSTAKE_SBTC: {
-        isOk: false,
-        value: 38n,
-      },
-      ERR_DISTRIBUTION_ALREADY_COMPUTED: {
-        isOk: false,
-        value: 30n,
-      },
-      ERR_INSUFFICIENT_STX: {
-        isOk: false,
-        value: 8n,
-      },
-      ERR_INVALID_BOND_PERIOD_ORDERING: {
-        isOk: false,
-        value: 29n,
-      },
-      ERR_INVALID_BTC_HEADER: {
-        isOk: false,
-        value: 40n,
-      },
-      ERR_INVALID_LOCKUP_SCRIPT: {
-        isOk: false,
-        value: 42n,
-      },
-      ERR_INVALID_MERKLE_PROOF: {
-        isOk: false,
-        value: 41n,
-      },
-      ERR_INVALID_NUM_CYCLES: {
-        isOk: false,
-        value: 20n,
-      },
-      ERR_INVALID_OLD_SIGNER_MANAGER: {
-        isOk: false,
-        value: 36n,
-      },
-      ERR_INVALID_SIGNATURE_PUBKEY: {
-        isOk: false,
-        value: 14n,
-      },
-      ERR_INVALID_SIGNATURE_RECOVER: {
-        isOk: false,
-        value: 13n,
-      },
-      ERR_INVALID_START_BURN_HEIGHT: {
-        isOk: false,
-        value: 24n,
-      },
-      ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
-        isOk: false,
-        value: 37n,
-      },
-      ERR_NOT_ALLOWLISTED: {
-        isOk: false,
-        value: 11n,
-      },
-      ERR_NOT_BOND_PARTICIPANT: {
-        isOk: false,
-        value: 34n,
-      },
-      ERR_NOT_STAKING: {
-        isOk: false,
-        value: 27n,
-      },
-      ERR_NO_CLAIMABLE_REWARDS: {
-        isOk: false,
-        value: 32n,
-      },
-      ERR_READ_TX_OUT_OF_BOUNDS: {
-        isOk: false,
-        value: 39n,
-      },
-      ERR_SIGNER_KEY_GRANT_NOT_FOUND: {
-        isOk: false,
-        value: 17n,
-      },
-      ERR_SIGNER_KEY_GRANT_USED: {
-        isOk: false,
-        value: 12n,
-      },
-      ERR_SIGNER_NOT_FOUND: {
-        isOk: false,
-        value: 23n,
-      },
-      ERR_STAKER_ALREADY_ADDED: {
-        isOk: false,
-        value: 5n,
-      },
-      ERR_TOO_MUCH_SATS: {
-        isOk: false,
-        value: 10n,
-      },
-      ERR_UNAUTHORIZED: {
-        isOk: false,
-        value: 1n,
-      },
-      ERR_UNAUTHORIZED_CALLER: {
-        isOk: false,
-        value: 22n,
-      },
-      ERR_UNAUTHORIZED_SIGNER_REGISTRATION: {
-        isOk: false,
-        value: 26n,
-      },
-      ERR_UNSTAKE_IN_PREPARE_PHASE: {
-        isOk: false,
-        value: 28n,
-      },
-      ERR_UPDATE_BOND_SAME_SIGNER: {
-        isOk: false,
-        value: 44n,
-      },
-      MAX_NUM_CYCLES: 96n,
-      pOX_5_SIGNER_DOMAIN: {
-        chainId: 2_147_483_648n,
-        name: 'pox-5-signer',
-        version: '1.0.0',
-      },
-      PRECISION: 1_000_000_000_000_000_000n,
-      RESERVE_RATIO: 1_500n,
-      SIGNER_SET_MIN_USTX: 50_000_000_000n,
-      sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
-      STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),
-      STACKS_ADDR_VERSION_TESTNET: Uint8Array.from([26]),
-      bondAdmin: 'SP000000000000000000002Q6VF78',
-      configured: false,
-      firstBondPeriodCycle: 0n,
-      firstBurnchainBlockHeight: 0n,
-      firstPox5RewardCycle: 0n,
-      lastAccountedRewardsOnly: 0n,
-      lastRewardComputeHeight: 0n,
-      poxPrepareCycleLength: 50n,
-      poxRewardCycleLength: 1_050n,
-      reserveBalance: 0n,
-      totalSbtcStaked: 0n,
-    },
+    constants: {},
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'pox-5',
   },
   pox_4_test: {
@@ -9481,38 +9265,11 @@ export const contracts = {
         access: 'variable',
       } as TypedAbiVariable<bigint>,
     },
-    constants: {
-      ERR_INVALID_CALLDATA: {
-        isOk: false,
-        value: 1_003n,
-      },
-      ERR_INVALID_FEES_BIPS: {
-        isOk: false,
-        value: 1_005n,
-      },
-      ERR_INVALID_POX_ADDR: {
-        isOk: false,
-        value: 1_004n,
-      },
-      ERR_NO_CLAIMABLE_REWARDS: {
-        isOk: false,
-        value: 1_001n,
-      },
-      ERR_UNAUTHORIZED_ADMIN: {
-        isOk: false,
-        value: 1_002n,
-      },
-      MAX_ADDRESS_VERSION: 6n,
-      mAX_ADDRESS_VERSION_BUFF_20: 4n,
-      MAX_BIPS: 10_000n,
-      PRECISION: 1_000_000_000_000_000_000n,
-      earnedFees: 0n,
-      feesBips: 0n,
-    },
+    constants: {},
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'signer-manager',
   },
   signers: {
@@ -10952,17 +10709,11 @@ export const contracts = {
         access: 'constant',
       } as TypedAbiVariable<bigint>,
     },
-    constants: {
-      ERR_NO_CLAIMABLE_REWARDS: {
-        isOk: false,
-        value: 1_001n,
-      },
-      PRECISION: 1_000_000_000_000_000_000n,
-    },
+    constants: {},
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'test-pox-5-signer',
   },
 } as const;
