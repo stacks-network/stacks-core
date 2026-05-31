@@ -3785,7 +3785,11 @@ impl NakamotoChainState {
               AND h.burn_header_height >= ?2 \
               AND h.burn_header_height <= ?3";
         let mut stmt = chainstate_db.prepare(sql)?;
-        let mut rows = stmt.query(params![i64::from(squash_stacks_height), bitcoin_lo, bitcoin_hi])?;
+        let mut rows = stmt.query(params![
+            i64::from(squash_stacks_height),
+            bitcoin_lo,
+            bitcoin_hi
+        ])?;
         let Some(first_row) = rows.next()? else {
             return Ok(None);
         };
