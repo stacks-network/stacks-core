@@ -154,6 +154,7 @@ pub trait HeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed>;
     fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
@@ -166,21 +167,25 @@ pub trait HeadersDB {
     fn get_miner_address(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress>;
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_stacks_height_for_tenure_height(
@@ -270,6 +275,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         _bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         None
@@ -319,6 +325,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         None
@@ -326,6 +333,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -333,6 +341,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -340,6 +349,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -1032,6 +1042,13 @@ impl ClarityDatabase<'_> {
         self.store.get_current_block_height()
     }
 
+    /// The canonical evaluation tip (parent of the block being constructed), used to anchor
+    /// immutable tenure-start reads (see `HeadersDB`) instead of a possibly-pruned historical block.
+    fn eval_tip_block_id(&mut self) -> Result<StacksBlockId, VmExecutionError> {
+        let current_height = self.get_current_block_height();
+        self.get_index_block_header_hash(current_height.saturating_sub(1))
+    }
+
     /// Return the height for PoX v1 -> v2 auto unlocks
     ///   from the burn state db
     pub fn get_v1_unlock_height(&self) -> u32 {
@@ -1095,7 +1112,7 @@ impl ClarityDatabase<'_> {
             return Ok(Some(tenure_height));
         }
         // query from the parent
-        let query_tip = self.get_index_block_header_hash(current_height.saturating_sub(1))?;
+        let query_tip = self.eval_tip_block_id()?;
         Ok(self
             .headers_db
             .get_stacks_height_for_tenure_height(&query_tip, tenure_height))
@@ -1278,9 +1295,10 @@ impl ClarityDatabase<'_> {
 
     pub fn get_block_vrf_seed(&mut self, block_height: u32) -> Result<VRFSeed, VmExecutionError> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
-            .get_vrf_seed_for_block(&id_bhh, &epoch)
+            .get_vrf_seed_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| VmInternalError::Expect("Failed to get block data.".into()).into())
     }
 
@@ -1289,10 +1307,11 @@ impl ClarityDatabase<'_> {
         block_height: u32,
     ) -> Result<StandardPrincipalData, VmExecutionError> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_miner_address(&id_bhh, &epoch)
+            .get_miner_address(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| VmInternalError::Expect("Failed to get block data.".into()))?
             .into())
     }
@@ -1303,10 +1322,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_burnchain_tokens_spent_for_winning_block(&id_bhh, &epoch)
+            .get_burnchain_tokens_spent_for_winning_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect(
                     "FATAL: no winning burnchain token spend record for block".into(),
@@ -1320,10 +1340,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_burnchain_tokens_spent_for_block(&id_bhh, &epoch)
+            .get_burnchain_tokens_spent_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect(
                     "FATAL: no total burnchain token spend record for block".into(),
@@ -1348,10 +1369,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         let reward: u128 = self
             .headers_db
-            .get_tokens_earned_for_block(&id_bhh, &epoch)
+            .get_tokens_earned_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect("FATAL: matured block has no recorded reward".into())
             })?;
