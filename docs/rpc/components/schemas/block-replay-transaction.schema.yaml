@@ -44,10 +44,10 @@ properties:
         cpu_ref_cycles:
           type: [integer, "null"]
           description: number of reference cycles executed
-        required:
-          - cpu_instructions
-          - cpu_cycles
-          - cpu_ref_cycles
+      required:
+        - cpu_instructions
+        - cpu_cycles
+        - cpu_ref_cycles
   execution_stats:
       type: object
       description: metrics for the transaction execution context
