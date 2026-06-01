@@ -1,6 +1,6 @@
 # Github workflow to create a github release and upload binary artifacts
 
-name: Github Release
+name: "Release: Github"
 
 on:
   workflow_call:
