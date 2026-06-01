@@ -3527,7 +3527,9 @@ fn block_proposal_api_endpoint() {
 
     let expected_proposal_responses: Vec<_> = test_cases
         .iter()
-        .filter_map(|(_, _, _, expected_response)| expected_response.as_ref())
+        .filter_map(|(name, _, _, expected_response)| {
+            expected_response.as_ref().map(|resp| (name, resp))
+        })
         .collect();
 
     let mut proposal_responses = test_observer::get_proposal_responses();
@@ -3542,11 +3544,11 @@ fn block_proposal_api_endpoint() {
         proposal_responses = test_observer::get_proposal_responses();
     }
 
-    for (expected_response, response) in expected_proposal_responses
+    for ((test_case_name, expected_response), response) in expected_proposal_responses
         .iter()
         .zip(proposal_responses.iter())
     {
-        info!("Received response {response:?}, expecting {expected_response:?}");
+        info!("Received response {response:?} for test case \"{test_case_name}\", expecting {expected_response:?}");
         match expected_response {
             Ok(_) => {
                 assert!(matches!(response, BlockValidateResponse::Ok(_)));

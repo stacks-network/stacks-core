@@ -898,53 +898,48 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (_fee, receipt) =
-                match StacksChainState::process_transaction_with_check_and_auth_verification_mode_override(
-                    clarity_tx,
-                    tx,
-                    quiet,
-                    max_execution_time,
-                    // Ensure no transaction has a signature with high S. While consensus allows them,
-                    // the signers should reject them, and the miner should never mine a block with
-                    // such a transaction (and because the mempool also rejects them, that shouldn't happen)
-                    Some(TransactionAuthVerificationMode::EnforceLowS),
-                    |receipt| {
-                        if !receipt.post_condition_aborted {
-                            let all_events_valid = receipt.events.iter().all(|event| {
-                                crate::net::api::postblock_proposal::is_event_pox_addr_valid(
-                                    is_mainnet, event,
-                                )
-                            });
-                            if !all_events_valid {
-                                return Err(Error::ClarityError(ClarityError::BadTransaction(
-                                    "All PoX events were not valid".into(),
-                                )));
-                            }
-                        };
-
-                        let size = receipt.size().ok_or_else(|| {
-                            Error::InvalidStacksBlock("Could not calculate receipt size".into())
-                        })?;
-                        let next_size = size.saturating_add(*total_receipts_size);
-                        if next_size >= MAX_RECEIPT_SIZES {
-                            Err(Error::BlockCostExceeded)
-                        } else {
-                            *total_receipts_size = next_size;
-                            Ok(())
+            let (_fee, receipt) = match StacksChainState::process_transaction_with_check(
+                clarity_tx,
+                tx,
+                quiet,
+                max_execution_time,
+                |receipt| {
+                    if !receipt.post_condition_aborted {
+                        let all_events_valid = receipt.events.iter().all(|event| {
+                            crate::net::api::postblock_proposal::is_event_pox_addr_valid(
+                                is_mainnet, event,
+                            )
+                        });
+                        if !all_events_valid {
+                            return Err(Error::ClarityError(ClarityError::BadTransaction(
+                                "All PoX events were not valid".into(),
+                            )));
                         }
-                    },
-                ) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        return parse_process_transaction_error(
-                            clarity_tx,
-                            tx,
-                            e,
-                            self.contract_limit_percentage
-                                .unwrap_or(DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE),
-                        );
+                    };
+
+                    let size = receipt.size().ok_or_else(|| {
+                        Error::InvalidStacksBlock("Could not calculate receipt size".into())
+                    })?;
+                    let next_size = size.saturating_add(*total_receipts_size);
+                    if next_size >= MAX_RECEIPT_SIZES {
+                        Err(Error::BlockCostExceeded)
+                    } else {
+                        *total_receipts_size = next_size;
+                        Ok(())
                     }
-                };
+                },
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    return parse_process_transaction_error(
+                        clarity_tx,
+                        tx,
+                        e,
+                        self.contract_limit_percentage
+                            .unwrap_or(DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE),
+                    );
+                }
+            };
 
             let cost_after = clarity_tx.cost_so_far();
             let mut soft_limit_reached = false;

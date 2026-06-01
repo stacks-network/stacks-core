@@ -1687,35 +1687,24 @@ impl StacksChainState {
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        Self::process_transaction_with_check_and_auth_verification_mode_override(
-            clarity_block,
-            tx,
-            quiet,
-            max_execution_time,
-            None,
-            |_| Ok(()),
-        )
+        Self::process_transaction_with_check(clarity_block, tx, quiet, max_execution_time, |_| {
+            Ok(())
+        })
     }
 
-    pub fn process_transaction_with_check_and_auth_verification_mode_override<
+    pub fn process_transaction_with_check<
         F: FnMut(&StacksTransactionReceipt) -> Result<(), Error>,
     >(
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
-        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
-        StacksChainState::process_transaction_precheck(
-            &clarity_block.config,
-            tx,
-            epoch,
-            auth_verification_mode_override,
-        )?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
