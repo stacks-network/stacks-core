@@ -12,9 +12,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@clarigen/cli": "4.1.5",
-    "@clarigen/core": "4.1.5",
-    "@clarigen/test": "4.1.5",
+    "@clarigen/cli": "4.1.6",
+    "@clarigen/core": "4.1.6",
+    "@clarigen/test": "4.1.6",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
