@@ -17,14 +17,16 @@ use pinny::tag;
 use proptest::collection::vec;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-use stacks_common::types::{PrivateKey, StacksEpochId};
+use stacks_common::types::{PrivateKey, PublicKey, StacksEpochId};
 use stacks_common::util::ed25519::{self, Ed25519PrivateKey, Ed25519PublicKey, MessageSignature};
 use stacks_common::util::hash::{Sha256Sum, hex_bytes, to_hex};
-use stacks_common::util::secp256k1::MessageSignature as Secp256k1Signature;
+use stacks_common::util::secp256k1::{
+    MessageSignature as Secp256k1Signature, Secp256k1PrivateKey, Secp256k1PublicKey,
+};
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
 
 use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
-use crate::vm::types::{ResponseData, TypeSignature, Value};
+use crate::vm::types::{BuffData, ResponseData, SequenceData, TypeSignature, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
 struct NistVector {
@@ -936,6 +938,238 @@ fn test_ed25519_verify_invalid_signature_returns_false() {
     );
 }
 
+#[test]
+fn test_secp256k1_decompress_returns_expected_public_key() {
+    let mut sk = StacksPrivateKey::random();
+    sk.set_compress_public(true);
+    let pk_compressed = StacksPublicKey::from_private(&sk);
+    sk.set_compress_public(false);
+    let pk_uncompressed = StacksPublicKey::from_private(&sk);
+
+    let program = format!(
+        "(secp256k1-decompress? {})",
+        buff_literal(&pk_compressed.to_bytes_compressed())
+    );
+
+    match execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .expect("execution should succeed")
+    .expect("should return a value")
+    {
+        Value::Response(ResponseData { data, .. }) => {
+            assert_eq!(
+                data,
+                Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+                    data: pk_uncompressed.to_bytes(),
+                })))
+            );
+        }
+        other => panic!("expected ok response, found {other:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_returns_err_on_invalid_public_key() {
+    let program = format!("(secp256k1-decompress? {})", buff_literal(&[0x00; 33]));
+
+    match execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .expect("execution should succeed")
+    .expect("should return a value")
+    {
+        Value::Response(ResponseData { data, .. }) => {
+            assert_eq!(data, Box::new(Value::UInt(1)));
+        }
+        other => panic!("expected err response, found {other:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_returns_err_on_shorter_public_key() {
+    let program = format!("(secp256k1-decompress? {})", buff_literal(&[0x00; 32]));
+
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_33);
+        }
+        _ => panic!("expected BUFFER_33 type error, found {err:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_returns_err_on_longer_public_key() {
+    let program = format!("(secp256k1-decompress? {})", buff_literal(&[0x00; 34]));
+
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_33);
+        }
+        _ => panic!("expected BUFFER_33 type error, found {err:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_derive_ethereum_address() {
+    let compressed_pubkey = Secp256k1PublicKey::from_hex(
+        "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    )
+    .unwrap();
+    let program = format!(
+        "(unwrap-panic (slice? (keccak256 (unwrap-panic (slice? (unwrap-panic (secp256k1-decompress? {})) u1 u65))) u12 u32))",
+        buff_literal(&compressed_pubkey.to_bytes_compressed())
+    );
+
+    match execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .expect("execution should succeed")
+    .expect("should return a value")
+    {
+        Value::Sequence(SequenceData::Buffer(BuffData { data, .. })) => {
+            assert_eq!(
+                data,
+                hex_bytes("7E5F4552091A69125D5DFCB7B8C2659029395BDF").unwrap()
+            );
+        }
+        other => panic!("expected ok response, found {other:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_with_wormhole_test_pubkeys() {
+    let wormhole_keys: Vec<(&str, &str)> = vec![
+        (
+            "049a1e801daa25d9808e70aae9981353086f958955cc94ef33a461b0e596feaef90a8474dd10cf6ae967143f86105c16d6304a3d268ea952fda9389139d4bb9da1",
+            "5893b5a76c3f739645648885bdccc06cd70a3cd3",
+        ),
+        (
+            "042766db08820e311b22e109801ab8ea505b12e3df3d91ebc87c999ffb6929d1abb0ade987c74aa37db26eea4086ee738a2f34a5594edb8760da0eac5be356b731",
+            "ff6cb952589bde862c25ef4392132fb9d4a42157",
+        ),
+        (
+            "0454177ff4a8329520b76efd86f8bfce5c942554db16e673267dc1133b3f5e230b2d8cbf90fe274946045d4491de288d736680edc2ee9ee5b1b15416b0a34806c4",
+            "114de8460193bdf3a2fcf81f86a09765f4762fd1",
+        ),
+        (
+            "047fa3e98fcc2621337b217b61408a98facaabd25bad2b158438728ce863c14708cfcda1f3b50a16ca0211199079fb338d479a54546ec3c5f775af23a7d7f4fb24",
+            "107a0086b32d7a0977926a205131d8731d39cbeb",
+        ),
+        (
+            "040bdcbccc0297c2a4f92a7c39358c42f22a8ed700a78bd05c39c8b61aaf2338e825b6c0d26d1f2a2ae4129cd751201f73d7234c753bd0735212a5288b19748fd2",
+            "8c82b2fd82faed2711d59af0f2499d16e726f6b2",
+        ),
+        (
+            "040a872a7c2cfb93710baee3c1a91e7e3050c5a1a04a02873133b456c24f25d88b861a21afb9cbfc55be9608356b7cd2a7db8eddd86190206ae6147e47e601a625",
+            "42579bffbcf4276e290ab8e4c162bd4052b97970",
+        ),
+        (
+            "04b1afbe24acb53ac1306f3bdde910f554e06d374efee41598fbd403557c3114b5af6d363bfbd78af16a258844041e04f6dfe67fe62f305e6097c6ece48ccc92c4",
+            "938f104aeb5581293216ce97d771e0cb721221b1",
+        ),
+        (
+            "0467d211cc0c1324606495d10100d3b629d5d4d83dca1e15b9842bad4b7b1d38db29cc9e0c41e0886232998333efa34b943b32a8fc588b1ab2be4c92348808ef7d",
+            "18e41674ccf26329cd111406c1d05c6c80b23edc",
+        ),
+        (
+            "04838aba2428289fe2b798e32db1396a856c0d0c671d9b1f5a55fc0e8eb072de8c757ff6a79699d1a76df64c2ca1758a4f2c4872d2720f4332cea6dcf678f2bef3",
+            "9d16870160e703324d057c3361c34c5befba2c34",
+        ),
+        (
+            "04d9fa78b5b958bea1929080b8ad96dc555d34b051a27aebf711eb1186b807b0448316d994606ac807121838d6c41a58f308bc6307acdf69491fa4b17282f3e66f",
+            "000ac0076727b35fbea2dac28fee5ccb0fea768e",
+        ),
+        (
+            "04cc64af75ec2e2741fb9af9f6191cb9ee187d6d26af4d1e96d7bab47e6ec09be12d3192030dc4bbf54d1da319a7a2acfc7a9dd4c644af6646a4aaa02b1024bbab",
+            "af45ced136b9d9e24903464ae889f5c8a723fc14",
+        ),
+        (
+            "04b5943b6e284682ad2e011d6962d41febf86af2f5fc0c9c8f4b81358ff077f9c96ba0880eaf93541eae94b4fa41dba66dab7fb0201cc9af7c75681e5719b0c95f",
+            "f93124b7c738843cbb89e864c862c38cddcccf95",
+        ),
+        (
+            "040cfc9d5b5dcf702a1525f9d4ed1841e8eb8b34434cc82470dd35435f1dbdc73ffb51544b7500394eac9c7fa567868b495326075147a2d809ebbfd43273eeec91",
+            "d2cc37a4dc036a8d232b48f62cdd4731412f4890",
+        ),
+        (
+            "040aa78894d894a15933969f5826347439e2c309f2049277a10066c9197840499498ad19ee3d1b291f932ec0890bbdafcec292c4f02a446670cd0084f997e25e2f",
+            "da798f6896a3331f64b48c12d1d57fd9cbe70811",
+        ),
+        (
+            "049caaefc70b0491eca9782cbba710d93cdf5cf7e28c892621a867ab08b684ed5ab4ea5cd8f3e14724a94b146e8ab0bc07d72b5295593248eb6f33ae0f2865eb29",
+            "d1f64e26238811de5553c40f64af41ee1b6057cc",
+        ),
+        (
+            "04cc8705b669a9c20e44e3c3a646f3235851cb199c7b2423555a59118bd976c64a1aaead56499c52fb92515e26032a52a9edf7c668acec1af7e2d4fe3266a65ebb",
+            "3f851ad586a47cef8d04748f33ab0d71395f06b4",
+        ),
+        (
+            "044881345cbb299fa7c60ab2d16cb7fe7bf8d14675506ef6eb6037038b5b7092ea0a9e4d0b53ba3904edd99f86717d6ba81dffe44eb5b23c6fd22c91ab73c33021",
+            "178e21ad2e77ae06711549cfbb1f9c7a9d8096e8",
+        ),
+        (
+            "04fe7e6f982e4f74234e7ed3b49ce96b7dd7cf838a4cae13d9c25c67a38eec75a7c03bf6072f712c88935f128d1e5e9c7515c1f894f59a7f6c839ad1829ab0adac",
+            "7899ceab1dc961dae9defdb7a4f521269a5448fc",
+        ),
+        (
+            "0421f338444e96af31cf44958acf5764844efbddace3b823ed761c340c59ed2685d829818c83eebe8f00f783f1048a53515845536668a9e0c059ade7579a0f4204",
+            "6fbebc898f403e4773e95feb15e80c9a99c8348d",
+        ),
+    ];
+
+    for (pubkey, ethereum_address) in wormhole_keys {
+        let mut uncompressed_pubkey = Secp256k1PublicKey::from_hex(pubkey).unwrap();
+        uncompressed_pubkey.set_compressed(true);
+        let program: String = format!(
+            "(unwrap-panic (slice? (keccak256 (unwrap-panic (slice? (unwrap-panic (secp256k1-decompress? {})) u1 u65))) u12 u32))",
+            buff_literal(&uncompressed_pubkey.to_bytes_compressed())
+        );
+
+        match execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+        {
+            Value::Sequence(SequenceData::Buffer(BuffData { data, .. })) => {
+                assert_eq!(data, hex_bytes(ethereum_address).unwrap());
+            }
+            other => panic!("expected ok response, found {other:?}"),
+        }
+    }
+}
+
 proptest! {
     #[tag(t_prop)]
     #[test]
@@ -1638,5 +1872,36 @@ proptest! {
         .expect("should return a value");
 
         prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256k1_decompress_matches_public_key(
+        seed in any::<[u8; 32]>(),
+    ) {
+        let mut privk = Secp256k1PrivateKey::from_seed(&seed);
+
+        privk.set_compress_public(true);
+        let pubkey_compressed_bytes = Secp256k1PublicKey::from_private(&privk).to_bytes_compressed();
+
+        privk.set_compress_public(false);
+        let pubkey_uncompressed_bytes = Secp256k1PublicKey::from_private(&privk).to_bytes();
+
+        let program = format!(
+            "(is-eq (unwrap! (secp256k1-decompress? {}) (err u1)) {})",
+            buff_literal(&pubkey_compressed_bytes),
+            buff_literal(&pubkey_uncompressed_bytes),
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(true), result);
     }
 }

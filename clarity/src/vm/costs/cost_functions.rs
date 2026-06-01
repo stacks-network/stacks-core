@@ -164,6 +164,7 @@ define_named_enum!(ClarityCostFunction {
     VerifyMerkleProof("cost_verify_merkle_proof"),
     GetBitcoinTxOutput("cost_get_bitcoin_tx_output"),
     Ed25519verify("cost_ed25519verify"),
+    Secp256k1decompress("cost_secp256k1decompress"),
     Unimplemented("cost_unimplemented"),
 });
 
@@ -345,6 +346,7 @@ pub trait CostValues {
     fn cost_verify_merkle_proof(n: u64) -> Result<ExecutionCost, VmExecutionError>;
     fn cost_get_bitcoin_tx_output(n: u64) -> Result<ExecutionCost, VmExecutionError>;
     fn cost_ed25519verify(n: u64) -> Result<ExecutionCost, VmExecutionError>;
+    fn cost_secp256k1decompress(n: u64) -> Result<ExecutionCost, VmExecutionError>;
 }
 
 impl ClarityCostFunction {
@@ -505,6 +507,7 @@ impl ClarityCostFunction {
             ClarityCostFunction::VerifyMerkleProof => C::cost_verify_merkle_proof(n),
             ClarityCostFunction::GetBitcoinTxOutput => C::cost_get_bitcoin_tx_output(n),
             ClarityCostFunction::Ed25519verify => C::cost_ed25519verify(n),
+            ClarityCostFunction::Secp256k1decompress => C::cost_secp256k1decompress(n),
             ClarityCostFunction::Unimplemented => Err(RuntimeError::NotImplemented.into()),
         }
     }

@@ -238,8 +238,8 @@ impl ArithmeticOnlyChecker<'_> {
                 Err(Error::FunctionNotPermitted(function))
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Secp256r1Verify
-            | Ed25519Verify | Hash160 | Sha256 | Keccak256 | VerifyMerkleProof
-            | GetBitcoinTxOutput => Err(Error::FunctionNotPermitted(function)),
+            | Ed25519Verify | Secp256k1Decompress | Hash160 | Sha256 | Keccak256
+            | VerifyMerkleProof | GetBitcoinTxOutput => Err(Error::FunctionNotPermitted(function)),
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
             | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
