@@ -2,7 +2,7 @@ name: Slack Open PR Nag Bot
 
 on:
   schedule:
-    # Runs at 12:00 UTC (7:00 AM EST / 9:00 AM EDT) every Monday through Friday
+    # Runs at 12:00 UTC (7:00 AM EST / 8:00 AM EDT) every Monday through Friday
     - cron: '0 12 * * 1-5'
   workflow_dispatch: # Allows manual testing
 
