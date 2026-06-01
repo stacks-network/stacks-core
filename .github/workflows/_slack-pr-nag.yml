@@ -1,0 +1,138 @@
+name: Slack Open PR Nag Bot
+
+on:
+  schedule:
+    # Runs at 14:00 UTC (9:00 AM EST / 10:00 AM EDT) every Monday through Friday
+    - cron: '0 14 * * 1-5'
+  workflow_dispatch: # Allows manual testing
+
+jobs:
+  nag-slack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch PRs and Post Nags to Slack
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_DAILY }}
+          
+          # --- CONFIGURABLE VARIABLES ---
+          TARGET_OWNER: 'stacks-network'
+          TARGET_REPO: 'stacks-core'
+          STALE_HOURS_THRESHOLD: '12'
+          IGNORE_DRAFTS: 'true'
+          
+          # Keep GitHub users up to date, should be reviewed every 3 months
+          WHITELIST_USERS: 'aaronb-stacks, adriano-stacks, benjamin-stacks, brice-stacks, cylewitruk-stacks, dhaney-stacks, federico-stacks, francesco-stacks, hank-stacks, radu-stacks, rob-stacks, simone-stacks'
+          # ------------------------------
+          
+        with:
+          script: |
+            const owner = process.env.TARGET_OWNER;
+            const repo = process.env.TARGET_REPO;
+            const staleHours = parseInt(process.env.STALE_HOURS_THRESHOLD, 10);
+            const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
+            const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+
+            const whitelistRaw = process.env.WHITELIST_USERS || '';
+            const allowedUsers = new Set(
+              whitelistRaw.split(',').map(u => u.trim().toLowerCase()).filter(Boolean)
+            );
+
+            if (!webhookUrl) {
+              core.setFailed('Missing SLACK_WEBHOOK_URL secret.');
+              return;
+            }
+
+            // 1. Fetch all open Pull Requests
+            const { data: prs } = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100
+            });
+
+            // 2. Filter by whitelist/drafts AND sort by age (Oldest First)
+            const filteredSortedPrs = prs
+              .filter(pr => {
+                if (ignoreDrafts && pr.draft) return false;
+                return allowedUsers.has(pr.user.login.toLowerCase());
+              })
+              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)); // Earliest date comes first
+
+            if (filteredSortedPrs.length === 0) {
+              console.log('No matching team PRs found.');
+              return;
+            }
+
+            // 3. Initialize Top-level Header
+            const payload = {
+              blocks: [
+                {
+                  type: 'header',
+                  text: { type: 'plain_text', text: '⏳ Open PR Review Reminders', emoji: true }
+                }
+              ],
+              attachments: []
+            };
+
+            const now = new Date();
+            let postedPrCount = 0;
+
+            // 4. Build color-coded attachments
+            for (const pr of filteredSortedPrs) {
+              const createdAt = new Date(pr.created_at);
+              const ageInHours = (now - createdAt) / (1000 * 60 * 60);
+
+              if (ageInHours >= staleHours) {
+                postedPrCount++;
+
+                // Determine Alert Level Colors & Emojis
+                let sidebarColor = '#2EB67D'; // Slack Green
+                let statusEmoji = '🟢';
+
+                if (ageInHours > 72) {
+                  sidebarColor = '#E01E5A';  // Slack Red
+                  statusEmoji = '🔴';
+                } else if (ageInHours >= 24) {
+                  sidebarColor = '#ECB22E';  // Slack Yellow
+                  statusEmoji = '🟡';
+                }
+
+                const days = Math.floor(ageInHours / 24);
+                const hours = Math.floor(ageInHours % 24);
+                const ageStr = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+                const reviewers = pr.requested_reviewers.map(r => `\`@${r.login}\``).join(', ') || '_None requested_';
+
+                // Push an individual attachment card for this PR
+                payload.attachments.push({
+                  color: sidebarColor,
+                  blocks: [
+                    {
+                      type: 'section',
+                      text: {
+                        type: 'mrkdwn',
+                        text: `${statusEmoji} *<${pr.html_url}|#${pr.number}: ${pr.title}>*\n• *Age:* \`${ageStr}\` | *Author:* \`${pr.user.login}\`\n• *Assigned Reviewers:* ${reviewers}`
+                      }
+                    }
+                  ]
+                });
+              }
+            }
+
+            if (postedPrCount === 0) {
+              console.log('No PRs met the stale threshold filter.');
+              return;
+            }
+
+            // 5. Send to Slack
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+              core.setFailed(`Slack API responded with status ${response.status}`);
+            } else {
+              console.log(`Successfully nagged the team about ${postedPrCount} PR(s).`);
+            }
