@@ -314,6 +314,15 @@
     uint
 )
 
+(define-map signer-rewards-per-token-for-cycle
+    {
+        signer: principal,
+        is-bond: bool,
+        index: uint,
+    }
+    uint
+)
+
 ;; The role that is allowed to set bond parameters.
 ;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
 ;; configured admin before deploy.
@@ -1710,7 +1719,7 @@
     )
     (compute-earned-rewards
         (get-staker-shares-staked-for-cycle staker is-bond index signer)
-        (get-rewards-per-token-for-cycle is-bond index)
+        (get-signer-rewards-per-token-for-cycle signer is-bond index)
         (get-staker-rewards-per-token-settled-for-cycle signer is-bond index
             staker
         )
@@ -1875,6 +1884,13 @@
         }
             rewards-per-token
         )
+        (map-set signer-rewards-per-token-for-cycle {
+            signer: signer,
+            is-bond: is-bond,
+            index: index,
+        }
+            rewards-per-token
+        )
         {
             earned: earned,
             rewards-per-token: rewards-per-token,
@@ -1895,7 +1911,7 @@
     )
     (let (
             (earned (get-earned-staker-rewards signer is-bond index staker))
-            (rewards-per-token (get-rewards-per-token-for-cycle is-bond index))
+            (rewards-per-token (get-signer-rewards-per-token-for-cycle signer is-bond index))
         )
         (map-set staker-unclaimed-rewards-for-cycle {
             is-bond: is-bond,
@@ -2410,6 +2426,20 @@
     (default-to u0
         (map-get? staker-unclaimed-rewards-for-cycle {
             staker: staker,
+            signer: signer,
+            is-bond: is-bond,
+            index: index,
+        })
+    )
+)
+
+(define-read-only (get-signer-rewards-per-token-for-cycle
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+    )
+    (default-to u0
+        (map-get? signer-rewards-per-token-for-cycle {
             signer: signer,
             is-bond: is-bond,
             index: index,

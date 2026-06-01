@@ -5510,6 +5510,23 @@ export const contracts = {
         ],
         bigint
       >,
+      getSignerRewardsPerTokenForCycle: {
+        name: 'get-signer-rewards-per-token-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'is-bond', type: 'bool' },
+          { name: 'index', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          isBond: TypedAbiArg<boolean, 'isBond'>,
+          index: TypedAbiArg<number | bigint, 'index'>,
+        ],
+        bigint
+      >,
       getSignerRewardsPerTokenSettledForCycle: {
         name: 'get-signer-rewards-per-token-settled-for-cycle',
         access: 'read_only',
@@ -6197,6 +6214,24 @@ export const contracts = {
       } as TypedAbiMap<
         {
           cycle: number | bigint;
+          signer: string;
+        },
+        bigint
+      >,
+      signerRewardsPerTokenForCycle: {
+        name: 'signer-rewards-per-token-for-cycle',
+        key: {
+          tuple: [
+            { name: 'index', type: 'uint128' },
+            { name: 'is-bond', type: 'bool' },
+            { name: 'signer', type: 'principal' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          index: number | bigint;
+          isBond: boolean;
           signer: string;
         },
         bigint
