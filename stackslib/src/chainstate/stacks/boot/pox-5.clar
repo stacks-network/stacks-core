@@ -407,7 +407,8 @@
         }))
     )
     (let ((bond-start-height (bond-period-to-burn-height bond-index))
-          (first-reward-cycle (bond-period-to-reward-cycle bond-index)))
+          (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+          (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES)))
         ;; only bond admin can call this.
         (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
 
@@ -447,13 +448,15 @@
         (print {
             topic: "setup-bond",
             bond-index: bond-index,
-            first-reward-cycle: first-reward-cycle,
-            bond-start-height: bond-start-height,
             target-rate: target-rate,
             stx-value-ratio: stx-value-ratio,
             min-ustx-ratio: min-ustx-ratio,
-            early-unlock-signers: early-unlock-signers,
+            early-unlock-bytes: early-unlock-bytes,
             early-unlock-admin: early-unlock-admin,
+            first-reward-cycle: first-reward-cycle,
+            bond-start-height: bond-start-height,
+            unlock-cycle: unlock-cycle,
+            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
         })
 
         (let ((accumulator (try! (fold add-staker-to-bond allowlist
