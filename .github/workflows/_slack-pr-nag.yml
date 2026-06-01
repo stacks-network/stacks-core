@@ -18,7 +18,8 @@ jobs:
           # --- CONFIGURABLE VARIABLES ---
           TARGET_OWNER: 'stacks-network'
           TARGET_REPO: 'stacks-core'
-          STALE_HOURS_THRESHOLD: '12'
+          STALE_HOURS_THRESHOLD: '72' # 3 days
+          ANGRY_RED_HOURS_THRESHOLD: '168' # 1 week (7 days)
           IGNORE_DRAFTS: 'true'
           
           # Keep GitHub users up to date, should be reviewed every 3 months
@@ -30,6 +31,7 @@ jobs:
             const owner = process.env.TARGET_OWNER;
             const repo = process.env.TARGET_REPO;
             const staleHours = parseInt(process.env.STALE_HOURS_THRESHOLD, 10);
+            const angryRedHours = parseInt(process.env.ANGRY_RED_HOURS_THRESHOLD, 10);
             const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
             const webhookUrl = process.env.SLACK_WEBHOOK_URL;
 
@@ -83,40 +85,37 @@ jobs:
               const createdAt = new Date(pr.created_at);
               const ageInHours = (now - createdAt) / (1000 * 60 * 60);
 
-              if (ageInHours >= staleHours) {
-                postedPrCount++;
+              postedPrCount++;
 
-                // Determine Alert Level Colors & Emojis
-                let sidebarColor = '#2EB67D'; // Slack Green
-                let statusEmoji = '🟢';
+              // Determine Alert Level Colors & Emojis
+              let sidebarColor = '#2EB67D'; // Slack Green
+              let statusEmoji = '🟢';
 
-                if (ageInHours > 72) {
-                  sidebarColor = '#E01E5A';  // Slack Red
-                  statusEmoji = '🔴';
-                } else if (ageInHours >= 24) {
-                  sidebarColor = '#ECB22E';  // Slack Yellow
-                  statusEmoji = '🟡';
-                }
+              if (ageInHours > angryRedHours) {
+                sidebarColor = '#E01E5A';  // Slack Red
+                statusEmoji = '🔴';
+              } else if (ageInHours >= staleHours) {
+                sidebarColor = '#ECB22E';  // Slack Yellow
+                statusEmoji = '🟡';
 
-                const days = Math.floor(ageInHours / 24);
-                const hours = Math.floor(ageInHours % 24);
-                const ageStr = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
-                const reviewers = pr.requested_reviewers.map(r => `\`@${r.login}\``).join(', ') || '_None requested_';
+              const days = Math.floor(ageInHours / 24);
+              const hours = Math.floor(ageInHours % 24);
+              const ageStr = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+              const reviewers = pr.requested_reviewers.map(r => `\`@${r.login}\``).join(', ') || '_None requested_';
 
-                // Push an individual attachment card for this PR
-                payload.attachments.push({
-                  color: sidebarColor,
-                  blocks: [
-                    {
-                      type: 'section',
-                      text: {
-                        type: 'mrkdwn',
-                        text: `${statusEmoji} *<${pr.html_url}|#${pr.number}: ${pr.title}>*\n• *Age:* \`${ageStr}\` | *Author:* \`${pr.user.login}\`\n• *Assigned Reviewers:* ${reviewers}`
-                      }
+              // Push an individual attachment card for this PR
+              payload.attachments.push({
+                color: sidebarColor,
+                blocks: [
+                  {
+                    type: 'section',
+                    text: {
+                      type: 'mrkdwn',
+                      text: `${statusEmoji} *<${pr.html_url}|#${pr.number}: ${pr.title}>*\n• *Age:* \`${ageStr}\` | *Author:* \`@${pr.user.login}\`\n• *Assigned Reviewers:* ${reviewers}`
                     }
-                  ]
-                });
-              }
+                  }
+                ]
+              });
             }
 
             if (postedPrCount === 0) {
