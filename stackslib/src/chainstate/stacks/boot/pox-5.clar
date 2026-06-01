@@ -1580,12 +1580,15 @@
                 (cycle-staked-ustx (get-total-shares-staked-for-cycle false stx-cycle))
                 (current-rewards-per-ustx (get-rewards-per-token-for-cycle false stx-cycle))
                 (prev-accounted-rewards (var-get last-accounted-rewards-only))
-                (new-rewards-per-ustx (if (is-eq cycle-staked-ustx u0)
-                    ;; if there are no stx staked, we have a problem
+                ;; If no STX is staked this cycle, the staker cut will be applied to the reserve.
+                (no-stx-stakers (is-eq cycle-staked-ustx u0))
+                (new-rewards-per-ustx (if no-stx-stakers
                     u0
                     (/ (* stx-staker-rewards PRECISION) cycle-staked-ustx)
                 ))
                 (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+                ;; When no STX is staked, fold the staker cut into the reserve, otherwise zero.
+                (stranded-staker-cut (if no-stx-stakers stx-staker-rewards u0))
             )
             (print {
                 topic: "calculate-rewards",
@@ -1597,8 +1600,11 @@
                 stx-cycle: stx-cycle,
                 cycle-staked-ustx: cycle-staked-ustx,
                 next-rewards-per-ustx: next-rewards-per-ustx,
+                stranded-staker-cut: stranded-staker-cut,
             })
-            (var-set reserve-balance (+ cur-reserve new-reserve))
+            (var-set reserve-balance
+                (+ cur-reserve new-reserve stranded-staker-cut)
+            )
             (var-set last-reward-compute-height calculation-height)
             (var-set last-accounted-rewards-only
                 (+ prev-accounted-rewards (- accrued-rewards new-reserve))
