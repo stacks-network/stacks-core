@@ -1435,8 +1435,11 @@ function returns `true` iff hashing pairwise up the tree in the order described 
 
 `tx-count` pins down the canonical Bitcoin tree shape and is required to defend against
 CVE-2012-2459-style attacks where an intermediate node in an odd-row-padded tree could
-otherwise be passed off as a leaf. The function rejects any proof whose path length doesn't
-match `ceil(log2(tx-count))` and any `tx-index` not less than `tx-count`.
+otherwise be passed off as a leaf, or where the last real leaf of an odd-sized tree
+could be relocated into the duplicated-padding region by inflating `tx-count`. The
+function rejects any proof whose path length doesn't match `ceil(log2(tx-count))`, any
+`tx-index` not less than `tx-count`, and any sibling whose value is inconsistent with the
+canonical tree shape implied by the supplied `tx-count`.
 
 All 32-byte hashes (leaf, root, siblings) are passed in *internal* (raw) byte order, not
 the display (reversed) order conventionally used for Bitcoin txids and block hashes. The
@@ -1484,6 +1487,23 @@ without trusting the caller to have correctly hashed or stripped witness data fr
 (get-bitcoin-tx-output? 0x01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000 u0)
 ;; Returns (ok (tuple (amount u5000000000) (script 0x4104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac) (txid 0x3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a)))
 (get-bitcoin-tx-output? 0x00 u0) ;; Returns (err u1)",
+};
+
+const ED25519VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 1048576), (buff 64), (buff 32)",
+    snippet: "ed25519-verify ${1:message} ${2:signature} ${3:public-key})",
+    output_type: "bool",
+    signature: "(ed25519-verify message signature public-key)",
+    description: "The `ed25519-verify` function verifies that the provided signature of the message
+was signed with the private key that generated the public key.
+The `message` can be up to 1 MiB in size. The `signature` is the raw 64-byte signature, and the `public-key` is the raw 32-byte public key.
+returns `true` if the signature is valid, and `false` otherwise.
+Note that validation is in strict mode, so non-canonical signatures will be rejected.",
+    example: "(ed25519-verify 0xaf82
+    0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a
+    0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns true
+(ed25519-verify 0x00000000000000000000000000000000000000 0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a
+    0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns false"
 };
 
 const SECP256K1DECOMPRESS_API: SpecialAPI = SpecialAPI {
@@ -2983,6 +3003,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
         VerifyMerkleProof => make_for_special(&VERIFY_MERKLE_PROOF_API, function),
         GetBitcoinTxOutput => make_for_special(&GET_BITCOIN_TX_OUTPUT_API, function),
+        Ed25519Verify => make_for_special(&ED25519VERIFY_API, function),
         Secp256k1Decompress => make_for_special(&SECP256K1DECOMPRESS_API, function),
     }
 }

@@ -778,6 +778,20 @@ fn check_secp256r1_verify(
     Ok(TypeSignature::BoolType)
 }
 
+fn check_ed25519_verify(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    let [message, signature, public_key] = get_arguments_exact::<_, 3>(args)?;
+
+    check_argument_count(3, args)?;
+    checker.type_check_expects(&message, context, &TypeSignature::BUFFER_MAX)?;
+    checker.type_check_expects(&signature, context, &TypeSignature::BUFFER_64)?;
+    checker.type_check_expects(&public_key, context, &TypeSignature::BUFFER_32)?;
+    Ok(TypeSignature::BoolType)
+}
+
 fn check_secp256k1_decompress(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -1347,6 +1361,7 @@ impl TypedNativeFunction {
             Secp256r1Verify => Special(SpecialNativeFunction(&check_secp256r1_verify)),
             VerifyMerkleProof => Special(SpecialNativeFunction(&check_verify_merkle_proof)),
             GetBitcoinTxOutput => Special(SpecialNativeFunction(&check_get_bitcoin_tx_output)),
+            Ed25519Verify => Special(SpecialNativeFunction(&check_ed25519_verify)),
             Secp256k1Decompress => Special(SpecialNativeFunction(&check_secp256k1_decompress)),
         };
 

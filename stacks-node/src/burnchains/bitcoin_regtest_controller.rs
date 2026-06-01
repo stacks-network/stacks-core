@@ -2075,6 +2075,84 @@ impl BitcoinRegtestController {
             .unwrap_or_log_panic("retrieve raw tx")
     }
 
+    /// Build, sign, and broadcast a regular Bitcoin payment from the
+    /// miner address to `recipient`.
+    ///
+    /// Internally this is the same UTXO-selection + signing flow used
+    /// by `build_leader_block_commit_tx` / `build_leader_key_register_tx`
+    /// — `prepare_tx` picks miner UTXOs, then `finalize_tx` adds a
+    /// change output, fills inputs, and signs each one with the keychain
+    /// `BurnchainOpSigner` the caller supplies. The resulting tx is
+    /// broadcast via `sendrawtransaction`; the next regtest block (e.g.
+    /// `build_next_block(1)`) confirms it.
+    ///
+    /// Intended for tests that need the bondholder / a third party to
+    /// receive BTC on regtest without relying on bitcoind's wallet to
+    /// sign for the miner (the wallet is created with
+    /// `disable_private_keys=true`, so it can't).
+    #[cfg(test)]
+    pub fn send_btc(
+        &mut self,
+        epoch_id: StacksEpochId,
+        op_signer: &mut BurnchainOpSigner,
+        recipient: &BitcoinAddress,
+        amount: u64,
+    ) -> Result<Txid, BurnchainControllerError> {
+        let public_key = op_signer.get_public_key();
+
+        let fee_rate = get_satoshis_per_byte(&self.config);
+        // Rough upper-bound for a 1-input, 2-output P2PKH/P2WPKH tx. The
+        // `finalize_tx` flow re-serializes to compute the real size; this
+        // is just for UTXO selection / change accounting.
+        let min_tx_size: u64 = 250;
+        let total_required = amount + min_tx_size * fee_rate;
+
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, total_required, None, None, 0)?;
+
+        let recipient_output = match recipient {
+            BitcoinAddress::Legacy(legacy) => match legacy.addrtype {
+                LegacyBitcoinAddressType::PublicKeyHash => {
+                    LegacyBitcoinAddress::to_p2pkh_tx_out(&legacy.bytes, amount)
+                }
+                LegacyBitcoinAddressType::ScriptHash => {
+                    LegacyBitcoinAddress::to_p2sh_tx_out(&legacy.bytes, amount)
+                }
+            },
+            BitcoinAddress::Segwit(segwit) => match segwit {
+                SegwitBitcoinAddress::P2WPKH(_, bytes) => {
+                    SegwitBitcoinAddress::to_p2wpkh_tx_out(bytes, amount)
+                }
+                SegwitBitcoinAddress::P2WSH(_, bytes) => {
+                    SegwitBitcoinAddress::to_p2wsh_tx_out(bytes, amount)
+                }
+                SegwitBitcoinAddress::P2TR(_, bytes) => {
+                    SegwitBitcoinAddress::to_p2tr_tx_out(bytes, amount)
+                }
+            },
+        };
+        tx.output = vec![recipient_output];
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            amount,
+            0,
+            min_tx_size,
+            fee_rate,
+            &mut utxos,
+            op_signer,
+            true,
+        );
+
+        info!(
+            "Test send_btc: paying {amount} sats to {recipient}";
+            "fee_rate" => fee_rate,
+        );
+
+        self.send_transaction(&tx)
+    }
+
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
     ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
     #[cfg(test)]

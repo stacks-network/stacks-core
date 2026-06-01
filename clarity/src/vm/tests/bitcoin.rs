@@ -64,27 +64,39 @@ fn execute(snippet: &str) -> Value {
         .expect("should return a value")
 }
 
-/// Walk a Bitcoin-style merkle proof bottom-up and return the root it
-/// implies. Lets us synthesize valid proofs at the full 0..=24 depth range
-/// without materializing 2^24-leaf trees in memory. The canonical
-/// tree-construction direction is covered independently by the real-mainnet
-/// unit tests in `vm::functions::bitcoin::tests`.
-fn compute_root_from_proof(leaf: [u8; 32], tx_index: u128, siblings: &[[u8; 32]]) -> [u8; 32] {
+/// Walk a Bitcoin-style merkle proof bottom-up using the canonical tree
+/// shape implied by `tx_count`, forcing the duplicated-padding sibling at
+/// every odd-row edge to equal the running hash. Returns the synthesized
+/// `(siblings, root)` pair. Lets us synthesize valid proofs at the full
+/// 0..=24 depth range without materializing 2^24-leaf trees in memory.
+/// The canonical tree-construction direction is covered independently by
+/// the real-mainnet unit tests in `vm::functions::bitcoin::tests`.
+fn synth_canonical_proof(
+    leaf: [u8; 32],
+    tx_index: u128,
+    tx_count: u128,
+    raw_siblings: &[[u8; 32]],
+) -> (Vec<[u8; 32]>, [u8; 32]) {
+    let mut siblings = Vec::with_capacity(raw_siblings.len());
     let mut cur = leaf;
     let mut idx = tx_index;
+    let mut row_count = tx_count;
     let mut buf = [0u8; 64];
-    for sibling in siblings {
+    for raw in raw_siblings {
+        let sibling = if (idx | 1) >= row_count { cur } else { *raw };
+        siblings.push(sibling);
         if idx & 1 == 1 {
-            buf[..32].copy_from_slice(sibling);
+            buf[..32].copy_from_slice(&sibling);
             buf[32..].copy_from_slice(&cur);
         } else {
             buf[..32].copy_from_slice(&cur);
-            buf[32..].copy_from_slice(sibling);
+            buf[32..].copy_from_slice(&sibling);
         }
         cur = Sha256dHash::from_data(&buf).0;
         idx >>= 1;
+        row_count = (row_count + 1) >> 1;
     }
-    cur
+    (siblings, cur)
 }
 
 /// `ceil(log2(n))` for `n >= 2`, or 0 for `n <= 1` — local copy of the
@@ -101,8 +113,9 @@ prop_compose! {
     /// Synthesize a valid merkle proof spanning the full supported range:
     /// `tx_count` ranges over `1..=2^24` (depths 0..=24, the cap enforced by
     /// the `(list 24 (buff 32))` sibling type). Returns
-    /// `(leaf, root, tx_index, tx_count, siblings)` where `root` is computed
-    /// from the synthesized siblings, so the proof verifies by construction.
+    /// `(leaf, root, tx_index, tx_count, siblings)` where `siblings` matches
+    /// the canonical Bitcoin tree shape for `(tx_index, tx_count)` and `root`
+    /// is the synthesized root, so the proof verifies by construction.
     fn arb_merkle_proof()(
         tx_count in 1u128..=(1u128 << VERIFY_MERKLE_PROOF_MAX_DEPTH),
         leaf in any::<[u8; 32]>(),
@@ -110,12 +123,12 @@ prop_compose! {
         tx_index in 0u128..tx_count,
         leaf in Just(leaf),
         tx_count in Just(tx_count),
-        siblings in prop::collection::vec(
+        raw_siblings in prop::collection::vec(
             any::<[u8; 32]>(),
             canonical_merkle_depth(tx_count) as usize,
         ),
     ) -> ([u8; 32], [u8; 32], u128, u128, Vec<[u8; 32]>) {
-        let root = compute_root_from_proof(leaf, tx_index, &siblings);
+        let (siblings, root) = synth_canonical_proof(leaf, tx_index, tx_count, &raw_siblings);
         (leaf, root, tx_index, tx_count, siblings)
     }
 }

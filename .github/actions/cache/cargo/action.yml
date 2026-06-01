@@ -1,0 +1,68 @@
+name: Cargo Cache
+description: |
+    Rust Cargo cache used only to build the test archive.
+    All crates should be cached based on runner OS and Cargo.lock hash.
+    This speeds up test archive generation but this cache should not be used for executing the tests.
+    See: https://github.com/actions/cache/blob/main/examples.md#rust---cargo
+
+inputs:
+  action:
+    description: "Type of operation (restore,save)"
+    required: false
+    default: ""
+  cache-key:
+    description: "The cache key to use. Should be based on runner OS, Cargo.lock hash, and Cargo.toml hash."
+    required: true
+
+outputs:
+  cache-hit:
+    description: "Cache Hit"
+    value: ${{ steps.check-cache.outputs.cache-hit }}
+
+runs:
+  using: "composite"
+  steps:
+  
+    # Check if cache data exists
+    - name: Check Cache
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      id: check-cache
+      with:
+        lookup-only: true
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ inputs.cache-key }}
+
+    # Restore cache data
+    - name: Restore Cache
+      if: |
+        inputs.action == 'restore' &&
+        steps.check-cache.outputs.cache-hit == 'true'
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ inputs.cache-key }}
+
+    # Save cache data
+    - name: Save Cache
+      if: |
+        inputs.action == 'save' &&
+        steps.check-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ inputs.cache-key }}

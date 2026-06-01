@@ -1,0 +1,35 @@
+[profile.ci]
+# Stop at the first test failure in CI
+fail-fast = true
+# Retry failed tests up to 2 times
+retries = 2
+# set slow timeout to 5 minutes and test termination to 20 minutes total (4 periods of 5 minutes)
+slow-timeout = { period = "5m", terminate-after = 4, on-timeout = "fail" }
+
+# --- Output and Verbosity Configuration ---
+
+# When to display standard output and standard error for failing tests
+# Options: "immediate", "immediate-final", "final", "never"
+failure-output = "final"
+# When to display standard output and standard error for passing tests
+# Options: "immediate", "immediate-final", "final", "never"
+success-output = "never"
+# Which test statuses (PASS, FAIL, etc.) to display during the run
+# Options: "none", "fail", "retry", "slow", "leak", "pass", "skip", "all"
+status-level = "pass"
+
+[profile.ci.junit]
+# Create JUnit output that we can parse
+path = "../../../junit.xml"
+
+[profile.ci-sequential]
+inherits = "ci"
+# The number of tests to run simultaneously
+# Options: A positive integer (e.g., 4), "num-cpus", or a negative integer (e.g., -1)
+test-threads = 1
+
+[profile.ci-parallel]
+inherits = "ci"
+# The number of tests to run simultaneously
+# Options: A positive integer (e.g., 4), "num-cpus", or a negative integer (e.g., -1)
+test-threads = "num-cpus"
