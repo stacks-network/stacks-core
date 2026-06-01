@@ -235,6 +235,8 @@ fn check_proposal_miner_pkh_mismatch() {
 }
 
 #[test]
+/// We no longer accept *transaction* signatures with high S (because they cause
+/// txid malleability), but in *miner* signatures they're still allowed.
 fn check_proposal_accepts_high_s_miner_sign() {
     let (stacks_client, mut signer_db, miner_sk, mut block, current_sortition, _, sortitions_view) =
         setup_test_environment(function_name!());

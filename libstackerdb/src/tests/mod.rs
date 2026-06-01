@@ -47,7 +47,7 @@ fn test_stackerdb_slot_metadata_sign_verify() {
 
     assert!(slot_metadata.verify(&addr).unwrap());
 
-    // succeds with high-S signature (that's not necessarily good, but
+    // succeeds with high-S signature (that's not necessarily good, but
     // since this has always worked, it can't just stop)
     slot_metadata.signature = slot_metadata.signature.with_negated_s();
     assert!(slot_metadata.verify(&addr).unwrap());
