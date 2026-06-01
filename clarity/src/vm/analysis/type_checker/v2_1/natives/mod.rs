@@ -792,6 +792,19 @@ fn check_ed25519_verify(
     Ok(TypeSignature::BoolType)
 }
 
+fn check_secp256k1_decompress(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    check_argument_count(1, args)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
+    Ok(
+        TypeSignature::new_response(TypeSignature::BUFFER_65, TypeSignature::UIntType)
+            .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
+    )
+}
+
 fn check_get_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -1349,6 +1362,7 @@ impl TypedNativeFunction {
             VerifyMerkleProof => Special(SpecialNativeFunction(&check_verify_merkle_proof)),
             GetBitcoinTxOutput => Special(SpecialNativeFunction(&check_get_bitcoin_tx_output)),
             Ed25519Verify => Special(SpecialNativeFunction(&check_ed25519_verify)),
+            Secp256k1Decompress => Special(SpecialNativeFunction(&check_secp256k1_decompress)),
         };
 
         Ok(out)
