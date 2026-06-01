@@ -97,6 +97,7 @@ jobs:
               } else if (ageInHours >= staleHours) {
                 sidebarColor = '#ECB22E';  // Slack Yellow
                 statusEmoji = '🟡';
+              }
 
               const days = Math.floor(ageInHours / 24);
               const hours = Math.floor(ageInHours % 24);
