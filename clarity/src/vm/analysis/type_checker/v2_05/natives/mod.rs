@@ -842,7 +842,8 @@ impl TypedNativeFunction {
             | Secp256r1Verify
             | VerifyMerkleProof
             | GetBitcoinTxOutput
-            | Ed25519Verify => {
+            | Ed25519Verify
+            | Secp256k1Decompress => {
                 return Err(StaticCheckErrorKind::Unreachable(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
                 ));

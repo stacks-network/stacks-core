@@ -1506,6 +1506,19 @@ Note that validation is in strict mode, so non-canonical signatures will be reje
     0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns false"
 };
 
+const SECP256K1DECOMPRESS_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 33)",
+    snippet: "secp256k1-decompress? ${1:public-key})",
+    output_type: "(response (buff 65) uint)",
+    signature: "(secp256k1-decompress? public-key)",
+    description: "The `secp256k1-decompress?` function decompresses the provided (compressed) public key.
+    Returns the uncompressed public key as a 65-byte buffer on success. This function may fail with the error code:
+    - `(err u1)` — invalid compressed public-key.
+    ",
+    example: "(secp256k1-decompress? 0x0250863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b2352) 
+    ;; Returns (ok 0x0450863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b23522cd470243453a299fa9e77237716103abc11a1df38855ed6f2ee187e9c582ba6)",
+};
+
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     snippet: "contract-call? ${1:contract-principal} ${2:func} ${3:arg1}",
@@ -2991,6 +3004,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         VerifyMerkleProof => make_for_special(&VERIFY_MERKLE_PROOF_API, function),
         GetBitcoinTxOutput => make_for_special(&GET_BITCOIN_TX_OUTPUT_API, function),
         Ed25519Verify => make_for_special(&ED25519VERIFY_API, function),
+        Secp256k1Decompress => make_for_special(&SECP256K1DECOMPRESS_API, function),
     }
 }
 
