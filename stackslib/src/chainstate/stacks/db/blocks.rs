@@ -3931,7 +3931,7 @@ impl StacksChainState {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, None, None)
+                    StacksChainState::process_transaction(clarity_tx, tx, false, None)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
@@ -4503,7 +4503,7 @@ impl StacksChainState {
         let mut total_size = 0u64;
         for tx in block_txs.iter() {
             let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false, None, None)?;
+                StacksChainState::process_transaction(clarity_tx, tx, false, None)?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
