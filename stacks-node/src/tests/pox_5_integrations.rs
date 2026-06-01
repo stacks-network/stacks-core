@@ -611,14 +611,11 @@ fn check_pox_5_register_for_bond_lifecycle() {
 
     // 2) Mint `2 * SBTC_AMT` sBTC to the staker so `register-for-bond`'s sBTC
     // branch (`(err sbtc-amount)`) can pull `SBTC_AMT` sats from `tx-sender`
-    // into pox-5. We mint enough for two calls because step (4) below
-    // exercises a *second* `register-for-bond` from the same staker that
-    // must reach the `ERR_ALREADY_REGISTERED` (u9) assertion in the contract
-    // body. `register-for-bond` performs the sBTC `ft-transfer?` inside its
-    // `let` binding before the duplicate-membership check, so the staker
-    // needs a balance for that attempted lock; the assert then rolls back
-    // the transfer along with the rest of the failed tx. The sBTC stub's
-    // `mint` has no caller restriction.
+    // into pox-5. Only `SBTC_AMT` is actually consumed — the duplicate
+    // `register-for-bond` in step (4) now fails on the membership gate
+    // *before* `roll-sbtc` runs, so no second transfer is attempted. We
+    // keep the 2× headroom for safety. The sBTC stub's `mint` has no
+    // caller restriction.
     let mint_tx = make_contract_call(
         &staker_sk,
         0,
