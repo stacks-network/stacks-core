@@ -2,8 +2,8 @@ name: Slack Open PR Nag Bot
 
 on:
   schedule:
-    # Runs at 14:00 UTC (9:00 AM EST / 10:00 AM EDT) every Monday through Friday
-    - cron: '0 14 * * 1-5'
+    # Runs at 12:00 UTC (7:00 AM EST / 9:00 AM EDT) every Monday through Friday
+    - cron: '0 12 * * 1-5'
   workflow_dispatch: # Allows manual testing
 
 jobs:
@@ -22,8 +22,24 @@ jobs:
           ANGRY_RED_HOURS_THRESHOLD: '168' # 1 week (7 days)
           IGNORE_DRAFTS: 'true'
           
-          # Keep GitHub users up to date, should be reviewed every 3 months
-          WHITELIST_USERS: 'aaronb-stacks, adriano-stacks, benjamin-stacks, brice-stacks, cylewitruk-stacks, dhaney-stacks, federico-stacks, francesco-stacks, hank-stacks, radu-stacks, rob-stacks, simone-stacks'
+          # MAP GITHUB USERNAMES TO SLACK MEMBER IDs
+          # Whitelist is automatically inferred from the keys defined here. Review every 3 months.
+          # To find a Slack Member ID: Open their Slack profile -> Click the 'Three Dots' -> 'Copy member ID' (Starts with 'U')
+          USER_MAPPING: |
+            {
+              "aaronb-stacks": "U067F1SRYT0",
+              "adriano-stacks": "U07CAH5D38Q",
+              "benjamin-stacks": "U09N5BM0SGP",
+              "brice-stacks": "U067BVCJE30",
+              "cylewitruk-stacks": "U06815BCSB0",
+              "dhaney-stacks": "U09538PV0RZ",
+              "federico-stacks": "U08ASJ1LKEV",
+              "francesco-stacks": "U07MCETKTKN",
+              "hank-stacks": "U068W8VBSQM",
+              "radu-stacks": "U0ANRRXD080",
+              "rob-stacks": "U07UNFAS4BD",
+              "simone-stacks": "U09NA1TP8PK"
+            }
           # ------------------------------
           
         with:
@@ -35,17 +51,32 @@ jobs:
             const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
             const webhookUrl = process.env.SLACK_WEBHOOK_URL;
 
-            const whitelistRaw = process.env.WHITELIST_USERS || '';
-            const allowedUsers = new Set(
-              whitelistRaw.split(',').map(u => u.trim().toLowerCase()).filter(Boolean)
-            );
-
             if (!webhookUrl) {
               core.setFailed('Missing SLACK_WEBHOOK_URL secret.');
               return;
             }
 
-            // 1. Fetch all open Pull Requests
+            // 1. Parse User Mapping JSON safely
+            let userMap = {};
+            try {
+              userMap = JSON.parse(process.env.USER_MAPPING || '{}');
+              // Convert keys to lowercase for foolproof lookups
+              userMap = Object.fromEntries(Object.entries(userMap).map(([k, v]) => [k.toLowerCase(), v]));
+            } catch (e) {
+              core.setFailed('Error parsing USER_MAPPING JSON. Script cannot determine team whitelist.');
+              return;
+            }
+
+            // 2. Automatically generate the whitelist Set using the map's keys
+            const allowedUsers = new Set(Object.keys(userMap));
+
+            // Helper function to resolve user format (Ping if Slack ID exists, text fallback otherwise)
+            const resolveMention = (githubUsername) => {
+              const cleanName = githubUsername.toLowerCase();
+              return userMap[cleanName] ? `<@${userMap[cleanName]}>` : `\`@${githubUsername}\``;
+            };
+
+            // 3. Fetch all open Pull Requests
             const { data: prs } = await github.rest.pulls.list({
               owner,
               repo,
@@ -53,20 +84,20 @@ jobs:
               per_page: 100
             });
 
-            // 2. Filter by whitelist/drafts AND sort by age (Oldest First)
+            // 4. Filter by the derived whitelist/drafts AND sort by age (Oldest First)
             const filteredSortedPrs = prs
               .filter(pr => {
                 if (ignoreDrafts && pr.draft) return false;
                 return allowedUsers.has(pr.user.login.toLowerCase());
               })
-              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)); // Earliest date comes first
+              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
             if (filteredSortedPrs.length === 0) {
               console.log('No matching team PRs found.');
               return;
             }
 
-            // 3. Initialize Top-level Header
+            // 5. Initialize Top-level Header
             const payload = {
               blocks: [
                 {
@@ -80,7 +111,7 @@ jobs:
             const now = new Date();
             let postedPrCount = 0;
 
-            // 4. Build color-coded attachments
+            // 6. Build color-coded attachments
             for (const pr of filteredSortedPrs) {
               const createdAt = new Date(pr.created_at);
               const ageInHours = (now - createdAt) / (1000 * 60 * 60);
@@ -102,7 +133,10 @@ jobs:
               const days = Math.floor(ageInHours / 24);
               const hours = Math.floor(ageInHours % 24);
               const ageStr = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
-              const reviewers = pr.requested_reviewers.map(r => `\`@${r.login}\``).join(', ') || '_None requested_';
+              
+              // Resolve Author and Reviewer mentions
+              const authorText = resolveMention(pr.user.login);
+              const reviewers = pr.requested_reviewers.map(r => resolveMention(r.login)).join(', ') || '_None requested_';
 
               // Push an individual attachment card for this PR
               payload.attachments.push({
@@ -112,7 +146,7 @@ jobs:
                     type: 'section',
                     text: {
                       type: 'mrkdwn',
-                      text: `${statusEmoji} *<${pr.html_url}|#${pr.number}: ${pr.title}>*\n• *Age:* \`${ageStr}\` | *Author:* \`@${pr.user.login}\`\n• *Assigned Reviewers:* ${reviewers}`
+                      text: `${statusEmoji} *<${pr.html_url}|#${pr.number}: ${pr.title}>*\n• *Age:* \`${ageStr}\` | *Author:* ${authorText}\n• *Assigned Reviewers:* ${reviewers}`
                     }
                   }
                 ]
@@ -124,7 +158,7 @@ jobs:
               return;
             }
 
-            // 5. Send to Slack
+            // 7. Send payload via Webhook
             const response = await fetch(webhookUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
