@@ -1072,7 +1072,11 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .balance
             .get_total_balance()?
             .checked_sub(amount_to_lock)
-            .expect("FATAL: account locks more STX than balance possessed");
+            .ok_or_else(|| {
+                VmInternalError::Expect(
+                    "FATAL: account locks more STX than balance possessed".into(),
+                )
+            })?;
 
         self.balance = STXBalance::LockedPoxFive {
             amount_unlocked: new_amount_unlocked,
@@ -1149,10 +1153,10 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .balance
             .amount_unlocked()
             .checked_add(self.balance.amount_locked())
-            .expect("STX balance overflowed u128");
-        let amount_unlocked = total_amount
-            .checked_sub(new_total_locked)
-            .expect("STX underflow: more is locked than total balance");
+            .ok_or_else(|| VmInternalError::Expect("STX balance overflowed u128".into()))?;
+        let amount_unlocked = total_amount.checked_sub(new_total_locked).ok_or_else(|| {
+            VmInternalError::Expect("STX underflow: more is locked than total balance".into())
+        })?;
 
         self.balance = STXBalance::LockedPoxFive {
             amount_unlocked,
@@ -1214,10 +1218,10 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .balance
             .amount_unlocked()
             .checked_add(self.balance.amount_locked())
-            .expect("STX balance overflowed u128");
-        let amount_unlocked = total_amount
-            .checked_sub(new_total_locked)
-            .expect("STX underflow: more is locked than total balance");
+            .ok_or_else(|| VmInternalError::Expect("STX balance overflowed u128".into()))?;
+        let amount_unlocked = total_amount.checked_sub(new_total_locked).ok_or_else(|| {
+            VmInternalError::Expect("STX underflow: more is locked than total balance".into())
+        })?;
 
         self.balance = STXBalance::LockedPoxFive {
             amount_unlocked,
