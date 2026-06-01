@@ -2936,6 +2936,13 @@ pub mod test {
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
 
+    /// Create a fresh chainstate for testing under `test_name`, wiping any
+    /// existing state at that path. Genesis deploys the standard boot contracts
+    /// (`pox`, `costs`, `cost-voting`, `bns`, `genesis`); of the cost contracts,
+    /// only `costs` (v1) is present. The later `costs-N` contracts are installed
+    /// by the real epoch transitions as the chain advances. Use
+    /// [`instantiate_chainstate_with_all_costs`] instead if the test needs those
+    /// later cost contracts available directly at genesis.
     pub fn instantiate_chainstate(
         mainnet: bool,
         chain_id: u32,
@@ -2944,6 +2951,8 @@ pub mod test {
         instantiate_chainstate_with_balances(mainnet, chain_id, test_name, vec![])
     }
 
+    /// Like [`instantiate_chainstate`] but seeds the given accounts with initial
+    /// STX balances at genesis.
     pub fn instantiate_chainstate_with_balances(
         mainnet: bool,
         chain_id: u32,
@@ -2978,22 +2987,26 @@ pub mod test {
             .0
     }
 
-    /// Like [`instantiate_chainstate`] but also deploys `costs-2`, `costs-3`
-    /// and `costs-4` during genesis so that [`LimitedCostTracker`] can load cost
-    /// contracts for any epoch.
-    pub fn instantiate_chainstate_with_all_costs(test_name: &str) -> StacksChainState {
-        instantiate_chainstate_with_all_costs_and_balances(test_name, vec![])
+    /// Like [`instantiate_chainstate`] but also deploys the later `costs-N`
+    /// contracts (e.g. `costs-2`, `costs-3`, ...) during genesis so that
+    /// [`LimitedCostTracker`] can load cost contracts for any epoch.
+    pub fn instantiate_chainstate_with_all_costs(
+        mainnet: bool,
+        chain_id: u32,
+        test_name: &str,
+    ) -> StacksChainState {
+        instantiate_chainstate_with_all_costs_and_balances(mainnet, chain_id, test_name, vec![])
     }
 
-    /// Like [`instantiate_chainstate_with_balances`] but also deploys
-    /// `costs-2`, `costs-3` and `costs-4` during genesis.
+    /// Like [`instantiate_chainstate_with_balances`] but also deploys the later
+    /// `costs-N` contracts (e.g. `costs-2`, `costs-3`, ...) during genesis so that
+    /// [`LimitedCostTracker`] can load cost contracts for any epoch.
     pub fn instantiate_chainstate_with_all_costs_and_balances(
+        mainnet: bool,
+        chain_id: u32,
         test_name: &str,
         balances: Vec<(StacksAddress, u64)>,
     ) -> StacksChainState {
-        let is_mainnet = false;
-        let chain_id = 0x80000000;
-
         let path = chainstate_path(test_name);
         if fs::metadata(&path).is_ok() {
             fs::remove_dir_all(&path).unwrap();
@@ -3022,11 +3035,11 @@ pub mod test {
                 for (name, version, code) in contracts {
                     conn.as_transaction(|clarity_db| {
                         let (ast, _) = clarity_db
-                            .analyze_smart_contract(&boot_code_id(name, is_mainnet), *version, code)
+                            .analyze_smart_contract(&boot_code_id(name, mainnet), *version, code)
                             .unwrap();
                         clarity_db
                             .initialize_smart_contract(
-                                &boot_code_id(name, is_mainnet),
+                                &boot_code_id(name, mainnet),
                                 *version,
                                 &ast,
                                 code,
@@ -3051,7 +3064,7 @@ pub mod test {
             get_bulk_initial_namespaces: None,
         };
 
-        StacksChainState::open_and_exec(is_mainnet, chain_id, &path, Some(&mut boot_data), None)
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data), None)
             .unwrap()
             .0
     }
