@@ -5182,7 +5182,7 @@ export const contracts = {
           { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
-        outputs: { type: { buffer: { length: 5141 } } },
+        outputs: { type: { buffer: { length: 4109 } } },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
