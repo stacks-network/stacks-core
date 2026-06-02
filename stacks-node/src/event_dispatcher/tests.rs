@@ -206,6 +206,30 @@ fn build_block_processed_event() {
             .unwrap(),
         pox_constants.v1_unlock_height as u64
     );
+    assert_eq!(
+        payload
+            .get("pox_v2_unlock_height")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        pox_constants.v2_unlock_height as u64
+    );
+    assert_eq!(
+        payload
+            .get("pox_v3_unlock_height")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        pox_constants.v3_unlock_height as u64
+    );
+    assert_eq!(
+        payload
+            .get("pox_v4_unlock_height")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        pox_constants.pox_5_activation_height as u64
+    );
 
     let expected_bitvec_str = serde_json::to_value(signer_bitvec)
         .unwrap_or_default()
