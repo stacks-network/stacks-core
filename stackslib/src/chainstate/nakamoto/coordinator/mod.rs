@@ -120,25 +120,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         block_id: &StacksBlockId,
         debug_log: bool,
     ) -> Result<RewardSet, Error> {
-        if let Some(boundary) = chainstate.state_index.squash_boundary() {
-            if let Some(reward_set) = NakamotoChainState::try_read_squashed_reward_set_of_cycle(
-                chainstate.db(),
-                boundary,
-                cycle,
-                sortdb.first_block_height,
-                &sortdb.pox_constants,
-            )? {
-                ensure_usable_nakamoto_reward_set(&reward_set, debug_log)?;
-                inf_or_debug!(
-                    debug_log,
-                    "PoX reward set loaded from nakamoto_reward_sets SQL fast path";
-                    "cycle_number" => cycle,
-                );
-                return Ok(reward_set);
-            }
-        }
-
-        // figure out the block ID
+        // figure out the block in which .signers was last updated for this cycle
         let Some(coinbase_height_of_calculation) = chainstate
             .eval_boot_code_read_only(
                 sortdb,
@@ -548,7 +530,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
 
     // make sure the `anchor_block` field is the same as whatever goes into the block-commit,
     // or PoX ancestry queries won't work.
-    let (block_id, stacks_block_hash) = match anchor_block_header.anchored_header {
+    let (anchor_block_id, stacks_block_hash) = match anchor_block_header.anchored_header {
         StacksBlockHeaderTypes::Epoch2(ref header) => (
             StacksBlockId::new(&anchor_block_header.consensus_hash, &header.block_hash()),
             header.block_hash(),
@@ -561,18 +543,21 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     let txid = anchor_block_sn.winning_block_txid;
 
     test_debug!("Stacks anchor block found";
-           "block_id" => %block_id,
+           "block_id" => %anchor_block_id,
            "block_hash" => %stacks_block_hash,
            "consensus_hash" => %anchor_block_sn.consensus_hash,
            "txid" => %txid,
            "cycle_start_height" => %cycle_start_height,
            "burnchain_height" => %anchor_block_sn.block_height);
 
+    // `get_reward_set_nakamoto` resolves `reward_cycle`'s reward set from the fork of
+    // the tip it is given. `anchor_block_id` is an ancestor of `stacks_tip`, so passing
+    // `stacks_tip` reads the same reward set while anchoring at a tip that is never pruned.
     let reward_set =
-        provider.get_reward_set_nakamoto(chain_state, reward_cycle, sort_db, &block_id)?;
+        provider.get_reward_set_nakamoto(chain_state, reward_cycle, sort_db, stacks_tip)?;
     debug!(
         "Stacks anchor block (ch {}) {} cycle {} is processed",
-        &anchor_block_header.consensus_hash, &block_id, reward_cycle;
+        &anchor_block_header.consensus_hash, &anchor_block_id, reward_cycle;
         "anchor.consensus_hash" => %anchor_block_header.consensus_hash,
         "anchor.burn_header_hash" => %anchor_block_header.burn_header_hash,
         "anchor.burn_block_height" => anchor_block_header.burn_header_height
