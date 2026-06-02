@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use clarity::types::chainstate::SortitionId;
+use clarity::types::chainstate::{SortitionId, StacksBlockId};
 use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
@@ -30,8 +30,8 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
-    StacksPrivateKey, StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
+    StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
 };
 use stacks_common::types::{Address, PrivateKey, StacksEpoch, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
@@ -135,101 +135,6 @@ pub fn get_account(
 
 fn test_path(name: &str) -> String {
     format!("/tmp/stacks-node-tests/nakamoto-tests/{}", name)
-}
-
-fn consensus_hash(byte: u8) -> ConsensusHash {
-    ConsensusHash([byte; 20])
-}
-
-fn block_hash(byte: u8) -> BlockHeaderHash {
-    BlockHeaderHash([byte; 32])
-}
-
-fn block_id(byte: u8) -> StacksBlockId {
-    StacksBlockId::new(&consensus_hash(byte), &block_hash(byte))
-}
-
-fn nakamoto_header(
-    tenure_id_consensus_hash: ConsensusHash,
-    header_byte: u8,
-    block_height: u64,
-) -> NakamotoBlockHeader {
-    NakamotoBlockHeader {
-        version: 0,
-        chain_length: block_height,
-        burn_spent: u64::from(header_byte),
-        consensus_hash: tenure_id_consensus_hash,
-        parent_block_id: block_id(header_byte.wrapping_add(0x80)),
-        tx_merkle_root: Sha512Trunc256Sum([header_byte; 32]),
-        state_index_root: TrieHash([header_byte.wrapping_add(1); 32]),
-        timestamp: 1_000 + u64::from(header_byte),
-        miner_signature: MessageSignature::empty(),
-        signer_signature: vec![],
-        pox_treatment: BitVec::<4000>::zeros(1).unwrap(),
-    }
-}
-
-fn tenure_change_payload(
-    tenure_id_consensus_hash: ConsensusHash,
-    prev_tenure_id_consensus_hash: ConsensusHash,
-    burn_view_consensus_hash: ConsensusHash,
-    cause: TenureChangeCause,
-) -> TenureChangePayload {
-    TenureChangePayload {
-        tenure_consensus_hash: tenure_id_consensus_hash,
-        prev_tenure_consensus_hash: prev_tenure_id_consensus_hash,
-        burn_view_consensus_hash,
-        previous_tenure_end: block_id(0xee),
-        previous_tenure_blocks: 1,
-        cause,
-        pubkey_hash: Hash160([0x02; 20]),
-    }
-}
-
-fn nakamoto_header_info(
-    block_header: &NakamotoBlockHeader,
-    header_byte: u8,
-    burn_header_height: u32,
-) -> StacksHeaderInfo {
-    StacksHeaderInfo {
-        anchored_header: block_header.clone().into(),
-        microblock_tail: None,
-        stacks_block_height: block_header.chain_length,
-        index_root: TrieHash([header_byte.wrapping_add(2); 32]),
-        consensus_hash: block_header.consensus_hash.clone(),
-        burn_header_hash: BurnchainHeaderHash([header_byte.wrapping_add(3); 32]),
-        burn_header_height,
-        burn_header_timestamp: 2_000 + u64::from(header_byte),
-        anchored_block_size: 1,
-        burn_view: Some(consensus_hash(header_byte.wrapping_add(4))),
-        total_tenure_size: 0,
-    }
-}
-
-fn add_nakamoto_header(
-    chainstate: &mut StacksChainState,
-    header_byte: u8,
-    block_height: u64,
-    burn_header_height: u32,
-) -> StacksBlockId {
-    let block_header = nakamoto_header(consensus_hash(header_byte), header_byte, block_height);
-    let header_info = nakamoto_header_info(&block_header, header_byte, burn_header_height);
-    let block_id = block_header.block_id();
-    let (tx, _) = chainstate.chainstate_tx_begin();
-    NakamotoChainState::insert_stacks_block_header(
-        &tx,
-        &header_info,
-        &block_header,
-        None,
-        &ExecutionCost::ZERO,
-        &ExecutionCost::ZERO,
-        true,
-        1,
-        0,
-    )
-    .unwrap();
-    tx.commit().unwrap();
-    block_id
 }
 
 pub mod node;
