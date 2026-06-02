@@ -752,10 +752,11 @@ mod tests {
     /// Valid Clarity contract name: fixed `t-` prefix + `[a-z0-9-]{0,37}`,
     /// total length 2..=39 (under the 40-char cap).
     ///
-    /// Why the fixed prefix: every Clarity reserved keyword is a full word
-    /// (`tx-sender`, `block-height`, `as-contract`), never `<letter>-<x>`.
-    /// `t-XXX` therefore cannot collide with a reserved name and
-    /// `ContractName::try_from` cannot reject it.
+    /// Why the fixed prefix: the contract-name regex requires a leading
+    /// alphabetic char, so `t-` guarantees a valid first byte; the remaining
+    /// `[a-z0-9-]` chars are all regex-valid. `ContractName::try_from` checks
+    /// only length + regex (there is no reserved-word check), so every
+    /// generated name is accepted.
     fn arb_contract_name() -> impl Strategy<Value = ContractName> {
         prop::collection::vec(
             prop_oneof![b'a'..=b'z', b'0'..=b'9', Just(b'-')],

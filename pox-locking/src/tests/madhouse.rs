@@ -165,8 +165,11 @@ impl BurnStateDB for ConfigurableBurnStateDB {
 }
 
 /// Account model. `Unstake` is not a separate state: it only reschedules
-/// `unlock_height`. The `unstake_scheduled` flag exists so `StakeUpdate` can be
-/// rejected once an unstake is pending.
+/// `unlock_height`. The `unstake_scheduled` flag is model-only — production
+/// has no such gate (it gates on `unlock_height != 0` + `has_locked_tokens`).
+/// It exists so `StakeUpdate` is not *attempted* once an unstake is pending,
+/// making the model intentionally stricter than production: update-after-unstake
+/// transitions are simply not explored here, not asserted illegal.
 #[derive(Debug, Clone, PartialEq)]
 enum AccountState {
     Unlocked,

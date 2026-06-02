@@ -38,8 +38,9 @@ use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use super::bitcoin::{VERIFY_MERKLE_PROOF_MAX_DEPTH, verify_merkle};
 
 /// Independent depth oracle: count halvings to reach 1 (0 for n <= 1).
-/// Deliberately does NOT delegate to production `canonical_merkle_depth` so
-/// regressions in that function surface here too.
+/// Recomputed here rather than calling production `canonical_merkle_depth`, so
+/// the forge-shape assertions that use it don't inherit a depth bug from the
+/// code under test.
 fn naive_depth(n: u128) -> u32 {
     if n <= 1 {
         return 0;
@@ -55,25 +56,6 @@ fn naive_depth(n: u128) -> u32 {
 
 // Local merkle helpers. The `mod tests` helpers in bitcoin.rs are private to
 // that module, so reuse is not possible from here.
-
-/// Walk a proof from `leaf` to the root using `siblings`.
-fn compute_root_from_proof(leaf: [u8; 32], tx_index: u128, siblings: &[[u8; 32]]) -> [u8; 32] {
-    let mut cur = leaf;
-    let mut idx = tx_index;
-    let mut buf = [0u8; 64];
-    for sibling in siblings {
-        if idx & 1 == 1 {
-            buf[..32].copy_from_slice(sibling);
-            buf[32..].copy_from_slice(&cur);
-        } else {
-            buf[..32].copy_from_slice(&cur);
-            buf[32..].copy_from_slice(sibling);
-        }
-        cur = Sha256dHash::from_data(&buf).0;
-        idx >>= 1;
-    }
-    cur
-}
 
 /// Hash two 32-byte values with double-SHA-256 in Bitcoin's order.
 fn hash_pair(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
@@ -340,9 +322,9 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyTamperedLeaf {
     }
 }
 
-/// Truncate or extend the siblings vector so `siblings.len() !=
-/// canonical_depth(tx_count)`. Uses `naive_depth` rather than the production
-/// `canonical_merkle_depth` to avoid the import-from-prod anti-pattern.
+/// Take an honest proof and truncate or extend its siblings vector so
+/// `siblings.len() != canonical_depth(tx_count)`. `verify_merkle`'s
+/// path-length check must then reject it.
 struct VerifyWrongDepth {
     tree_seed: usize,
     leaf_seed: usize,
@@ -463,18 +445,29 @@ fn merkle_cve_adversarial_madhouse() {
     let use_madhouse = std::env::var("MADHOUSE") == Ok("1".into());
 
     if use_madhouse {
-        proptest::proptest!(config.clone(), |(commands in proptest::collection::vec(
-            proptest::prop_oneof![
-                BuildTree::build(ctx.clone()),
-                VerifyHonestProof::build(ctx.clone()),
-                VerifyForge3::build(ctx.clone()),
-                VerifyTamperedLeaf::build(ctx.clone()),
-                VerifyWrongDepth::build(ctx.clone()),
-                VerifyOutOfRangeIndex::build(ctx.clone()),
-            ],
-            1..16,
-        ))| {
+        // Always lead with a BuildTree so the pool is populated before any
+        // Verify* command. A purely random draw can contain no BuildTree, in
+        // which case every command's `check` is false and `execute_commands`
+        // runs nothing — a vacuous pass. Seeding one BuildTree avoids that
+        // while leaving the tail fully random.
+        proptest::proptest!(config.clone(), |(
+            seed_tree in BuildTree::build(ctx.clone()),
+            tail in proptest::collection::vec(
+                proptest::prop_oneof![
+                    BuildTree::build(ctx.clone()),
+                    VerifyHonestProof::build(ctx.clone()),
+                    VerifyForge3::build(ctx.clone()),
+                    VerifyTamperedLeaf::build(ctx.clone()),
+                    VerifyWrongDepth::build(ctx.clone()),
+                    VerifyOutOfRangeIndex::build(ctx.clone()),
+                ],
+                0..15,
+            ),
+        )| {
             // No SUT to reset; state is just the tree pool, freshened via Default.
+            let mut commands = Vec::with_capacity(1 + tail.len());
+            commands.push(seed_tree);
+            commands.extend(tail);
             let mut state = MerkleAdversaryState::default();
             execute_commands(&commands, &mut state);
         });
