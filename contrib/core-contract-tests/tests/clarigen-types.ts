@@ -4805,7 +4805,7 @@ export const contracts = {
           { name: 'target-rate', type: 'uint128' },
           { name: 'stx-value-ratio', type: 'uint128' },
           { name: 'min-ustx-ratio', type: 'uint128' },
-          { name: 'early-unlock-signers', type: { buffer: { length: 683 } } },
+          { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-admin', type: 'principal' },
           {
             name: 'allowlist',
@@ -4829,7 +4829,7 @@ export const contracts = {
                 tuple: [
                   { name: 'bond-index', type: 'uint128' },
                   {
-                    name: 'early-unlock-signers',
+                    name: 'early-unlock-bytes',
                     type: { buffer: { length: 683 } },
                   },
                   { name: 'max-allocation-sats', type: 'uint128' },
@@ -4848,7 +4848,7 @@ export const contracts = {
           targetRate: TypedAbiArg<number | bigint, 'targetRate'>,
           stxValueRatio: TypedAbiArg<number | bigint, 'stxValueRatio'>,
           minUstxRatio: TypedAbiArg<number | bigint, 'minUstxRatio'>,
-          earlyUnlockSigners: TypedAbiArg<Uint8Array, 'earlyUnlockSigners'>,
+          earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
           earlyUnlockAdmin: TypedAbiArg<string, 'earlyUnlockAdmin'>,
           allowlist: TypedAbiArg<
             {
@@ -4861,7 +4861,7 @@ export const contracts = {
         Response<
           {
             bondIndex: bigint;
-            earlyUnlockSigners: Uint8Array;
+            earlyUnlockBytes: Uint8Array;
             maxAllocationSats: bigint;
             minUstxRatio: bigint;
             stxValueRatio: bigint;
@@ -5352,7 +5352,7 @@ export const contracts = {
               tuple: [
                 { name: 'early-unlock-admin', type: 'principal' },
                 {
-                  name: 'early-unlock-signers',
+                  name: 'early-unlock-bytes',
                   type: { buffer: { length: 683 } },
                 },
                 { name: 'min-ustx-ratio', type: 'uint128' },
@@ -5366,7 +5366,7 @@ export const contracts = {
         [bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>],
         {
           earlyUnlockAdmin: string;
-          earlyUnlockSigners: Uint8Array;
+          earlyUnlockBytes: Uint8Array;
           minUstxRatio: bigint;
           stxValueRatio: bigint;
           targetRate: bigint;
@@ -6039,7 +6039,7 @@ export const contracts = {
         value: {
           tuple: [
             { name: 'early-unlock-admin', type: 'principal' },
-            { name: 'early-unlock-signers', type: { buffer: { length: 683 } } },
+            { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
             { name: 'min-ustx-ratio', type: 'uint128' },
             { name: 'stx-value-ratio', type: 'uint128' },
             { name: 'target-rate', type: 'uint128' },
@@ -6049,7 +6049,7 @@ export const contracts = {
         number | bigint,
         {
           earlyUnlockAdmin: string;
-          earlyUnlockSigners: Uint8Array;
+          earlyUnlockBytes: Uint8Array;
           minUstxRatio: bigint;
           stxValueRatio: bigint;
           targetRate: bigint;

@@ -1489,6 +1489,36 @@ without trusting the caller to have correctly hashed or stripped witness data fr
 (get-bitcoin-tx-output? 0x00 u0) ;; Returns (err u1)",
 };
 
+const ED25519VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 1048576), (buff 64), (buff 32)",
+    snippet: "ed25519-verify ${1:message} ${2:signature} ${3:public-key})",
+    output_type: "bool",
+    signature: "(ed25519-verify message signature public-key)",
+    description: "The `ed25519-verify` function verifies that the provided signature of the message
+was signed with the private key that generated the public key.
+The `message` can be up to 1 MiB in size. The `signature` is the raw 64-byte signature, and the `public-key` is the raw 32-byte public key.
+returns `true` if the signature is valid, and `false` otherwise.
+Note that validation is in strict mode, so non-canonical signatures will be rejected.",
+    example: "(ed25519-verify 0xaf82
+    0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a
+    0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns true
+(ed25519-verify 0x00000000000000000000000000000000000000 0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a
+    0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns false"
+};
+
+const SECP256K1DECOMPRESS_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 33)",
+    snippet: "secp256k1-decompress? ${1:public-key})",
+    output_type: "(response (buff 65) uint)",
+    signature: "(secp256k1-decompress? public-key)",
+    description: "The `secp256k1-decompress?` function decompresses the provided (compressed) public key.
+    Returns the uncompressed public key as a 65-byte buffer on success. This function may fail with the error code:
+    - `(err u1)` — invalid compressed public-key.
+    ",
+    example: "(secp256k1-decompress? 0x0250863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b2352) 
+    ;; Returns (ok 0x0450863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b23522cd470243453a299fa9e77237716103abc11a1df38855ed6f2ee187e9c582ba6)",
+};
+
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     snippet: "contract-call? ${1:contract-principal} ${2:func} ${3:arg1}",
@@ -2973,6 +3003,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
         VerifyMerkleProof => make_for_special(&VERIFY_MERKLE_PROOF_API, function),
         GetBitcoinTxOutput => make_for_special(&GET_BITCOIN_TX_OUTPUT_API, function),
+        Ed25519Verify => make_for_special(&ED25519VERIFY_API, function),
+        Secp256k1Decompress => make_for_special(&SECP256K1DECOMPRESS_API, function),
     }
 }
 

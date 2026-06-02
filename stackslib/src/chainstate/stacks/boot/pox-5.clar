@@ -102,8 +102,9 @@
         ;; relative to BTC for this term.
         ;; Represented in basis points.
         min-ustx-ratio: uint,
-        ;; The allowed early unlock signers for this bond period
-        early-unlock-signers: (buff 683),
+        ;; The OP_ELSE (early-exit) subscript of the L1 lockup witness
+        ;; script for this bond period.
+        early-unlock-bytes: (buff 683),
         ;; The Stacks principal that can announce early L1 unlocks
         early-unlock-admin: principal,
     }
@@ -375,20 +376,26 @@
 ;; Setup a new protocol bond by providing parameters and the
 ;; allowlist for the bond.
 ;;
+;; @param bond-index; the index of the bond to set up
 ;; @param target-rate; target yield rate (apy) in basis points
 ;; @param stx-value-ratio; representation of STX:BTC price
 ;; @param min-ustx-ratio; minimum amount of STX that must be locked
 ;; relative to BTC for this term. Represented in basis points.
-;; @param early-exit-signers: An allowlist of bond members that can
-;; participate in the bond.
+;; @param early-unlock-bytes: Bitcoin script that will be used to validate
+;; early exit from the bond. It should be of the form
+;; `<pubkey> OP_CHECKSIGVERIFY` or an M-of-N `CHECKMULTISIGVERIFY` template.
+;; @param early-unlock-admin: The principal that will be allowed to announce
+;; early exits from the bond.
+;; @param allowlist: A list of allowed stakers and their maximum sats that can
+;; be staked for this bond.
 ;;
-;; This function can only be called once.
+;; This function can only be called once for each bond.
 (define-public (setup-bond
         (bond-index uint)
         (target-rate uint)
         (stx-value-ratio uint)
         (min-ustx-ratio uint)
-        (early-unlock-signers (buff 683))
+        (early-unlock-bytes (buff 683))
         (early-unlock-admin principal)
         (allowlist (list 1000 {
             staker: principal,
@@ -426,7 +433,7 @@
                 target-rate: target-rate,
                 stx-value-ratio: stx-value-ratio,
                 min-ustx-ratio: min-ustx-ratio,
-                early-unlock-signers: early-unlock-signers,
+                early-unlock-bytes: early-unlock-bytes,
                 early-unlock-admin: early-unlock-admin,
             })
             ERR_BOND_ALREADY_SETUP
@@ -443,7 +450,7 @@
                 target-rate: target-rate,
                 stx-value-ratio: stx-value-ratio,
                 min-ustx-ratio: min-ustx-ratio,
-                early-unlock-signers: early-unlock-signers,
+                early-unlock-bytes: early-unlock-bytes,
                 max-allocation-sats: (get sum-max-sats accumulator),
             })
         )
@@ -1446,7 +1453,7 @@
             (bond (unwrap! (get-protocol-bond bond-index) ERR_BOND_NOT_FOUND))
             (expected-timelock-output (construct-lockup-output-script staker
                 (get-bond-l1-unlock-height bond-index)
-                (get unlock-bytes lockups) (get early-unlock-signers bond)
+                (get unlock-bytes lockups) (get early-unlock-bytes bond)
             ))
             (accumulation (try! (fold validate-l1-lockup (get outputs lockups)
                 (ok {
@@ -1573,12 +1580,15 @@
                 (cycle-staked-ustx (get-total-shares-staked-for-cycle false stx-cycle))
                 (current-rewards-per-ustx (get-rewards-per-token-for-cycle false stx-cycle))
                 (prev-accounted-rewards (var-get last-accounted-rewards-only))
-                (new-rewards-per-ustx (if (is-eq cycle-staked-ustx u0)
-                    ;; if there are no stx staked, we have a problem
+                ;; If no STX is staked this cycle, the staker cut will be applied to the reserve.
+                (no-stx-stakers (is-eq cycle-staked-ustx u0))
+                (new-rewards-per-ustx (if no-stx-stakers
                     u0
                     (/ (* stx-staker-rewards PRECISION) cycle-staked-ustx)
                 ))
                 (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+                ;; When no STX is staked, fold the staker cut into the reserve, otherwise zero.
+                (stranded-staker-cut (if no-stx-stakers stx-staker-rewards u0))
             )
             (print {
                 topic: "calculate-rewards",
@@ -1590,8 +1600,11 @@
                 stx-cycle: stx-cycle,
                 cycle-staked-ustx: cycle-staked-ustx,
                 next-rewards-per-ustx: next-rewards-per-ustx,
+                stranded-staker-cut: stranded-staker-cut,
             })
-            (var-set reserve-balance (+ cur-reserve new-reserve))
+            (var-set reserve-balance
+                (+ cur-reserve new-reserve stranded-staker-cut)
+            )
             (var-set last-reward-compute-height calculation-height)
             (var-set last-accounted-rewards-only
                 (+ prev-accounted-rewards (- accrued-rewards new-reserve))
@@ -2732,17 +2745,12 @@
 
 ;; Verify that a block header hashes to a burnchain header hash at a given height.
 ;; Returns true if so; false if not.
-;;
-;; TODO: remove the `is-in-mainnet` check, instead use proper mocks
 (define-read-only (verify-block-header
         (headerbuff (buff 80))
         (expected-block-height uint)
     )
     (match (get-burn-block-info? header-hash expected-block-height)
-        bhh (if is-in-mainnet
-            (is-eq bhh (reverse-buff32 (sha256 (sha256 headerbuff))))
-            true
-        )
+        bhh (is-eq bhh (reverse-buff32 (sha256 (sha256 headerbuff))))
         false
     )
 )
@@ -2755,7 +2763,27 @@
 
 ;;; Lock script helpers
 
-;; Contruct an L1 lockup script
+;; Contruct an L1 lockup script.
+;;
+;; `unlock-bytes` and `early-unlock-bytes` are caller-supplied Bitcoin
+;; Script *subscripts*. `unlock-bytes` should be a subscript that validates the
+;; signature of the staker (e.g., `<pubkey> OP_CHECKSIG` or an M-of-N
+;; `CHECKMULTISIG` template). It MUST leave a valid result on the stack.
+;; `early-unlock-bytes` should be a subscript that validates the signature of
+;; the early unlock admin and MUST NOT leave anything on the stack (e.g.
+;; `<pubkey> OP_CHECKSIGVERIFY`, or an M-of-N `CHECKMULTISIGVERIFY` template).
+;;
+;; The constructed script has this structure:
+;; ```
+;; <staker> OP_DROP
+;; OP_IF
+;;     <unlock-burn-height> OP_CHECKLOCKTIMEVERIFY OP_DROP
+;;     <unlock-bytes>
+;; OP_ELSE
+;;     <early-unlock-bytes>
+;;     <unlock-bytes>
+;; OP_ENDIF
+;; ```
 (define-read-only (construct-lockup-script
         (staker principal)
         (unlock-burn-height uint)
@@ -2766,10 +2794,10 @@
         (concat 0x7563 ;; OP_DROP, OP_IF
             (concat (push-c-script-num unlock-burn-height)
                 (concat 0xb175 ;; OP_CHECKLOCKTIMEVERIFY, OP_DROP
-                    (concat (push-script-bytes unlock-bytes)
+                    (concat unlock-bytes
                         (concat 0x67 ;; OP_ELSE
-                            (concat (push-script-bytes early-unlock-bytes)
-                                (concat (push-script-bytes unlock-bytes) 0x68
+                            (concat early-unlock-bytes
+                                (concat unlock-bytes 0x68
                                     ;; OP_ENDIF
                                 ))
                         ))

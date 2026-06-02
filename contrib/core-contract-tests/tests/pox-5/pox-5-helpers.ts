@@ -17,6 +17,7 @@ import {
 import { accounts, project } from '../clarigen-types';
 import { rov, rovOk, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { concatBytes } from '@noble/hashes/utils.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { expect } from 'vitest';
 
@@ -57,20 +58,29 @@ export function serializeLockupScript({
   unlockBytes: Uint8Array;
   earlyUnlockBytes: Uint8Array;
 }) {
+  // `unlockBytes` and `earlyUnlockBytes` are caller-supplied Bitcoin
+  // subscripts (e.g. `<pubkey> OP_CHECKSIG`) that the contract splices
+  // in raw — they must NOT go through `Script.encode` as Uint8Array
+  // elements, which would wrap them in an OP_PUSHBYTES_N push.
   const stackerEncoded = serializeCV(principalCV(stacker));
-  return BTC.Script.encode([
+  const prefix = BTC.Script.encode([
     hex.decode(stackerEncoded),
     'DROP',
     'IF',
     Number(unlockBurnHeight),
     'CHECKLOCKTIMEVERIFY',
     'DROP',
+  ]);
+  const OP_ELSE = new Uint8Array([0x67]);
+  const OP_ENDIF = new Uint8Array([0x68]);
+  return concatBytes(
+    prefix,
     unlockBytes,
-    'ELSE',
+    OP_ELSE,
     earlyUnlockBytes,
     unlockBytes,
-    'ENDIF',
-  ]);
+    OP_ENDIF,
+  );
 }
 
 /**
