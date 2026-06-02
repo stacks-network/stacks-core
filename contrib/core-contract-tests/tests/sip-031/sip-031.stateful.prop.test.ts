@@ -24,7 +24,7 @@ test("SIP-031 Stateful", () => {
 
   const model: Model = {
     balance: 0n,
-    blockHeight: rov(contracts.sip031.getDeployBlockHeight()),
+    blockHeight: BigInt(simnet.burnBlockHeight),
     constants: contracts.sip031.constants,
     deployBlockHeight: rov(contracts.sip031.getDeployBlockHeight()),
     initialized: false,
