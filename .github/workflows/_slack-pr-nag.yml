@@ -2,9 +2,9 @@ name: Slack Open PR Nag Bot
 
 on:
   schedule:
-    # Runs at 7am ET
-    - cron: '0 7 * * 1-5'
-      timezone: 'America/New_York'
+    # NOTE: GitHub Actions only supports UTC. The 'timezone' property is invalid here.
+    # 11:00 UTC is 7:00 AM EST / 8:00 AM EDT.
+    - cron: '0 11 * * 1-5'
   workflow_dispatch: # Allows manual testing
 
 permissions:
@@ -26,7 +26,6 @@ jobs:
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           
           # CENTRAL USER REGISTRY
-          # Maps GitHub usernames to both their Slack Member ID and Document Display Name
           USER_MAPPING: |
             {
               "aaronb-stacks": { "id": "U067F1SRYT0", "name": "Aaron" },
@@ -38,7 +37,7 @@ jobs:
               "federico-stacks": { "id": "U08ASJ1LKEV", "name": "Federico" },
               "francesco-stacks": { "id": "U07MCETKTKN", "name": "Francesco" },
               "hstove-stacks": { "id": "U068W8VBSQM", "name": "Hank" },
-              "radu-stacks": { "id": "U0ANRRXD080", "name": "Radu" },
+              "radu-stacks": { "id": "U09NA1TP8PK", "name": "Radu" },
               "rob-stacks": { "id": "U07UNFAS4BD", "name": "Roberto" },
               "simone-stacks": { "id": "U09NA1TP8PK", "name": "Simone" }
             }
@@ -61,25 +60,28 @@ jobs:
             let userMap = {};
             try {
               const rawMap = JSON.parse(process.env.USER_MAPPING || '{}');
-              // Ensure keys are lowercase for foolproof matching
               userMap = Object.fromEntries(Object.entries(rawMap).map(([k, v]) => [k.toLowerCase(), v]));
             } catch (e) {
-              core.setFailed('Error parsing USER_MAPPING JSON. Check your JSON syntax.');
+              core.setFailed('Error parsing USER_MAPPING JSON.');
               return;
             }
 
-            // Whitelist is derived from the mapping keys
             const allowedUsers = new Set(Object.keys(userMap));
 
-            // Helper to get doc display name from the mapping block
             const getDocName = (username) => {
               const clean = username.toLowerCase();
-              if (userMap[clean] && userMap[clean].name) {
-                return userMap[clean].name;
-              }
-              // Intelligent fallback: strip suffix and capitalize
+              if (userMap[clean] && userMap[clean].name) return userMap[clean].name;
               const base = clean.replace('-stacks', '');
               return base.charAt(0).toUpperCase() + base.slice(1);
+            };
+
+            // Helper to clean titles so they do not break Slack's control sequences
+            const sanitizeTitle = (title) => {
+              return title
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\|/g, '—'); // Swap out pipes to protect link parsing
             };
 
             // 2. Fetch open Pull Requests
@@ -102,28 +104,44 @@ jobs:
               return;
             }
 
-            // 3. Build the plain text list strings
-            const lines = [];
-            lines.push(`*📋 Open PRs*${manualRun ? ' _(Manual Run)_' : ''}\n`);
+            // 3. Construct the payload blocks incrementally to avoid limits
+            const payload = { blocks: [] };
+            
+            // Add initial title header block
+            payload.blocks.push({
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*📋 Open PRs*${manualRun ? ' _(Manual Run)_' : ''}\n`
+              }
+            });
 
+            // Distribute lines across multiple blocks dynamically
+            let currentLines = [];
             for (const pr of filteredSortedPrs) {
               const author = getDocName(pr.user.login);
+              const title = sanitizeTitle(pr.title);
               const reviewers = pr.requested_reviewers.map(r => getDocName(r.login)).join(', ') || 'Anyone';
               
-              lines.push(`${author} <${pr.html_url}|${pr.title}> (${reviewers})`);
+              currentLines.push(`${author} <${pr.html_url}|${title}> (${reviewers})`);
+
+              // Create a new layout block every 8 PRs to comfortably avoid the 3000 char ceiling
+              if (currentLines.length === 8) {
+                payload.blocks.push({
+                  type: 'section',
+                  text: { type: 'mrkdwn', text: currentLines.join('\n') }
+                });
+                currentLines = [];
+              }
             }
 
-            const payload = {
-              blocks: [
-                {
-                  type: 'section',
-                  text: {
-                    type: 'mrkdwn',
-                    text: lines.join('\n')
-                  }
-                }
-              ]
-            };
+            // Append any remaining PR lines
+            if (currentLines.length > 0) {
+              payload.blocks.push({
+                type: 'section',
+                text: { type: 'mrkdwn', text: currentLines.join('\n') }
+              });
+            }
 
             // 4. Send payload via Webhook
             const response = await fetch(webhookUrl, {
