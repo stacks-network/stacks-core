@@ -75,11 +75,16 @@ export function logCommand({
   if (value !== undefined) items.push(String(value));
   if (error !== undefined) items.push(`error ${error}`);
 
-  const columnWidth = 25;
+  const columnWidth = 30;
   const halfColumns = Math.floor(columnWidth / 2);
-  const prettyPrint = items.map((content, index) =>
-    index < 2 ? content.padEnd(halfColumns) : content.padEnd(columnWidth),
-  );
+  // padEnd is a no-op once content >= width, which lets long actions (e.g.
+  // `stake-err-invalid-num-cycles`) and uint128-range numbers run into the
+  // next column. Reserve at least one trailing space so columns stay visually
+  // distinct even when content overflows the nominal width.
+  const prettyPrint = items.map((content, index) => {
+    const width = index < 3 ? halfColumns : columnWidth;
+    return content.padEnd(Math.max(width, content.length + 1));
+  });
   prettyPrint.push('\n');
 
   process.stdout.write(prettyPrint.join(''));
@@ -145,8 +150,7 @@ export const getWalletNameByAddress = (address: string): string | undefined =>
 
 function stakerActiveAtCycle(st: StakerState, cycle: bigint): boolean {
   return (
-    st.firstRewardCycle <= cycle &&
-    cycle < st.firstRewardCycle + st.numCycles
+    st.firstRewardCycle <= cycle && cycle < st.firstRewardCycle + st.numCycles
   );
 }
 
@@ -247,7 +251,7 @@ export function assertTotalDelegatedForCycle(
   real: Real,
   cycle: bigint,
 ): void {
-  expect(
-    rov(real.contracts.pox5.getUstxDelegatedForCycle(cycle)),
-  ).toBe(modelTotalDelegated(stakers, cycle));
+  expect(rov(real.contracts.pox5.getUstxDelegatedForCycle(cycle))).toBe(
+    modelTotalDelegated(stakers, cycle),
+  );
 }
