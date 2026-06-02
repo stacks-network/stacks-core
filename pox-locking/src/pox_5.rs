@@ -302,7 +302,9 @@ pub fn pox_lock_update_v5(
 /// carried over rather than released and re-acquired, so there is no gap.
 ///
 /// # Errors
-/// - Returns `PoxInvalidUnlockHeight` if the `unlock_burn_height` is zero.
+/// - Returns `PoxInvalidUnlockHeight` if the `unlock_burn_height` is not
+///   strictly greater than the current unlock height (a roll-over must move
+///   the unlock forward).
 /// - Returns `PoxInvalidLockAmount` if the `new_total_locked` is zero.
 /// - Returns `PoxExtendNotLocked` if the account isn't currently locked.
 ///   The pox-5 contract only reaches this path with an active prior lock
@@ -316,9 +318,6 @@ pub fn pox_rollover_v5(
     unlock_burn_height: u64,
     new_total_locked: u128,
 ) -> Result<STXBalance, LockingError> {
-    if unlock_burn_height == 0 {
-        return Err(LockingError::PoxInvalidUnlockHeight);
-    }
     if new_total_locked == 0 {
         return Err(LockingError::PoxInvalidLockAmount);
     }
@@ -336,6 +335,10 @@ pub fn pox_rollover_v5(
         .ok_or(LockingError::PoxBalanceOverflow)?;
     if total_amount < new_total_locked {
         return Err(LockingError::PoxInsufficientBalance);
+    }
+
+    if unlock_burn_height <= bal.unlock_height() {
+        return Err(LockingError::PoxInvalidUnlockHeight);
     }
 
     snapshot.set_lock_v5(new_total_locked, unlock_burn_height)?;
@@ -1711,15 +1714,57 @@ mod tests {
         assert_eq!(new_balance.amount_unlocked(), total_amount - new_total);
     }
 
-    /// A zero `unlock_burn_height` is an invalid request (pre-snapshot check).
+    /// A roll-over must move the unlock height forward: an `unlock_burn_height`
+    /// equal to the current unlock height is rejected.
     #[test]
-    fn pox_rollover_v5_zero_unlock_height_returns_err() {
+    fn pox_rollover_v5_same_unlock_height_returns_err() {
         let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let initial_unlock = 10_000u64;
         let mut store = MemoryBackingStore::new();
         let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
 
-        let err = pox_rollover_v5(&mut global_context.database, &staker, 0, 100_000)
-            .expect_err("expected PoxInvalidUnlockHeight");
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            400_000,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let err = pox_rollover_v5(
+            &mut global_context.database,
+            &staker,
+            initial_unlock,
+            500_000,
+        )
+        .expect_err("expected PoxInvalidUnlockHeight");
+        assert!(matches!(err, LockingError::PoxInvalidUnlockHeight));
+    }
+
+    /// A roll-over to an earlier unlock height (before the current one) is
+    /// rejected — the lock can only be carried forward, never pulled back.
+    #[test]
+    fn pox_rollover_v5_earlier_unlock_height_returns_err() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let initial_unlock = 10_000u64;
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            400_000,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let err = pox_rollover_v5(
+            &mut global_context.database,
+            &staker,
+            initial_unlock - 1,
+            500_000,
+        )
+        .expect_err("expected PoxInvalidUnlockHeight");
         assert!(matches!(err, LockingError::PoxInvalidUnlockHeight));
     }
 
