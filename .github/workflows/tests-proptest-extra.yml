@@ -283,7 +283,11 @@ jobs:
 
       # List every test present on the HEAD branch.
       - name: List HEAD branch tests
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
         run: |
+          echo "Head branch: $HEAD_REF"
+
           cargo nextest list \
             --archive-file ${{ needs.setup-env.outputs.test-archive-file }} \
             -Tjson 2>/dev/null \
