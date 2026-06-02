@@ -1,0 +1,1 @@
+Moved `StacksTransaction` and its supporting types (`TransactionAuth`, `*SpendingCondition`, `TransactionPayload`, `ClarityVersion`, `StacksMicroblockHeader`, `Txid`, `StacksString`, `TenureChangePayload`, and related) from `stackslib` into the `stacks-codec` crate ([#7200](https://github.com/stacks-network/stacks-core/pull/7200))
