@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "b8f82b72821df2838d83388956266dbfe0e65a4b32923364b9bd7566c5debb9c",
+    marf_hash: "a41dadf4ead12c21e76381a5d86d30028e765ffdb8521b179d2aec7983ad8a13",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e3d9e4c870c7868b17c61d442c3071da492f8256ce89e09783cdbb00908e830c",
+    marf_hash: "a87e0d226601bf6b627e0f190bb618dc4afe6723e70869bd45269da5bd9d83b7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "824bdfee6e1fc3a67b918ae115c5c9bfef60f9bc71bd2c6a04f9b1469033c737",
+    marf_hash: "8431a4798c86d047b89bb28c8bc7ad70a5e51030699b027e9b8a03956f716df4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3153b5d15da97dfb803e3cd0c167024ad893898b4ceb38ca9fc639aec6e87e86",
+    marf_hash: "b6120f9e0d861fbef856b5998248506191406da699071f582096d26749069089",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,191 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5f5625111a4fd77b4337d1e1ec2579d75bb48dd214bc0b41d024313b839df8ad",
+    marf_hash: "9b5988296ed25e7d5723eb87daf839fb02379891c12e61806b2b87215c45fe9a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: bad-map-name-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: invalid map name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1047,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1047,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4cb9dbc58f9923b0d8bc1ce78746cb0f39cc043df9985443242a3af4fb74c797",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-map-name-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: invalid map name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1047,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1047,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2c0d7d4c9029d24acfc4bc904b7e2a77445758210440ecd87a52f2aef5300698",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-map-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: invalid map name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1047,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1047,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "5bfad54d0b670c76dc310eef8682fc7ba81e88f7ea451ab757905e8f81b39df1",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-map-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: invalid map name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1047,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1047,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "95f7737f520484f71ea623b8440c3a55fb58ef10b8b983b430639196fd9f89b0",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-map-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: invalid map name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1047,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1047,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "68910e8888f422f1f05602d203c2bd2a05065b1d2bac39d070a233ceeb111d33",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-map-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: invalid map name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1047,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1047,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "5703b965e6f198b1eeba299c0ed8ae002de61577613add04bb420848e852ca9c",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-map-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: invalid map name) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

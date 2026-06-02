@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "be75d444eb0a869d4f45e0edfce50a757169a22f1c4ea43f2aaed7cc13976253",
+    marf_hash: "e6847dd4c9d36d257546e203d52b231fc2a2ae06a3c4084080799e7395b38b84",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "06782fa8f80b44c5d7c2e6024d9633196c8f57e947229ebad274620210db91f1",
+    marf_hash: "7039bb8332693928d499e253b1533749fbc6dcc6c3992b40e88062416deae219",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "98d14444127d69ebc9c59e81d53b54eb85e4c5759020fd028a866b522abf4dc0",
+    marf_hash: "8bbd81c06927ed73dc7b3868eadd2a845f96d72edf8b02e72f9344e62b55e4f2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1c707ade187098b986f713cbc4c75f3d0bc962754f1e6049264fb3a614ff1603",
+    marf_hash: "93900c57a4f40b381bbc0c241fe172c9786ace73dd088f279fd77e45a08ea296",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,191 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9a89dd1293f1769633b84ff4ba633022598312f4d900ede55375abc2214c0019",
+    marf_hash: "6d35d594f298596c7f84a6effc1fca18f8f490a7a00fa647891dc45aa5f4a19c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: trait-ref-unknown-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(use of undeclared trait <kvstore>) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 558,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 558,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7b366bb1950e6a38abdda691adb70ed4fd77631202c5830cec9f8b8c075391b5",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-ref-unknown-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(use of undeclared trait <kvstore>) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 558,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 558,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0e4221020badfb883376010eebfc53d4d46fcbe94c8cc48b6bc092c2b0eef9f9",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-ref-unknown-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(use of undeclared trait <kvstore>) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 558,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 558,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f0942914f7125bbf20b6d9d1da905f177fe8bfb1bfb191988e055cbd3592c0ae",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-ref-unknown-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(use of undeclared trait <kvstore>) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 558,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 558,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bb6224675ab30b5f5e36707e4bb095a5fd16feb9c47f0bddadd965d2f5f106ba",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-ref-unknown-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(use of undeclared trait <kvstore>) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 558,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 558,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "cb882e77d83c8ab15782118810b5d8a48dacae379d579faf9403976aed3adc8a",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-ref-unknown-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(use of undeclared trait <kvstore>) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 558,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 558,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0ff899080e34a20b08ec92cb4af9ef1f2df4e751bd187583b6a0fe062ed6715b",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-ref-unknown-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(use of undeclared trait <kvstore>) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

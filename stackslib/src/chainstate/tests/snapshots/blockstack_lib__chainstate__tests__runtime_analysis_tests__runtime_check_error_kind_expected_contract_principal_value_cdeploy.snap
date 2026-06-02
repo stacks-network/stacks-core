@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "eabbffc4e526fbab071bec2ec2ae3978c18211a73971c33ee8218cb066ab1c93",
+    marf_hash: "2bfa6c46fbfb79d457c57850d8241c5b24ed4dab5272ea20e8472b262d056855",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,101 +34,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5ab90e061ad4d837fe0191e103ff004f4f7f9ef0c9b58e119aef361932def5f4",
+    marf_hash: "0a55fbc403f9d54a4c20b11dc3accdd982caf95a7f3177a611638b1f445f7ba0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(ExpectedContractPrincipalValue(\"Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)))\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 167,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 15231,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 167,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 15231,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "dd3b588149f465ae338c08b1e089c873f9ba927f875f090e628e912d05efdb94",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(ExpectedContractPrincipalValue(\"Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)))\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 167,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 15231,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 167,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 15231,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e1ea520a8cf0d46affeb4adee8498fce21b524d713a98ac9d7395aa98178af59",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(ExpectedContractPrincipalValue(\"Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)))\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 167,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 15231,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 167,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 15231,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "352302d1e170f50a8f58283e62ee17d894b4ba92fe1276862e882e27d9bc6320",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(ExpectedContractPrincipalValue(\"Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)))\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

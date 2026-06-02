@@ -18,7 +18,6 @@ use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-use clarity::consts::MICROSTACKS_PER_STACKS;
 use clarity::types::Address;
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::clarity::{ClarityError, TransactionConnection};
@@ -61,6 +60,7 @@ pub const BOOT_CODE_COSTS: &str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COSTS_2: &str = std::include_str!("costs-2.clar");
 pub const BOOT_CODE_COSTS_3: &str = std::include_str!("costs-3.clar");
 pub const BOOT_CODE_COSTS_4: &str = std::include_str!("costs-4.clar");
+pub const BOOT_CODE_COSTS_5: &str = std::include_str!("costs-5.clar");
 pub const BOOT_CODE_COSTS_2_TESTNET: &str = std::include_str!("costs-2-testnet.clar");
 pub const BOOT_CODE_COST_VOTING_MAINNET: &str = std::include_str!("cost-voting.clar");
 pub const BOOT_CODE_BNS: &str = std::include_str!("bns.clar");
@@ -95,6 +95,7 @@ pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
 pub const COSTS_4_NAME: &str = "costs-4";
+pub const COSTS_5_NAME: &str = "costs-5";
 /// This contract name is used in testnet **only** to lookup an initial
 ///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
 ///  function called `aggregate-key` with zero arguments which returns a (buff 33)
@@ -202,10 +203,10 @@ pub fn make_sip_031_body(is_mainnet: bool) -> String {
 
 /// Generate the contract body for the pox-5 contract.
 ///
-/// On mainnet the body is used verbatim, with the canonical sBTC contract
-/// literal and the mainnet `bond-admin` principal baked in. On non-mainnet
-/// networks, every occurrence of the canonical sBTC literal is rewritten to
-/// point at the configured sBTC token contract via
+/// On mainnet the body is used verbatim, with the canonical sBTC token
+/// contract literal and the mainnet `bond-admin` principal baked in. On
+/// non-mainnet networks, every occurrence of the canonical sBTC token literal
+/// is rewritten to point at the configured sBTC token contract via
 /// [`set_pox_5_sbtc_contract`] (typically configured from the node config
 /// file), falling back to a well-known testnet default when unset, and the
 /// `bond-admin` initializer is rewritten via [`pox_5_bond_admin`] to the
@@ -315,6 +316,7 @@ pub struct RewardSetV0 {
 pub struct WaterfallCycleSet {
     pub sbtc_address: PoxAddress,
     pub signers: Vec<NakamotoSignerEntry>,
+    pub pox_ustx_threshold: u128,
 }
 
 /// Versioned reward set enum. Serializes with a `reward_set_version` field
@@ -473,12 +475,10 @@ impl RewardSet {
     }
 
     /// Return the pox_ustx_threshold.
-    ///
-    /// Only calculated in V0, Returns `50_000 STX` for Waterfall.
     pub fn pox_ustx_threshold(&self) -> Option<u128> {
         match self {
             RewardSet::V0(v0) => v0.pox_ustx_threshold,
-            _ => Some(50_000 * u128::from(MICROSTACKS_PER_STACKS)),
+            RewardSet::Waterfall(set) => Some(set.pox_ustx_threshold),
         }
     }
 

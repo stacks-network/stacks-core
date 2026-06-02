@@ -132,18 +132,14 @@ pub mod tenure_extend;
 pub mod tx_replay;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
-    /// Run the test until the epoch 3 boundary
-    pub fn boot_to_epoch_3(&self) {
-        TEST_MINE_SKIP.set(true);
-        boot_to_epoch_3_reward_set(
-            &self.running_nodes.conf,
-            &self.running_nodes.counters.blocks_processed,
-            &self.signer_stacks_private_keys,
-            &self.signer_stacks_private_keys,
-            &self.running_nodes.btc_regtest_controller,
-            Some(self.num_stacking_cycles),
-        );
-
+    /// Poll until the reward set for the next reward cycle is available.
+    ///
+    /// If the coordinator hasn't yet determined the PoX anchor block and the
+    /// burn chain is still short of the next cycle boundary, mine another
+    /// burn block to give it the nudge it needs. Once past the boundary,
+    /// just wait — the anchor block had to be chosen from blocks before the
+    /// boundary, so mining more won't help.
+    pub fn wait_for_next_reward_set_calculation(&self) {
         info!("Waiting for signer set calculation.");
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
@@ -188,8 +184,22 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             }
         })
         .expect("Timed out waiting for reward set calculation");
-
         info!("Signer set calculated");
+    }
+
+    /// Run the test until the epoch 3 boundary
+    pub fn boot_to_epoch_3(&self) {
+        TEST_MINE_SKIP.set(true);
+        boot_to_epoch_3_reward_set(
+            &self.running_nodes.conf,
+            &self.running_nodes.counters.blocks_processed,
+            &self.signer_stacks_private_keys,
+            &self.signer_stacks_private_keys,
+            &self.running_nodes.btc_regtest_controller,
+            Some(self.num_stacking_cycles),
+        );
+
+        self.wait_for_next_reward_set_calculation();
 
         // Manually consume one more block to ensure signers refresh their state
         info!("Waiting for signers to initialize.");
@@ -219,36 +229,44 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         info!("Ready to mine Nakamoto blocks!");
     }
 
-    /// Boot to Epoch 4.0 with an sBTC stub contract published
+    /// Boot to Epoch 4.0 with sBTC stub contracts published.
     ///
     /// This is the recommended bootstrap for Epoch 4.0 / PoX-5 integration tests.
     ///
     ///  1. Calls `boot_to_epoch_3` (chain lands at Epoch 3.0).
-    ///  2. Publishes a contract `<sender_addr>.<contract_name>` exposing
-    ///     `(get-current-aggregate-pubkey)` plus an sBTC-token stub
-    ///     (see [`agg_pubkey_sbtc_stub_source`]) so pox-5's read-only checker
-    ///     accepts the substituted sBTC contract on Epoch 4.0 initialization.
-    ///  3. Mines one Nakamoto tenure to include the publish, then waits for the
-    ///     `/v2/contracts/source` RPC to confirm the contract is on-chain.
+    ///  2. Publishes two contracts under `<sender_addr>`:
+    ///     - `<token_contract_name>`: the sBTC token stub (see
+    ///       [`sbtc_token_stub_source`]) so pox-5's read-only checker accepts
+    ///       the substituted token contract on Epoch 4.0 initialization.
+    ///     - `<registry_contract_name>`: the sBTC registry stub (see
+    ///       [`sbtc_registry_stub_source`]) exposing
+    ///       `get-current-aggregate-pubkey` for signer-set computation.
+    ///  3. Mines one Nakamoto tenure to include the publishes, then waits for
+    ///     the `/v2/contracts/source` RPC to confirm both are on-chain.
     ///  4. Mines additional tenures until burn height reaches the configured
-    ///     Epoch 4.0 start, then mines one more so the chain is producing blocks
-    ///     under Epoch 4.0.
+    ///     Epoch 4.0 start, then mines one more so the chain is producing
+    ///     blocks under Epoch 4.0.
     ///
-    /// The test must have already written `Some(<sender_addr>.<contract_name>)`
-    /// into `naka_conf.node.pox_5_sbtc_contract`
+    /// The test must have already written the matching ids into
+    /// `naka_conf.node.pox_5_sbtc_contract` and
+    /// `naka_conf.node.pox_5_sbtc_registry_contract`.
+    ///
+    /// Two publishes are made from `sender_sk`, consuming nonces
+    /// `sender_nonce` and `sender_nonce + 1`.
     ///
     /// # Panics
     /// - If the test's epoch list does not configure an Epoch 4.0 start
     ///   (i.e., the start height is `STACKS_EPOCH_MAX` or the entry is missing).
-    /// - If the contract does not appear on-chain after one tenure (e.g.
+    /// - If either contract does not appear on-chain after one tenure (e.g.
     ///   insufficient publish fee, mempool race, or wrong nonce).
-    /// - If the contract was confirmed at or after the Epoch 4.0 start height,
-    ///   meaning the first PoX-5 prepare phase already ran without it.
+    /// - If either contract was confirmed at or after the Epoch 4.0 start
+    ///   height, meaning the first PoX-5 prepare phase already ran without it.
     pub fn boot_to_epoch_4(
         &self,
         sender_sk: &StacksPrivateKey,
         sender_nonce: u64,
-        contract_name: &str,
+        token_contract_name: &str,
+        registry_contract_name: &str,
         pubkey: &[u8; 33],
     ) {
         let conf = &self.running_nodes.conf;
@@ -267,14 +285,21 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let conf = &self.running_nodes.conf;
         let http_origin = format!("http://{}", conf.node.rpc_bind);
         let sender_addr = tests::to_addr(sender_sk);
-        let pox_5_sbtc_contract = QualifiedContractIdentifier::new(
+        let expected_token_id = QualifiedContractIdentifier::new(
             sender_addr.clone().into(),
-            contract_name.try_into().unwrap(),
+            token_contract_name.try_into().unwrap(),
+        );
+        let expected_registry_id = QualifiedContractIdentifier::new(
+            sender_addr.clone().into(),
+            registry_contract_name.try_into().unwrap(),
         );
 
-        if conf.node.pox_5_sbtc_contract.as_ref() != Some(&pox_5_sbtc_contract) {
+        if conf.node.pox_5_sbtc_contract.as_ref() != Some(&expected_token_id) {
+            panic!("Config must set pox_5_sbtc_contract correctly. Expected: {expected_token_id}");
+        }
+        if conf.node.pox_5_sbtc_registry_contract.as_ref() != Some(&expected_registry_id) {
             panic!(
-                "Config must set pox_5_sbtc_contract correctly. Expected: {pox_5_sbtc_contract}"
+                "Config must set pox_5_sbtc_registry_contract correctly. Expected: {expected_registry_id}"
             );
         }
 
@@ -291,35 +316,44 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                  (or sets it to STACKS_EPOCH_MAX)",
             );
 
-        // 1. Submit the publish.
-        let source = agg_pubkey_sbtc_stub_source(pubkey);
-        let tx_bytes = make_contract_publish(
+        // 1. Submit both publishes.
+        let token_source = sbtc_token_stub_source();
+        let token_tx = make_contract_publish(
             sender_sk,
             sender_nonce,
             1_000,
             conf.burnchain.chain_id,
-            contract_name,
-            &source,
+            token_contract_name,
+            token_source,
         );
-        submit_tx(&http_origin, &tx_bytes);
+        submit_tx(&http_origin, &token_tx);
+        let registry_source = sbtc_registry_stub_source(pubkey);
+        let registry_tx = make_contract_publish(
+            sender_sk,
+            sender_nonce + 1,
+            1_000,
+            conf.burnchain.chain_id,
+            registry_contract_name,
+            &registry_source,
+        );
+        submit_tx(&http_origin, &registry_tx);
 
-        // 2. Mine one tenure to include it.
+        // 2. Mine one tenure to include them.
         self.mine_nakamoto_block(Duration::from_secs(60), true);
 
-        // 3. Wait for /v2/contracts/source to reflect it.
+        // 3. Wait for /v2/contracts/source to reflect both.
         wait_for(60, || {
-            Ok(contract_source_exists(
-                &http_origin,
-                &sender_addr,
-                contract_name,
-            ))
+            Ok(
+                contract_source_exists(&http_origin, &sender_addr, token_contract_name)
+                    && contract_source_exists(&http_origin, &sender_addr, registry_contract_name),
+            )
         })
         .unwrap_or_else(|_| {
             let info = get_chain_info(conf);
             panic!(
-                "aggregate-pubkey contract '{contract_name}' not on-chain after one tenure \
-                 (burn_height={}, stacks_tip_height={}). Likely the publish tx didn't make \
-                 it into the mined block — check fee/nonce.",
+                "sBTC stub contracts '{token_contract_name}' and '{registry_contract_name}' \
+                 not on-chain after one tenure (burn_height={}, stacks_tip_height={}). \
+                 Likely a publish tx didn't make it into the mined block; check fee/nonce.",
                 info.burn_block_height, info.stacks_tip_height,
             )
         });
@@ -328,22 +362,17 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let burn_height = get_chain_info(conf).burn_block_height;
         assert!(
             burn_height < epoch_40_start,
-            "aggregate-pubkey contract confirmed at burn_height={burn_height}, but Epoch 4.0 \
-             starts at {epoch_40_start} — first PoX-5 prepare phase already consumed; signers \
-             will diverge from the miner. Push back Epoch 4.0 start.",
+            "sBTC stub contracts confirmed at burn_height={burn_height}, but Epoch 4.0 starts \
+             at {epoch_40_start}; first PoX-5 prepare phase already consumed and signers will \
+             diverge from the miner. Push back Epoch 4.0 start.",
         );
 
-        // 5. Build the qualified contract id (used only for the log line).
-        let contract_id = QualifiedContractIdentifier::new(
-            sender_addr.into(),
-            ContractName::try_from(contract_name.to_string()).expect("invalid contract name"),
-        );
         info!(
-            "Published aggregate-pubkey contract {contract_id} at burn_height={burn_height}; \
-             advancing to Epoch 4.0 start at {epoch_40_start}"
+            "Published sBTC stubs {expected_token_id} and {expected_registry_id} at \
+             burn_height={burn_height}; advancing to Epoch 4.0 start at {epoch_40_start}"
         );
 
-        // 6. Mine forward until we cross Epoch 4.0.
+        // 5. Mine forward until we cross Epoch 4.0.
         while get_chain_info(conf).burn_block_height < epoch_40_start {
             self.mine_nakamoto_block(Duration::from_secs(60), true);
         }
@@ -357,51 +386,55 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     /// Like [`SignerTest::boot_to_epoch_4`], but additionally drives the
     /// chain through PoX-5's `grant-signer-key` / `register-signer` /
-    /// `stake` entrypoints so that the test signer set enrolls in PoX-5
+    /// `stake` entrypoints so that the test signer set enrolls in PoX-5.
     ///
     /// For each signer `i` in `self.signer_stacks_private_keys`:
     ///
-    /// 1. `stakers[i]` publishes a per-signer signer-manager contract
-    ///    named `pox5-signer-{i}` (a minimal `impl-trait` of pox-5's
+    /// 1. The signer publishes a per-signer signer-manager contract named
+    ///    `pox5-signer-{i}` (a minimal `impl-trait` of pox-5's
     ///    `signer-manager-trait` whose `register-self` forwards a signer
     ///    grant + `register-signer` call to pox-5).
-    /// 2. `stakers[i]` calls `register-self` with a signer-key-grant
-    ///    signature produced by `signer_stacks_private_keys[i]`.
-    /// 3. `stakers[i]` calls `pox-5::stake`, locking `stake_amount` uSTX
+    /// 2. The signer calls `register-self` with a signer-key-grant
+    ///    signature produced by its own private key.
+    /// 3. The signer calls `pox-5::stake`, locking `stake_amount` uSTX
     ///    for `lock_cycles` cycles against the per-signer contract.
     ///
-    /// `stakers` must be one private key per signer. The caller is
-    /// responsible for funding each staker via initial balances with at
-    /// least `stake_amount + (fees * 3)` unlocked uSTX (the signer keys
-    /// themselves cannot be reused as stakers because they remain locked
-    /// in PoX-4 after `boot_to_epoch_3`).
+    /// The signer Stacks keys are reused as stakers: PoX-4 locks created
+    /// during `boot_to_epoch_3` are auto-released at the Epoch 4.0 boundary
+    /// via the `v4_unlock_height` early-unlock path (which is wired to
+    /// `pox_5_activation_height`). `boot_to_epoch_4` mines past that
+    /// height before this helper submits any pox-5 stake, so each signer's
+    /// account reports zero locked balance and has its full
+    /// `POX_DEFAULT_STACKER_BALANCE` available to lock under pox-5.
     ///
     /// # Panics
-    /// - If `stakers.len() != self.signer_stacks_private_keys.len()`.
     /// - If a publish/register/stake transaction fails to confirm.
     /// - If the resulting on-chain `locked` balance does not match
-    ///   `stake_amount` for any staker.
+    ///   `stake_amount` for any signer.
     pub fn boot_to_epoch_4_with_pox5_lockups(
         &self,
         sender_sk: &StacksPrivateKey,
         sender_nonce: u64,
-        contract_name: &str,
+        token_contract_name: &str,
+        registry_contract_name: &str,
         pubkey: &[u8; 33],
-        stakers: &[StacksPrivateKey],
         stake_amount: u128,
         lock_cycles: u128,
     ) {
         let num_signers = self.signer_stacks_private_keys.len();
-        assert_eq!(
-            stakers.len(),
-            num_signers,
-            "stakers must have one private key per signer"
-        );
 
         // Reach Epoch 4.0 first. After this returns, pox-5 has been
         // instantiated and `set-burnchain-parameters` has been called, so
-        // it accepts grant/register/stake.
-        self.boot_to_epoch_4(sender_sk, sender_nonce, contract_name, pubkey);
+        // it accepts grant/register/stake. The chain is also past
+        // `pox_5_activation_height`, so each signer's pox-4 lock is
+        // reported as released.
+        self.boot_to_epoch_4(
+            sender_sk,
+            sender_nonce,
+            token_contract_name,
+            registry_contract_name,
+            pubkey,
+        );
 
         let conf = &self.running_nodes.conf;
         let chain_id = conf.burnchain.chain_id;
@@ -412,15 +445,28 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let pox_5_addr: StacksAddress = boot_code_id("pox-5", false).issuer.into();
         let contract_source = pox5_signer_manager_source();
 
+        // Capture each signer's current nonce: boot_to_epoch_3 already used
+        // nonce 0 for their pox-4 stack-stx, so the publish/register/stake
+        // sequence below starts from whatever the live nonce is.
+        let signer_addrs: Vec<StacksAddress> = self
+            .signer_stacks_private_keys
+            .iter()
+            .map(tests::to_addr)
+            .collect();
+        let initial_nonces: Vec<u64> = signer_addrs
+            .iter()
+            .map(|addr| get_account(&http_origin, addr).nonce)
+            .collect();
+
         // Step 1: publish all per-signer signer-manager contracts.
         let mut contract_principals: Vec<(StacksAddress, String, PrincipalData)> =
             Vec::with_capacity(num_signers);
-        for (i, staker_sk) in stakers.iter().enumerate() {
-            let staker_addr = tests::to_addr(staker_sk);
+        for (i, signer_sk) in self.signer_stacks_private_keys.iter().enumerate() {
+            let signer_addr = signer_addrs[i].clone();
             let per_signer_name = format!("pox5-signer-{i}");
             let tx = make_contract_publish(
-                staker_sk,
-                0,
+                signer_sk,
+                initial_nonces[i],
                 publish_fee,
                 chain_id,
                 &per_signer_name,
@@ -428,27 +474,36 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             );
             submit_tx(&http_origin, &tx);
             let principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
-                staker_addr.clone().into(),
+                signer_addr.clone().into(),
                 ContractName::try_from(per_signer_name.clone())
                     .expect("invalid per-signer contract name"),
             ));
-            contract_principals.push((staker_addr, per_signer_name, principal));
+            contract_principals.push((signer_addr, per_signer_name, principal));
         }
         self.mine_nakamoto_block(Duration::from_secs(60), true);
         wait_for(120, || {
-            Ok(stakers
+            Ok(signer_addrs
                 .iter()
-                .all(|sk| get_account(&http_origin, &tests::to_addr(sk)).nonce >= 1))
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| get_account(&http_origin, addr).nonce >= initial + 1))
         })
         .expect("Timed out waiting for per-signer contract publishes to confirm");
+        // Nonces advancing only proves the publish txs were mined; a static-
+        // check failure (e.g. trait drift) still consumes the nonce without
+        // instantiating the contract, which would surface as a misleading
+        // NoSuchContract panic on register-self below. Assert here instead.
+        for (signer_addr, per_signer_name, _) in &contract_principals {
+            assert!(
+                contract_source_exists(&http_origin, signer_addr, per_signer_name),
+                "per-signer contract {signer_addr}.{per_signer_name} did not instantiate; \
+                 check for trait drift between pox5_signer_manager_source() and pox-5.clar's signer-manager-trait",
+            );
+        }
 
-        // Step 2: call register-self on each per-signer contract.
-        for (i, (staker_sk, signer_sk)) in stakers
-            .iter()
-            .zip(self.signer_stacks_private_keys.iter())
-            .enumerate()
-        {
-            let (staker_addr, per_signer_name, principal) = &contract_principals[i];
+        // Step 2: call register-self on each per-signer contract. Each
+        // signer signs its own grant.
+        for (i, signer_sk) in self.signer_stacks_private_keys.iter().enumerate() {
+            let (signer_addr, per_signer_name, principal) = &contract_principals[i];
             let auth_id: u128 = u128::try_from(i).unwrap();
             let signer_pk = StacksPublicKey::from_private(signer_sk);
             let sig =
@@ -458,11 +513,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 .expect("failed to construct pox-5 signer-grant signature");
 
             let tx = make_contract_call(
-                staker_sk,
-                1,
+                signer_sk,
+                initial_nonces[i] + 1,
                 call_fee,
                 chain_id,
-                staker_addr,
+                signer_addr,
                 per_signer_name,
                 "register-self",
                 &[
@@ -476,19 +531,20 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         }
         self.mine_nakamoto_block(Duration::from_secs(60), true);
         wait_for(120, || {
-            Ok(stakers
+            Ok(signer_addrs
                 .iter()
-                .all(|sk| get_account(&http_origin, &tests::to_addr(sk)).nonce >= 2))
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| get_account(&http_origin, addr).nonce >= initial + 2))
         })
         .expect("Timed out waiting for register-self confirmations");
 
-        // Step 3: each staker locks `stake_amount` for `lock_cycles` cycles.
+        // Step 3: each signer locks `stake_amount` for `lock_cycles` cycles.
         let start_burn_ht = u128::from(get_chain_info(conf).burn_block_height);
-        for (i, staker_sk) in stakers.iter().enumerate() {
+        for (i, signer_sk) in self.signer_stacks_private_keys.iter().enumerate() {
             let (_, _, principal) = &contract_principals[i];
             let tx = make_contract_call(
-                staker_sk,
-                2,
+                signer_sk,
+                initial_nonces[i] + 2,
                 call_fee,
                 chain_id,
                 &pox_5_addr,
@@ -506,10 +562,13 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         }
         self.mine_nakamoto_block(Duration::from_secs(60), true);
         wait_for(120, || {
-            Ok(stakers.iter().all(|sk| {
-                let acct = get_account(&http_origin, &tests::to_addr(sk));
-                acct.nonce >= 3 && acct.locked == stake_amount
-            }))
+            Ok(signer_addrs
+                .iter()
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| {
+                    let acct = get_account(&http_origin, addr);
+                    acct.nonce >= initial + 3 && acct.locked == stake_amount
+                }))
         })
         .expect("Timed out waiting for pox-5 stake to lock");
 
@@ -529,35 +588,12 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
         .unwrap_or(false)
 }
 
-/// Generate `num_signers` deterministic PoX-5 staker private keys for use
-/// with [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]. The seed format
-/// is `pox5_staker_{i}_{seed_tag}`, so derived addresses are stable across
-/// runs of the same test.
-pub fn pox5_staker_keys(num_signers: usize, seed_tag: &str) -> Vec<StacksPrivateKey> {
-    (0..num_signers)
-        .map(|i| StacksPrivateKey::from_seed(format!("pox5_staker_{i}_{seed_tag}").as_bytes()))
-        .collect()
-}
-
-/// Build the `(address, balance)` entries for the staker keys returned by
-/// [`pox5_staker_keys`], ready to be passed via
-/// `SignerTest::new_with_config_modifications`'s `initial_balances`.
-pub fn pox5_staker_initial_balances(
-    num_signers: usize,
-    seed_tag: &str,
-    per_staker_balance: u64,
-) -> Vec<(StacksAddress, u64)> {
-    pox5_staker_keys(num_signers, seed_tag)
-        .iter()
-        .map(|sk| (tests::to_addr(sk), per_staker_balance))
-        .collect()
-}
-
 /// Source for the per-signer signer-manager contract published by
-/// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]. `validate-stake!` is
-/// a no-op (always ok) and `register-self` forwards a signer-key grant +
-/// `register-signer` call to pox-5 under `as-contract?`.
-fn pox5_signer_manager_source() -> &'static str {
+/// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`] and by the pox-5
+/// regtest lifecycle tests in `nakamoto_integrations`. `validate-stake!` and
+/// `checkpoint-staker` are no-ops (always ok); `register-self` forwards a
+/// signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
+pub(crate) fn pox5_signer_manager_source() -> &'static str {
     r#"
 (impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
@@ -601,16 +637,12 @@ fn pox5_signer_manager_source() -> &'static str {
 "#
 }
 
-/// Source for the combined aggregate-pubkey + sBTC-token stub that
-/// `boot_to_epoch_4` publishes. Also used by Epoch-4.0 tests in
-/// `crate::tests::nakamoto_integrations` that deploy their own stub before
-/// crossing the boundary.
-pub(crate) fn agg_pubkey_sbtc_stub_source(pubkey: &[u8; 33]) -> String {
-    format!(
-        r#"
+/// Source for the sBTC token stub that `boot_to_epoch_4` publishes. Provides
+/// `get-balance` so pox-5's read-only checker accepts the substituted token
+/// contract on Epoch 4.0 initialization.
+pub(crate) fn sbtc_token_stub_source() -> &'static str {
+    r#"
 (define-fungible-token sbtc-token)
-
-(define-read-only (get-current-aggregate-pubkey) 0x{})
 
 (define-public (transfer
         (amount uint)
@@ -626,6 +658,17 @@ pub(crate) fn agg_pubkey_sbtc_stub_source(pubkey: &[u8; 33]) -> String {
 
 (define-public (mint (amount uint) (recipient principal))
     (ft-mint? sbtc-token amount recipient))
+"#
+}
+
+/// Source for the sBTC registry stub that `boot_to_epoch_4` publishes.
+/// Exposes `get-current-aggregate-pubkey`, returning the supplied compressed
+/// secp256k1 pubkey. Signer-set computation reads this to derive the
+/// per-cycle sBTC waterfall recipient.
+pub(crate) fn sbtc_registry_stub_source(pubkey: &[u8; 33]) -> String {
+    format!(
+        r#"
+(define-read-only (get-current-aggregate-pubkey) 0x{})
 "#,
         stacks_common::util::hash::to_hex(pubkey),
     )
@@ -734,31 +777,7 @@ impl SignerTest<SpawnedSigner> {
             target_height,
             &self.running_nodes.conf,
         );
-        debug!("Waiting for signer set calculation.");
-        // Make sure the signer set is calculated before continuing or signers may not
-        // recognize that they are registered signers in the subsequent burn block event
-        let reward_cycle = self.get_current_reward_cycle().wrapping_add(1);
-        wait_for(60, || {
-            match self.stacks_client.get_reward_set_signers(reward_cycle) {
-                Ok(Some(reward_set)) => {
-                    debug!("Signer set: {reward_set:?}");
-                    Ok(true)
-                }
-                Ok(None) => Ok(false),
-                Err(e) => {
-                    // The node may return a 400 PoXAnchorBlockRequired while
-                    // the coordinator is still processing the prepare phase.
-                    // All prepare phase burn blocks have been mined; just wait
-                    // for the coordinator to catch up.
-                    debug!(
-                        "Reward set not yet available: {e}. Waiting for coordinator to catch up."
-                    );
-                    Ok(false)
-                }
-            }
-        })
-        .expect("Failed to calculate reward set");
-        debug!("Signer set calculated");
+        self.wait_for_next_reward_set_calculation();
         // Manually consume one more block to ensure signers refresh their state
         debug!("Waiting for signers to initialize.");
         info!("Advancing to the first full Epoch 2.5 reward cycle boundary...");
@@ -1206,34 +1225,42 @@ impl MultipleMinerTest {
         info!("------------------------- Reached Epoch 3.0 -------------------------");
     }
 
-    /// Boot both miner to Epoch 4.0 with an sBTC stub contract published
+    /// Boot both miners to Epoch 4.0 with sBTC stub contracts published.
     ///
     ///  1. Calls `boot_to_epoch_3` (chain lands at Epoch 3.0).
-    ///  2. Publishes a contract `<sender_addr>.<contract_name>` exposing
-    ///     `(get-current-aggregate-pubkey)` plus an sBTC-token stub
-    ///     (see [`agg_pubkey_sbtc_stub_source`]) so pox-5's read-only checker
-    ///     accepts the substituted sBTC contract on Epoch 4.0 initialization.
-    ///  3. Mines one Nakamoto tenure to include the publish, then waits for both
-    ///     nodes to reflect
+    ///  2. Publishes two contracts under `<sender_addr>`:
+    ///     - `<token_contract_name>`: the sBTC token stub (see
+    ///       [`sbtc_token_stub_source`]) so pox-5's read-only checker accepts
+    ///       the substituted token contract on Epoch 4.0 initialization.
+    ///     - `<registry_contract_name>`: the sBTC registry stub (see
+    ///       [`sbtc_registry_stub_source`]) exposing
+    ///       `get-current-aggregate-pubkey` for signer-set computation.
+    ///  3. Mines one Nakamoto tenure to include the publishes, then waits for
+    ///     both nodes to reflect them.
     ///  4. Mines additional tenures until burn height reaches the configured
-    ///     Epoch 4.0 start, then mines one more so the chain is producing blocks
-    ///     under Epoch 4.0.
+    ///     Epoch 4.0 start, then mines one more so the chain is producing
+    ///     blocks under Epoch 4.0.
     ///
-    /// The test must have already written `Some(<sender_addr>.<contract_name>)`
-    /// into `naka_conf.node.pox_5_sbtc_contract`
+    /// The test must have already written the matching ids into
+    /// `pox_5_sbtc_contract` and `pox_5_sbtc_registry_contract` on both
+    /// nodes.
+    ///
+    /// Two publishes are made from `sender_sk`, consuming nonces
+    /// `sender_nonce` and `sender_nonce + 1`.
     ///
     /// # Panics
     /// - If the test's epoch list does not configure an Epoch 4.0 start
     ///   (i.e., the start height is `STACKS_EPOCH_MAX` or the entry is missing).
-    /// - If the contract does not appear on-chain after one tenure (e.g.
+    /// - If either contract does not appear on-chain after one tenure (e.g.
     ///   insufficient publish fee, mempool race, or wrong nonce).
-    /// - If the contract was confirmed at or after the Epoch 4.0 start height,
-    ///   meaning the first PoX-5 prepare phase already ran without it.
+    /// - If either contract was confirmed at or after the Epoch 4.0 start
+    ///   height, meaning the first PoX-5 prepare phase already ran without it.
     pub fn boot_to_epoch_4(
         &mut self,
         sender_sk: &StacksPrivateKey,
         sender_nonce: u64,
-        contract_name: &str,
+        token_contract_name: &str,
+        registry_contract_name: &str,
         pubkey: &[u8; 33],
     ) {
         self.boot_to_epoch_3();
@@ -1255,56 +1282,77 @@ impl MultipleMinerTest {
         let http_origin_1 = format!("http://{}", conf_1.node.rpc_bind);
         let http_origin_2 = format!("http://{}", conf_2.node.rpc_bind);
         let sender_addr = tests::to_addr(sender_sk);
-        let pox_5_sbtc_contract = QualifiedContractIdentifier::new(
+        let expected_token_id = QualifiedContractIdentifier::new(
             sender_addr.clone().into(),
-            contract_name.try_into().unwrap(),
+            token_contract_name.try_into().unwrap(),
         );
-        if conf_1.node.pox_5_sbtc_contract.as_ref() != Some(&pox_5_sbtc_contract) {
-            panic!(
-                "Config must set pox_5_sbtc_contract correctly. Expected: {pox_5_sbtc_contract}"
-            );
-        }
-        if conf_2.node.pox_5_sbtc_contract.as_ref() != Some(&pox_5_sbtc_contract) {
-            panic!(
-                "Config must set pox_5_sbtc_contract correctly. Expected: {pox_5_sbtc_contract}"
-            );
+        let expected_registry_id = QualifiedContractIdentifier::new(
+            sender_addr.clone().into(),
+            registry_contract_name.try_into().unwrap(),
+        );
+        for (conf, label) in [(&conf_1, "node 1"), (&conf_2, "node 2")] {
+            if conf.node.pox_5_sbtc_contract.as_ref() != Some(&expected_token_id) {
+                panic!(
+                    "Config must set pox_5_sbtc_contract correctly on {label}. \
+                     Expected: {expected_token_id}"
+                );
+            }
+            if conf.node.pox_5_sbtc_registry_contract.as_ref() != Some(&expected_registry_id) {
+                panic!(
+                    "Config must set pox_5_sbtc_registry_contract correctly on {label}. \
+                     Expected: {expected_registry_id}"
+                );
+            }
         }
 
-        // 1. Submit publish to node 1.
-        let source = agg_pubkey_sbtc_stub_source(pubkey);
-        let tx_bytes = make_contract_publish(
+        // 1. Submit both publishes to node 1.
+        let token_source = sbtc_token_stub_source();
+        let token_tx = make_contract_publish(
             sender_sk,
             sender_nonce,
             1_000,
             conf_1.burnchain.chain_id,
-            contract_name,
-            &source,
+            token_contract_name,
+            token_source,
         );
-        submit_tx(&http_origin_1, &tx_bytes);
+        submit_tx(&http_origin_1, &token_tx);
+        let registry_source = sbtc_registry_stub_source(pubkey);
+        let registry_tx = make_contract_publish(
+            sender_sk,
+            sender_nonce + 1,
+            1_000,
+            conf_1.burnchain.chain_id,
+            registry_contract_name,
+            &registry_source,
+        );
+        submit_tx(&http_origin_1, &registry_tx);
 
-        // 2. Mine one bitcoin block to include it.
+        // 2. Mine one bitcoin block to include them.
         let sortdb = conf_1
             .get_burnchain()
             .open_sortition_db(true)
             .expect("open sortition db");
         self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
-            .expect("mine one bitcoin block to include contract publish");
+            .expect("mine one bitcoin block to include contract publishes");
 
         // 3. Wait for /v2/contracts/source on BOTH nodes. Only proceed once
-        //    both have indexed the publish — otherwise miner 2 might enter
+        //    both have indexed the publishes; otherwise miner 2 might enter
         //    Epoch 4.0 with no contract id resolvable in chainstate.
         wait_for(60, || {
             Ok(
-                contract_source_exists(&http_origin_1, &sender_addr, contract_name)
-                    && contract_source_exists(&http_origin_2, &sender_addr, contract_name),
+                contract_source_exists(&http_origin_1, &sender_addr, token_contract_name)
+                    && contract_source_exists(&http_origin_1, &sender_addr, registry_contract_name)
+                    && contract_source_exists(&http_origin_2, &sender_addr, token_contract_name)
+                    && contract_source_exists(&http_origin_2, &sender_addr, registry_contract_name),
             )
         })
         .unwrap_or_else(|_| {
             let info = self.get_peer_info();
             panic!(
-                "aggregate-pubkey contract '{contract_name}' not on-chain on both nodes \
-                 after one tenure (burn_height={}, stacks_tip_height={}). Likely the publish \
-                 tx didn't make it into the mined block — check fee/nonce/p2p sync.",
+                "sBTC stub contracts '{token_contract_name}' and '{registry_contract_name}' \
+                 not on-chain on both nodes after one tenure (burn_height={}, \
+                 stacks_tip_height={}). Likely a publish tx didn't make it into the mined \
+                 block; check fee/nonce/p2p sync.",
                 info.burn_block_height, info.stacks_tip_height,
             )
         });
@@ -1313,12 +1361,12 @@ impl MultipleMinerTest {
         let burn_height = self.get_peer_info().burn_block_height;
         assert!(
             burn_height < epoch_40_start,
-            "aggregate-pubkey contract confirmed at burn_height={burn_height}, but Epoch 4.0 \
-             starts at {epoch_40_start} — first PoX-5 prepare phase already consumed; signers \
-             will diverge from miners. Push back Epoch 4.0 start.",
+            "sBTC stub contracts confirmed at burn_height={burn_height}, but Epoch 4.0 starts \
+             at {epoch_40_start}; first PoX-5 prepare phase already consumed and signers will \
+             diverge from miners. Push back Epoch 4.0 start.",
         );
         info!(
-            "Multi-miner: aggregate-pubkey contract on both nodes at burn_height={burn_height}; \
+            "Multi-miner: sBTC stubs on both nodes at burn_height={burn_height}; \
              advancing to Epoch 4.0 start at {epoch_40_start}"
         );
 
@@ -1357,29 +1405,29 @@ impl MultipleMinerTest {
     /// block (after waiting for both miners to commit) and waits for both
     /// nodes' `/v2/accounts` views to reflect it.
     ///
-    /// `stakers` must be funded via `add_initial_balance` (see
-    /// [`pox5_staker_initial_balances`]) with at least
-    /// `stake_amount + 3 * fees` of unlocked uSTX. The signer Stacks keys
-    /// themselves remain locked in PoX-4 after `boot_to_epoch_3` and cannot
-    /// double as stakers.
+    /// The signer Stacks keys are reused as stakers. PoX-4 locks created
+    /// during `boot_to_epoch_3` are auto-released at the Epoch 4.0 boundary
+    /// via the `v4_unlock_height` early-unlock path. See
+    /// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`] for details.
     pub fn boot_to_epoch_4_with_pox5_lockups(
         &mut self,
         sender_sk: &StacksPrivateKey,
         sender_nonce: u64,
-        contract_name: &str,
+        token_contract_name: &str,
+        registry_contract_name: &str,
         pubkey: &[u8; 33],
-        stakers: &[StacksPrivateKey],
         stake_amount: u128,
         lock_cycles: u128,
     ) {
         let num_signers = self.signer_stacks_private_keys().len();
-        assert_eq!(
-            stakers.len(),
-            num_signers,
-            "stakers must have one private key per signer"
-        );
 
-        self.boot_to_epoch_4(sender_sk, sender_nonce, contract_name, pubkey);
+        self.boot_to_epoch_4(
+            sender_sk,
+            sender_nonce,
+            token_contract_name,
+            registry_contract_name,
+            pubkey,
+        );
 
         let (conf_1, conf_2) = self.get_node_configs();
         let chain_id = conf_1.burnchain.chain_id;
@@ -1395,15 +1443,25 @@ impl MultipleMinerTest {
         let pox_5_addr: StacksAddress = boot_code_id("pox-5", false).issuer.into();
         let contract_source = pox5_signer_manager_source();
 
+        let signer_keys = self.signer_stacks_private_keys().to_vec();
+        let signer_addrs: Vec<StacksAddress> = signer_keys.iter().map(tests::to_addr).collect();
+        // Capture each signer's current nonce: boot_to_epoch_3 already used
+        // nonce 0 for their pox-4 stack-stx, so the sequence below starts
+        // from whatever the live nonce is.
+        let initial_nonces: Vec<u64> = signer_addrs
+            .iter()
+            .map(|addr| get_account(&http_origin_1, addr).nonce)
+            .collect();
+
         // Step 1: publish per-signer signer-manager contracts.
         let mut contract_principals: Vec<(StacksAddress, String, PrincipalData)> =
             Vec::with_capacity(num_signers);
-        for (i, staker_sk) in stakers.iter().enumerate() {
-            let staker_addr = tests::to_addr(staker_sk);
+        for (i, signer_sk) in signer_keys.iter().enumerate() {
+            let signer_addr = signer_addrs[i].clone();
             let per_signer_name = format!("pox5-signer-{i}");
             let tx = make_contract_publish(
-                staker_sk,
-                0,
+                signer_sk,
+                initial_nonces[i],
                 publish_fee,
                 chain_id,
                 &per_signer_name,
@@ -1411,11 +1469,11 @@ impl MultipleMinerTest {
             );
             submit_tx(&http_origin_1, &tx);
             let principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
-                staker_addr.clone().into(),
+                signer_addr.clone().into(),
                 ContractName::try_from(per_signer_name.clone())
                     .expect("invalid per-signer contract name"),
             ));
-            contract_principals.push((staker_addr, per_signer_name, principal));
+            contract_principals.push((signer_addr, per_signer_name, principal));
         }
         self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
             .expect("settle before per-signer publish");
@@ -1434,18 +1492,33 @@ impl MultipleMinerTest {
         )
         .expect("signers did not promote per-signer-publish tenure");
         wait_for(300, || {
-            Ok(stakers.iter().all(|sk| {
-                let addr = tests::to_addr(sk);
-                get_account(&http_origin_1, &addr).nonce >= 1
-                    && get_account(&http_origin_2, &addr).nonce >= 1
-            }))
+            Ok(signer_addrs
+                .iter()
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| {
+                    get_account(&http_origin_1, addr).nonce >= initial + 1
+                        && get_account(&http_origin_2, addr).nonce >= initial + 1
+                }))
         })
         .expect("Timed out waiting for per-signer publishes on both nodes");
+        // Nonces advancing only proves the publish txs were mined; a static-
+        // check failure (e.g. trait drift) still consumes the nonce without
+        // instantiating the contract, which would surface as a misleading
+        // NoSuchContract panic on register-self below. Check both nodes.
+        for (signer_addr, per_signer_name, _) in &contract_principals {
+            for origin in [&http_origin_1, &http_origin_2] {
+                assert!(
+                    contract_source_exists(origin, signer_addr, per_signer_name),
+                    "per-signer contract {signer_addr}.{per_signer_name} did not instantiate on {origin}; \
+                     check for trait drift between pox5_signer_manager_source() and pox-5.clar's signer-manager-trait",
+                );
+            }
+        }
 
-        // Step 2: register-self on each per-signer contract.
-        let signer_keys = self.signer_stacks_private_keys().to_vec();
-        for (i, (staker_sk, signer_sk)) in stakers.iter().zip(signer_keys.iter()).enumerate() {
-            let (staker_addr, per_signer_name, principal) = &contract_principals[i];
+        // Step 2: register-self on each per-signer contract. Each signer
+        // signs its own grant.
+        for (i, signer_sk) in signer_keys.iter().enumerate() {
+            let (signer_addr, per_signer_name, principal) = &contract_principals[i];
             let auth_id: u128 = u128::try_from(i).unwrap();
             let signer_pk = StacksPublicKey::from_private(signer_sk);
             let sig =
@@ -1455,11 +1528,11 @@ impl MultipleMinerTest {
                 .expect("failed to construct pox-5 signer-grant signature");
 
             let tx = make_contract_call(
-                staker_sk,
-                1,
+                signer_sk,
+                initial_nonces[i] + 1,
                 call_fee,
                 chain_id,
-                staker_addr,
+                signer_addr,
                 per_signer_name,
                 "register-self",
                 &[
@@ -1483,11 +1556,13 @@ impl MultipleMinerTest {
         )
         .expect("signers did not promote register-self tenure");
         wait_for(300, || {
-            Ok(stakers.iter().all(|sk| {
-                let addr = tests::to_addr(sk);
-                get_account(&http_origin_1, &addr).nonce >= 2
-                    && get_account(&http_origin_2, &addr).nonce >= 2
-            }))
+            Ok(signer_addrs
+                .iter()
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| {
+                    get_account(&http_origin_1, addr).nonce >= initial + 2
+                        && get_account(&http_origin_2, addr).nonce >= initial + 2
+                }))
         })
         .expect("Timed out waiting for register-self on both nodes");
 
@@ -1496,11 +1571,11 @@ impl MultipleMinerTest {
         // cycle, so the one bitcoin block we mine below must not cross a
         // cycle boundary.
         let start_burn_ht = u128::from(self.get_peer_info().burn_block_height);
-        for (i, staker_sk) in stakers.iter().enumerate() {
+        for (i, signer_sk) in signer_keys.iter().enumerate() {
             let (_, _, principal) = &contract_principals[i];
             let tx = make_contract_call(
-                staker_sk,
-                2,
+                signer_sk,
+                initial_nonces[i] + 2,
                 call_fee,
                 chain_id,
                 &pox_5_addr,
@@ -1528,15 +1603,17 @@ impl MultipleMinerTest {
         )
         .expect("signers did not promote stake tenure");
         wait_for(300, || {
-            Ok(stakers.iter().all(|sk| {
-                let addr = tests::to_addr(sk);
-                let acct_1 = get_account(&http_origin_1, &addr);
-                let acct_2 = get_account(&http_origin_2, &addr);
-                acct_1.nonce >= 3
-                    && acct_1.locked == stake_amount
-                    && acct_2.nonce >= 3
-                    && acct_2.locked == stake_amount
-            }))
+            Ok(signer_addrs
+                .iter()
+                .zip(initial_nonces.iter())
+                .all(|(addr, initial)| {
+                    let acct_1 = get_account(&http_origin_1, addr);
+                    let acct_2 = get_account(&http_origin_2, addr);
+                    acct_1.nonce >= initial + 3
+                        && acct_1.locked == stake_amount
+                        && acct_2.nonce >= initial + 3
+                        && acct_2.locked == stake_amount
+                }))
         })
         .expect("Timed out waiting for pox-5 stake lock on both nodes");
 
@@ -1693,6 +1770,10 @@ impl MultipleMinerTest {
         )
     }
 
+    fn node_2_http(&self) -> String {
+        format!("http://{}", &self.conf_node_2.node.rpc_bind)
+    }
+
     /// Sends a transfer tx to the stacks node and waits for the stacks node to mine it
     /// Returns the txid of the transfer tx.
     pub fn send_and_mine_transfer_tx(&mut self, timeout_secs: u64) -> Result<String, String> {
@@ -1711,7 +1792,31 @@ impl MultipleMinerTest {
         contract_name: &str,
         contract_src: &str,
     ) -> String {
-        let http_origin = self.node_http();
+        self.send_contract_publish_to(&self.node_http(), sender_nonce, contract_name, contract_src)
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node.
+    pub fn send_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
+        self.send_contract_publish_to(
+            &self.node_2_http(),
+            sender_nonce,
+            contract_name,
+            contract_src,
+        )
+    }
+
+    fn send_contract_publish_to(
+        &self,
+        http_origin: &str,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
         let contract_tx = make_contract_publish(
             &self.sender_sk,
             sender_nonce,
@@ -1720,7 +1825,7 @@ impl MultipleMinerTest {
             contract_name,
             contract_src,
         );
-        submit_tx(&http_origin, &contract_tx)
+        submit_tx(http_origin, &contract_tx)
     }
 
     /// Sends a contract publish tx to the stacks node and waits for the stacks node to mine it
@@ -1735,6 +1840,34 @@ impl MultipleMinerTest {
         let stacks_height_before = self.get_peer_stacks_tip_height();
 
         let txid = self.send_contract_publish(sender_nonce, contract_name, contract_src);
+
+        // wait for the new block to be mined
+        wait_for(timeout_secs, || {
+            Ok(self.get_peer_stacks_tip_height() > stacks_height_before)
+        })
+        .unwrap();
+
+        // wait for the observer to see it
+        self.wait_for_test_observer_blocks(timeout_secs);
+
+        if last_block_contains_txid(&txid) {
+            Ok(txid)
+        } else {
+            Err(txid)
+        }
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node and waits for it to be mined.
+    pub fn send_and_mine_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+        timeout_secs: u64,
+    ) -> Result<String, String> {
+        let stacks_height_before = self.get_peer_stacks_tip_height();
+
+        let txid = self.send_contract_publish_to_node_2(sender_nonce, contract_name, contract_src);
 
         // wait for the new block to be mined
         wait_for(timeout_secs, || {

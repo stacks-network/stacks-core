@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "f7c89213efd736a9598f39afa0ae6a983b2ecbfc745abea480a0fe1379ed7c3d",
+    marf_hash: "c460d6f0924bd25945c0498a2f0a6b1b874775060366e7b82b53b4cdca8de279",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8752aa2914e144f0197566c78c114d9fc657cad12bc58cb850391ec2cbd64a8a",
+    marf_hash: "40978ad2f850fa06d665bb83271201d07c6ce91c0b7956d6b2c8814792e622f2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2efafabed4e11f11f7999b6628d51fbfaccea556c1def4e98b932e1ec9e4d5ec",
+    marf_hash: "ef616e72ab4d743b697ec6ae727aba80e8825ffda5e94ac9111258e8bee590a8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "043d3255d94596c14b74ca23e0fd1211850b524d1d29c5ce6bc202840f77fd19",
+    marf_hash: "64ee5331d376dc091ea0ce434c5bd02d0d2fd6c68d800d0a720a15c40f1eb07b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,191 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8d3e91500795b64fe3f080472893f13601d049f9e64ccd5331d422fdcb76a052",
+    marf_hash: "654e94df694a12e53f3760280dbf69cb9da5ecc94545e4e13e7bcedb1f02279e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: illegal-or-unknown-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 961,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 961,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a289a3961305ec1f314c95dd4c84715f624f240be1cb3de34b266a38042b5d9a",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: illegal-or-unknown-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 961,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 961,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2677e158a8aa0ed26738c789273f86d18bd20eb68d524030be1c19bf41d48108",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: illegal-or-unknown-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 961,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 961,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "cb88b66e279502b29d9f47108dbe2bd0a1a1b3f569549cb25c89ff26985596a4",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: illegal-or-unknown-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 961,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 961,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "01300916fe50d31f1d226d6c9fec141cb1ca7098a5e7de13467a399b9b2f57be",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: illegal-or-unknown-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 961,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 961,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a43e0a6842d7d8b42e94f1ab25244b42b10fadad8d6e4ec1a36870d0cb7c55aa",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: illegal-or-unknown-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 961,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 961,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "cf8063a528f210aa65fca243406a7542b34593577b67cdee8051b397833fe9d5",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: illegal-or-unknown-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: use of illegal / unresolved function \'if) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

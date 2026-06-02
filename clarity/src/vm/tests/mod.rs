@@ -25,6 +25,8 @@ pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
 
 mod assets;
+#[cfg(test)]
+mod bitcoin;
 mod contracts;
 #[cfg(test)]
 mod conversions;
@@ -33,6 +35,8 @@ mod crypto;
 #[cfg(test)]
 mod datamaps;
 mod defines;
+#[cfg(test)]
+mod epoch_gating;
 #[cfg(test)]
 mod post_conditions;
 mod principals;

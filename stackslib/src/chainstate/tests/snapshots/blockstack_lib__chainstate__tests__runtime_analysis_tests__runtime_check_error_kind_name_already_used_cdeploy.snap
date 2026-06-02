@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d2a8285d17ab25ac54b4b6808824767f4c778d2b3fe11de2a778dec5b27b153c",
+    marf_hash: "8d432aa59c988104d36a0d3374740b146c4c61dedc05f8edf4e891156cd8618d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a1d4782dc146e4de2004a8bcc95b6adfa4f353ad1562a0252c6b6ca8cb47f078",
+    marf_hash: "a99b46afb008060571e620d0a4a39ab0be50bc6a4ae3cb0e0958713e9002bf6a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1d74bf66cccf3be3bf20ba85de0ea34d5cd41eed5d9bb46de2d33448dcc45bc7",
+    marf_hash: "ca61c37898146f5e09f9d4a3c34af67f62a5e5f486492db40fa5954e3db7ae21",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9a33ec421fcc26ff7bdf5eb97ab0b58d822d1e0840f240887a7db4928a6bf372",
+    marf_hash: "d0061b39f3734571c8dc62d487771ead422f356fa743ccbcfe329a1f27add1ac",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,191 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b0faeceabf54e036f1cf64400de78fa449349e4d9328e3c99ff79483b5e4029a",
+    marf_hash: "84d0c66348f8c0c664ca6e49f2a291cf0e4cea15c4e83a5e96052bf40ef26754",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 41,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 8785,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 41,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 8785,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "956ac1c4cd43afd8555b6b63fd8cf03cfc86a7e3fb9c07675121083127d538f4",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: name-already-used-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 41,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 8785,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 41,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 8785,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "79a542366a5ab4ec1b567c71dbeb62714e95eb819756f4bfe04fde42c90e8257",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: name-already-used-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 41,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 8785,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 41,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 8785,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2f663a2ae3bd8bbf95d97541771ce83213c55a5796344acfb25c3e2adc154333",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: name-already-used-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 41,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 8785,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 41,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 8785,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "1aa7e3575d0de084039aa93484626bc52c464922417bc714960e98531510e978",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: name-already-used-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 41,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 8785,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 41,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 8785,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "907d79cac586aa18393284de6fc673d2d8d2adeb51c2040f45e6624232f10da6",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: name-already-used-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 41,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 8785,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 41,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 8785,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4ba94a99c86eeeb72f818e311084ca18f7a6549dfa43b05b0515e9146b344be4",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: name-already-used-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

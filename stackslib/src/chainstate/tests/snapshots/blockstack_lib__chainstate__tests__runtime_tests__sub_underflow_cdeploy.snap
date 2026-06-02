@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "156a988e7a2335a61c742f1975f8d970d5cc00b41e1aedf6d927433401745be3",
+    marf_hash: "892b9ca5e2ca82ef759dc1b0659ccc5c8c769178d89e57de8f6d5a6e21f24b68",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1ef12ca4267405b816fe85e0c2602ae21bdacecb46bb122d91d046b83c8f806c",
+    marf_hash: "a19429b308e95b3b217f66f3dde679fa202aa028a93f48863358dd73fc824685",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4d1509d25c26bfe6031de3cb631cbc4c0d9e03d7310eb083937025b9431179a5",
+    marf_hash: "206eae6a83af8a22b5ac89f6ad8b89df3362a26ea22855c9ecf3f1551f25fffe",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5817656794ff575e359f7d84c30278aef49589731f9bbec6ea643d2f6bfbd4ac",
+    marf_hash: "acde285ab345e2f7faacb2f73193fe156fb91092a7666214945ce8d0653908e3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,191 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ebc6d2ba9bf5f8a66e5be715a3ccf4cca3880dc08bf2277bdf30069a849bb030",
+    marf_hash: "c438ca7d902bbe6ac5669d9bfef486df0d86b74554402791fa20a0fae687f1c4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: sub-underflow-deploy-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 47,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9354,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 47,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9354,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4197a41dc0704a585f4384445a998f5ae1b250392d3b3bcea8b3f9dec93f6f3d",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: sub-underflow-deploy-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 47,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9354,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 47,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9354,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "540194de59364f454e00027bce7c82d0222bc06876e9564afef11a1f69a472db",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: sub-underflow-deploy-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 47,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9354,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 47,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9354,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "581ff7a8375812bfb0fe8956f4ef5855a7dca04cecbfc253631aa9f377528db6",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: sub-underflow-deploy-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 47,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9354,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 47,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9354,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a1262cba9aa3d519ecbb54e641ab3d9c0ccb0c88e0f12a5b56e0d193b4546b17",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: sub-underflow-deploy-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 47,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9354,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 47,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9354,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "586fd18b1e6b568bac77aef3871173eabb175756b142025e1a4c5cbc9daf299e",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: sub-underflow-deploy-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 47,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9354,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 47,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9354,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9a723b5181317a0c6bc31e30a5e6c3f84fc4386acd7d4972d2ce0793c61dd063",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: sub-underflow-deploy-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

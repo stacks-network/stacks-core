@@ -39,7 +39,9 @@ use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
-use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4};
+use crate::chainstate::stacks::boot::{
+    BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COSTS_5,
+};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::tests::consensus::{
     ConsensusTest, ConsensusUtils, ExpectedResult, TestBlock,
@@ -143,80 +145,93 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         burn_db,
     );
 
-    gb.as_transaction(|tx| {
-        tx.with_clarity_db(|db| {
-            db.set_clarity_epoch_version(epoch).unwrap();
-            Ok(())
-        })
-        .unwrap();
+    gb.set_epoch_for_testing(epoch);
 
-        match epoch {
-            StacksEpochId::Epoch2_05 => {
-                let (ast, _analysis) = tx
-                    .analyze_smart_contract(
-                        &boot_code_id("costs-2", false),
-                        ClarityVersion::Clarity1,
-                        BOOT_CODE_COSTS_2,
-                    )
-                    .unwrap();
-                tx.initialize_smart_contract(
+    gb.as_transaction(|tx| match epoch {
+        StacksEpochId::Epoch2_05 => {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
                     &boot_code_id("costs-2", false),
                     ClarityVersion::Clarity1,
-                    &ast,
                     BOOT_CODE_COSTS_2,
-                    None,
-                    |_, _| None,
-                    None,
                 )
                 .unwrap();
-            }
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => {
-                let (ast, _analysis) = tx
-                    .analyze_smart_contract(
-                        &boot_code_id("costs-3", false),
-                        ClarityVersion::Clarity2,
-                        BOOT_CODE_COSTS_3,
-                    )
-                    .unwrap();
-                tx.initialize_smart_contract(
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-2", false),
+                ClarityVersion::Clarity1,
+                &ast,
+                BOOT_CODE_COSTS_2,
+                None,
+                |_, _| None,
+                None,
+            )
+            .unwrap();
+        }
+        StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25
+        | StacksEpochId::Epoch30
+        | StacksEpochId::Epoch31
+        | StacksEpochId::Epoch32 => {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
                     &boot_code_id("costs-3", false),
                     ClarityVersion::Clarity2,
-                    &ast,
                     BOOT_CODE_COSTS_3,
-                    None,
-                    |_, _| None,
-                    None,
                 )
                 .unwrap();
-            }
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 | StacksEpochId::Epoch40 => {
-                let (ast, _analysis) = tx
-                    .analyze_smart_contract(
-                        &boot_code_id("costs-4", false),
-                        ClarityVersion::Clarity2,
-                        BOOT_CODE_COSTS_4,
-                    )
-                    .unwrap();
-                tx.initialize_smart_contract(
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-3", false),
+                ClarityVersion::Clarity2,
+                &ast,
+                BOOT_CODE_COSTS_3,
+                None,
+                |_, _| None,
+                None,
+            )
+            .unwrap();
+        }
+        StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
                     &boot_code_id("costs-4", false),
                     ClarityVersion::Clarity2,
-                    &ast,
                     BOOT_CODE_COSTS_4,
-                    None,
-                    |_, _| None,
-                    None,
                 )
                 .unwrap();
-            }
-            _ => panic!("Epoch {} not covered.", &epoch),
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-4", false),
+                ClarityVersion::Clarity2,
+                &ast,
+                BOOT_CODE_COSTS_4,
+                None,
+                |_, _| None,
+                None,
+            )
+            .unwrap();
         }
+        StacksEpochId::Epoch40 => {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
+                    &boot_code_id("costs-5", false),
+                    ClarityVersion::Clarity6,
+                    BOOT_CODE_COSTS_5,
+                )
+                .unwrap();
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-5", false),
+                ClarityVersion::Clarity6,
+                &ast,
+                BOOT_CODE_COSTS_5,
+                None,
+                |_, _| None,
+                None,
+            )
+            .unwrap();
+        }
+        _ => panic!("Epoch {} not covered.", &epoch),
     });
 
     gb.commit_block();

@@ -22,13 +22,15 @@ use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
 use costs_3::Costs3;
 use costs_4::Costs4;
+use costs_5::Costs5;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
 use super::errors::{RuntimeCheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
-use crate::vm::contexts::{ContractContext, ExecutionState, GlobalContext, InvocationContext};
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
+use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 pub use crate::vm::costs::errors::CostErrors;
 pub use crate::vm::costs::execution_cost::{CostOverflowingMath, ExecutionCost};
@@ -54,6 +56,7 @@ pub mod costs_2_testnet;
 pub mod costs_3;
 #[allow(unused_variables)]
 pub mod costs_4;
+pub mod costs_5;
 pub mod errors;
 pub mod execution_cost;
 
@@ -64,6 +67,7 @@ pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
 pub const COSTS_4_NAME: &str = "costs-4";
+pub const COSTS_5_NAME: &str = "costs-5";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = {
@@ -211,6 +215,7 @@ pub enum DefaultVersion {
     Costs2Testnet,
     Costs3,
     Costs4,
+    Costs5,
 }
 
 impl DefaultVersion {
@@ -229,6 +234,7 @@ impl DefaultVersion {
             DefaultVersion::Costs2Testnet => f.eval::<Costs2Testnet>(*n),
             DefaultVersion::Costs3 => f.eval::<Costs3>(*n),
             DefaultVersion::Costs4 => f.eval::<Costs4>(*n),
+            DefaultVersion::Costs5 => f.eval::<Costs5>(*n),
         };
         r.map_err(|e| {
             let e = match e {
@@ -265,6 +271,8 @@ impl DefaultVersion {
             Ok(Self::Costs3)
         } else if value.name.as_str() == COSTS_4_NAME {
             Ok(Self::Costs4)
+        } else if value.name.as_str() == COSTS_5_NAME {
+            Ok(Self::Costs5)
         } else {
             Err(format!("Unknown default contract {}", &value.name))
         }
@@ -345,7 +353,7 @@ impl CostStateSummary {
 /// This struct holds all of the data required for non-free LimitedCostTracker instances
 pub struct TrackerData {
     cost_function_references: HashMap<&'static ClarityCostFunction, ClarityCostFunctionEvaluator>,
-    cost_contracts: HashMap<QualifiedContractIdentifier, ContractContext>,
+    cost_contracts: HashMap<QualifiedContractIdentifier, Contract>,
     contract_call_circuits:
         HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference>,
     total: ExecutionCost,
@@ -853,6 +861,7 @@ impl LimitedCostTracker {
         Self::Free
     }
 
+    /// Return the default cost contract name for the provided epoch.
     pub fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String, CostErrors> {
         let result = match epoch_id {
             StacksEpochId::Epoch10 => {
@@ -868,9 +877,8 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 | StacksEpochId::Epoch40 => {
-                COSTS_4_NAME.to_string()
-            }
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => COSTS_4_NAME.to_string(),
+            StacksEpochId::Epoch40 => COSTS_5_NAME.to_string(),
         };
         Ok(result)
     }
@@ -970,9 +978,8 @@ impl TrackerData {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
             if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
-                let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
-                {
-                    Ok(contract) => contract.contract_context,
+                let contract = match clarity_db.get_contract(&cost_function_ref.contract_id) {
+                    Ok(contract) => contract,
                     Err(e) => {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
@@ -983,7 +990,7 @@ impl TrackerData {
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
+                cost_contracts.insert(cost_function_ref.contract_id.clone(), contract);
             }
 
             if cost_function_ref.contract_id == boot_costs_id {
@@ -998,8 +1005,8 @@ impl TrackerData {
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
             if !cost_contracts.contains_key(&circuit_target.contract_id) {
-                let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
-                    Ok(contract) => contract.contract_context,
+                let contract = match clarity_db.get_contract(&circuit_target.contract_id) {
+                    Ok(contract) => contract,
                     Err(e) => {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %boot_costs_id.to_string(),
@@ -1010,7 +1017,7 @@ impl TrackerData {
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(circuit_target.contract_id.clone(), contract_context);
+                cost_contracts.insert(circuit_target.contract_id.clone(), contract);
             }
         }
 

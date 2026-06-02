@@ -54,7 +54,7 @@ use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 
-use super::{pox5_staker_initial_balances, pox5_staker_keys, MultipleMinerTest};
+use super::MultipleMinerTest;
 use crate::tests::nakamoto_integrations::enable_epoch_4_0;
 use crate::tests::neon_integrations::test_observer;
 use crate::tests::to_addr;
@@ -89,12 +89,8 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
     }
 
     let num_signers = 5;
-    let seed = "epoch_4_0_multi_miner";
     let stake_amount: u128 = 100_000_000_000;
     let lock_cycles: u128 = 12;
-    let stakers = pox5_staker_keys(num_signers, seed);
-    let per_staker_balance: u64 = u64::try_from(stake_amount).unwrap() + 1_000_000;
-    let staker_balances = pox5_staker_initial_balances(num_signers, seed, per_staker_balance);
 
     let agg_pubkey: [u8; 33] = Secp256k1PublicKey::from_private(&StacksPrivateKey::from_seed(
         b"epoch-4-0-multi-miner-agg",
@@ -105,15 +101,20 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
 
     let publisher_sk = StacksPrivateKey::from_seed(b"epoch-4-0-multi-miner-publisher");
     let publisher_addr = to_addr(&publisher_sk);
-    let contract_name = "agg-pubkey-stub";
-    let contract_id = QualifiedContractIdentifier::new(
+    let token_contract_name = "sbtc-token-stub";
+    let registry_contract_name = "sbtc-registry-stub";
+    let token_contract_id = QualifiedContractIdentifier::new(
         publisher_addr.clone().into(),
-        ContractName::try_from(contract_name.to_string()).expect("valid contract name"),
+        ContractName::try_from(token_contract_name.to_string()).expect("valid contract name"),
+    );
+    let registry_contract_id = QualifiedContractIdentifier::new(
+        publisher_addr.clone().into(),
+        ContractName::try_from(registry_contract_name.to_string()).expect("valid contract name"),
     );
 
     let publisher_addr_str = publisher_addr.to_string();
-    let contract_id_modifier = contract_id.clone();
-    let staker_balances_modifier = staker_balances.clone();
+    let token_contract_id_modifier = token_contract_id.clone();
+    let registry_contract_id_modifier = registry_contract_id.clone();
 
     let mut miners = MultipleMinerTest::new_with_config_modifications(
         num_signers,
@@ -122,11 +123,10 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
         move |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.burnchain.burn_fee_cap = MINER_1_FEE;
-            node_config.node.pox_5_sbtc_contract = Some(contract_id_modifier.clone());
+            node_config.node.pox_5_sbtc_contract = Some(token_contract_id_modifier.clone());
+            node_config.node.pox_5_sbtc_registry_contract =
+                Some(registry_contract_id_modifier.clone());
             node_config.add_initial_balance(publisher_addr_str.clone(), 1_000_000);
-            for (addr, balance) in staker_balances_modifier.iter() {
-                node_config.add_initial_balance(addr.to_string(), *balance);
-            }
             enable_epoch_4_0(node_config);
         },
         |node_config| {
@@ -150,9 +150,9 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
     miners.boot_to_epoch_4_with_pox5_lockups(
         &publisher_sk,
         0,
-        contract_name,
+        token_contract_name,
+        registry_contract_name,
         &agg_pubkey,
-        &stakers,
         stake_amount,
         lock_cycles,
     );

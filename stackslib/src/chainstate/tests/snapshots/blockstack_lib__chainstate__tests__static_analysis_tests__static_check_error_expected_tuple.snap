@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "c2087d1bcbce4d4d58273008ae411df73f2715c8d2df37e85b385799d3bcc4fc",
+    marf_hash: "2f56bef680e7fdc01f2e5f8623ff3828966b06d837460cbe70afcfd1eb57c8a2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6d026fb5745de58c9c5a29697a6d878be00789d6d9a4ae4c72e4fc017b3f15c7",
+    marf_hash: "1523f3db4bb4e806b7cabaf010b9b626b9b4307d9572e76b45ca517f02c57ba8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2cf58faf2d5aa3a87218543738aec89fb92b89082e5ecab6a7bbcd4c4e656176",
+    marf_hash: "7aa7bd752b44222701f1c3d5b4727675507850f539d6d69e2c872bff12177f2b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "335042afda19896d09050371dd1c3d7104e92270a584facb3c64cd644c055c0f",
+    marf_hash: "23d8aa7005af138c02615eacce8997d297ed2b013b244b59576f04fa2a9adb36",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,191 +124,11 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ca43c5009c0cb2de585fb75f7b7346ae3faea254a8ccdbca565b57807b1ce8c1",
+    marf_hash: "73c48797569c03da4cd7340df3e1f58ae04d454c107f149f7cb5dcbcbf3d1052",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: expected-tuple-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: expecting tuple, found \'int\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 882,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 882,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "5ebf515b82a39086d7e21a5b517d6ed2c4c0025896af134cc6451a973b139c39",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-tuple-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: expecting tuple, found \'int\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 882,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 882,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a1f790af932f6ed791e8dc853e9e747e44d3094170105ce690f3f475b2cb28b1",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-tuple-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: expecting tuple, found \'int\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 882,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 882,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8f93a757b56a00af68c1d49fa1ea08e0ceeae733ed3deefc6d8b0e5368b6245b",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-tuple-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: expecting tuple, found \'int\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 882,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 882,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bd3a0d21368467266a914ed655f2ad65808485b45b5511c92d0fc4f6a3bff9dd",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-tuple-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: expecting tuple, found \'int\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 882,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 882,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4b35fbfcd1a463f557d18c509a7fdc1bd82c3623c22c07579752a71c33852274",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-tuple-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: expecting tuple, found \'int\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 882,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 882,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "693ecb68e7c551076193196a847d11239b1c2d107b8bc76382a89fd80098cecc",
-    evaluated_epoch: Epoch40,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: expected-tuple-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: expecting tuple, found \'int\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
