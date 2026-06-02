@@ -32,6 +32,8 @@ export const sbtc = contracts.sbtcToken;
 export const REWARD_CYCLE_LENGTH = 100n;
 export const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
 export const BASIS_POINTS = 10000n;
+/** Largest value a Clarity `uint` (uint128) can hold. */
+export const MAX_UINT128 = 2n ** 128n - 1n;
 
 export const deployer = accounts.deployer.address;
 
