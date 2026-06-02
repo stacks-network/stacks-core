@@ -3,7 +3,6 @@
 (define-constant ERR_CANNOT_SETUP_BOND_TOO_LATE (err u3))
 (define-constant ERR_BOND_ALREADY_SETUP (err u4))
 (define-constant ERR_STAKER_ALREADY_ADDED (err u5))
-(define-constant ERR_L1_LOCKUP_NOT_FOUND (err u6))
 (define-constant ERR_BOND_NOT_FOUND (err u7))
 (define-constant ERR_INSUFFICIENT_STX (err u8))
 (define-constant ERR_ALREADY_REGISTERED (err u9))
@@ -12,17 +11,12 @@
 (define-constant ERR_SIGNER_KEY_GRANT_USED (err u12))
 (define-constant ERR_INVALID_SIGNATURE_RECOVER (err u13))
 (define-constant ERR_INVALID_SIGNATURE_PUBKEY (err u14))
-(define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH (err u15))
-(define-constant ERR_SIGNER_AUTH_USED (err u16))
 (define-constant ERR_SIGNER_KEY_GRANT_NOT_FOUND (err u17))
-(define-constant ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH (err u18))
 (define-constant ERR_ALREADY_STAKED (err u19))
 (define-constant ERR_INVALID_NUM_CYCLES (err u20))
-(define-constant ERR_INVALID_POX_ADDRESS (err u21))
 (define-constant ERR_UNAUTHORIZED_CALLER (err u22))
 (define-constant ERR_SIGNER_NOT_FOUND (err u23))
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u24))
-(define-constant ERR_NO_SBTC_BALANCE (err u25))
 (define-constant ERR_UNAUTHORIZED_SIGNER_REGISTRATION (err u26))
 (define-constant ERR_NOT_STAKING (err u27))
 (define-constant ERR_UNSTAKE_IN_PREPARE_PHASE (err u28))
@@ -56,6 +50,8 @@
 (define-constant ERR_BOND_ALREADY_STARTED (err u43))
 ;; Cannot call `update-bond-registration` with the same signer
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
+;; The lockup amount does not match the specified amount of sats
+(define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -78,16 +74,6 @@
     version: "1.0.0",
     chain-id: chain-id,
 })
-
-;; Keep these constants in lock-step with the address version buffs above
-;; Maximum value of an address version as a uint
-(define-constant MAX_ADDRESS_VERSION u6)
-;; Maximum value of an address version that has a 20-byte hashbytes
-;; (0x00, 0x01, 0x02, 0x03, and 0x04 have 20-byte hashbytes)
-(define-constant MAX_ADDRESS_VERSION_BUFF_20 u4)
-;; Maximum value of an address version that has a 32-byte hashbytes
-;; (0x05 and 0x06 have 32-byte hashbytes)
-(define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
 
 ;; Values for stacks address versions
 (define-constant STACKS_ADDR_VERSION_MAINNET 0x16)
@@ -116,8 +102,9 @@
         ;; relative to BTC for this term.
         ;; Represented in basis points.
         min-ustx-ratio: uint,
-        ;; The allowed early unlock signers for this bond period
-        early-unlock-signers: (buff 683),
+        ;; The OP_ELSE (early-exit) subscript of the L1 lockup witness
+        ;; script for this bond period.
+        early-unlock-bytes: (buff 683),
         ;; The Stacks principal that can announce early L1 unlocks
         early-unlock-admin: principal,
     }
@@ -239,25 +226,6 @@
     (optional uint)
 )
 
-;; State for tracking used signer key authorizations. This prevents re-use
-;; of the same signature or pre-set authorization for multiple transactions.
-;; Refer to the `signer-key-authorizations` map for the documentation on these fields
-(define-map used-signer-key-authorizations
-    {
-        signer-key: (buff 33),
-        reward-cycle: uint,
-        period: uint,
-        topic: (string-ascii 14),
-        pox-addr: (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }),
-        auth-id: uint,
-        max-amount: uint,
-    }
-    bool ;; Whether the field has been used or not
-)
-
 ;; State to track the per-share rewards earned for bond periods
 ;; and reward cycles. This value must only increment
 (define-map rewards-per-token-for-cycle
@@ -272,8 +240,8 @@
 ;; bond or stx-only cycle
 (define-map total-shares-staked-for-cycle
     {
-        index: uint,
         is-bond: bool,
+        index: uint,
     }
     uint
 )
@@ -281,8 +249,8 @@
 ;; State to track the per-staker shares for a given signer.
 (define-map staker-shares-staked-for-cycle
     {
-        index: uint,
         is-bond: bool,
+        index: uint,
         staker: principal,
         signer: principal,
     }
@@ -290,20 +258,21 @@
 )
 
 ;; Amount of shares staked for a given signer in a given cycle.
-;; This is strictly for reward calculations - ie the STX
-;; from Bitcoin staking are not accounted for here.
+;; This is strictly for reward calculations -
+;; i.e. when is-bond is false, only the STX from STX-only staking
+;; is accounted for here, not the STX from bonds.
 (define-map signer-shares-staked-for-cycle
     {
-        index: uint,
         is-bond: bool,
+        index: uint,
         signer: principal,
     }
     uint
 )
 
 ;; Represents a snapshot of `rewards-per-token` at the last
-;; time of rewards calculation for this specific signer
-(define-map signer-rewards-per-token-paid-for-cycle
+;; time of rewards settlement for this specific signer
+(define-map signer-rewards-per-token-settled-for-cycle
     {
         is-bond: bool,
         index: uint,
@@ -313,7 +282,7 @@
 )
 
 ;; Represents pending, but unclaimed rewards for a signer
-(define-map signer-pending-rewards-for-cycle
+(define-map signer-unclaimed-rewards-for-cycle
     {
         is-bond: bool,
         index: uint,
@@ -331,7 +300,6 @@
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
-;; #[allow(unused_data_var)]
 (define-data-var pox-prepare-cycle-length uint (if is-in-mainnet
     u100
     u50
@@ -347,12 +315,6 @@
 (define-data-var first-pox-5-reward-cycle uint u0)
 ;; The first reward cycle where the first bond period occurs
 (define-data-var first-bond-period-cycle uint u0)
-
-;;;;  The last accounted balance (of sBTC held by this contract)
-;;;;  at a time of reward computation.
-;;;;  N.B. it is critical that this value is set to the contract's
-;;;;  sBTC balance after any transfer of sBTC out of this contract.
-;; (define-data-var last-accounted-balance uint u0)
 
 ;; The last accounted balance of rewards. Used to keep
 ;; track of which sBTC is just for rewards, vs from
@@ -414,20 +376,26 @@
 ;; Setup a new protocol bond by providing parameters and the
 ;; allowlist for the bond.
 ;;
+;; @param bond-index; the index of the bond to set up
 ;; @param target-rate; target yield rate (apy) in basis points
 ;; @param stx-value-ratio; representation of STX:BTC price
 ;; @param min-ustx-ratio; minimum amount of STX that must be locked
 ;; relative to BTC for this term. Represented in basis points.
-;; @param early-exit-signers: An allowlist of bond members that can
-;; participate in the bond.
+;; @param early-unlock-bytes: Bitcoin script that will be used to validate
+;; early exit from the bond. It should be of the form
+;; `<pubkey> OP_CHECKSIGVERIFY` or an M-of-N `CHECKMULTISIGVERIFY` template.
+;; @param early-unlock-admin: The principal that will be allowed to announce
+;; early exits from the bond.
+;; @param allowlist: A list of allowed stakers and their maximum sats that can
+;; be staked for this bond.
 ;;
-;; This function can only be called once.
+;; This function can only be called once for each bond.
 (define-public (setup-bond
         (bond-index uint)
         (target-rate uint)
         (stx-value-ratio uint)
         (min-ustx-ratio uint)
-        (early-unlock-signers (buff 683))
+        (early-unlock-bytes (buff 683))
         (early-unlock-admin principal)
         (allowlist (list 1000 {
             staker: principal,
@@ -465,7 +433,7 @@
                 target-rate: target-rate,
                 stx-value-ratio: stx-value-ratio,
                 min-ustx-ratio: min-ustx-ratio,
-                early-unlock-signers: early-unlock-signers,
+                early-unlock-bytes: early-unlock-bytes,
                 early-unlock-admin: early-unlock-admin,
             })
             ERR_BOND_ALREADY_SETUP
@@ -482,7 +450,7 @@
                 target-rate: target-rate,
                 stx-value-ratio: stx-value-ratio,
                 min-ustx-ratio: min-ustx-ratio,
-                early-unlock-signers: early-unlock-signers,
+                early-unlock-bytes: early-unlock-bytes,
                 max-allocation-sats: (get sum-max-sats accumulator),
             })
         )
@@ -576,8 +544,8 @@
             (bond-start-height (bond-period-to-burn-height bond-index))
             ;; the first cycle in which their stx are unlocked
             (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
-            (current-total-staked (get-total-shares-staked-for-cycle bond-index true))
-            (current-signer-staked (get-signer-shares-staked-for-cycle signer bond-index true))
+            (current-total-staked (get-total-shares-staked-for-cycle true bond-index))
+            (current-signer-staked (get-signer-shares-staked-for-cycle signer true bond-index))
         )
         ;; Verify that they're sending enough STX
         (asserts!
@@ -605,7 +573,7 @@
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
-        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         (asserts! (is-none (get-bond-membership tx-sender))
@@ -621,7 +589,7 @@
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
         )
-        (crystallize-rewards signer bond-index true)
+        (settle-rewards signer true bond-index)
         (map-set total-shares-staked-for-cycle {
             index: bond-index,
             is-bond: true,
@@ -677,14 +645,14 @@
             (current-membership (unwrap! (get-bond-membership tx-sender) ERR_NOT_BOND_PARTICIPANT))
             (current-signer (get signer current-membership))
             (bond-index (get bond-index current-membership))
-            (amount-sats (get-staker-shares-staked-for-cycle tx-sender bond-index true
+            (amount-sats (get-staker-shares-staked-for-cycle tx-sender true bond-index
                 current-signer
             ))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
             (next-cycle (+ (current-pox-reward-cycle) u1))
-            (current-signer-total-sats (get-signer-shares-staked-for-cycle current-signer bond-index true))
-            (new-signer-total-sats (get-signer-shares-staked-for-cycle signer bond-index true))
+            (current-signer-total-sats (get-signer-shares-staked-for-cycle current-signer true bond-index))
+            (new-signer-total-sats (get-signer-shares-staked-for-cycle signer true bond-index))
             ;; If the bond hasn't started yet, then the first cycle where
             ;; this new signer is active is the start cycle. Otherwise, it's the next reward
             ;; cycle. In other words, `max(bond-start-cycle, current-cycle + 1)`
@@ -722,8 +690,8 @@
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        (crystallize-rewards current-signer bond-index true)
-        (crystallize-rewards signer bond-index true)
+        (settle-rewards current-signer true bond-index)
+        (settle-rewards signer true bond-index)
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender first-reward-cycle num-cycles false))
@@ -821,7 +789,7 @@
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
-        ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
+        ;; the start-burn-ht must result in the next reward cycle, do not allow stakers
         ;;  to "post-date" their transaction
         (asserts! (is-eq first-reward-cycle specified-reward-cycle)
             ERR_INVALID_START_BURN_HEIGHT
@@ -830,16 +798,16 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
-        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         ;; Cannot be already staked
         (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
 
-        ;;;;  tx-sender principal must not be in a bond membership
+        ;;  tx-sender principal must not be in a bond membership
         (asserts! (is-none (get-bond-membership tx-sender)) ERR_ALREADY_STAKED)
 
-        ;;;;  the Stacker must have sufficient unlocked funds
+        ;;  the Staker must have sufficient unlocked funds
         (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
             ERR_INSUFFICIENT_STX
         )
@@ -907,7 +875,7 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
-        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         ;; Must have enough unlocked STX
@@ -965,9 +933,9 @@
             (bond-index (get bond-index membership))
             (signer (get signer membership))
             (bond (unwrap-panic (get-protocol-bond bond-index)))
-            (amount-sats (get-staker-shares-staked-for-cycle staker bond-index true signer))
-            (current-total-shares (get-total-shares-staked-for-cycle bond-index true))
-            (current-shares (get-signer-shares-staked-for-cycle signer bond-index true))
+            (amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
+            (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
+            (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
         )
         ;; Only the early unlock admin for this bond period can call this function.
         ;; Calling via other contracts is not allowed.
@@ -987,7 +955,7 @@
             err-val true
         )
 
-        (crystallize-rewards signer bond-index true)
+        (settle-rewards signer true bond-index)
 
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
@@ -1027,9 +995,9 @@
             ))
             (bond-index (get bond-index membership))
             (signer (get signer membership))
-            (current-amount-sats (get-staker-shares-staked-for-cycle staker bond-index true signer))
-            (current-total-shares (get-total-shares-staked-for-cycle bond-index true))
-            (current-shares (get-signer-shares-staked-for-cycle signer bond-index true))
+            (current-amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
+            (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
+            (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
             (current-total-sbtc-staked (get-total-sbtc-staked))
             ;; Cannot withdrawal more than they've staked
             (new-amount-sats (try! (if (<= amount-to-withdrawal-sats current-amount-sats)
@@ -1059,7 +1027,7 @@
         )
 
         ;; Take a snapshot of the signer's current rewards
-        (crystallize-rewards signer bond-index true)
+        (settle-rewards signer true bond-index)
 
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
@@ -1117,7 +1085,7 @@
         (asserts! (is-eq old-signer (get signer current-info))
             ERR_INVALID_OLD_SIGNER_MANAGER
         )
-        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
         ;; do not allow during a prepare phase
@@ -1157,7 +1125,7 @@
     )
 )
 
-;;;;  Remove a staker from a signer for X cycles
+;;  Remove a staker from a signer for X cycles
 (define-private (remove-staker-from-cycles
         (staker principal)
         (first-reward-cycle uint)
@@ -1215,9 +1183,9 @@
             ;; staking) to this signer.
             (cur-delegated-for-signer (get-amount-delegated-for-signer signer cycle))
             ;; uSTX staked for this signer (through STX-only staking)
-            (cur-staked-for-signer (get-signer-shares-staked-for-cycle signer cycle false))
+            (cur-staked-for-signer (get-signer-shares-staked-for-cycle signer false cycle))
             ;; Total uSTX staked (through stx-only staking) this cycle
-            (total-shares-staked (get-total-shares-staked-for-cycle cycle false))
+            (total-shares-staked (get-total-shares-staked-for-cycle false cycle))
             (amount (get amount-ustx membership))
             (is-stx-staking (get is-stx-staking accumulator))
             (stake-amount (if is-stx-staking
@@ -1228,7 +1196,7 @@
             (is-in-signer-set (is-some (get-signer-set-item-for-cycle signer cycle)))
         )
         ;; Crystallize STX-only rewards before mutating anything
-        (crystallize-rewards signer cycle false)
+        (settle-rewards signer false cycle)
         (if is-in-signer-set
             (if (< new-delegated SIGNER_SET_MIN_USTX)
                 ;; They've crossed back below the threshold - remove from the signer set
@@ -1372,11 +1340,11 @@
             ))
             (staker (get staker accumulator))
             (prev-staked (get-signer-pending-staked-ustx-per-cycle signer cycle))
-            (prev-total-shares-staked (get-total-shares-staked-for-cycle cycle false))
+            (prev-total-shares-staked (get-total-shares-staked-for-cycle false cycle))
             (new-delegated (+ cur-delegated-for-signer amount))
         )
         ;; Crystallize STX-only rewards before mutating anything
-        (crystallize-rewards signer cycle false)
+        (settle-rewards signer false cycle)
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
                 (map-set signer-shares-staked-for-cycle {
@@ -1485,7 +1453,7 @@
             (bond (unwrap! (get-protocol-bond bond-index) ERR_BOND_NOT_FOUND))
             (expected-timelock-output (construct-lockup-output-script staker
                 (get-bond-l1-unlock-height bond-index)
-                (get unlock-bytes lockups) (get early-unlock-signers bond)
+                (get unlock-bytes lockups) (get early-unlock-bytes bond)
             ))
             (accumulation (try! (fold validate-l1-lockup (get outputs lockups)
                 (ok {
@@ -1521,9 +1489,7 @@
             (accumulator (try! accumulator-res))
             (block (try! (parse-block-header (get header lockup))))
             (expected-script-hash (get expected-script-hash accumulator))
-            (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup)
-                (get amount lockup) expected-script-hash
-            )))
+            (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
         )
@@ -1532,6 +1498,9 @@
         )
         (asserts! (is-eq (get script output) expected-script-hash)
             ERR_INVALID_LOCKUP_SCRIPT
+        )
+        (asserts! (is-eq (get amount output) (get amount lockup))
+            ERR_INVALID_LOCKUP_AMOUNT
         )
         ;; verify merkle proof
         (asserts!
@@ -1608,15 +1577,18 @@
                 (new-reserve (/ (* remaining-rewards RESERVE_RATIO) u10000))
                 (stx-staker-rewards (- remaining-rewards new-reserve))
                 (stx-cycle (burn-height-to-reward-cycle calculation-height))
-                (cycle-staked-ustx (get-total-shares-staked-for-cycle stx-cycle false))
-                (current-rewards-per-ustx (get-rewards-per-token-for-cycle stx-cycle false))
+                (cycle-staked-ustx (get-total-shares-staked-for-cycle false stx-cycle))
+                (current-rewards-per-ustx (get-rewards-per-token-for-cycle false stx-cycle))
                 (prev-accounted-rewards (var-get last-accounted-rewards-only))
-                (new-rewards-per-ustx (if (is-eq cycle-staked-ustx u0)
-                    ;; if there are no stx staked, we have a problem
+                ;; If no STX is staked this cycle, the staker cut will be applied to the reserve.
+                (no-stx-stakers (is-eq cycle-staked-ustx u0))
+                (new-rewards-per-ustx (if no-stx-stakers
                     u0
                     (/ (* stx-staker-rewards PRECISION) cycle-staked-ustx)
                 ))
                 (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+                ;; When no STX is staked, fold the staker cut into the reserve, otherwise zero.
+                (stranded-staker-cut (if no-stx-stakers stx-staker-rewards u0))
             )
             (print {
                 topic: "calculate-rewards",
@@ -1628,8 +1600,11 @@
                 stx-cycle: stx-cycle,
                 cycle-staked-ustx: cycle-staked-ustx,
                 next-rewards-per-ustx: next-rewards-per-ustx,
+                stranded-staker-cut: stranded-staker-cut,
             })
-            (var-set reserve-balance (+ cur-reserve new-reserve))
+            (var-set reserve-balance
+                (+ cur-reserve new-reserve stranded-staker-cut)
+            )
             (var-set last-reward-compute-height calculation-height)
             (var-set last-accounted-rewards-only
                 (+ prev-accounted-rewards (- accrued-rewards new-reserve))
@@ -1663,11 +1638,11 @@
     (let (
             (accumulator (try! accumulator-res))
             (bond (unwrap! (map-get? protocol-bonds bond-index) ERR_BOND_NOT_FOUND))
-            (total-sats (get-total-shares-staked-for-cycle bond-index true))
+            (total-sats (get-total-shares-staked-for-cycle true bond-index))
             (available-rewards (get available-rewards accumulator))
             ;; How much sBTC the bond is supposed to earn per calculation,
-            ;; which is (totalSats * apy) / 48
-            (target-yield (/ (/ (* total-sats (get target-rate bond)) u10000) u48))
+            ;; which is (totalSats * apy) / 50
+            (target-yield (/ (/ (* total-sats (get target-rate bond)) u10000) u50))
             ;; If there is enough to cover the target yield, use that. Otherwise,
             ;; this bond gets the remaining rewards.
             (earned (if (>= available-rewards target-yield)
@@ -1675,7 +1650,7 @@
                 available-rewards
             ))
             (stx-value-ratio (get stx-value-ratio bond))
-            (current-rewards-per-token (get-rewards-per-token-for-cycle bond-index true))
+            (current-rewards-per-token (get-rewards-per-token-for-cycle true bond-index))
             ;; Prevent divide-by-zero
             (new-rewards-per-token (if (is-eq total-sats u0)
                 u0
@@ -1742,14 +1717,14 @@
 ;; `earned = (shares * (rpt - rptPaid)) / PRECISION + pending`
 (define-read-only (get-earned
         (signer principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (let (
-            (shares (get-signer-shares-staked-for-cycle signer index is-bond))
-            (rpt-current (get-rewards-per-token-for-cycle index is-bond))
-            (rpt-paid (get-signer-rewards-per-token-paid-for-cycle signer index is-bond))
-            (pending (get-signer-pending-rewards-for-cycle signer index is-bond))
+            (shares (get-signer-shares-staked-for-cycle signer is-bond index))
+            (rpt-current (get-rewards-per-token-for-cycle is-bond index))
+            (rpt-paid (get-signer-rewards-per-token-settled-for-cycle signer is-bond index))
+            (pending (get-signer-unclaimed-rewards-for-cycle signer is-bond index))
             (newly-earned (/ (* shares (- rpt-current rpt-paid)) PRECISION))
         )
         (+ pending newly-earned)
@@ -1762,7 +1737,7 @@
     )
     (let (
             (signer contract-caller)
-            (stx-rewards (update-claimable-rewards signer reward-cycle false))
+            (stx-rewards (update-claimable-rewards signer false reward-cycle))
             (bond-rewards (fold update-claimable-bond-rewards bond-periods {
                 signer: signer,
                 total: u0,
@@ -1808,13 +1783,13 @@
 ;; Returns the newly claimable amount. Does NOT transfer funds out.
 (define-private (update-claimable-rewards
         (signer principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
-    (let ((earned (crystallize-rewards signer index is-bond)))
+    (let ((earned (settle-rewards signer is-bond index)))
         ;; After crystallization, all earnings live in pending.
         ;; Zero out pending since we're about to pay it.
-        (map-set signer-pending-rewards-for-cycle {
+        (map-set signer-unclaimed-rewards-for-cycle {
             is-bond: is-bond,
             index: index,
             signer: signer,
@@ -1839,7 +1814,7 @@
             ),
         })
     )
-    (let ((rewards-info (update-claimable-rewards (get signer accumulator) bond-index true)))
+    (let ((rewards-info (update-claimable-rewards (get signer accumulator) true bond-index)))
         {
             signer: (get signer accumulator),
             total: (+ (get total accumulator) (get earned rewards-info)),
@@ -1856,23 +1831,23 @@
 ;;
 ;; This MUST be called before any update to `signer-shares-staked-for-cycle`,
 ;; because changes to that state will effect rewards calculations.
-(define-private (crystallize-rewards
+(define-private (settle-rewards
         (signer principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (let (
-            (earned (get-earned signer index is-bond))
-            (rewards-per-token (get-rewards-per-token-for-cycle index is-bond))
+            (earned (get-earned signer is-bond index))
+            (rewards-per-token (get-rewards-per-token-for-cycle is-bond index))
         )
-        (map-set signer-pending-rewards-for-cycle {
+        (map-set signer-unclaimed-rewards-for-cycle {
             is-bond: is-bond,
             index: index,
             signer: signer,
         }
             earned
         )
-        (map-set signer-rewards-per-token-paid-for-cycle {
+        (map-set signer-rewards-per-token-settled-for-cycle {
             is-bond: is-bond,
             index: index,
             signer: signer,
@@ -2269,38 +2244,38 @@
 )
 
 (define-read-only (get-rewards-per-token-for-cycle
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (default-to u0
         (map-get? rewards-per-token-for-cycle {
-            index: index,
             is-bond: is-bond,
+            index: index,
         })
     )
 )
 
 (define-read-only (get-total-shares-staked-for-cycle
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (default-to u0
         (map-get? total-shares-staked-for-cycle {
-            index: index,
             is-bond: is-bond,
+            index: index,
         })
     )
 )
 
 (define-read-only (get-signer-shares-staked-for-cycle
         (signer principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (default-to u0
         (map-get? signer-shares-staked-for-cycle {
-            index: index,
             is-bond: is-bond,
+            index: index,
             signer: signer,
         })
     )
@@ -2309,8 +2284,8 @@
 ;; Get the amount of shares staked for a given staker in a certain cycle.
 (define-read-only (get-staker-shares-staked-for-cycle
         (staker principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
         (signer principal)
     )
     (default-to u0
@@ -2323,30 +2298,30 @@
     )
 )
 
-(define-read-only (get-signer-rewards-per-token-paid-for-cycle
+(define-read-only (get-signer-rewards-per-token-settled-for-cycle
         (signer principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (default-to u0
-        (map-get? signer-rewards-per-token-paid-for-cycle {
+        (map-get? signer-rewards-per-token-settled-for-cycle {
             signer: signer,
-            index: index,
             is-bond: is-bond,
+            index: index,
         })
     )
 )
 
-(define-read-only (get-signer-pending-rewards-for-cycle
+(define-read-only (get-signer-unclaimed-rewards-for-cycle
         (signer principal)
-        (index uint)
         (is-bond bool)
+        (index uint)
     )
     (default-to u0
-        (map-get? signer-pending-rewards-for-cycle {
+        (map-get? signer-unclaimed-rewards-for-cycle {
             signer: signer,
-            index: index,
             is-bond: is-bond,
+            index: index,
         })
     )
 )
@@ -2406,6 +2381,10 @@
     (- (bond-period-to-burn-height (+ bond-index u6))
         (/ (var-get pox-reward-cycle-length) u2)
     )
+)
+
+(define-read-only (get-first-pox-5-reward-cycle)
+    (var-get first-pox-5-reward-cycle)
 )
 
 ;;; Contract caller allowances
@@ -2659,7 +2638,7 @@
     )
 )
 
-;;;; Clarity-Bitcoin helpers
+;;; Clarity-Bitcoin helpers
 
 ;; Parse a Bitcoin block header.
 ;; Returns a tuple structured as folowed on success:
@@ -2766,17 +2745,12 @@
 
 ;; Verify that a block header hashes to a burnchain header hash at a given height.
 ;; Returns true if so; false if not.
-;;
-;; TODO: remove the `is-in-mainnet` check, instead use proper mocks
 (define-read-only (verify-block-header
         (headerbuff (buff 80))
         (expected-block-height uint)
     )
     (match (get-burn-block-info? header-hash expected-block-height)
-        bhh (if is-in-mainnet
-            (is-eq bhh (reverse-buff32 (sha256 (sha256 headerbuff))))
-            true
-        )
+        bhh (is-eq bhh (reverse-buff32 (sha256 (sha256 headerbuff))))
         false
     )
 )
@@ -2787,47 +2761,29 @@
     (sha256 (sha256 tx))
 )
 
-;; TODO: replace with clarity built-ins
-(define-private (verify-merkle-proof
-        ;; #[allow(unused_binding)]
-        (leaf-hash (buff 32))
-        ;; #[allow(unused_binding)]
-        (root-hash (buff 32))
-        ;; #[allow(unused_binding)]
-        (tx-index uint)
-        ;; #[allow(unused_binding)]
-        (tx-count uint)
-        ;; #[allow(unused_binding)]
-        (leaf-hashes (list 14 (buff 32)))
-    )
-    true
-)
-
-;; TODO: replace with clarity built-ins
-(define-private (get-bitcoin-tx-output?
-        (tx-bytes (buff 100000))
-        ;; #[allow(unused_binding)]
-        (output-index uint)
-        ;; TODO: remove when built-in exists
-        ;; #[allow(unused_binding)]
-        (amount uint)
-        ;; TODO: remove when built-in exists
-        ;; #[allow(unused_binding)]
-        (script (buff 34))
-    )
-    (if true
-        (ok {
-            amount: amount,
-            script: script,
-            txid: (get-reversed-txid tx-bytes),
-        })
-        (err u1) ;; indeterminate type otherwise
-    )
-)
-
 ;;; Lock script helpers
 
-;; Contruct an L1 lockup script
+;; Contruct an L1 lockup script.
+;;
+;; `unlock-bytes` and `early-unlock-bytes` are caller-supplied Bitcoin
+;; Script *subscripts*. `unlock-bytes` should be a subscript that validates the
+;; signature of the staker (e.g., `<pubkey> OP_CHECKSIG` or an M-of-N
+;; `CHECKMULTISIG` template). It MUST leave a valid result on the stack.
+;; `early-unlock-bytes` should be a subscript that validates the signature of
+;; the early unlock admin and MUST NOT leave anything on the stack (e.g.
+;; `<pubkey> OP_CHECKSIGVERIFY`, or an M-of-N `CHECKMULTISIGVERIFY` template).
+;;
+;; The constructed script has this structure:
+;; ```
+;; <staker> OP_DROP
+;; OP_IF
+;;     <unlock-burn-height> OP_CHECKLOCKTIMEVERIFY OP_DROP
+;;     <unlock-bytes>
+;; OP_ELSE
+;;     <early-unlock-bytes>
+;;     <unlock-bytes>
+;; OP_ENDIF
+;; ```
 (define-read-only (construct-lockup-script
         (staker principal)
         (unlock-burn-height uint)
@@ -2838,10 +2794,10 @@
         (concat 0x7563 ;; OP_DROP, OP_IF
             (concat (push-c-script-num unlock-burn-height)
                 (concat 0xb175 ;; OP_CHECKLOCKTIMEVERIFY, OP_DROP
-                    (concat (push-script-bytes unlock-bytes)
+                    (concat unlock-bytes
                         (concat 0x67 ;; OP_ELSE
-                            (concat (push-script-bytes early-unlock-bytes)
-                                (concat (push-script-bytes unlock-bytes) 0x68
+                            (concat early-unlock-bytes
+                                (concat unlock-bytes 0x68
                                     ;; OP_ENDIF
                                 ))
                         ))
@@ -2864,17 +2820,24 @@
 )
 
 ;; Convert a u8 or u16 to a little-endian byte buffer,
-;; ONLY FOR n < 0xffff
+;; ONLY FOR n <= 0xffff (or it will panic).
 (define-read-only (uint-to-buff-le (n uint))
-    (unwrap-panic (as-max-len?
-        (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? n))
+    (let (
+            (bounds-check_ (unwrap-panic (if (<= n u65535)
+                (some true)
+                none
+            )))
+            (bytes (unwrap-panic (to-consensus-buff? n)))
+            (lsb (unwrap-panic (slice? bytes u16 u17)))
+        )
+        (unwrap-panic (as-max-len?
             (if (< n u256)
-                u16
-                u17
-            ) u17
+                lsb
+                (concat lsb (unwrap-panic (slice? bytes u15 u16)))
+            )
+            u2
         ))
-        u2
-    ))
+    )
 )
 
 ;; Construct the correct script for pushing bytes into a Bitcoin script.

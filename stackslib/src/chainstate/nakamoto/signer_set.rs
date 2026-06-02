@@ -50,6 +50,17 @@ pub const SBTC_TOKEN_MAINNET_CONTRACT: &str =
 /// field in the node config file.
 pub const SBTC_TOKEN_TESTNET_CONTRACT: &str = "SN69P7RZRKK8ERQCCABHT2JWKB2S4DHH9H74231T.sbtc-token";
 
+/// The default mainnet sBTC registry contract.
+pub const SBTC_REGISTRY_MAINNET_CONTRACT: &str =
+    "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry";
+
+/// The default testnet sBTC registry contract.
+/// Used as the default on any testnet unless overridden via
+/// [`set_pox_5_sbtc_registry_contract`], typically via the
+/// `pox_5_sbtc_registry_contract` field in the node config file.
+pub const SBTC_REGISTRY_TESTNET_CONTRACT: &str =
+    "SN69P7RZRKK8ERQCCABHT2JWKB2S4DHH9H74231T.sbtc-registry";
+
 pub static SBTC_TOKEN_MAINNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
     LazyLock::new(|| {
         QualifiedContractIdentifier::parse(SBTC_TOKEN_MAINNET_CONTRACT)
@@ -62,20 +73,28 @@ pub static SBTC_TOKEN_TESTNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier>
             .expect("Invalid default mainnet sBTC contract ID")
     });
 
+pub static SBTC_REGISTRY_MAINNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| {
+        QualifiedContractIdentifier::parse(SBTC_REGISTRY_MAINNET_CONTRACT)
+            .expect("Invalid default mainnet sBTC registry contract ID")
+    });
+
+pub static SBTC_REGISTRY_TESTNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| {
+        QualifiedContractIdentifier::parse(SBTC_REGISTRY_TESTNET_CONTRACT)
+            .expect("Invalid default testnet sBTC registry contract ID")
+    });
+
 /// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
-/// references. Read in two places:
-///   * `make_pox_5_body` rewrites the canonical mainnet sBTC literal in the
-///     contract source so pox-5's `(contract-call? ... get-balance ...)`
-///     hits this contract.
-///   * signer-set computation reads `get-current-aggregate-pubkey` from this
-///     contract to derive the per-cycle sBTC waterfall recipient.
+/// references. `make_pox_5_body` rewrites the canonical mainnet sBTC token
+/// literal in the contract source so pox-5's
+/// `(contract-call? ... get-balance ...)` hits this contract.
 ///
-/// Set once at node startup from `NodeConfig::pox_5_sbtc_contract`. Goes away
-/// when PoX-5 routing is wired and the aggregate pubkey lives on-chain.
+/// Set once at node startup from `NodeConfig::pox_5_sbtc_contract`.
 static POX_5_SBTC_CONTRACT: RwLock<Option<QualifiedContractIdentifier>> = RwLock::new(None);
 
-/// Set the configured PoX-5 sBTC contract id. Call once during node startup
-/// from the run-loop, with the value parsed out of `NodeConfig`.
+/// Set the configured PoX-5 sBTC token contract id. Call once during node
+/// startup from the run-loop, with the value parsed out of `NodeConfig`.
 pub fn set_pox_5_sbtc_contract(contract_id: Option<QualifiedContractIdentifier>) {
     *POX_5_SBTC_CONTRACT.write().unwrap() = contract_id;
 }
@@ -89,6 +108,33 @@ pub fn pox_5_sbtc_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
         contract_id
     } else {
         SBTC_TOKEN_TESTNET_CONTRACT_ID.clone()
+    }
+}
+
+/// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that signer-set
+/// computation reads `get-current-aggregate-pubkey` from to derive the
+/// per-cycle sBTC waterfall recipient. Not substituted into the pox-5
+/// contract body; only read by `pox_5_make_signer_set`.
+///
+/// Set once at node startup from `NodeConfig::pox_5_sbtc_registry_contract`.
+static POX_5_SBTC_REGISTRY_CONTRACT: RwLock<Option<QualifiedContractIdentifier>> =
+    RwLock::new(None);
+
+/// Set the configured PoX-5 sBTC registry contract id. Call once during node
+/// startup from the run-loop, with the value parsed out of `NodeConfig`.
+pub fn set_pox_5_sbtc_registry_contract(contract_id: Option<QualifiedContractIdentifier>) {
+    *POX_5_SBTC_REGISTRY_CONTRACT.write().unwrap() = contract_id;
+}
+
+pub fn pox_5_sbtc_registry_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
+    if is_mainnet {
+        return SBTC_REGISTRY_MAINNET_CONTRACT_ID.clone();
+    }
+    let contract_id = POX_5_SBTC_REGISTRY_CONTRACT.read().unwrap().clone();
+    if let Some(contract_id) = contract_id {
+        contract_id
+    } else {
+        SBTC_REGISTRY_TESTNET_CONTRACT_ID.clone()
     }
 }
 
@@ -141,6 +187,12 @@ pub struct AggregateKeyVoteParams {
     pub aggregate_key: Vec<u8>,
     pub voting_round: u64,
     pub reward_cycle: u64,
+}
+
+#[derive(Debug)]
+pub(crate) struct Pox5SignerSetOutput {
+    pub(crate) signer_set: Vec<NakamotoSignerEntry>,
+    pub(crate) pox_ustx_threshold: u128,
 }
 
 impl RawRewardSetEntry {
@@ -653,7 +705,10 @@ impl NakamotoSigners {
 
         // Build the `(signer_key, amount_ustx)` pair stream
         let mut entries = Self::pox_5_stake_entries(clarity, reward_cycle, pox_contract)?;
-        let signer_set = Self::pox_5_make_signer_set(&mut entries, pox_constants)?;
+        let Pox5SignerSetOutput {
+            signer_set,
+            pox_ustx_threshold,
+        } = Self::pox_5_make_signer_set(&mut entries, pox_constants)?;
 
         let events = Self::update_signers(
             clarity,
@@ -665,10 +720,14 @@ impl NakamotoSigners {
             is_mainnet,
         )?;
 
-        let sbtc_contract_id = pox_5_sbtc_contract(is_mainnet);
+        let sbtc_registry_contract_id = pox_5_sbtc_registry_contract(is_mainnet);
 
         let pubkey_buff = clarity
-            .eval_method_read_only(&sbtc_contract_id, "get-current-aggregate-pubkey", &[])?
+            .eval_method_read_only(
+                &sbtc_registry_contract_id,
+                "get-current-aggregate-pubkey",
+                &[],
+            )?
             .expect_buff(33)
             .map_err(|_| {
                 ChainstateError::Expects(
@@ -699,6 +758,7 @@ impl NakamotoSigners {
             reward_set: RewardSet::Waterfall(WaterfallCycleSet {
                 sbtc_address,
                 signers: signer_set,
+                pox_ustx_threshold,
             }),
             events,
         })
@@ -707,7 +767,7 @@ impl NakamotoSigners {
     pub(crate) fn pox_5_make_signer_set<I>(
         entries: &mut I,
         pox_constants: &PoxConstants,
-    ) -> Result<Vec<NakamotoSignerEntry>, ChainstateError>
+    ) -> Result<Pox5SignerSetOutput, ChainstateError>
     where
         I: Iterator<Item = Result<RawPox5Entry, PoxEntryParsingError>>,
     {
@@ -768,7 +828,10 @@ impl NakamotoSigners {
         //  on a consensus-critical ordering of the signer set.
         signer_set.sort_by_key(|entry| entry.signing_key);
 
-        Ok(signer_set)
+        Ok(Pox5SignerSetOutput {
+            signer_set,
+            pox_ustx_threshold: threshold,
+        })
     }
 
     /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If

@@ -544,6 +544,10 @@ pub enum RuntimeCheckErrorKind {
     /// Memory usage during type-checking exceeds the allocated budget.
     /// The first `u64` represents the total consumed memory, and the second represents the memory limit.
     MemoryBalanceExceeded(u64, u64),
+    /// Temporary guard for oversized `restrict-assets?` allowance payloads.
+    /// The first `u64` represents the tracked execution-memory total and the second the guard limit.
+    /// TODO(epoch-3.5): remove this special case and make `MemoryBalanceExceeded` rejectable instead.
+    RestrictAssetsMemoryExceeded(u64, u64),
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
@@ -560,6 +564,11 @@ pub enum RuntimeCheckErrorKind {
 
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     Unreachable(String),
+
+    /// Execution was deliberately aborted by the per-`eval` abort callback.
+    /// (e.g., by the memory limit enforcement in block proposal validation or
+    ///  miner block assembly)
+    AbortedByExecutionHook(String),
 
     // List typing errors
     /// List elements have mismatched types, violating type consistency.
@@ -662,10 +671,13 @@ pub struct StaticCheckError {
 
 impl RuntimeCheckErrorKind {
     /// This check indicates that the transaction should be rejected.
-    /// Currently identical to `is_unreachable()` since `Unreachable` is the only
-    /// rejectable variant, but they answer different questions and may diverge.
     pub fn rejectable(&self) -> bool {
-        matches!(self, RuntimeCheckErrorKind::Unreachable(_))
+        matches!(
+            self,
+            RuntimeCheckErrorKind::Unreachable(_)
+                | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
+                | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
+        )
     }
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.
@@ -1106,6 +1118,23 @@ pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), Com
     } else {
         Ok(())
     }
+}
+
+/// Check if the supplied arguments are exactly N in length, and if so, return
+///  a fixed array with pointers to the arguments. Otherwise, return an IncorrectArgumentCount
+pub fn get_arguments_exact<T, const N: usize>(args: &[T]) -> Result<&[T; N], CommonCheckErrorKind> {
+    args.try_into()
+        .map_err(|_| CommonCheckErrorKind::IncorrectArgumentCount(N, args.len()))
+}
+
+/// Check if the supplied arguments are at least N in length, and if so, return
+///  a fixed array of size N with pointers to the arguments and a slice with the excess.
+/// Otherwise, return an IncorrectArgumentCount
+pub fn get_arguments_at_least<T, const N: usize>(
+    args: &[T],
+) -> Result<(&[T; N], &[T]), CommonCheckErrorKind> {
+    args.split_first_chunk::<N>()
+        .ok_or_else(|| CommonCheckErrorKind::RequiresAtLeastArguments(N, args.len()))
 }
 
 fn formatted_expected_types(expected_types: &[TypeSignature]) -> String {

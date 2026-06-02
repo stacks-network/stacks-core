@@ -1,3 +1,4 @@
+use clarity_types::types::MAX_VALUE_SIZE;
 // Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -13,15 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use pinny::tag;
+use proptest::collection::vec;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::{Sha256Sum, to_hex};
-use stacks_common::util::secp256k1::MessageSignature as Secp256k1Signature;
+use stacks_common::types::{PrivateKey, PublicKey, StacksEpochId};
+use stacks_common::util::ed25519::{self, Ed25519PrivateKey, Ed25519PublicKey, MessageSignature};
+use stacks_common::util::hash::{Sha256Sum, hex_bytes, to_hex};
+use stacks_common::util::secp256k1::{
+    MessageSignature as Secp256k1Signature, Secp256k1PrivateKey, Secp256k1PublicKey,
+};
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
 
 use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
-use crate::vm::types::{ResponseData, TypeSignature, Value};
+use crate::vm::types::{BuffData, ResponseData, SequenceData, TypeSignature, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
 struct NistVector {
@@ -736,6 +741,435 @@ fn test_secp256k1_recover_invalid_signature_returns_err_code() {
     }
 }
 
+#[test]
+fn test_ed25519_verify_valid_signature_returns_true() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let signature = sk.sign(message).unwrap();
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&signature.to_bytes()),
+        buff_literal(&pk.to_bytes())
+    );
+
+    assert_eq!(
+        Value::Bool(true),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
+fn test_ed25519_verify_rfc_test_vectors_returns_true() {
+    let test_vectors = |public_key, message, signature| {
+        let program = format!(
+            "(ed25519-verify {} {} {})",
+            buff_literal(&hex_bytes(message).unwrap()),
+            buff_literal(&hex_bytes(signature).unwrap()),
+            buff_literal(&hex_bytes(public_key).unwrap())
+        );
+
+        assert_eq!(
+            Value::Bool(true),
+            execute_with_parameters(
+                program.as_str(),
+                ClarityVersion::latest(),
+                StacksEpochId::latest(),
+                false
+            )
+            .expect("execution should succeed")
+            .expect("should return a value")
+        );
+    };
+
+    test_vectors(
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "",
+        "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+    );
+
+    test_vectors(
+        "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "72",
+        "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+    );
+
+    test_vectors(
+        "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "af82",
+        "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a",
+    );
+
+    test_vectors(
+        "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e",
+        "08b8b2b733424243760fe426a4b54908632110a66c2f6591eabd3345e3e4eb98fa6e264bf09efe12ee50f8f54e9f77b1e355f6c50544e23fb1433ddf73be84d879de7c0046dc4996d9e773f4bc9efe5738829adb26c81b37c93a1b270b20329d658675fc6ea534e0810a4432826bf58c941efb65d57a338bbd2e26640f89ffbc1a858efcb8550ee3a5e1998bd177e93a7363c344fe6b199ee5d02e82d522c4feba15452f80288a821a579116ec6dad2b3b310da903401aa62100ab5d1a36553e06203b33890cc9b832f79ef80560ccb9a39ce767967ed628c6ad573cb116dbefefd75499da96bd68a8a97b928a8bbc103b6621fcde2beca1231d206be6cd9ec7aff6f6c94fcd7204ed3455c68c83f4a41da4af2b74ef5c53f1d8ac70bdcb7ed185ce81bd84359d44254d95629e9855a94a7c1958d1f8ada5d0532ed8a5aa3fb2d17ba70eb6248e594e1a2297acbbb39d502f1a8c6eb6f1ce22b3de1a1f40cc24554119a831a9aad6079cad88425de6bde1a9187ebb6092cf67bf2b13fd65f27088d78b7e883c8759d2c4f5c65adb7553878ad575f9fad878e80a0c9ba63bcbcc2732e69485bbc9c90bfbd62481d9089beccf80cfe2df16a2cf65bd92dd597b0707e0917af48bbb75fed413d238f5555a7a569d80c3414a8d0859dc65a46128bab27af87a71314f318c782b23ebfe808b82b0ce26401d2e22f04d83d1255dc51addd3b75a2b1ae0784504df543af8969be3ea7082ff7fc9888c144da2af58429ec96031dbcad3dad9af0dcbaaaf268cb8fcffead94f3c7ca495e056a9b47acdb751fb73e666c6c655ade8297297d07ad1ba5e43f1bca32301651339e22904cc8c42f58c30c04aafdb038dda0847dd988dcda6f3bfd15c4b4c4525004aa06eeff8ca61783aacec57fb3d1f92b0fe2fd1a85f6724517b65e614ad6808d6f6ee34dff7310fdc82aebfd904b01e1dc54b2927094b2db68d6f903b68401adebf5a7e08d78ff4ef5d63653a65040cf9bfd4aca7984a74d37145986780fc0b16ac451649de6188a7dbdf191f64b5fc5e2ab47b57f7f7276cd419c17a3ca8e1b939ae49e488acba6b965610b5480109c8b17b80e1b7b750dfc7598d5d5011fd2dcc5600a32ef5b52a1ecc820e308aa342721aac0943bf6686b64b2579376504ccc493d97e6aed3fb0f9cd71a43dd497f01f17c0e2cb3797aa2a2f256656168e6c496afc5fb93246f6b1116398a346f1a641f3b041e989f7914f90cc2c7fff357876e506b50d334ba77c225bc307ba537152f3f1610e4eafe595f6d9d90d11faa933a15ef1369546868a7f3a45a96768d40fd9d03412c091c6315cf4fde7cb68606937380db2eaaa707b4c4185c32eddcdd306705e4dc1ffc872eeee475a64dfac86aba41c0618983f8741c5ef68d3a101e8a3b8cac60c905c15fc910840b94c00a0b9d0",
+        "0aab4c900501b3e24d7cdf4663326a3a87df5e4843b2cbdb67cbf6e460fec350aa5371b1508f9f4528ecea23c436d94b5e8fcd4f681e30a6ac00a9704a188a03",
+    );
+}
+
+#[test]
+fn test_ed25519_verify_empty_signature_returns_err() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&[]),
+        buff_literal(&pk.to_bytes())
+    );
+
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_64);
+        }
+        _ => panic!("expected BUFFER_64 type error, found {err:?}"),
+    }
+}
+
+#[test]
+fn test_ed25519_verify_short_signature_returns_false() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&[0u8; 4]),
+        buff_literal(&pk.to_bytes())
+    );
+
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_64);
+        }
+        _ => panic!("expected BUFFER_64 type error, found {err:?}"),
+    }
+}
+
+#[test]
+fn test_ed25519_verify_zero_signature_returns_false() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let signature = MessageSignature::empty();
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&signature.to_bytes()),
+        buff_literal(&pk.to_bytes())
+    );
+
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
+fn test_ed25519_verify_invalid_signature_returns_false() {
+    let sk = Ed25519PrivateKey::random();
+    let pk = Ed25519PublicKey::from_private(&sk);
+
+    let message = b"Hello World";
+
+    let signature = MessageSignature::from_raw(&[1u8; 64]);
+
+    let program = format!(
+        "(ed25519-verify {} {} {})",
+        buff_literal(message),
+        buff_literal(&signature.to_bytes()),
+        buff_literal(&pk.to_bytes())
+    );
+
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
+fn test_secp256k1_decompress_returns_expected_public_key() {
+    let mut sk = StacksPrivateKey::random();
+    sk.set_compress_public(true);
+    let pk_compressed = StacksPublicKey::from_private(&sk);
+    sk.set_compress_public(false);
+    let pk_uncompressed = StacksPublicKey::from_private(&sk);
+
+    let program = format!(
+        "(secp256k1-decompress? {})",
+        buff_literal(&pk_compressed.to_bytes_compressed())
+    );
+
+    match execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .expect("execution should succeed")
+    .expect("should return a value")
+    {
+        Value::Response(ResponseData { data, .. }) => {
+            assert_eq!(
+                data,
+                Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+                    data: pk_uncompressed.to_bytes(),
+                })))
+            );
+        }
+        other => panic!("expected ok response, found {other:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_returns_err_on_invalid_public_key() {
+    let program = format!("(secp256k1-decompress? {})", buff_literal(&[0x00; 33]));
+
+    match execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .expect("execution should succeed")
+    .expect("should return a value")
+    {
+        Value::Response(ResponseData { data, .. }) => {
+            assert_eq!(data, Box::new(Value::UInt(1)));
+        }
+        other => panic!("expected err response, found {other:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_returns_err_on_shorter_public_key() {
+    let program = format!("(secp256k1-decompress? {})", buff_literal(&[0x00; 32]));
+
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_33);
+        }
+        _ => panic!("expected BUFFER_33 type error, found {err:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_returns_err_on_longer_public_key() {
+    let program = format!("(secp256k1-decompress? {})", buff_literal(&[0x00; 34]));
+
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_33);
+        }
+        _ => panic!("expected BUFFER_33 type error, found {err:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_derive_ethereum_address() {
+    let compressed_pubkey = Secp256k1PublicKey::from_hex(
+        "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    )
+    .unwrap();
+    let program = format!(
+        "(unwrap-panic (slice? (keccak256 (unwrap-panic (slice? (unwrap-panic (secp256k1-decompress? {})) u1 u65))) u12 u32))",
+        buff_literal(&compressed_pubkey.to_bytes_compressed())
+    );
+
+    match execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        false,
+    )
+    .expect("execution should succeed")
+    .expect("should return a value")
+    {
+        Value::Sequence(SequenceData::Buffer(BuffData { data, .. })) => {
+            assert_eq!(
+                data,
+                hex_bytes("7E5F4552091A69125D5DFCB7B8C2659029395BDF").unwrap()
+            );
+        }
+        other => panic!("expected ok response, found {other:?}"),
+    }
+}
+
+#[test]
+fn test_secp256k1_decompress_with_wormhole_test_pubkeys() {
+    let wormhole_keys: Vec<(&str, &str)> = vec![
+        (
+            "049a1e801daa25d9808e70aae9981353086f958955cc94ef33a461b0e596feaef90a8474dd10cf6ae967143f86105c16d6304a3d268ea952fda9389139d4bb9da1",
+            "5893b5a76c3f739645648885bdccc06cd70a3cd3",
+        ),
+        (
+            "042766db08820e311b22e109801ab8ea505b12e3df3d91ebc87c999ffb6929d1abb0ade987c74aa37db26eea4086ee738a2f34a5594edb8760da0eac5be356b731",
+            "ff6cb952589bde862c25ef4392132fb9d4a42157",
+        ),
+        (
+            "0454177ff4a8329520b76efd86f8bfce5c942554db16e673267dc1133b3f5e230b2d8cbf90fe274946045d4491de288d736680edc2ee9ee5b1b15416b0a34806c4",
+            "114de8460193bdf3a2fcf81f86a09765f4762fd1",
+        ),
+        (
+            "047fa3e98fcc2621337b217b61408a98facaabd25bad2b158438728ce863c14708cfcda1f3b50a16ca0211199079fb338d479a54546ec3c5f775af23a7d7f4fb24",
+            "107a0086b32d7a0977926a205131d8731d39cbeb",
+        ),
+        (
+            "040bdcbccc0297c2a4f92a7c39358c42f22a8ed700a78bd05c39c8b61aaf2338e825b6c0d26d1f2a2ae4129cd751201f73d7234c753bd0735212a5288b19748fd2",
+            "8c82b2fd82faed2711d59af0f2499d16e726f6b2",
+        ),
+        (
+            "040a872a7c2cfb93710baee3c1a91e7e3050c5a1a04a02873133b456c24f25d88b861a21afb9cbfc55be9608356b7cd2a7db8eddd86190206ae6147e47e601a625",
+            "42579bffbcf4276e290ab8e4c162bd4052b97970",
+        ),
+        (
+            "04b1afbe24acb53ac1306f3bdde910f554e06d374efee41598fbd403557c3114b5af6d363bfbd78af16a258844041e04f6dfe67fe62f305e6097c6ece48ccc92c4",
+            "938f104aeb5581293216ce97d771e0cb721221b1",
+        ),
+        (
+            "0467d211cc0c1324606495d10100d3b629d5d4d83dca1e15b9842bad4b7b1d38db29cc9e0c41e0886232998333efa34b943b32a8fc588b1ab2be4c92348808ef7d",
+            "18e41674ccf26329cd111406c1d05c6c80b23edc",
+        ),
+        (
+            "04838aba2428289fe2b798e32db1396a856c0d0c671d9b1f5a55fc0e8eb072de8c757ff6a79699d1a76df64c2ca1758a4f2c4872d2720f4332cea6dcf678f2bef3",
+            "9d16870160e703324d057c3361c34c5befba2c34",
+        ),
+        (
+            "04d9fa78b5b958bea1929080b8ad96dc555d34b051a27aebf711eb1186b807b0448316d994606ac807121838d6c41a58f308bc6307acdf69491fa4b17282f3e66f",
+            "000ac0076727b35fbea2dac28fee5ccb0fea768e",
+        ),
+        (
+            "04cc64af75ec2e2741fb9af9f6191cb9ee187d6d26af4d1e96d7bab47e6ec09be12d3192030dc4bbf54d1da319a7a2acfc7a9dd4c644af6646a4aaa02b1024bbab",
+            "af45ced136b9d9e24903464ae889f5c8a723fc14",
+        ),
+        (
+            "04b5943b6e284682ad2e011d6962d41febf86af2f5fc0c9c8f4b81358ff077f9c96ba0880eaf93541eae94b4fa41dba66dab7fb0201cc9af7c75681e5719b0c95f",
+            "f93124b7c738843cbb89e864c862c38cddcccf95",
+        ),
+        (
+            "040cfc9d5b5dcf702a1525f9d4ed1841e8eb8b34434cc82470dd35435f1dbdc73ffb51544b7500394eac9c7fa567868b495326075147a2d809ebbfd43273eeec91",
+            "d2cc37a4dc036a8d232b48f62cdd4731412f4890",
+        ),
+        (
+            "040aa78894d894a15933969f5826347439e2c309f2049277a10066c9197840499498ad19ee3d1b291f932ec0890bbdafcec292c4f02a446670cd0084f997e25e2f",
+            "da798f6896a3331f64b48c12d1d57fd9cbe70811",
+        ),
+        (
+            "049caaefc70b0491eca9782cbba710d93cdf5cf7e28c892621a867ab08b684ed5ab4ea5cd8f3e14724a94b146e8ab0bc07d72b5295593248eb6f33ae0f2865eb29",
+            "d1f64e26238811de5553c40f64af41ee1b6057cc",
+        ),
+        (
+            "04cc8705b669a9c20e44e3c3a646f3235851cb199c7b2423555a59118bd976c64a1aaead56499c52fb92515e26032a52a9edf7c668acec1af7e2d4fe3266a65ebb",
+            "3f851ad586a47cef8d04748f33ab0d71395f06b4",
+        ),
+        (
+            "044881345cbb299fa7c60ab2d16cb7fe7bf8d14675506ef6eb6037038b5b7092ea0a9e4d0b53ba3904edd99f86717d6ba81dffe44eb5b23c6fd22c91ab73c33021",
+            "178e21ad2e77ae06711549cfbb1f9c7a9d8096e8",
+        ),
+        (
+            "04fe7e6f982e4f74234e7ed3b49ce96b7dd7cf838a4cae13d9c25c67a38eec75a7c03bf6072f712c88935f128d1e5e9c7515c1f894f59a7f6c839ad1829ab0adac",
+            "7899ceab1dc961dae9defdb7a4f521269a5448fc",
+        ),
+        (
+            "0421f338444e96af31cf44958acf5764844efbddace3b823ed761c340c59ed2685d829818c83eebe8f00f783f1048a53515845536668a9e0c059ade7579a0f4204",
+            "6fbebc898f403e4773e95feb15e80c9a99c8348d",
+        ),
+    ];
+
+    for (pubkey, ethereum_address) in wormhole_keys {
+        let mut uncompressed_pubkey = Secp256k1PublicKey::from_hex(pubkey).unwrap();
+        uncompressed_pubkey.set_compressed(true);
+        let program: String = format!(
+            "(unwrap-panic (slice? (keccak256 (unwrap-panic (slice? (unwrap-panic (secp256k1-decompress? {})) u1 u65))) u12 u32))",
+            buff_literal(&uncompressed_pubkey.to_bytes_compressed())
+        );
+
+        match execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+        {
+            Value::Sequence(SequenceData::Buffer(BuffData { data, .. })) => {
+                assert_eq!(data, hex_bytes(ethereum_address).unwrap());
+            }
+            other => panic!("expected ok response, found {other:?}"),
+        }
+    }
+}
+
 proptest! {
     #[tag(t_prop)]
     #[test]
@@ -1060,5 +1494,414 @@ proptest! {
         .expect("should return a value");
 
         prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    // Clarity5 sign_digest roundtrip. Checks both the crypto primitive and the
+    // VM to catch marshalling bugs.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256r1_clarity5_digest_roundtrip(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature = privk.sign_digest(&message).unwrap();
+
+        let primitive_ok =
+            pubk.verify_digest(&message, &signature).is_ok();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let vm_ok = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap() == Value::Bool(true);
+
+        prop_assert!(primitive_ok);
+        prop_assert!(vm_ok);
+        prop_assert_eq!(primitive_ok, vm_ok,
+            "primitive and VM diverged");
+    }
+
+    // Clarity5 uses verify_digest (prehash), so a double-hash signature from
+    // sign() must fail. Both primitive and VM must agree on rejection.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256r1_clarity5_rejects_double_hash(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature = privk.sign(&message).unwrap();
+
+        let primitive_rejected =
+            pubk.verify_digest(&message, &signature).is_err();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let vm_rejected = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap() == Value::Bool(false);
+
+        prop_assert!(primitive_rejected);
+        prop_assert!(vm_rejected);
+        prop_assert_eq!(primitive_rejected, vm_rejected,
+            "primitive and VM diverged");
+    }
+
+    // Clarity4 double-hashes, so a sign_digest() signature must not verify.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256r1_clarity4_rejects_single_hash(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature = privk.sign_digest(&message).unwrap();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    // ClarityVersion governs hashing, not epoch. A Clarity4 contract in
+    // Epoch34 must still double-hash.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256r1_clarity4_epoch34_double_hash(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+
+        // sign() double-hashes and must verify.
+        let dh_sig = privk.sign(&message).unwrap();
+        let dh_prog = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&dh_sig.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let dh_result = execute_with_parameters(
+            &dh_prog,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        prop_assert_eq!(Value::Bool(true), dh_result);
+
+        // sign_digest() single-hashes and must fail.
+        let sh_sig = privk.sign_digest(&message).unwrap();
+        let sh_prog = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&sh_sig.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let sh_result = execute_with_parameters(
+            &sh_prog,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        prop_assert_eq!(Value::Bool(false), sh_result);
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256r1_clarity5_tampered_msg(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>(),
+        byte_idx in 0usize..32
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let mut message = message.to_vec();
+        let signature = privk.sign_digest(&message).unwrap();
+
+        message[byte_idx] ^= 0x01;
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256r1_clarity5_wrong_key(
+        seed_a in any::<[u8; 32]>(),
+        seed_b in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        prop_assume!(seed_a != seed_b);
+
+        let priv_a = Secp256r1PrivateKey::from_seed(&seed_a);
+        let pub_b = Secp256r1PublicKey::from_private(
+            &Secp256r1PrivateKey::from_seed(&seed_b),
+        );
+        let pub_b_bytes = pub_b.to_bytes_compressed();
+
+        let message = message.to_vec();
+        let signature =
+            priv_a.sign_digest(&message).unwrap();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pub_b_bytes)
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256r1_clarity5_malformed_pubkey(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>(),
+        fake_pubkey in any::<[u8; 33]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let message = message.to_vec();
+        let signature = privk.sign_digest(&message).unwrap();
+
+        let fake_pubkey = fake_pubkey.to_vec();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&fake_pubkey)
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    // Random bytes, random lengths. Neither the primitive nor the VM may panic
+    // on any input shape.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256r1_clarity5_arbitrary_inputs(
+        msg_bytes in proptest::collection::vec(
+            any::<u8>(), 0..128),
+        sig_bytes in proptest::collection::vec(
+            any::<u8>(), 0..128),
+        pubkey_bytes in proptest::collection::vec(
+            any::<u8>(), 0..128),
+    ) {
+        let _ = stacks_common::util::secp256r1
+            ::secp256r1_verify_digest(
+                &msg_bytes, &sig_bytes, &pubkey_bytes,
+            );
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&msg_bytes),
+            buff_literal(&sig_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+        let _ = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        );
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_ed25519_verify_accepts_valid_signatures(
+        seed in any::<[u8; 32]>(),
+        message_bytes in vec(any::<u8>(), 0..MAX_VALUE_SIZE as usize)
+    ) {
+        let privk = Ed25519PrivateKey::from_seed(&seed);
+        let pubk = Ed25519PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes();
+
+        let signature: ed25519::MessageSignature = privk.sign(&message_bytes).expect("ed25519 signing should succeed");
+        let signature_bytes = signature.to_bytes();
+        let program = format!(
+            "(ed25519-verify {} {} {})",
+            buff_literal(&message_bytes),
+            buff_literal(&signature_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(true), result);
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_ed25519_verify_rejects_malleable_scalar_overflow_signatures(
+        seed in any::<[u8; 32]>(),
+        message_bytes in vec(any::<u8>(), 0..MAX_VALUE_SIZE as usize)
+    ) {
+        let privk = Ed25519PrivateKey::from_seed(&seed);
+        let pubk = Ed25519PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes();
+
+        // 1. Generate a valid signature (64 bytes total: [0..32] is R, [32..64] is S)
+        let signature = privk.sign(&message_bytes).expect("ed25519 signing should succeed");
+        let mut tampered_signature_bytes = signature.to_bytes();
+
+        // 2. Extract the canonical scalar S value
+        let mut s_bytes = [0u8; 32];
+        s_bytes.copy_from_slice(&tampered_signature_bytes[32..64]);
+
+        // 3. Define the Ed25519 Curve Group Order L in Little-Endian format
+        let curve_order_l = [
+            0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+            0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+        ];
+
+        // 4. Compute S' = S + L.
+        // We use modular/overflowing math because if S + L >= 2^256, it wraps around.
+        // However, it will still yield a value greater than or equal to L, ensuring an overflow condition.
+        let mut carry = 0u16;
+        for i in 0..32 {
+            let sum = s_bytes[i] as u16 + curve_order_l[i] as u16 + carry;
+            s_bytes[i] = (sum & 0xFF) as u8;
+            carry = sum >> 8;
+        }
+
+        // 5. Inject the mutated, non-canonical S' scalar back into the signature byte array
+        tampered_signature_bytes[32..64].copy_from_slice(&s_bytes);
+
+        let program = format!(
+            "(ed25519-verify {} {} {})",
+            buff_literal(&message_bytes),
+            buff_literal(&tampered_signature_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[tag(t_prop)]
+    #[test]
+    fn prop_secp256k1_decompress_matches_public_key(
+        seed in any::<[u8; 32]>(),
+    ) {
+        let mut privk = Secp256k1PrivateKey::from_seed(&seed);
+
+        privk.set_compress_public(true);
+        let pubkey_compressed_bytes = Secp256k1PublicKey::from_private(&privk).to_bytes_compressed();
+
+        privk.set_compress_public(false);
+        let pubkey_uncompressed_bytes = Secp256k1PublicKey::from_private(&privk).to_bytes();
+
+        let program = format!(
+            "(is-eq (unwrap! (secp256k1-decompress? {}) (err u1)) {})",
+            buff_literal(&pubkey_compressed_bytes),
+            buff_literal(&pubkey_uncompressed_bytes),
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(true), result);
     }
 }

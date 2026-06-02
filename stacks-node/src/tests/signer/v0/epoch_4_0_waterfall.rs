@@ -39,7 +39,7 @@ use stacks::util_lib::boot::boot_code_id;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BitcoinTransaction;
 use stacks_signer::v0::SpawnedSigner;
 
-use super::{pox5_staker_initial_balances, pox5_staker_keys, SignerTest};
+use super::SignerTest;
 use crate::tests::nakamoto_integrations::{enable_epoch_4_0, wait_for};
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
 use crate::tests::to_addr;
@@ -94,11 +94,8 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
     }
 
     let num_signers = 5;
-    let seed = "epoch_4_0_basic";
     let stake_amount: u128 = 100_000_000_000;
     let lock_cycles: u128 = 12;
-    let stakers = pox5_staker_keys(num_signers, seed);
-    let per_staker_balance: u64 = u64::try_from(stake_amount).unwrap() + 1_000_000;
 
     let agg_pubkey: [u8; 33] =
         Secp256k1PublicKey::from_private(&StacksPrivateKey::from_seed(b"epoch-4-0-waterfall-agg"))
@@ -108,18 +105,18 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
 
     let spender_sk = StacksPrivateKey::from_seed(b"epoch-4-0-waterfall-publisher");
     let spender_addr = to_addr(&spender_sk);
-    let contract_name = "agg-pubkey-stub";
-    let contract_id = QualifiedContractIdentifier::new(
+    let token_contract_name = "sbtc-token-stub";
+    let registry_contract_name = "sbtc-registry-stub";
+    let token_contract_id = QualifiedContractIdentifier::new(
         spender_addr.clone().into(),
-        ContractName::try_from(contract_name.to_string()).expect("valid contract name"),
+        ContractName::try_from(token_contract_name.to_string()).expect("valid contract name"),
+    );
+    let registry_contract_id = QualifiedContractIdentifier::new(
+        spender_addr.clone().into(),
+        ContractName::try_from(registry_contract_name.to_string()).expect("valid contract name"),
     );
 
-    let mut initial_balances = vec![(spender_addr, 1_000_000)];
-    initial_balances.extend(pox5_staker_initial_balances(
-        num_signers,
-        seed,
-        per_staker_balance,
-    ));
+    let initial_balances = vec![(spender_addr, 1_000_000)];
 
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
@@ -128,7 +125,8 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
             |_| {},
             |node_config| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
-                node_config.node.pox_5_sbtc_contract = Some(contract_id.clone());
+                node_config.node.pox_5_sbtc_contract = Some(token_contract_id.clone());
+                node_config.node.pox_5_sbtc_registry_contract = Some(registry_contract_id.clone());
                 enable_epoch_4_0(node_config);
             },
             None,
@@ -148,9 +146,9 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
     signer_test.boot_to_epoch_4_with_pox5_lockups(
         &spender_sk,
         0,
-        contract_name,
+        token_contract_name,
+        registry_contract_name,
         &agg_pubkey,
-        &stakers,
         stake_amount,
         lock_cycles,
     );

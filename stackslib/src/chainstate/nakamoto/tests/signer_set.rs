@@ -23,7 +23,7 @@ use proptest::{prop_assert, prop_assert_eq, prop_assume};
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::{
-    NakamotoSigners, PoxEntryParsingError, RawPox5Entry,
+    NakamotoSigners, Pox5SignerSetOutput, PoxEntryParsingError, RawPox5Entry,
 };
 use crate::chainstate::stacks::boot::SIGNERS_PK_LEN;
 use crate::chainstate::stacks::Error as ChainstateError;
@@ -90,8 +90,14 @@ fn check_make_signer_set(
     let threshold = std::cmp::max(1, total_ustx.div_ceil(reward_slots));
 
     let mut iter = entries.into_iter().map(Ok);
-    let signer_set = NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants)
+    let Pox5SignerSetOutput {
+        signer_set,
+        pox_ustx_threshold,
+    } = NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants)
         .map_err(|e| TestCaseError::fail(format!("pox_5_make_signer_set returned error: {e:?}")))?;
+
+    // The returned threshold must match the closed form used above.
+    prop_assert_eq!(pox_ustx_threshold, threshold);
 
     // (a) Output is sorted strictly ascending by signing_key
     //     (strict `<` also rules out duplicates).
@@ -205,14 +211,19 @@ fn single_entry() {
         amount_ustx: 1_000_000,
     }];
     let mut iter = entries.into_iter().map(Ok);
-    let signer_set = NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
+    let Pox5SignerSetOutput {
+        signer_set,
+        pox_ustx_threshold,
+    } = NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
     assert_eq!(signer_set.len(), 1);
     assert_eq!(signer_set[0].signing_key, signer_key(0x01));
     assert_eq!(signer_set[0].stacked_amt, 1_000_000);
-    // total == stacked → threshold == ceil(total/slots), weight == slots (since stacked == total).
+    // total == stacked, so threshold == ceil(total/slots) and weight == total / threshold.
     let total: u128 = 1_000_000;
-    let threshold = std::cmp::max(1, total.div_ceil(u128::from(pox_constants.reward_slots())));
-    assert_eq!(u128::from(signer_set[0].weight), total / threshold);
+    let expected_threshold =
+        std::cmp::max(1, total.div_ceil(u128::from(pox_constants.reward_slots())));
+    assert_eq!(pox_ustx_threshold, expected_threshold);
+    assert_eq!(u128::from(signer_set[0].weight), total / expected_threshold);
 }
 
 #[test]
@@ -230,7 +241,8 @@ fn duplicate_signer_keys_are_aggregated() {
         },
     ];
     let mut iter = entries.into_iter().map(Ok);
-    let signer_set = NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
+    let Pox5SignerSetOutput { signer_set, .. } =
+        NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
     assert_eq!(signer_set.len(), 1);
     assert_eq!(signer_set[0].signing_key, key);
     assert_eq!(signer_set[0].stacked_amt, 1_000_000);
@@ -254,7 +266,8 @@ fn weight_zero_entries_are_filtered() {
         },
     ];
     let mut iter = entries.into_iter().map(Ok);
-    let signer_set = NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
+    let Pox5SignerSetOutput { signer_set, .. } =
+        NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
     assert_eq!(signer_set.len(), 1);
     assert_eq!(signer_set[0].signing_key, big);
 }
@@ -276,7 +289,8 @@ fn skip_errors_drop_entry_but_continue() {
         }),
     ];
     let mut iter = entries.into_iter();
-    let signer_set = NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
+    let Pox5SignerSetOutput { signer_set, .. } =
+        NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
     let keys: Vec<_> = signer_set.iter().map(|e| e.signing_key).collect();
     assert_eq!(keys, vec![key_a, key_b]);
 }
