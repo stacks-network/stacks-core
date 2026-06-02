@@ -3194,13 +3194,19 @@ impl NakamotoChainState {
     /// in the single Bitcoin-anchored Stacks block they produce, as
     /// well as the microblock stream they append to it.  But in Nakamoto,
     /// the coinbase height and block height are decoupled.
+    ///
+    /// `tip` is the block at which the MARF lookup will be done; it must be a descendant of
+    /// `block` on the same fork. The coinbase-height mapping is written once per tenure and never
+    /// changes, so any such descendant yields the same value. Pass the canonical tip to keep the
+    /// read off blocks a squashed snapshot may have pruned.
     pub fn get_coinbase_height<SDBI: StacksDBIndexed>(
         chainstate_conn: &mut SDBI,
         block: &StacksBlockId,
+        tip: &StacksBlockId,
     ) -> Result<Option<u64>, ChainstateError> {
         // nakamoto header?
         if let Some(hdr) = Self::get_block_header_nakamoto(chainstate_conn.sqlite(), block)? {
-            return Ok(chainstate_conn.get_coinbase_height(block, &hdr.consensus_hash)?);
+            return Ok(chainstate_conn.get_coinbase_height(tip, &hdr.consensus_hash)?);
         }
 
         // epoch2 header
@@ -4673,8 +4679,8 @@ impl NakamotoChainState {
         let parent_coinbase_height = if block.is_first_mined() {
             0
         } else {
-            Self::get_coinbase_height(chainstate_tx.as_tx(), &parent_block_id)?.ok_or_else(
-                || {
+            Self::get_coinbase_height(chainstate_tx.as_tx(), &parent_block_id, &parent_block_id)?
+                .ok_or_else(|| {
                     warn!(
                         "Parent of Nakamoto block is not in block headers DB yet";
                         "consensus_hash" => %block.header.consensus_hash,
@@ -4684,8 +4690,7 @@ impl NakamotoChainState {
                         "parent_block_id" => %parent_block_id
                     );
                     ChainstateError::NoSuchBlockError
-                },
-            )?
+                })?
         };
 
         let expected_burn_opt = Self::get_expected_burns(burn_dbconn, chainstate_tx, block)

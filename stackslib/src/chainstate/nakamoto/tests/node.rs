@@ -1791,11 +1791,13 @@ impl TestPeer<'_> {
         let block_coinbase_height = NakamotoChainState::get_coinbase_height(
             &mut chainstate.index_conn(),
             &block.block_id(),
+            &block.block_id(),
         )
         .unwrap()
         .unwrap();
         let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
             &mut chainstate.index_conn(),
+            &block.header.parent_block_id,
             &block.header.parent_block_id,
         )
         .unwrap()

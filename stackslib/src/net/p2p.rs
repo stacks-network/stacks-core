@@ -4530,9 +4530,13 @@ impl PeerNetwork {
             &parent_tenure_start_header.consensus_hash,
             &parent_stacks_tip_block_hash,
         );
+        // Anchor the read at the canonical stacks tip rather than the parent tenure-start block:
+        // the parent may be below a squashed node's snapshot height and thus pruned, while the
+        // immutable coinbase-height mapping reads identically from any descendant of it.
         let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
             &mut chainstate.index_conn(),
             &parent_stacks_tip_block_id,
+            stacks_tip_block_id,
         )?;
 
         let coinbase_height = match parent_coinbase_height {
@@ -4759,6 +4763,7 @@ impl PeerNetwork {
 
         let stacks_tip_cbh = NakamotoChainState::get_coinbase_height(
             &mut chainstate.index_conn(),
+            &new_stacks_tip_block_id,
             &new_stacks_tip_block_id,
         )?;
 
