@@ -79,7 +79,6 @@ use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
     DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
 };
-use crate::chainstate::stacks::index::storage::SquashBoundary;
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
@@ -340,9 +339,6 @@ pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
     fn sqlite(&self) -> &Connection;
 
-    /// Squash boundary for a backing MARF opened from a squashed snapshot.
-    fn squash_boundary(&self) -> Option<SquashBoundary>;
-
     /// Get the ancestor block hash given a coinbase height
     fn get_ancestor_block_id(
         &mut self,
@@ -496,10 +492,6 @@ impl StacksDBIndexed for StacksDBConn<'_> {
         self.conn()
     }
 
-    fn squash_boundary(&self) -> Option<SquashBoundary> {
-        self.index.squash_boundary()
-    }
-
     fn get_ancestor_block_id(
         &mut self,
         coinbase_height: u64,
@@ -516,10 +508,6 @@ impl StacksDBIndexed for StacksDBTx<'_> {
 
     fn sqlite(&self) -> &Connection {
         self.tx().deref()
-    }
-
-    fn squash_boundary(&self) -> Option<SquashBoundary> {
-        self.index().squash_boundary()
     }
 
     fn get_ancestor_block_id(
@@ -3212,16 +3200,6 @@ impl NakamotoChainState {
     ) -> Result<Option<u64>, ChainstateError> {
         // nakamoto header?
         if let Some(hdr) = Self::get_block_header_nakamoto(chainstate_conn.sqlite(), block)? {
-            // On squashed snapshots, below-boundary MARF reads are guarded.
-            // Keep this gated so live nodes retain fork-aware MARF lookups.
-            if chainstate_conn.squash_boundary().is_some() {
-                if let Some(cbh) = Self::get_coinbase_height_from_tenure_events(
-                    chainstate_conn.sqlite(),
-                    &hdr.consensus_hash,
-                )? {
-                    return Ok(Some(cbh));
-                }
-            }
             return Ok(chainstate_conn.get_coinbase_height(block, &hdr.consensus_hash)?);
         }
 
@@ -3235,34 +3213,6 @@ impl NakamotoChainState {
             .map(u64::try_from)
             .transpose()
             .map_err(|_| ChainstateError::DBError(DBError::ParseError))
-    }
-
-    /// Each tenure-extend block writes another `nakamoto_tenure_events` row
-    /// with the same `tenure_id_consensus_hash` and the same `coinbase_height`;
-    /// distinct heights for one tenure are corruption.
-    fn get_coinbase_height_from_tenure_events(
-        conn: &Connection,
-        tenure_id_consensus_hash: &ConsensusHash,
-    ) -> Result<Option<u64>, ChainstateError> {
-        let sql = "SELECT DISTINCT coinbase_height \
-                   FROM nakamoto_tenure_events \
-                   WHERE tenure_id_consensus_hash = ?1";
-        let heights: Vec<i64> = conn
-            .prepare(sql)?
-            .query_map(params![tenure_id_consensus_hash], |row| {
-                row.get::<_, i64>(0)
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        match heights.as_slice() {
-            [] => Ok(None),
-            [h] => u64::try_from(*h)
-                .map(Some)
-                .map_err(|_| ChainstateError::DBError(DBError::ParseError)),
-            many => Err(ChainstateError::Expects(format!(
-                "nakamoto_tenure_events has {} distinct coinbase_height values for tenure {tenure_id_consensus_hash}: {many:?}",
-                many.len()
-            ))),
-        }
     }
 
     /// Verify that a nakamoto block's block-commit's VRF seed is consistent with the VRF proof.

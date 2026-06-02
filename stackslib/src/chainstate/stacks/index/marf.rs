@@ -32,7 +32,7 @@ use crate::chainstate::stacks::index::node::{
     TrieCursor, TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{
-    SquashBoundary, SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
+    SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
     TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
@@ -443,11 +443,6 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.storage.set_squash_info(info);
     }
 
-    /// Squash boundary for this MARF transaction, if opened from a squashed snapshot.
-    pub fn squash_boundary(&self) -> Option<SquashBoundary> {
-        self.storage.squash_info().map(|info| info.boundary)
-    }
-
     /// Reopen this MARF transaction with readonly storage.
     ///   NOTE: any pending operations in the SQLite transaction _will not_
     ///         have materialized in the reopened view.
@@ -727,11 +722,6 @@ impl<T: MarfTrieId> MARF<T> {
                 height: 0,
             }),
         }
-    }
-
-    /// Squash boundary for this MARF, if opened from a squashed snapshot.
-    pub fn squash_boundary(&self) -> Option<SquashBoundary> {
-        self.storage.squash_info().map(|info| info.boundary)
     }
 
     #[cfg(test)]
@@ -1447,7 +1437,7 @@ impl<T: MarfTrieId> MARF<T> {
         // `marf_squashed_blocks`, not in per-height trie state. When the
         // caller is inside the squashed range, answer from the side table
         // and preserve the usual "no future blocks" behavior.
-        if let Some(squash_height) = storage.squash_marf_height() {
+        if let Some(squash_height) = storage.squash_height() {
             if current_block_height <= squash_height {
                 if height > current_block_height {
                     return Ok(None);

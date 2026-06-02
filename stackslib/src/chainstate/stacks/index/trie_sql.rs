@@ -25,7 +25,6 @@ use crate::chainstate::stacks::index::bits::{
     read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, read_nodetype_nohash,
 };
 use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
-use crate::chainstate::stacks::index::storage::SquashBoundary;
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
@@ -78,13 +77,10 @@ INSERT OR REPLACE INTO schema_version (version) VALUES (2);
 INSERT OR REPLACE INTO migrated_version (version) VALUES (1);
 ";
 
-/// Schema 3 adds SQL tables for squash metadata. Schema 4 then renames
-/// `squash_height` to `marf_height` and adds a `bitcoin_height` column; see
-/// `SQL_MARF_DATA_TABLE_SCHEMA_4` below.
+/// Schema 3 adds SQL tables for squash metadata.
 ///
 /// `marf_squash_info` holds the singleton squash metadata row (squash root
-/// node hash, archival root hash, MARF-domain and Bitcoin heights at the
-/// squash boundary).
+/// node hash, archival root hash, and the squash-boundary height).
 /// `marf_squashed_blocks` stores one row per height in the squashed range
 /// `0..=H`, mapping each `(height, block_hash, marf_root_hash)` triple.
 ///
@@ -105,17 +101,8 @@ CREATE TABLE IF NOT EXISTS marf_squashed_blocks (
 UPDATE schema_version SET version = 3;
 ";
 
-/// Schema 4 records both MARF-domain and burn-chain heights. SQLite requires
-/// a DEFAULT for the new NOT NULL column; no production schema-3 squashes
-/// exist at the time this is written, so `0` is only a migration placeholder.
-static SQL_MARF_DATA_TABLE_SCHEMA_4: &str = "
-ALTER TABLE marf_squash_info RENAME COLUMN squash_height TO marf_height;
-ALTER TABLE marf_squash_info ADD COLUMN bitcoin_height INTEGER NOT NULL DEFAULT 0;
-UPDATE schema_version SET version = 4;
-";
-
 pub static SQL_MARF_EXTERNAL_BLOBS_SCHEMA_VERSION: u64 = 2;
-pub static SQL_MARF_SCHEMA_VERSION: u64 = 4;
+pub static SQL_MARF_SCHEMA_VERSION: u64 = 3;
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     let tx = tx_begin_immediate(conn)?;
@@ -134,24 +121,23 @@ pub struct SqlSquashInfo {
     pub archival_marf_root_hash: TrieHash,
     /// Hash of the squashed trie's own root node.
     pub squash_root_node_hash: TrieHash,
-    /// Heights at the squash tip.
-    pub boundary: SquashBoundary,
+    /// MARF height at the squash tip.
+    pub squash_height: u32,
 }
 
 /// Write squash metadata to the out-of-trie SQL table.
 pub fn write_squash_info(
     conn: &Connection,
     archival_marf_root_hash: &TrieHash,
-    boundary: SquashBoundary,
+    squash_height: u32,
 ) -> Result<(), Error> {
     conn.execute(
         "INSERT OR REPLACE INTO marf_squash_info \
-         (id, archival_marf_root_hash, marf_height, bitcoin_height) \
-         VALUES (1, ?1, ?2, ?3)",
+         (id, archival_marf_root_hash, squash_height) \
+         VALUES (1, ?1, ?2)",
         params![
             archival_marf_root_hash.as_bytes().to_vec(),
-            i64::from(boundary.marf_height),
-            i64::from(boundary.bitcoin_height),
+            i64::from(squash_height),
         ],
     )?;
     Ok(())
@@ -163,22 +149,21 @@ pub fn read_squash_info(conn: &Connection) -> Result<Option<SqlSquashInfo>, Erro
         return Ok(None);
     }
 
-    let result: Option<(Vec<u8>, Option<Vec<u8>>, i64, i64)> = conn
+    let result: Option<(Vec<u8>, Option<Vec<u8>>, i64)> = conn
         .query_row(
-            "SELECT archival_marf_root_hash, squash_root_node_hash, marf_height, bitcoin_height \
+            "SELECT archival_marf_root_hash, squash_root_node_hash, squash_height \
              FROM marf_squash_info WHERE id = 1",
             NO_PARAMS,
             |row| {
                 let archival_bytes: Vec<u8> = row.get(0)?;
                 let squash_bytes: Option<Vec<u8>> = row.get(1)?;
-                let marf_height: i64 = row.get(2)?;
-                let bitcoin_height: i64 = row.get(3)?;
-                Ok((archival_bytes, squash_bytes, marf_height, bitcoin_height))
+                let squash_height: i64 = row.get(2)?;
+                Ok((archival_bytes, squash_bytes, squash_height))
             },
         )
         .optional()?;
 
-    let Some((archival_bytes, squash_bytes, marf_height, bitcoin_height)) = result else {
+    let Some((archival_bytes, squash_bytes, squash_height)) = result else {
         return Ok(None);
     };
 
@@ -208,18 +193,13 @@ pub fn read_squash_info(conn: &Connection) -> Result<Option<SqlSquashInfo>, Erro
     let squash_root_node_hash = TrieHash::from_bytes(&squash_bytes)
         .ok_or_else(|| Error::CorruptionError("Invalid squash root hash bytes".to_string()))?;
 
-    let marf_height = u32::try_from(marf_height)
-        .map_err(|_| Error::CorruptionError("Invalid squash marf_height".to_string()))?;
-    let bitcoin_height = u32::try_from(bitcoin_height)
-        .map_err(|_| Error::CorruptionError("Invalid squash bitcoin_height".to_string()))?;
+    let squash_height = u32::try_from(squash_height)
+        .map_err(|_| Error::CorruptionError("Invalid squash_height".to_string()))?;
 
     Ok(Some(SqlSquashInfo {
         archival_marf_root_hash,
         squash_root_node_hash,
-        boundary: SquashBoundary {
-            marf_height,
-            bitcoin_height,
-        },
+        squash_height,
     }))
 }
 
@@ -471,13 +451,6 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<
                 // add squash side-tables
                 let tx = tx_begin_immediate(conn)?;
                 tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_3)?;
-                tx.commit()?;
-            }
-            3 => {
-                debug!("Migrate MARF data from schema 3 to schema 4");
-
-                let tx = tx_begin_immediate(conn)?;
-                tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_4)?;
                 tx.commit()?;
             }
             x if x == SQL_MARF_SCHEMA_VERSION => {

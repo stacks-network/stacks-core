@@ -1616,16 +1616,6 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
     squash_info: Option<SquashInfo>,
 }
 
-/// Boundary recorded for a squashed MARF.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SquashBoundary {
-    /// Backing MARF's own height at the squash tip - Stacks block height for
-    /// the clarity/index MARFs, sortition block height for the sortition MARF.
-    pub marf_height: u32,
-    /// Bitcoin block height at the squash tip.
-    pub bitcoin_height: u32,
-}
-
 /// Snapshot metadata cached at open time for squashed MARFs.
 #[derive(Clone, Debug)]
 pub struct SquashInfo {
@@ -1633,8 +1623,9 @@ pub struct SquashInfo {
     pub archival_marf_root_hash: TrieHash,
     /// Root node hash of the squash trie. i.e. `hash(consensus_bytes(root) || children_content_hashes)`
     pub squash_root_node_hash: TrieHash,
-    /// MARF-domain and Bitcoin heights at the squash boundary.
-    pub boundary: SquashBoundary,
+    /// Backing MARF's own height at the squash tip - Stacks block height for
+    /// the clarity/index MARFs, sortition block height for the sortition MARF.
+    pub squash_height: u32,
 }
 
 // disk-backed Trie.
@@ -1741,7 +1732,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         let squash_info = trie_sql::read_squash_info(&self.db)?.map(|sql_info| SquashInfo {
             archival_marf_root_hash: sql_info.archival_marf_root_hash,
             squash_root_node_hash: sql_info.squash_root_node_hash,
-            boundary: sql_info.boundary,
+            squash_height: sql_info.squash_height,
         });
 
         self.data.set_squash_info(squash_info);
@@ -2487,14 +2478,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         self.data.squash_info.as_ref()
     }
 
-    /// Returns the squash boundary, if this storage is squashed.
-    pub fn squash_boundary(&self) -> Option<SquashBoundary> {
-        self.squash_info().map(|info| info.boundary)
-    }
-
     /// MARF height at the squash boundary, if this storage is squashed.
-    pub fn squash_marf_height(&self) -> Option<u32> {
-        self.squash_boundary().map(|b| b.marf_height)
+    pub fn squash_height(&self) -> Option<u32> {
+        self.squash_info().map(|info| info.squash_height)
     }
 
     /// Set cached squashing metadata for this storage connection.
@@ -2573,7 +2559,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     /// Reject trie traversal below the squash height, where blocks share the
     /// squash blob.
     pub fn check_historical_read_allowed(&self, block_hash: &T) -> Result<(), Error> {
-        let Some(squash_height) = self.squash_marf_height() else {
+        let Some(squash_height) = self.squash_height() else {
             return Ok(());
         };
 
@@ -2717,7 +2703,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         // trie hash. Replace those entries with the per-height archival
         // trie hashes stored during squashing.
         if let Some(info) = self.data.squash_info.clone() {
-            for h in 0..=info.boundary.marf_height {
+            for h in 0..=info.squash_height {
                 let Some(bh) =
                     trie_sql::read_squashed_block_hash_by_height::<T>(self.sqlite_conn(), h)?
                 else {
