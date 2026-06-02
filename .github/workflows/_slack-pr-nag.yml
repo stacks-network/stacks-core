@@ -21,26 +21,25 @@ jobs:
           # --- CONFIGURABLE VARIABLES ---
           TARGET_OWNER: 'stacks-network'
           TARGET_REPO: 'stacks-core'
-          STALE_HOURS_THRESHOLD: '72' # 3 days
-          ANGRY_RED_HOURS_THRESHOLD: '168' # 1 week (7 days)
           IGNORE_DRAFTS: 'true'
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           
-          # MAP GITHUB USERNAMES TO SLACK MEMBER IDs
+          # CENTRAL USER REGISTRY
+          # Maps GitHub usernames to both their Slack Member ID and Document Display Name
           USER_MAPPING: |
             {
-              "aaronb-stacks": "U067F1SRYT0",
-              "adriano-stacks": "U07CAH5D38Q",
-              "benjamin-stacks": "U09N5BM0SGP",
-              "brice-stacks": "U067BVCJE30",
-              "cylewitruk-stacks": "U06815BCSB0",
-              "dhaney-stacks": "U09538PV0RZ",
-              "federico-stacks": "U08ASJ1LKEV",
-              "francesco-stacks": "U07MCETKTKN",
-              "hstove-stacks": "U068W8VBSQM",
-              "radu-stacks": "U0ANRRXD080",
-              "rob-stacks": "U07UNFAS4BD",
-              "simone-stacks": "U09NA1TP8PK"
+              "aaronb-stacks": { "id": "U067F1SRYT0", "name": "Aaron" },
+              "adriano-stacks": { "id": "U07CAH5D38Q", "name": "Adriano" },
+              "benjamin-stacks": { "id": "U09N5BM0SGP", "name": "Benjamin" },
+              "brice-stacks": { "id": "U067BVCJE30", "name": "Brice" },
+              "cylewitruk-stacks": { "id": "U06815BCSB0", "name": "Cyle" },
+              "dhaney-stacks": { "id": "U09538PV0RZ", "name": "David" },
+              "federico-stacks": { "id": "U08ASJ1LKEV", "name": "Federico" },
+              "francesco-stacks": { "id": "U07MCETKTKN", "name": "Francesco" },
+              "hstove-stacks": { "id": "U068W8VBSQM", "name": "Hank" },
+              "radu-stacks": { "id": "U0ANRRXD080", "name": "Radu" },
+              "rob-stacks": { "id": "U07UNFAS4BD", "name": "Roberto" },
+              "simone-stacks": { "id": "U09NA1TP8PK", "name": "Simone" }
             }
           # ------------------------------
           
@@ -48,8 +47,6 @@ jobs:
           script: |
             const owner = process.env.TARGET_OWNER;
             const repo = process.env.TARGET_REPO;
-            const staleHours = parseInt(process.env.STALE_HOURS_THRESHOLD, 10);
-            const angryRedHours = parseInt(process.env.ANGRY_RED_HOURS_THRESHOLD, 10);
             const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
             const webhookUrl = process.env.SLACK_WEBHOOK_URL;
             const manualRun = process.env.MANUAL_RUN === 'true';
@@ -59,21 +56,29 @@ jobs:
               return;
             }
 
-            // 1. Parse User Mapping JSON safely
+            // 1. Parse Combined User Mapping JSON safely
             let userMap = {};
             try {
-              userMap = JSON.parse(process.env.USER_MAPPING || '{}');
-              userMap = Object.fromEntries(Object.entries(userMap).map(([k, v]) => [k.toLowerCase(), v]));
+              const rawMap = JSON.parse(process.env.USER_MAPPING || '{}');
+              // Ensure keys are lowercase for foolproof matching
+              userMap = Object.fromEntries(Object.entries(rawMap).map(([k, v]) => [k.toLowerCase(), v]));
             } catch (e) {
-              core.setFailed('Error parsing USER_MAPPING JSON. Script cannot determine team whitelist.');
+              core.setFailed('Error parsing USER_MAPPING JSON. Check your JSON syntax.');
               return;
             }
 
+            // Whitelist is derived from the mapping keys
             const allowedUsers = new Set(Object.keys(userMap));
 
-            const resolveMention = (githubUsername) => {
-              const cleanName = githubUsername.toLowerCase();
-              return userMap[cleanName] ? `<@${userMap[cleanName]}>` : `\`@${githubUsername}\``;
+            // Helper to get doc display name from the mapping block
+            const getDocName = (username) => {
+              const clean = username.toLowerCase();
+              if (userMap[clean] && userMap[clean].name) {
+                return userMap[clean].name;
+              }
+              // Intelligent fallback: strip suffix and capitalize
+              const base = clean.replace('-stacks', '');
+              return base.charAt(0).toUpperCase() + base.slice(1);
             };
 
             // 2. Fetch open Pull Requests
@@ -96,65 +101,28 @@ jobs:
               return;
             }
 
+            // 3. Build the plain text list strings
+            const lines = [];
+            lines.push(`*📋 Open PRs*${manualRun ? ' _(Manual Run)_' : ''}\n`);
+
+            for (const pr of filteredSortedPrs) {
+              const author = getDocName(pr.user.login);
+              const reviewers = pr.requested_reviewers.map(r => getDocName(r.login)).join(', ') || 'Anyone';
+              
+              lines.push(`${author} <${pr.html_url}|${pr.title}> (${reviewers})`);
+            }
+
             const payload = {
               blocks: [
                 {
-                  type: 'header',
-                  text: { type: 'plain_text', text: '⏳ Open PR Review Reminders' + (manualRun ? ' (Manually Run)' : ''), emoji: true }
-                }
-              ],
-              attachments: []
-            };
-
-            const now = new Date();
-
-            // 3. Build color-coded attachments
-            for (const pr of filteredSortedPrs) {
-              const createdAt = new Date(pr.created_at);
-              const ageInHours = (now - createdAt) / (1000 * 60 * 60);
-
-              // NOTE: Uncomment the 3 lines below if you want to completely EXCLUDE fresh "Green" PRs from the Slack digest.
-              // if (ageInHours < staleHours) {
-              //   continue;
-              // }
-
-              let sidebarColor = '#2EB67D'; // Slack Green
-              let statusEmoji = '🟢';
-
-              if (ageInHours > angryRedHours) {
-                sidebarColor = '#E01E5A';  // Slack Red
-                statusEmoji = '🔴';
-              } else if (ageInHours >= staleHours) {
-                sidebarColor = '#ECB22E';  // Slack Yellow
-                statusEmoji = '🟡';
-              }
-
-              const days = Math.floor(ageInHours / 24);
-              const hours = Math.floor(ageInHours % 24);
-              const ageStr = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
-              
-              const authorText = resolveMention(pr.user.login);
-              const reviewers = pr.requested_reviewers.map(r => resolveMention(r.login)).join(', ') || '_None requested_';
-
-              payload.attachments.push({
-                color: sidebarColor,
-                blocks: [
-                  {
-                    type: 'section',
-                    text: {
-                      type: 'mrkdwn',
-                      text: `${statusEmoji} *<${pr.html_url}|#${pr.number}: ${pr.title}>*\n• *Age:* \`${ageStr}\` | *Author:* ${authorText}\n• *Assigned Reviewers:* ${reviewers}`
-                    }
+                  type: 'section',
+                  text: {
+                    type: 'mrkdwn',
+                    text: lines.join('\n')
                   }
-                ]
-              });
-            }
-
-            // Check if any attachments actually made it through the filters
-            if (payload.attachments.length === 0) {
-              console.log('No open PRs met the threshold criteria.');
-              return;
-            }
+                }
+              ]
+            };
 
             // 4. Send payload via Webhook
             const response = await fetch(webhookUrl, {
@@ -166,5 +134,5 @@ jobs:
             if (!response.ok) {
               core.setFailed(`Slack API responded with status ${response.status}`);
             } else {
-              console.log(`Successfully nagged the team about ${payload.attachments.length} PR(s).`);
+              console.log(`Successfully posted ${filteredSortedPrs.length} PR lines to Slack.`);
             }
