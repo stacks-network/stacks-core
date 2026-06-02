@@ -191,6 +191,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
         VerifyMerkleProof => "(verify-merkle-proof 0x0000000000000000000000000000000000000000000000000000000000000000 0x0000000000000000000000000000000000000000000000000000000000000000 u0 u1 (list))",
         GetBitcoinTxOutput => "(get-bitcoin-tx-output? 0x0100000001000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01e80300000000000016001400000000000000000000000000000000000000000000000000 u0)",
         Ed25519Verify => "(ed25519-verify 0xaf82 0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a 0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025)",
+        Secp256k1Decompress => "(secp256k1-decompress? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         // These expressions are not usable in this context, since they are
         // only allowed within `restrict-assets?` or `as-contract?`
         AllowanceWithStx

@@ -191,6 +191,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     VerifyMerkleProof("verify-merkle-proof", ClarityVersion::Clarity6, None),
     GetBitcoinTxOutput("get-bitcoin-tx-output?", ClarityVersion::Clarity6, None),
     Ed25519Verify("ed25519-verify", ClarityVersion::Clarity6, None),
+    Secp256k1Decompress("secp256k1-decompress?", ClarityVersion::Clarity6, None),
 });
 
 ///
@@ -597,6 +598,11 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::MoreArg(&crypto::native_ed25519_verify),
                 ClarityCostFunction::Ed25519verify,
                 &crypto::cost_input_ed25519_verify,
+            ),
+            Secp256k1Decompress => NativeFunction(
+                "native_secp256k1-decompress",
+                NativeHandle::SingleArg(&crypto::native_secp256k1_decompress),
+                ClarityCostFunction::Secp256k1decompress,
             ),
         };
         Some(callable)

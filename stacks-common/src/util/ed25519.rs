@@ -219,7 +219,6 @@ impl Ed25519PrivateKey {
 
 /// Verify a ed25519 signature against the message
 /// The signature must be a 64-byte signature
-
 pub fn ed25519_verify(
     message_arr: &[u8],
     signature_arr: &[u8],

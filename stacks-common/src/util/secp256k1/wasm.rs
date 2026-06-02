@@ -223,6 +223,12 @@ pub fn secp256k1_verify(
     }
 }
 
+#[cfg(not(feature = "wasm-deterministic"))]
+pub fn secp256k1_decompress(compressed_pubkey_arr: &[u8]) -> Result<[u8; 65], LibSecp256k1Error> {
+    let pubkey = LibSecp256k1PublicKey::from_slice(compressed_pubkey_arr)?;
+    Ok(pubkey.serialize_uncompressed())
+}
+
 fn secp256k1_pubkey_serialize<S: serde::Serializer>(
     pubk: &LibSecp256k1PublicKey,
     s: S,

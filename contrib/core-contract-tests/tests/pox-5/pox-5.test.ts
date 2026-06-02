@@ -808,9 +808,10 @@ test('bond rewards split across signers by staked sats', () => {
       totalShares: aliceSbtc + bobSbtc,
     }),
   );
-  expect(rov(pox5.getReserveBalance())).toBe(
-    reserveRewards(1000n - totalBondRewards),
-  );
+  // When no STX-only stake exists, the staker cut is
+  // rerouted to reserve rather than stranded, so reserve receives the
+  // full `remaining-rewards` (1000 - 960 = 40), not just 15% of it.
+  expect(rov(pox5.getReserveBalance())).toBe(1000n - totalBondRewards);
 });
 
 /**
