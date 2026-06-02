@@ -293,9 +293,6 @@ pub struct RawPox5Entry {
 
 /// Walks the pox-5 per-cycle signer-set linked list, yielding one
 /// `RawPox5Entry` per registered signer for the cycle.
-///
-/// Note: The list's `staker` field is misleadingly named:
-///    entries are signer principals, written by `pox-5.add-staker-to-set-for-cycle`
 pub struct StakeEntryIteratorPox5<'a, 'b, 'c> {
     current_signer: Option<PrincipalData>,
     pox_contract: QualifiedContractIdentifier,

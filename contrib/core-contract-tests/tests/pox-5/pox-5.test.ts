@@ -18,6 +18,7 @@ import {
   expectAllSignersHaveKeys,
   getAllStakers,
   isSignerInCycle,
+  isSignerInCycle,
   registerSigner,
   sbtc,
   sbtcBalance,
