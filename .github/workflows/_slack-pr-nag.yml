@@ -75,13 +75,12 @@ jobs:
               return base.charAt(0).toUpperCase() + base.slice(1);
             };
 
-            // Helper to clean titles so they do not break Slack's control sequences
             const sanitizeTitle = (title) => {
               return title
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
-                .replace(/\|/g, '—'); // Swap out pipes to protect link parsing
+                .replace(/\|/g, '—');
             };
 
             // 2. Fetch open Pull Requests
@@ -97,7 +96,17 @@ jobs:
                 if (ignoreDrafts && pr.draft) return false;
                 return allowedUsers.has(pr.user.login.toLowerCase());
               })
-              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+              // MODIFIED: Sort alphabetically by team meeting display name
+              .sort((a, b) => {
+                const authorA = getDocName(a.user.login).toLowerCase();
+                const authorB = getDocName(b.user.login).toLowerCase();
+                
+                if (authorA !== authorB) {
+                  return authorA.localeCompare(authorB);
+                }
+                // Secondary sort fallback: Oldest PRs first for a single author
+                return new Date(a.created_at) - new Date(b.created_at);
+              });
 
             if (filteredSortedPrs.length === 0) {
               console.log('No matching team PRs found.');
@@ -107,7 +116,6 @@ jobs:
             // 3. Construct the payload blocks incrementally to avoid limits
             const payload = { blocks: [] };
             
-            // Add initial title header block
             payload.blocks.push({
               type: 'section',
               text: {
@@ -116,7 +124,6 @@ jobs:
               }
             });
 
-            // Distribute lines across multiple blocks dynamically
             let currentLines = [];
             for (const pr of filteredSortedPrs) {
               const author = getDocName(pr.user.login);
@@ -125,7 +132,6 @@ jobs:
               
               currentLines.push(`${author} <${pr.html_url}|${title}> (${reviewers})`);
 
-              // Create a new layout block every 15 PRs to comfortably avoid the 3000 char ceiling
               if (currentLines.length === 15) {
                 payload.blocks.push({
                   type: 'section',
@@ -135,7 +141,6 @@ jobs:
               }
             }
 
-            // Append any remaining PR lines
             if (currentLines.length > 0) {
               payload.blocks.push({
                 type: 'section',
