@@ -25,7 +25,7 @@ mutants = "0.0.3"
 clarity = { package = "clarity", path = "../clarity", features = ["rusqlite"]}
 pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
-madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", tag = "0.2.0" }
+madhouse = { workspace = true }
 
 [features]
 slog_json = ["stacks_common/slog_json", "clarity/slog_json"]
