@@ -6794,7 +6794,189 @@ export const contracts = {
         access: 'variable',
       } as TypedAbiVariable<bigint>,
     },
-    constants: {},
+    constants: {
+      BOND_GAP_CYCLES: 2n,
+      BOND_LENGTH_CYCLES: 12n,
+      ERR_ACTIVE_BOND_NOT_INCLUDED: {
+        isOk: false,
+        value: 33n,
+      },
+      ERR_ALREADY_REGISTERED: {
+        isOk: false,
+        value: 9n,
+      },
+      ERR_ALREADY_STAKED: {
+        isOk: false,
+        value: 19n,
+      },
+      ERR_BOND_ALREADY_SETUP: {
+        isOk: false,
+        value: 4n,
+      },
+      ERR_BOND_ALREADY_STARTED: {
+        isOk: false,
+        value: 43n,
+      },
+      ERR_BOND_NOT_ACTIVE: {
+        isOk: false,
+        value: 31n,
+      },
+      ERR_BOND_NOT_FOUND: {
+        isOk: false,
+        value: 7n,
+      },
+      eRR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK: {
+        isOk: false,
+        value: 35n,
+      },
+      ERR_CANNOT_SETUP_BOND_TOO_LATE: {
+        isOk: false,
+        value: 3n,
+      },
+      ERR_CANNOT_SETUP_BOND_TOO_SOON: {
+        isOk: false,
+        value: 2n,
+      },
+      ERR_CANNOT_UNSTAKE_SBTC: {
+        isOk: false,
+        value: 38n,
+      },
+      ERR_DISTRIBUTION_ALREADY_COMPUTED: {
+        isOk: false,
+        value: 30n,
+      },
+      ERR_INSUFFICIENT_STX: {
+        isOk: false,
+        value: 8n,
+      },
+      ERR_INVALID_BOND_PERIOD_ORDERING: {
+        isOk: false,
+        value: 29n,
+      },
+      ERR_INVALID_BTC_HEADER: {
+        isOk: false,
+        value: 40n,
+      },
+      ERR_INVALID_LOCKUP_AMOUNT: {
+        isOk: false,
+        value: 45n,
+      },
+      ERR_INVALID_LOCKUP_SCRIPT: {
+        isOk: false,
+        value: 42n,
+      },
+      ERR_INVALID_MERKLE_PROOF: {
+        isOk: false,
+        value: 41n,
+      },
+      ERR_INVALID_NUM_CYCLES: {
+        isOk: false,
+        value: 20n,
+      },
+      ERR_INVALID_OLD_SIGNER_MANAGER: {
+        isOk: false,
+        value: 36n,
+      },
+      ERR_INVALID_SIGNATURE_PUBKEY: {
+        isOk: false,
+        value: 14n,
+      },
+      ERR_INVALID_SIGNATURE_RECOVER: {
+        isOk: false,
+        value: 13n,
+      },
+      ERR_INVALID_START_BURN_HEIGHT: {
+        isOk: false,
+        value: 24n,
+      },
+      ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
+        isOk: false,
+        value: 37n,
+      },
+      ERR_NOT_ALLOWLISTED: {
+        isOk: false,
+        value: 11n,
+      },
+      ERR_NOT_BOND_PARTICIPANT: {
+        isOk: false,
+        value: 34n,
+      },
+      ERR_NOT_STAKING: {
+        isOk: false,
+        value: 27n,
+      },
+      ERR_NO_CLAIMABLE_REWARDS: {
+        isOk: false,
+        value: 32n,
+      },
+      ERR_READ_TX_OUT_OF_BOUNDS: {
+        isOk: false,
+        value: 39n,
+      },
+      ERR_SIGNER_KEY_GRANT_NOT_FOUND: {
+        isOk: false,
+        value: 17n,
+      },
+      ERR_SIGNER_KEY_GRANT_USED: {
+        isOk: false,
+        value: 12n,
+      },
+      ERR_SIGNER_NOT_FOUND: {
+        isOk: false,
+        value: 23n,
+      },
+      ERR_STAKER_ALREADY_ADDED: {
+        isOk: false,
+        value: 5n,
+      },
+      ERR_TOO_MUCH_SATS: {
+        isOk: false,
+        value: 10n,
+      },
+      ERR_UNAUTHORIZED: {
+        isOk: false,
+        value: 1n,
+      },
+      ERR_UNAUTHORIZED_CALLER: {
+        isOk: false,
+        value: 22n,
+      },
+      ERR_UNAUTHORIZED_SIGNER_REGISTRATION: {
+        isOk: false,
+        value: 26n,
+      },
+      ERR_UNSTAKE_IN_PREPARE_PHASE: {
+        isOk: false,
+        value: 28n,
+      },
+      ERR_UPDATE_BOND_SAME_SIGNER: {
+        isOk: false,
+        value: 44n,
+      },
+      MAX_NUM_CYCLES: 96n,
+      pOX_5_SIGNER_DOMAIN: {
+        chainId: 2_147_483_648n,
+        name: 'pox-5-signer',
+        version: '1.0.0',
+      },
+      PRECISION: 1_000_000_000_000_000_000n,
+      RESERVE_RATIO: 1_500n,
+      SIGNER_SET_MIN_USTX: 50_000_000_000n,
+      sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
+      STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),
+      STACKS_ADDR_VERSION_TESTNET: Uint8Array.from([26]),
+      bondAdmin: 'SP000000000000000000002Q6VF78',
+      configured: false,
+      firstBondPeriodCycle: 0n,
+      firstBurnchainBlockHeight: 0n,
+      firstPox5RewardCycle: 0n,
+      lastAccountedRewardsOnly: 0n,
+      lastRewardComputeHeight: 0n,
+      poxPrepareCycleLength: 50n,
+      poxRewardCycleLength: 1_050n,
+      reserveBalance: 0n,
+      totalSbtcStaked: 0n,
+    },
     non_fungible_tokens: [],
     fungible_tokens: [],
     epoch: 'Epoch40',
@@ -9250,7 +9432,34 @@ export const contracts = {
         access: 'variable',
       } as TypedAbiVariable<bigint>,
     },
-    constants: {},
+    constants: {
+      ERR_INVALID_CALLDATA: {
+        isOk: false,
+        value: 1_003n,
+      },
+      ERR_INVALID_FEES_BIPS: {
+        isOk: false,
+        value: 1_005n,
+      },
+      ERR_INVALID_POX_ADDR: {
+        isOk: false,
+        value: 1_004n,
+      },
+      ERR_NO_CLAIMABLE_REWARDS: {
+        isOk: false,
+        value: 1_001n,
+      },
+      ERR_UNAUTHORIZED_ADMIN: {
+        isOk: false,
+        value: 1_002n,
+      },
+      MAX_ADDRESS_VERSION: 6n,
+      mAX_ADDRESS_VERSION_BUFF_20: 4n,
+      MAX_BIPS: 10_000n,
+      PRECISION: 1_000_000_000_000_000_000n,
+      earnedFees: 0n,
+      feesBips: 0n,
+    },
     non_fungible_tokens: [],
     fungible_tokens: [],
     epoch: 'Epoch40',
@@ -10694,7 +10903,13 @@ export const contracts = {
         access: 'constant',
       } as TypedAbiVariable<bigint>,
     },
-    constants: {},
+    constants: {
+      ERR_NO_CLAIMABLE_REWARDS: {
+        isOk: false,
+        value: 1_001n,
+      },
+      PRECISION: 1_000_000_000_000_000_000n,
+    },
     non_fungible_tokens: [],
     fungible_tokens: [],
     epoch: 'Epoch40',
