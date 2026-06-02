@@ -6,12 +6,15 @@ on:
     - cron: '0 12 * * 1-5'
   workflow_dispatch: # Allows manual testing
 
+permissions:
+  pull-requests: read
+
 jobs:
   nag-slack:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch PRs and Post Nags to Slack
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        uses: actions/github-script@v7
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_DAILY }}
           
@@ -21,10 +24,9 @@ jobs:
           STALE_HOURS_THRESHOLD: '72' # 3 days
           ANGRY_RED_HOURS_THRESHOLD: '168' # 1 week (7 days)
           IGNORE_DRAFTS: 'true'
+          MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           
           # MAP GITHUB USERNAMES TO SLACK MEMBER IDs
-          # Whitelist is automatically inferred from the keys defined here. Review every 3 months.
-          # To find a Slack Member ID: Open their Slack profile -> Click the 'Three Dots' -> 'Copy member ID' (Starts with 'U')
           USER_MAPPING: |
             {
               "aaronb-stacks": "U067F1SRYT0",
@@ -50,6 +52,7 @@ jobs:
             const angryRedHours = parseInt(process.env.ANGRY_RED_HOURS_THRESHOLD, 10);
             const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
             const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+            const manualRun = process.env.MANUAL_RUN === 'true';
 
             if (!webhookUrl) {
               core.setFailed('Missing SLACK_WEBHOOK_URL secret.');
@@ -60,23 +63,20 @@ jobs:
             let userMap = {};
             try {
               userMap = JSON.parse(process.env.USER_MAPPING || '{}');
-              // Convert keys to lowercase for foolproof lookups
               userMap = Object.fromEntries(Object.entries(userMap).map(([k, v]) => [k.toLowerCase(), v]));
             } catch (e) {
               core.setFailed('Error parsing USER_MAPPING JSON. Script cannot determine team whitelist.');
               return;
             }
 
-            // 2. Automatically generate the whitelist Set using the map's keys
             const allowedUsers = new Set(Object.keys(userMap));
 
-            // Helper function to resolve user format (Ping if Slack ID exists, text fallback otherwise)
             const resolveMention = (githubUsername) => {
               const cleanName = githubUsername.toLowerCase();
               return userMap[cleanName] ? `<@${userMap[cleanName]}>` : `\`@${githubUsername}\``;
             };
 
-            // 3. Fetch all open Pull Requests
+            // 2. Fetch open Pull Requests
             const { data: prs } = await github.rest.pulls.list({
               owner,
               repo,
@@ -84,7 +84,6 @@ jobs:
               per_page: 100
             });
 
-            // 4. Filter by the derived whitelist/drafts AND sort by age (Oldest First)
             const filteredSortedPrs = prs
               .filter(pr => {
                 if (ignoreDrafts && pr.draft) return false;
@@ -97,28 +96,28 @@ jobs:
               return;
             }
 
-            // 5. Initialize Top-level Header
             const payload = {
               blocks: [
                 {
                   type: 'header',
-                  text: { type: 'plain_text', text: '⏳ Open PR Review Reminders', emoji: true }
+                  text: { type: 'plain_text', text: '⏳ Open PR Review Reminders' + (manualRun ? ' (Manually Run)' : ''), emoji: true }
                 }
               ],
               attachments: []
             };
 
             const now = new Date();
-            let postedPrCount = 0;
 
-            // 6. Build color-coded attachments
+            // 3. Build color-coded attachments
             for (const pr of filteredSortedPrs) {
               const createdAt = new Date(pr.created_at);
               const ageInHours = (now - createdAt) / (1000 * 60 * 60);
 
-              postedPrCount++;
+              // NOTE: Uncomment the 3 lines below if you want to completely EXCLUDE fresh "Green" PRs from the Slack digest.
+              // if (ageInHours < staleHours) {
+              //   continue;
+              // }
 
-              // Determine Alert Level Colors & Emojis
               let sidebarColor = '#2EB67D'; // Slack Green
               let statusEmoji = '🟢';
 
@@ -134,11 +133,9 @@ jobs:
               const hours = Math.floor(ageInHours % 24);
               const ageStr = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
               
-              // Resolve Author and Reviewer mentions
               const authorText = resolveMention(pr.user.login);
               const reviewers = pr.requested_reviewers.map(r => resolveMention(r.login)).join(', ') || '_None requested_';
 
-              // Push an individual attachment card for this PR
               payload.attachments.push({
                 color: sidebarColor,
                 blocks: [
@@ -153,12 +150,13 @@ jobs:
               });
             }
 
-            if (postedPrCount === 0) {
-              console.log('No PRs met the stale threshold filter.');
+            // Check if any attachments actually made it through the filters
+            if (payload.attachments.length === 0) {
+              console.log('No open PRs met the threshold criteria.');
               return;
             }
 
-            // 7. Send payload via Webhook
+            // 4. Send payload via Webhook
             const response = await fetch(webhookUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -168,5 +166,5 @@ jobs:
             if (!response.ok) {
               core.setFailed(`Slack API responded with status ${response.status}`);
             } else {
-              console.log(`Successfully nagged the team about ${postedPrCount} PR(s).`);
+              console.log(`Successfully nagged the team about ${payload.attachments.length} PR(s).`);
             }
