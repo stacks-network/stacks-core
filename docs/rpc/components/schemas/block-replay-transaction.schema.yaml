@@ -31,15 +31,36 @@ properties:
   vm_error:
     type: [string, "null"]
     description: optional vm error (for runtime failures)
-  cpu_instructions:
-    type: [integer, "null"]
-    description: number of instructions executed
-  cpu_cycles:
-    type: [integer, "null"]
-    description: number of cycles executed
-  cpu_ref_cycles:
-    type: [integer, "null"]
-    description: number of reference cycles executed
+  profiler:
+      type: [object, "null"]
+      description: hardware profiler metrics for the transaction execution context
+      properties:
+        cpu_instructions:
+          type: [integer, "null"]
+          description: number of instructions executed
+        cpu_cycles:
+          type: [integer, "null"]
+          description: number of cycles executed
+        cpu_ref_cycles:
+          type: [integer, "null"]
+          description: number of reference cycles executed
+      required:
+        - cpu_instructions
+        - cpu_cycles
+        - cpu_ref_cycles
+  execution_stats:
+      type: object
+      description: metrics for the transaction execution context
+      properties:
+        secs:
+          type: number
+          description: execution time in seconds
+        nanos:
+          type: integer
+          description: execution time in nanoseconds
+      required:
+        - secs
+        - nanos
 required:
   - data
   - events
@@ -51,6 +72,5 @@ required:
   - tx_index
   - txid
   - vm_error
-  - cpu_instructions
-  - cpu_cycles
-  - cpu_ref_cycles
+  - profiler
+  - execution_stats
