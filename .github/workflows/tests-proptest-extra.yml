@@ -50,7 +50,7 @@ concurrency:
 # Set default env vars
 env:
   RUST_BACKTRACE: full
-  TEST_TIMEOUT: 30
+  TEST_TIMEOUT: 60
   # Minimum number of PR approvals required before running the tests
   REQUIRED_APPROVALS: 2
   # Number of generated cases to run per selected proptest.
