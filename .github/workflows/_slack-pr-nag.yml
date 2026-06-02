@@ -125,8 +125,8 @@ jobs:
               
               currentLines.push(`${author} <${pr.html_url}|${title}> (${reviewers})`);
 
-              // Create a new layout block every 8 PRs to comfortably avoid the 3000 char ceiling
-              if (currentLines.length === 8) {
+              // Create a new layout block every 15 PRs to comfortably avoid the 3000 char ceiling
+              if (currentLines.length === 15) {
                 payload.blocks.push({
                   type: 'section',
                   text: { type: 'mrkdwn', text: currentLines.join('\n') }
