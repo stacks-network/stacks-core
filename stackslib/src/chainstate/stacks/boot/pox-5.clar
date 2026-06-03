@@ -968,6 +968,7 @@
         (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
         (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
 
+        (var-set signer-manager-call-active true)
         ;; Call `old-signer-manager`, and allow them to snapshot current
         ;; data before updating. Do not throw any errors.
         (match (contract-call? old-signer-manager checkpoint-staker staker bond-index u1
@@ -976,6 +977,7 @@
             ok-val ok-val
             err-val true
         )
+        (var-set signer-manager-call-active false)
 
         (settle-rewards signer true bond-index)
 
