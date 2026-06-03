@@ -52,11 +52,14 @@
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 ;; The lockup amount does not match the specified amount of sats
 (define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
+;; The same Bitcoin outpoint (txid + output-index) appeared twice in
+;; the L1 lockup proof list submitted to `register-for-bond`.
+(define-constant ERR_DUPLICATE_LOCKUP_OUTPOINT (err u46))
 ;; A staker tried to modify the next reward cycle's state during the prepare
 ;; phase.
-(define-constant ERR_STAKE_IN_PREPARE_PHASE (err u46))
+(define-constant ERR_STAKE_IN_PREPARE_PHASE (err u47))
 ;; A staker tried to rollover a bond too early
-(define-constant ERR_ROLLOVER_TOO_EARLY (err u47))
+(define-constant ERR_ROLLOVER_TOO_EARLY (err u48))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -1654,6 +1657,7 @@
                 (ok {
                     sum: u0,
                     expected-script-hash: expected-timelock-output,
+                    seen-outpoints: (list),
                 })
             )))
         )
@@ -1662,6 +1666,12 @@
 )
 
 ;; Fold function for validating l1 lockup info
+;;
+;; - `expected-script-hash` is the timelock script that the lockup must match
+;; - `sum` is the running total of sats from all valid lockups processed so far.
+;; - `seen-outpoints` tracks every (txid, output-index) pair already credited
+;;   in this call. Duplicate entries is rejected via
+;;   ERR_DUPLICATE_LOCKUP_OUTPOINT.
 (define-private (validate-l1-lockup
         (lockup {
             height: uint,
@@ -1676,6 +1686,7 @@
         (accumulator-res (response {
             expected-script-hash: (buff 34),
             sum: uint,
+            seen-outpoints: (list 10 { txid: (buff 32), output-index: uint }),
         }
             uint
         ))
@@ -1687,6 +1698,8 @@
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
+            (outpoint { txid: txid, output-index: (get output-index lockup) })
+            (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (verify-block-header (get header lockup) (get height lockup))
             ERR_INVALID_BTC_HEADER
@@ -1696,6 +1709,9 @@
         )
         (asserts! (is-eq (get amount output) (get amount lockup))
             ERR_INVALID_LOCKUP_AMOUNT
+        )
+        (asserts! (is-none (index-of? seen-outpoints outpoint))
+            ERR_DUPLICATE_LOCKUP_OUTPOINT
         )
         ;; verify merkle proof
         (asserts!
@@ -1712,6 +1728,9 @@
         (ok {
             expected-script-hash: (get expected-script-hash accumulator),
             sum: (+ (get sum accumulator) (get amount output)),
+            seen-outpoints: (unwrap-panic (as-max-len?
+                (append seen-outpoints outpoint) u10
+            )),
         })
     )
 )
