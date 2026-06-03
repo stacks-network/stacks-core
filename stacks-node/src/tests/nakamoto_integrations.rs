@@ -250,7 +250,7 @@ lazy_static! {
         // so any test that crosses it must first deploy the stub (see
         // `check_pox_5_stake_lifecycle` for the pattern). Tests that
         // *intentionally* exercise Epoch 4.0 override these heights -- e.g.
-        // `epochs[Epoch34].end_height = 254; epochs[Epoch40].start_height = 254;`.
+        // `epochs[Epoch34].end_height = 260; epochs[Epoch40].start_height = 260;`.
         // The default 1_002 keeps the boundary off the prepare phase and off
         // reward-cycle offsets 0/1.
         StacksEpoch {
@@ -766,6 +766,9 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
 /// Activate Epoch 4.0 (inactive by default in `NAKAMOTO_INTEGRATION_EPOCHS`).
 /// Must be applied to every node's config so peers agree on the boundary.
+///
+/// The boundary is placed at `260` — the start of cycle 13 under the default
+/// integration-test PoX params (`reward_length=20`)..
 pub fn enable_epoch_4_0(conf: &mut Config) {
     let epochs = conf
         .burnchain
@@ -775,11 +778,11 @@ pub fn enable_epoch_4_0(conf: &mut Config) {
     epochs
         .get_mut(StacksEpochId::Epoch34)
         .expect("Missing epoch 3.4 in config")
-        .end_height = 254;
+        .end_height = 260;
     epochs
         .get_mut(StacksEpochId::Epoch40)
         .expect("Missing epoch 4.0 in config")
-        .start_height = 254;
+        .start_height = 260;
 }
 
 pub fn next_block_and<F>(

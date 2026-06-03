@@ -1,0 +1,1 @@
+Do not allow functions that modify the staker/signer set during the prepare phase.
