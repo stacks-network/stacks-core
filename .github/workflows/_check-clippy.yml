@@ -6,7 +6,7 @@ name: "Checks: Clippy"
 run-name: "Checks: Clippy [${{ github.ref_name }}]"
 
 # Only run when:
-#   - PRs are (re)opened against develop branch
+#   - PRs are (re)opened (any target branch)
 #   - commit is pushed to PR
 #   - PR is added to merge queue
 on:
@@ -15,8 +15,6 @@ on:
     types:
       - checks_requested
   pull_request:
-    branches:
-      - develop
     types:
       - opened
       - reopened

@@ -21,7 +21,9 @@ use stacks_common::address::{
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::ed25519::ed25519_verify;
 use stacks_common::util::hash;
-use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
+use stacks_common::util::secp256k1::{
+    Secp256k1PublicKey, secp256k1_decompress, secp256k1_recover, secp256k1_verify,
+};
 use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
 
 use crate::vm::contexts::{ExecutionState, InvocationContext};
@@ -373,4 +375,26 @@ pub fn cost_input_ed25519_verify(args: &[Value]) -> Result<u64, VmExecutionError
         _ => 0,
     };
     Ok(u64::try_from(len).unwrap_or(u64::MAX))
+}
+
+pub fn native_secp256k1_decompress(public_key: Value) -> Result<Value, VmExecutionError> {
+    let public_key_bytes = match &public_key {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                public_key.to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let Ok(public_key_uncompressed) = secp256k1_decompress(public_key_bytes) else {
+        // We do not return the runtime error. Immediately map this to an error code.
+        return Ok(Value::err_uint(1));
+    };
+    let public_key_uncompressed_buff = Value::buff_from(public_key_uncompressed.to_vec())
+        .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?;
+    Ok(Value::okay(public_key_uncompressed_buff)
+        .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?)
 }

@@ -313,6 +313,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | Secp256k1Verify
             | Secp256r1Verify
             | Ed25519Verify
+            | Secp256k1Decompress
             | ConsSome
             | ConsOkay
             | ConsError

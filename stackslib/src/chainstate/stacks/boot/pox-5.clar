@@ -52,6 +52,9 @@
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 ;; The lockup amount does not match the specified amount of sats
 (define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
+;; The same Bitcoin outpoint (txid + output-index) appeared twice in
+;; the L1 lockup proof list submitted to `register-for-bond`.
+(define-constant ERR_DUPLICATE_LOCKUP_OUTPOINT (err u46))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -366,10 +369,14 @@
 )
 
 (define-public (set-bond-admin (new-admin principal))
-    (begin
+    (let ((old-admin (var-get bond-admin)))
         ;; only bond admin can call this.
-        (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
-        (ok (var-set bond-admin new-admin))
+        (asserts! (is-eq contract-caller old-admin) ERR_UNAUTHORIZED)
+        (var-set bond-admin new-admin)
+        (ok {
+            old-admin: old-admin,
+            new-admin: new-admin,
+        })
     )
 )
 
@@ -402,7 +409,9 @@
             max-sats: uint,
         }))
     )
-    (let ((bond-start-height (bond-period-to-burn-height bond-index)))
+    (let ((bond-start-height (bond-period-to-burn-height bond-index))
+          (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+          (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES)))
         ;; only bond admin can call this.
         (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
 
@@ -438,6 +447,20 @@
             })
             ERR_BOND_ALREADY_SETUP
         )
+
+        (print {
+            topic: "setup-bond",
+            bond-index: bond-index,
+            target-rate: target-rate,
+            stx-value-ratio: stx-value-ratio,
+            min-ustx-ratio: min-ustx-ratio,
+            early-unlock-bytes: early-unlock-bytes,
+            early-unlock-admin: early-unlock-admin,
+            first-reward-cycle: first-reward-cycle,
+            bond-start-height: bond-start-height,
+            unlock-cycle: unlock-cycle,
+            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+        })
 
         (let ((accumulator (try! (fold add-staker-to-bond allowlist
                 (ok {
@@ -616,15 +639,20 @@
             BOND_LENGTH_CYCLES amount-ustx false
         ))
 
-        (ok {
-            signer: signer,
-            staker: tx-sender,
-            amount-ustx: amount-ustx,
-            bond-index: bond-index,
-            first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            unlock-cycle: unlock-cycle,
-        })
+        (let ((result {
+                signer: signer,
+                staker: tx-sender,
+                amount-ustx: amount-ustx,
+                sats-total: sats-total,
+                bond-index: bond-index,
+                first-reward-cycle: first-reward-cycle,
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+                unlock-cycle: unlock-cycle,
+                is-l1-lock: (is-ok btc-lockup),
+            }))
+            (print (merge {topic: "register-for-bond" } result))
+            (ok result)
+        )
     )
 )
 
@@ -739,7 +767,20 @@
             is-l1-lock: (get is-l1-lock current-membership),
         })
 
-        (ok true)
+        (let ((result {
+                staker: tx-sender,
+                signer: signer,
+                old-signer: old-signer,
+                bond-index: bond-index,
+                amount-ustx: (get amount-ustx current-membership),
+                amount-sats: amount-sats,
+                first-reward-cycle: first-reward-cycle,
+                num-cycles: num-cycles,
+                is-l1-lock: (get is-l1-lock current-membership),
+            }))
+            (print (merge {topic: "update-bond-registration" } result))
+            (ok result)
+        )
     )
 )
 
@@ -758,10 +799,13 @@
         (asserts! (is-eq tx-sender signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
 
         (map-set signers signer signer-key)
-        (ok {
-            signer: signer,
-            signer-key: signer-key,
-        })
+        (let ((result {
+                signer: signer,
+                signer-key: signer-key,
+            }))
+            (print (merge {topic: "register-signer" } result))
+            (ok result)
+        )
     )
 )
 
@@ -823,15 +867,18 @@
             signer: signer,
         })
 
-        (ok {
-            signer: signer,
-            staker: tx-sender,
-            amount-ustx: amount-ustx,
-            num-cycle: num-cycles,
-            first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            unlock-cycle: unlock-cycle,
-        })
+        (let ((result {
+                signer: signer,
+                staker: tx-sender,
+                amount-ustx: amount-ustx,
+                num-cycles: num-cycles,
+                first-reward-cycle: first-reward-cycle,
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+                unlock-cycle: unlock-cycle,
+            }))
+            (print (merge {topic: "stake" } result))
+            (ok result)
+        )
     )
 )
 
@@ -911,15 +958,21 @@
             signer: signer,
         })
 
-        (ok {
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            staker: tx-sender,
-            signer: signer,
-            prev-unlock-height: prev-unlock-cycle,
-            unlock-cycle: unlock-cycle,
-            num-cycles: num-cycles,
-            amount-ustx: new-lock-amount,
-        })
+        (let ((result {
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+                staker: tx-sender,
+                signer: signer,
+                old-signer: old-signer,
+                prev-unlock-height: prev-unlock-cycle,
+                unlock-cycle: unlock-cycle,
+                num-cycles: num-cycles,
+                amount-ustx: new-lock-amount,
+                amount-increase: amount-increase,
+                cycles-to-extend: cycles-to-extend,
+            }))
+            (print (merge {topic: "stake-update" } result))
+            (ok result)
+        )
     )
 )
 
@@ -978,7 +1031,15 @@
         }
             (- current-total-shares amount-sats)
         )
-        (ok true)
+        (let ((result {
+                staker: staker,
+                signer: signer,
+                bond-index: bond-index,
+                amount-sats-released: amount-sats,
+            }))
+            (print (merge {topic: "announce-l1-early-exit" } result))
+            (ok result)
+        )
     )
 )
 
@@ -1063,11 +1124,16 @@
             ))
         ))
 
-        (ok {
-            staker: staker,
-            signer: signer,
-            new-amount-sats: new-amount-sats,
-        })
+        (let ((result {
+                staker: staker,
+                signer: signer,
+                bond-index: bond-index,
+                amount-withdrawn-sats: amount-to-withdrawal-sats,
+                new-amount-sats: new-amount-sats,
+            }))
+            (print (merge {topic: "unstake-sbtc" } result))
+            (ok result)
+        )
     )
 )
 
@@ -1115,13 +1181,17 @@
             signer: old-signer,
         })
 
-        (ok {
-            staker: tx-sender,
-            amount-ustx: (get amount-ustx current-info),
-            first-reward-cycle: first-reward-cycle,
-            unlock-cycle: unlock-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-        })
+        (let ((result {
+                staker: tx-sender,
+                signer: old-signer,
+                amount-ustx: (get amount-ustx current-info),
+                first-reward-cycle: first-reward-cycle,
+                unlock-cycle: unlock-cycle,
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+            }))
+            (print (merge {topic: "unstake" } result))
+            (ok result)
+        )
     )
 )
 
@@ -1459,6 +1529,7 @@
                 (ok {
                     sum: u0,
                     expected-script-hash: expected-timelock-output,
+                    seen-outpoints: (list),
                 })
             )))
         )
@@ -1467,6 +1538,12 @@
 )
 
 ;; Fold function for validating l1 lockup info
+;;
+;; - `expected-script-hash` is the timelock script that the lockup must match
+;; - `sum` is the running total of sats from all valid lockups processed so far.
+;; - `seen-outpoints` tracks every (txid, output-index) pair already credited
+;;   in this call. Duplicate entries is rejected via
+;;   ERR_DUPLICATE_LOCKUP_OUTPOINT.
 (define-private (validate-l1-lockup
         (lockup {
             height: uint,
@@ -1481,6 +1558,7 @@
         (accumulator-res (response {
             expected-script-hash: (buff 34),
             sum: uint,
+            seen-outpoints: (list 10 { txid: (buff 32), output-index: uint }),
         }
             uint
         ))
@@ -1492,6 +1570,8 @@
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
+            (outpoint { txid: txid, output-index: (get output-index lockup) })
+            (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (verify-block-header (get header lockup) (get height lockup))
             ERR_INVALID_BTC_HEADER
@@ -1501,6 +1581,9 @@
         )
         (asserts! (is-eq (get amount output) (get amount lockup))
             ERR_INVALID_LOCKUP_AMOUNT
+        )
+        (asserts! (is-none (index-of? seen-outpoints outpoint))
+            ERR_DUPLICATE_LOCKUP_OUTPOINT
         )
         ;; verify merkle proof
         (asserts!
@@ -1517,6 +1600,9 @@
         (ok {
             expected-script-hash: (get expected-script-hash accumulator),
             sum: (+ (get sum accumulator) (get amount output)),
+            seen-outpoints: (unwrap-panic (as-max-len?
+                (append seen-outpoints outpoint) u10
+            )),
         })
     )
 )
@@ -1580,12 +1666,15 @@
                 (cycle-staked-ustx (get-total-shares-staked-for-cycle false stx-cycle))
                 (current-rewards-per-ustx (get-rewards-per-token-for-cycle false stx-cycle))
                 (prev-accounted-rewards (var-get last-accounted-rewards-only))
-                (new-rewards-per-ustx (if (is-eq cycle-staked-ustx u0)
-                    ;; if there are no stx staked, we have a problem
+                ;; If no STX is staked this cycle, the staker cut will be applied to the reserve.
+                (no-stx-stakers (is-eq cycle-staked-ustx u0))
+                (new-rewards-per-ustx (if no-stx-stakers
                     u0
                     (/ (* stx-staker-rewards PRECISION) cycle-staked-ustx)
                 ))
                 (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+                ;; When no STX is staked, fold the staker cut into the reserve, otherwise zero.
+                (stranded-staker-cut (if no-stx-stakers stx-staker-rewards u0))
             )
             (print {
                 topic: "calculate-rewards",
@@ -1597,8 +1686,11 @@
                 stx-cycle: stx-cycle,
                 cycle-staked-ustx: cycle-staked-ustx,
                 next-rewards-per-ustx: next-rewards-per-ustx,
+                stranded-staker-cut: stranded-staker-cut,
             })
-            (var-set reserve-balance (+ cur-reserve new-reserve))
+            (var-set reserve-balance
+                (+ cur-reserve new-reserve stranded-staker-cut)
+            )
             (var-set last-reward-compute-height calculation-height)
             (var-set last-accounted-rewards-only
                 (+ prev-accounted-rewards (- accrued-rewards new-reserve))
@@ -1609,7 +1701,20 @@
             }
                 next-rewards-per-ustx
             )
-            (ok true)
+            (let ((result {
+                    bond-periods: bond-periods,
+                    calculation-height: calculation-height,
+                    remaining-rewards: remaining-rewards,
+                    accrued-rewards: accrued-rewards,
+                    new-reserve: new-reserve,
+                    stx-staker-rewards: stx-staker-rewards,
+                    stx-cycle: stx-cycle,
+                    cycle-staked-ustx: cycle-staked-ustx,
+                    next-rewards-per-ustx: next-rewards-per-ustx,
+                }))
+                (print (merge {topic: "calculate-rewards" } result))
+                (ok result)
+            )
         )
     )
 )
@@ -1755,19 +1860,15 @@
             (- prev-accrued-rewards total-rewards)
         )
 
-        (print {
-            topic: "claim-rewards",
-            stx-rewards: stx-rewards,
-            bond-rewards: (get bond-rewards bond-rewards),
-            bond-totals: bond-totals,
-            total-rewards: total-rewards,
-        })
-        (ok {
-            stx-rewards: stx-rewards,
-            bond-rewards: (get bond-rewards bond-rewards),
-            bond-totals: bond-totals,
-            total-rewards: total-rewards,
-        })
+        (let ((result {
+                stx-rewards: stx-rewards,
+                bond-rewards: (get bond-rewards bond-rewards),
+                bond-totals: bond-totals,
+                total-rewards: total-rewards,
+            }))
+            (print (merge {topic: "claim-rewards" } result))
+            (ok result)
+        )
     )
 )
 
@@ -1984,7 +2085,11 @@
             true
         )
 
-        (ok true)
+        (ok {
+            signer-key: signer-key,
+            signer-manager: signer-manager,
+            auth-id: auth-id,
+        })
     )
 )
 
@@ -2011,10 +2116,14 @@
             )
             ERR_UNAUTHORIZED
         )
-        (ok (map-delete signer-key-grants {
+        (ok {
             signer-key: signer-key,
             signer-manager: signer-manager,
-        }))
+            existed: (map-delete signer-key-grants {
+                signer-key: signer-key,
+                signer-manager: signer-manager,
+            }),
+        })
     )
 )
 
@@ -2072,14 +2181,6 @@
 (define-read-only (reward-cycle-to-burn-height (cycle uint))
     (+ (var-get first-burnchain-block-height)
         (* cycle (var-get pox-reward-cycle-length))
-    )
-)
-
-;; Get the L1 unlock height for a given reward cycle.
-;; This is equal to exactly halfway through the provided cycle.
-(define-read-only (reward-cycle-to-unlock-height (cycle uint))
-    (+ (reward-cycle-to-burn-height cycle)
-        (/ (var-get pox-reward-cycle-length) u2)
     )
 )
 

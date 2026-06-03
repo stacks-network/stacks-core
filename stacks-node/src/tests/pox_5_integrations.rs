@@ -815,6 +815,12 @@ fn check_pox_5_register_for_bond_lifecycle() {
 ///      `register-for-bond`.
 ///
 /// Assertions:
+/// - submitting the same lockup outpoint three times in the L1 proof list
+///   is rejected with `ERR_DUPLICATE_LOCKUP_OUTPOINT` (u46) — the per-output
+///   dedup inside `validate-l1-lockup` trips before the post-fold sum check,
+///   and the failure leaves the staker with no bond membership and no STX lock
+/// - the honest single-output proof still registers (guards against
+///   too-aggressive dedup)
 /// - STX is locked, with unlock height set to the bond's unlock-burn-height
 /// - the bond membership records `is-l1-lock: true` (the membership reads
 ///   `(is-ok btc-lockup)`)
@@ -1286,7 +1292,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         clarity::vm::types::TupleData::from_data(vec![
             (
                 ClarityName::try_from("outputs").unwrap(),
-                Value::cons_list_unsanitized(vec![lockup_output]).unwrap(),
+                Value::cons_list_unsanitized(vec![lockup_output.clone()]).unwrap(),
             ),
             (
                 ClarityName::try_from("unlock-bytes").unwrap(),
@@ -1297,18 +1303,106 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     );
     let l1_lockup_arg = Value::okay(lockup_tuple).expect("failed to wrap lockup tuple in (ok ...)");
 
-    // 3) `register-for-bond` via the L1 lockup branch.
     let register_fee = 2000u64;
     let bond_amount = POX_DEFAULT_STACKER_STX_AMT;
     let staker_balance_before = get_account(&http_origin, &staker_addr).balance;
-    assert!(staker_balance_before >= bond_amount + register_fee as u128 * 2);
+    // 3 register attempts: dup-outpoint rejection, happy path, ERR_ALREADY_REGISTERED.
+    assert!(staker_balance_before >= bond_amount + register_fee as u128 * 3);
 
     let sbtc_balance_before = sbtc_balance(&naka_conf, &sbtc_deployer_addr, &staker_addr);
 
+    // 3) Submitting the same lockup outpoint multiple times in the L1 proof
+    //    list must be rejected by `validate-l1-lockup`'s per-output dedup
+    //    with `ERR_DUPLICATE_LOCKUP_OUTPOINT` (u46). The dedup check sits
+    //    *inside* the fold, so it trips before the post-fold sum check
+    //    would otherwise notice that 3 * BTC_LOCKUP_SATS exceeds the
+    //    allowlist's `max-sats`. Asserting `u46` (not the sum error `u10`)
+    //    proves the dedup is what caught the attack.
+    let dup_lockup_tuple = clarity::vm::Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                ClarityName::try_from("outputs").unwrap(),
+                Value::cons_list_unsanitized(vec![
+                    lockup_output.clone(),
+                    lockup_output.clone(),
+                    lockup_output,
+                ])
+                .unwrap(),
+            ),
+            (
+                ClarityName::try_from("unlock-bytes").unwrap(),
+                Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
+            ),
+        ])
+        .unwrap(),
+    );
+    let l1_dup_lockup_arg =
+        Value::okay(dup_lockup_tuple).expect("failed to wrap dup lockup tuple in (ok ...)");
+
+    test_observer::clear();
+    let dup_outpoint_tx = make_contract_call(
+        &staker_sk,
+        0,
+        register_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "register-for-bond",
+        &[
+            Value::UInt(0),
+            Value::Principal(test_signer_principal.clone()),
+            Value::UInt(bond_amount),
+            l1_dup_lockup_arg,
+            Value::none(),
+        ],
+    );
+    let dup_outpoint_txid = submit_tx(&http_origin, &dup_outpoint_tx);
+    info!("Submitted triplicate-outpoint pox-5 register-for-bond (L1) txid: {dup_outpoint_txid}");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &staker_addr).nonce == 1
+            && get_tx_result_by_id(&dup_outpoint_txid).is_some())
+    })
+    .expect("Timed out waiting for triplicate-outpoint register-for-bond (L1)");
+
+    let parsed = get_tx_result_by_id(&dup_outpoint_txid)
+        .expect("Did not observe triplicate-outpoint register-for-bond txid in test_observer");
+    assert_eq!(
+        parsed,
+        Value::error(Value::UInt(46)).unwrap(),
+        "triplicate-outpoint register-for-bond (L1) should fail with \
+         ERR_DUPLICATE_LOCKUP_OUTPOINT (u46), not the post-fold sum error",
+    );
+
+    // The failed call must not have produced any bond state: no membership
+    // row, no STX lock.
+    let no_membership = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-bond-membership",
+        vec![&Value::Principal(staker_addr.clone().into())],
+    )
+    .result()
+    .expect("get-bond-membership read failed")
+    .expect_optional()
+    .expect("get-bond-membership response should be (optional ...)");
+    assert!(
+        no_membership.is_none(),
+        "triplicate-outpoint failure must not create a bond membership; got {no_membership:?}"
+    );
+    let after_dup_outpoint = get_account(&http_origin, &staker_addr);
+    assert_eq!(
+        after_dup_outpoint.locked, 0,
+        "triplicate-outpoint failure must not lock staker STX"
+    );
+
+    // 4) `register-for-bond` via the L1 lockup branch — the honest
+    //    single-output proof must still succeed. This guards against a
+    //    too-aggressive dedup that would also break the happy path.
     test_observer::clear();
     let register_tx = make_contract_call(
         &staker_sk,
-        0,
+        1,
         register_fee,
         naka_conf.burnchain.chain_id,
         &pox_5_addr,
@@ -1325,7 +1419,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     let register_txid = submit_tx(&http_origin, &register_tx);
     info!("Submitted pox-5 register-for-bond (L1 lockup) txid: {register_txid}");
     wait_for(60, || {
-        Ok(get_account(&http_origin, &staker_addr).nonce == 1
+        Ok(get_account(&http_origin, &staker_addr).nonce == 2
             && get_tx_result_by_id(&register_txid).is_some())
     })
     .expect("Timed out waiting for register-for-bond (L1)");
@@ -1396,13 +1490,13 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         "bond membership must record `is-l1-lock: true` for the L1 lockup branch",
     );
 
-    // 4) A second `register-for-bond` from the same staker via the L1 path
+    // 5) A second `register-for-bond` from the same staker via the L1 path
     // must still fail with `ERR_ALREADY_REGISTERED` (u9) — the duplicate
     // check sits after `verify-l1-lockups` runs.
     test_observer::clear();
     let dup_tx = make_contract_call(
         &staker_sk,
-        1,
+        2,
         register_fee,
         naka_conf.burnchain.chain_id,
         &pox_5_addr,
@@ -1419,7 +1513,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     let dup_txid = submit_tx(&http_origin, &dup_tx);
     info!("Submitted duplicate pox-5 register-for-bond (L1) txid: {dup_txid}");
     wait_for(60, || {
-        Ok(get_account(&http_origin, &staker_addr).nonce == 2
+        Ok(get_account(&http_origin, &staker_addr).nonce == 3
             && get_tx_result_by_id(&dup_txid).is_some())
     })
     .expect("Timed out waiting for duplicate register-for-bond (L1)");
@@ -1443,7 +1537,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         "failed duplicate register-for-bond must not change unlock-burn-height"
     );
 
-    // 5) Spend the L1 lockup once the on-chain timelock matures.
+    // 6) Spend the L1 lockup once the on-chain timelock matures.
     //
     // The previous steps put `BTC_LOCKUP_SATS` into the canonical
     // timelock P2WSH whose witness program is
