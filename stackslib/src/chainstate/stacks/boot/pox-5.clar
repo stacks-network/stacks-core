@@ -406,9 +406,11 @@
             max-sats: uint,
         }))
     )
-    (let ((bond-start-height (bond-period-to-burn-height bond-index))
-          (first-reward-cycle (bond-period-to-reward-cycle bond-index))
-          (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES)))
+    (let (
+            (bond-start-height (bond-period-to-burn-height bond-index))
+            (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+            (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
+        )
         ;; only bond admin can call this.
         (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
 
@@ -584,7 +586,13 @@
         ;; Cannot be already staked
         (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
 
+        ;; Cannot stake more sats than their allowance
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
+
+        ;; Must have enough unlocked STX
+        (asserts! (>= (get unlocked (stx-account tx-sender)) amount-ustx)
+            ERR_INSUFFICIENT_STX
+        )
 
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
@@ -647,7 +655,7 @@
                 unlock-cycle: unlock-cycle,
                 is-l1-lock: (is-ok btc-lockup),
             }))
-            (print (merge {topic: "register-for-bond" } result))
+            (print (merge { topic: "register-for-bond" } result))
             (ok result)
         )
     )
@@ -775,7 +783,7 @@
                 num-cycles: num-cycles,
                 is-l1-lock: (get is-l1-lock current-membership),
             }))
-            (print (merge {topic: "update-bond-registration" } result))
+            (print (merge { topic: "update-bond-registration" } result))
             (ok result)
         )
     )
@@ -800,7 +808,7 @@
                 signer: signer,
                 signer-key: signer-key,
             }))
-            (print (merge {topic: "register-signer" } result))
+            (print (merge { topic: "register-signer" } result))
             (ok result)
         )
     )
@@ -873,7 +881,7 @@
                 unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
                 unlock-cycle: unlock-cycle,
             }))
-            (print (merge {topic: "stake" } result))
+            (print (merge { topic: "stake" } result))
             (ok result)
         )
     )
@@ -967,7 +975,7 @@
                 amount-increase: amount-increase,
                 cycles-to-extend: cycles-to-extend,
             }))
-            (print (merge {topic: "stake-update" } result))
+            (print (merge { topic: "stake-update" } result))
             (ok result)
         )
     )
@@ -1034,7 +1042,7 @@
                 bond-index: bond-index,
                 amount-sats-released: amount-sats,
             }))
-            (print (merge {topic: "announce-l1-early-exit" } result))
+            (print (merge { topic: "announce-l1-early-exit" } result))
             (ok result)
         )
     )
@@ -1128,7 +1136,7 @@
                 amount-withdrawn-sats: amount-to-withdrawal-sats,
                 new-amount-sats: new-amount-sats,
             }))
-            (print (merge {topic: "unstake-sbtc" } result))
+            (print (merge { topic: "unstake-sbtc" } result))
             (ok result)
         )
     )
@@ -1186,7 +1194,7 @@
                 unlock-cycle: unlock-cycle,
                 unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
             }))
-            (print (merge {topic: "unstake" } result))
+            (print (merge { topic: "unstake" } result))
             (ok result)
         )
     )
@@ -1655,7 +1663,10 @@
                 ))
                 (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
                 ;; When no STX is staked, fold the staker cut into the reserve, otherwise zero.
-                (stranded-staker-cut (if no-stx-stakers stx-staker-rewards u0))
+                (stranded-staker-cut (if no-stx-stakers
+                    stx-staker-rewards
+                    u0
+                ))
             )
             (print {
                 topic: "calculate-rewards",
@@ -1693,7 +1704,7 @@
                     cycle-staked-ustx: cycle-staked-ustx,
                     next-rewards-per-ustx: next-rewards-per-ustx,
                 }))
-                (print (merge {topic: "calculate-rewards" } result))
+                (print (merge { topic: "calculate-rewards" } result))
                 (ok result)
             )
         )
@@ -1847,7 +1858,7 @@
                 bond-totals: bond-totals,
                 total-rewards: total-rewards,
             }))
-            (print (merge {topic: "claim-rewards" } result))
+            (print (merge { topic: "claim-rewards" } result))
             (ok result)
         )
     )
