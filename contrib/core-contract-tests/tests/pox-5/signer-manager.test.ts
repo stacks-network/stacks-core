@@ -115,6 +115,55 @@ function makePoxAddrCalldata(
   };
 }
 
+test('validate-stake! errors when not called by the pox-5 contract', () => {
+  // Calling the callback directly (contract-caller is a standard principal,
+  // not .pox-5) must be rejected.
+  const { calldata } = makePoxAddrCalldata();
+  expect(
+    txErr(
+      signerManager.validateStake_x({
+        staker: alice,
+        firstIndex: 0n,
+        numIndexes: 1n,
+        amountUstx: stxToUStx(50_000),
+        amountSats: 0n,
+        isBond: false,
+        signerCalldata: calldata,
+      }),
+      alice,
+    ).value,
+  ).toBe(signerManagerErrors.ERR_UNAUTHORIZED_CALLER);
+
+  // The rejected call must not have written a pox-addr for the staker.
+  expect(rov(signerManager.getPoxAddr(alice))).toBeNull();
+});
+
+test('a third party cannot hijack a staker pox-addr via a direct validate-stake! call', () => {
+  // Alice legitimately stakes through pox-5 with no L1 pox-addr.
+  setupStaker(alice);
+  expect(rov(signerManager.getPoxAddr(alice))).toBeNull();
+
+  // Bob attempts to register his own pox-addr against Alice's principal by
+  // invoking the callback directly. This would redirect Alice's L1 rewards
+  // to Bob's BTC address if the guard were missing.
+  const { calldata } = makePoxAddrCalldata();
+  expect(
+    txErr(
+      signerManager.validateStake_x({
+        staker: alice,
+        firstIndex: 0n,
+        numIndexes: 1n,
+        amountUstx: stxToUStx(50_000),
+        amountSats: 0n,
+        isBond: false,
+        signerCalldata: calldata,
+      }),
+      bob,
+    ).value,
+  ).toBe(signerManagerErrors.ERR_UNAUTHORIZED_CALLER);
+  expect(rov(signerManager.getPoxAddr(alice))).toBeNull();
+});
+
 test('signers have pox-addr saved from calldata when provided', () => {
   const { poxAddr, calldata, maxFee } = makePoxAddrCalldata();
   txOk(

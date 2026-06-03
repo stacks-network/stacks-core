@@ -409,6 +409,7 @@ pub fn make_new_block_processed_payload(
         "pox_v1_unlock_height": pox_constants.v1_unlock_height,
         "pox_v2_unlock_height": pox_constants.v2_unlock_height,
         "pox_v3_unlock_height": pox_constants.v3_unlock_height,
+        "pox_v4_unlock_height": pox_constants.pox_5_activation_height,
         "signer_bitvec": signer_bitvec_value,
         "reward_set": reward_set_value,
         "cycle_number": cycle_number_value,
