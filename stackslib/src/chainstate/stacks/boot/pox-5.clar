@@ -52,6 +52,14 @@
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 ;; The lockup amount does not match the specified amount of sats
 (define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
+;; The same Bitcoin outpoint (txid + output-index) appeared twice in
+;; the L1 lockup proof list submitted to `register-for-bond`.
+(define-constant ERR_DUPLICATE_LOCKUP_OUTPOINT (err u46))
+;; A staker tried to modify the next reward cycle's state during the prepare
+;; phase.
+(define-constant ERR_STAKE_IN_PREPARE_PHASE (err u47))
+;; A staker tried to rollover a bond too early
+(define-constant ERR_ROLLOVER_TOO_EARLY (err u48))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -394,10 +402,14 @@
 )
 
 (define-public (set-bond-admin (new-admin principal))
-    (begin
+    (let ((old-admin (var-get bond-admin)))
         ;; only bond admin can call this.
-        (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
-        (ok (var-set bond-admin new-admin))
+        (asserts! (is-eq contract-caller old-admin) ERR_UNAUTHORIZED)
+        (var-set bond-admin new-admin)
+        (ok {
+            old-admin: old-admin,
+            new-admin: new-admin,
+        })
     )
 )
 
@@ -430,7 +442,11 @@
             max-sats: uint,
         }))
     )
-    (let ((bond-start-height (bond-period-to-burn-height bond-index)))
+    (let (
+            (bond-start-height (bond-period-to-burn-height bond-index))
+            (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+            (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
+        )
         ;; only bond admin can call this.
         (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
 
@@ -466,6 +482,20 @@
             })
             ERR_BOND_ALREADY_SETUP
         )
+
+        (print {
+            topic: "setup-bond",
+            bond-index: bond-index,
+            target-rate: target-rate,
+            stx-value-ratio: stx-value-ratio,
+            min-ustx-ratio: min-ustx-ratio,
+            early-unlock-bytes: early-unlock-bytes,
+            early-unlock-admin: early-unlock-admin,
+            first-reward-cycle: first-reward-cycle,
+            bond-start-height: bond-start-height,
+            unlock-cycle: unlock-cycle,
+            unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+        })
 
         (let ((accumulator (try! (fold add-staker-to-bond allowlist
                 (ok {
@@ -556,10 +586,26 @@
     )
     (let (
             (signer (contract-of signer-manager))
+            ;; Compute the sats being staked for this bond.
             (sats-total (try! (match btc-lockup
                 l1-lockups (verify-l1-lockups tx-sender bond-index l1-lockups)
-                sbtc-amount (lock-sbtc sbtc-amount)
+                sbtc-amount (ok sbtc-amount)
             )))
+            ;; Any bond the staker is currently a member of. Some value here
+            ;; means this is a roll-over from an ending bond into a later one.
+            (existing-membership (map-get? protocol-bond-memberships tx-sender))
+            ;; sBTC currently custodied for the staker's existing bond (0 if
+            ;; they have none, or if the existing bond is an L1 lock).
+            (old-sbtc (get-staker-custodied-sbtc tx-sender))
+            ;; sBTC this new bond needs custodied (0 on the L1 path).
+            (new-sbtc (if (is-ok btc-lockup)
+                u0
+                sats-total
+            ))
+            ;; Any STX-only stake the staker has. Present means this
+            ;; `register-for-bond` is a roll-over from an ending stx-only
+            ;; stake into a bond.
+            (existing-stake (map-get? staker-info tx-sender))
             (bond (unwrap! (map-get? protocol-bonds bond-index) ERR_BOND_NOT_FOUND))
             (allowance (unwrap!
                 (map-get? protocol-bond-allowances {
@@ -576,6 +622,7 @@
                 (some bond-index)
             ))
         )
+        (try! (verify-not-prepare-phase))
         ;; Verify that they're sending enough STX
         (asserts!
             (>= amount-ustx
@@ -590,8 +637,22 @@
             ERR_BOND_ALREADY_STARTED
         )
 
-        ;; Cannot be already staked
-        (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
+        ;; An existing STX-only stake is allowed only if its term ends no
+        ;; later than this bond's first reward cycle (no overlap). A stx-only
+        ;; stake has no L1 collateral, so there's no L1-unlock-window gate
+        ;; here -- the lock just extends forward via the node-side handler.
+        (asserts!
+            (match existing-stake
+                stake-info (<=
+                    (+ (get first-reward-cycle stake-info)
+                        (get num-cycles stake-info)
+                    )
+                    first-reward-cycle
+                )
+                true
+            )
+            ERR_ALREADY_STAKED
+        )
 
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
@@ -605,7 +666,11 @@
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        (asserts! (is-none (get-bond-membership tx-sender))
+        ;; Reject if an existing membership *overlaps* this bond. An existing
+        ;; bond whose staking term ends no later than this bond's first cycle
+        ;; (e.g. rolling from bond N into bond N+6) is allowed.
+        (asserts!
+            (not (bond-overlaps-new-position? existing-membership first-reward-cycle))
             ERR_ALREADY_REGISTERED
         )
 
@@ -614,6 +679,14 @@
         (settle-staker-rewards signer first-reward-cycle (some bond-index)
             tx-sender
         )
+
+        ;; A rollover from a non-overlapping existing bond may only happen in
+        ;; that bond's L1 unlock window, the last 1/2 cycle.
+        (try! (verify-bond-rollover-window existing-membership))
+
+        ;; Move the staker's custodied sBTC into this bond, transferring only the
+        ;; net difference vs. any bond they're rolling over from.
+        (try! (roll-sbtc tx-sender old-sbtc new-sbtc))
 
         (map-set protocol-bond-memberships tx-sender {
             bond-index: bond-index,
@@ -633,15 +706,30 @@
             BOND_LENGTH_CYCLES amount-ustx false
         ))
 
-        (ok {
-            signer: signer,
-            staker: tx-sender,
-            amount-ustx: amount-ustx,
-            bond-index: bond-index,
-            first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            unlock-cycle: unlock-cycle,
-        })
+        ;; If this was a roll-over from an STX-only stake, clear the
+        ;; staker-info entry so `stake-update` / `unstake` can no longer
+        ;; reach the now-stale stake. The stake's signer-cycle memberships
+        ;; through its original term stay intact (the staker keeps
+        ;; participating and earning through that term).
+        (if (is-some existing-stake)
+            (map-delete staker-info tx-sender)
+            true
+        )
+
+        (let ((result {
+                signer: signer,
+                staker: tx-sender,
+                amount-ustx: amount-ustx,
+                sats-total: sats-total,
+                bond-index: bond-index,
+                first-reward-cycle: first-reward-cycle,
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+                unlock-cycle: unlock-cycle,
+                is-l1-lock: (is-ok btc-lockup),
+            }))
+            (print (merge { topic: "register-for-bond" } result))
+            (ok result)
+        )
     )
 )
 
@@ -676,6 +764,9 @@
             (amount-sats (get amount-sats current-membership))
             (num-cycles (- bond-end-cycle first-reward-cycle))
         )
+        (try! (verify-not-prepare-phase))
+
+        ;; Check that the old signer is the current signer
         (asserts! (is-eq old-signer current-signer)
             ERR_INVALID_OLD_SIGNER_MANAGER
         )
@@ -729,7 +820,20 @@
             amount-sats: amount-sats,
         })
 
-        (ok true)
+        (let ((result {
+                staker: tx-sender,
+                signer: signer,
+                old-signer: old-signer,
+                bond-index: bond-index,
+                amount-ustx: (get amount-ustx current-membership),
+                amount-sats: amount-sats,
+                first-reward-cycle: first-reward-cycle,
+                num-cycles: num-cycles,
+                is-l1-lock: (get is-l1-lock current-membership),
+            }))
+            (print (merge { topic: "update-bond-registration" } result))
+            (ok result)
+        )
     )
 )
 
@@ -748,10 +852,13 @@
         (asserts! (is-eq tx-sender signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
 
         (map-set signers signer signer-key)
-        (ok {
-            signer: signer,
-            signer-key: signer-key,
-        })
+        (let ((result {
+                signer: signer,
+                signer-key: signer-key,
+            }))
+            (print (merge { topic: "register-signer" } result))
+            (ok result)
+        )
     )
 )
 
@@ -770,7 +877,18 @@
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
             ;; the first cycle in which their stx are unlocked
             (unlock-cycle (+ first-reward-cycle num-cycles))
+            ;; Any bond the staker is currently a member of. Some value here
+            ;; indicates this `stake` is a roll-over from an ending bond into
+            ;; STX-only.
+            (existing-membership (map-get? protocol-bond-memberships tx-sender))
+            ;; sBTC currently custodied for the staker's existing bond (0 if
+            ;; they have none, or if the existing bond is an L1 lock). On a
+            ;; bond-to-stake rollover the full custody is refunded below.
+            (old-sbtc (get-staker-custodied-sbtc tx-sender))
+            (stx-balance (stx-account tx-sender))
+            (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
+        (try! (verify-not-prepare-phase))
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles amount-ustx u0 false
@@ -791,16 +909,36 @@
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        ;; Cannot be already staked
+        ;; Cannot already be STX-only staking. Re-extending an existing stake
+        ;; goes through `stake-update`, not a second `stake` call.
         (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
 
-        ;;  tx-sender principal must not be in a bond membership
-        (asserts! (is-none (get-bond-membership tx-sender)) ERR_ALREADY_STAKED)
-
-        ;;  the Staker must have sufficient unlocked funds
-        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
-            ERR_INSUFFICIENT_STX
+        ;; A roll-over from an existing bond is allowed when the bond's term
+        ;; ends no later than this stake's first reward cycle. Already-active
+        ;; bonds are rejected (overlap). Same shape as the
+        ;; `register-for-bond` gate.
+        (asserts!
+            (not (bond-overlaps-new-position? existing-membership first-reward-cycle))
+            ERR_ALREADY_STAKED
         )
+
+        ;; A roll-over from an ending bond may only happen once that bond's
+        ;; L1 collateral would have unlocked -- the same window an L1 bond
+        ;; holder has to redirect their BTC. Keeps parity with the
+        ;; `register-for-bond` gate so a bond's STX / sBTC can't be released
+        ;; ahead of the bond's L1 unlock height.
+        (try! (verify-bond-rollover-window existing-membership))
+
+        ;;  the Staker must have sufficient total funds (locked + unlocked).
+        ;;  On a roll-over the staker's STX is still locked by the ending
+        ;;  bond; the node-side handler extends that lock to the new amount,
+        ;;  so checking only `stx-get-balance` (unlocked) would falsely fail.
+        (asserts! (>= total-balance amount-ustx) ERR_INSUFFICIENT_STX)
+
+        ;; Refund any sBTC custodied for the rolled-over bond (zero-target
+        ;; net transfer). No-op when there is no existing bond, or when the
+        ;; existing bond is an L1 lock.
+        (try! (roll-sbtc tx-sender old-sbtc u0))
 
         (try! (add-staker-to-signer-cycles tx-sender signer first-reward-cycle
             num-cycles amount-ustx true
@@ -813,15 +951,24 @@
             signer: signer,
         })
 
-        (ok {
-            signer: signer,
-            staker: tx-sender,
-            amount-ustx: amount-ustx,
-            num-cycle: num-cycles,
-            first-reward-cycle: first-reward-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            unlock-cycle: unlock-cycle,
-        })
+        ;; If this was a roll-over from a bond, clear the bond membership so
+        ;; `unstake-sbtc` / `update-bond-registration` can no longer reach
+        ;; the old bond. The old bond's reward shares stay through its term;
+        ;; only the management pointer is gone.
+        (map-delete protocol-bond-memberships tx-sender)
+
+        (let ((result {
+                signer: signer,
+                staker: tx-sender,
+                amount-ustx: amount-ustx,
+                num-cycles: num-cycles,
+                first-reward-cycle: first-reward-cycle,
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+                unlock-cycle: unlock-cycle,
+            }))
+            (print (merge { topic: "stake" } result))
+            (ok result)
+        )
     )
 )
 
@@ -850,6 +997,7 @@
             (first-reward-cycle (+ current-cycle u1))
             (num-cycles (- unlock-cycle current-cycle u1))
         )
+        (try! (verify-not-prepare-phase))
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles new-lock-amount u0 false
@@ -889,15 +1037,21 @@
             signer: signer,
         })
 
-        (ok {
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-            staker: tx-sender,
-            signer: signer,
-            prev-unlock-height: prev-unlock-cycle,
-            unlock-cycle: unlock-cycle,
-            num-cycles: num-cycles,
-            amount-ustx: new-lock-amount,
-        })
+        (let ((result {
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+                staker: tx-sender,
+                signer: signer,
+                old-signer: old-signer,
+                prev-unlock-height: prev-unlock-cycle,
+                unlock-cycle: unlock-cycle,
+                num-cycles: num-cycles,
+                amount-ustx: new-lock-amount,
+                amount-increase: amount-increase,
+                cycles-to-extend: cycles-to-extend,
+            }))
+            (print (merge { topic: "stake-update" } result))
+            (ok result)
+        )
     )
 )
 
@@ -945,7 +1099,15 @@
         (map-set protocol-bond-memberships staker
             (merge membership { amount-sats: u0 })
         )
-        (ok true)
+        (let ((result {
+                staker: staker,
+                signer: signer,
+                bond-index: bond-index,
+                amount-sats-released: amount-sats,
+            }))
+            (print (merge { topic: "announce-l1-early-exit" } result))
+            (ok result)
+        )
     )
 )
 
@@ -994,8 +1156,8 @@
         (try! (check-caller-allowed))
 
         ;; Take a snapshot of the staker's and signer's current rewards
-        (settle-staker-rewards signer current-cycle (some bond-index) tx-sender)
         (settle-rewards signer (current-pox-reward-cycle) (some bond-index))
+        (settle-staker-rewards signer current-cycle (some bond-index) tx-sender)
 
         ;; We need to update each future cycle with this staker's new amount. Instead of
         ;; mutating each cycle, we instead re-use existing "remove" and "add" helpers.
@@ -1024,11 +1186,16 @@
             ))
         ))
 
-        (ok {
-            staker: staker,
-            signer: signer,
-            ;; new-amount-sats: new-amount-sats,
-        })
+        (let ((result {
+                staker: staker,
+                signer: signer,
+                bond-index: bond-index,
+                amount-withdrawn-sats: amount-to-withdrawal-sats,
+                new-amount-sats: new-amount-sats,
+            }))
+            (print (merge { topic: "unstake-sbtc" } result))
+            (ok result)
+        )
     )
 )
 
@@ -1066,13 +1233,17 @@
             signer: old-signer,
         })
 
-        (ok {
-            staker: tx-sender,
-            amount-ustx: (get amount-ustx current-info),
-            first-reward-cycle: first-reward-cycle,
-            unlock-cycle: unlock-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
-        })
+        (let ((result {
+                staker: tx-sender,
+                signer: old-signer,
+                amount-ustx: (get amount-ustx current-info),
+                first-reward-cycle: first-reward-cycle,
+                unlock-cycle: unlock-cycle,
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
+            }))
+            (print (merge { topic: "unstake" } result))
+            (ok result)
+        )
     )
 )
 
@@ -1533,13 +1704,46 @@
     )
 )
 
-(define-private (lock-sbtc (amount uint))
+;; Move a staker's custodied sBTC from `old-sbtc` to `new-sbtc`, transferring
+;; only the net difference: pull the increase from the staker, or refund the
+;; decrease. `total-sbtc-staked` is updated by the net change. A registration
+;; with no rollover passes `old-sbtc` of `u0`, which transfers the full amount.
+;; A no-op when the two are equal.
+(define-private (roll-sbtc
+        (staker principal)
+        (old-sbtc uint)
+        (new-sbtc uint)
+    )
     (begin
-        (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-            transfer amount tx-sender current-contract none
-        ))
-        (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) amount))
-        (ok amount)
+        (if (> new-sbtc old-sbtc)
+            (let ((delta (- new-sbtc old-sbtc)))
+                (try! (contract-call?
+                    'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                    transfer delta tx-sender current-contract none
+                ))
+                (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) delta))
+            )
+            (if (< new-sbtc old-sbtc)
+                (let ((delta (- old-sbtc new-sbtc)))
+                    (try! (as-contract?
+                        ((with-ft
+                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                            "sbtc-token" delta
+                        ))
+                        (try! (contract-call?
+                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                            transfer delta tx-sender staker none
+                        ))
+                    ))
+                    (var-set total-sbtc-staked
+                        (- (var-get total-sbtc-staked) delta)
+                    )
+                )
+                ;; new-sbtc == old-sbtc, no transfer needed
+                true
+            )
+        )
+        (ok true)
     )
 )
 
@@ -1575,6 +1779,7 @@
                 (ok {
                     sum: u0,
                     expected-script-hash: expected-timelock-output,
+                    seen-outpoints: (list),
                 })
             )))
         )
@@ -1583,6 +1788,12 @@
 )
 
 ;; Fold function for validating l1 lockup info
+;;
+;; - `expected-script-hash` is the timelock script that the lockup must match
+;; - `sum` is the running total of sats from all valid lockups processed so far.
+;; - `seen-outpoints` tracks every (txid, output-index) pair already credited
+;;   in this call. Duplicate entries is rejected via
+;;   ERR_DUPLICATE_LOCKUP_OUTPOINT.
 (define-private (validate-l1-lockup
         (lockup {
             height: uint,
@@ -1597,6 +1808,10 @@
         (accumulator-res (response {
             expected-script-hash: (buff 34),
             sum: uint,
+            seen-outpoints: (list 10 {
+                txid: (buff 32),
+                output-index: uint,
+            }),
         }
             uint
         ))
@@ -1608,6 +1823,11 @@
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
+            (outpoint {
+                txid: txid,
+                output-index: (get output-index lockup),
+            })
+            (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (verify-block-header (get header lockup) (get height lockup))
             ERR_INVALID_BTC_HEADER
@@ -1617,6 +1837,9 @@
         )
         (asserts! (is-eq (get amount output) (get amount lockup))
             ERR_INVALID_LOCKUP_AMOUNT
+        )
+        (asserts! (is-none (index-of? seen-outpoints outpoint))
+            ERR_DUPLICATE_LOCKUP_OUTPOINT
         )
         ;; verify merkle proof
         (asserts!
@@ -1633,6 +1856,7 @@
         (ok {
             expected-script-hash: (get expected-script-hash accumulator),
             sum: (+ (get sum accumulator) (get amount output)),
+            seen-outpoints: (unwrap-panic (as-max-len? (append seen-outpoints outpoint) u10)),
         })
     )
 )
@@ -1697,12 +1921,18 @@
                 (cycle-staked-ustx (get-total-shares-staked-for-cycle stx-cycle none))
                 (current-rewards-per-ustx (get-rewards-per-token-for-cycle stx-cycle none))
                 (prev-accounted-rewards (var-get last-accounted-rewards-only))
-                (new-rewards-per-ustx (if (is-eq cycle-staked-ustx u0)
-                    ;; if there are no stx staked, we have a problem
+                ;; If no STX is staked this cycle, the staker cut will be applied to the reserve.
+                (no-stx-stakers (is-eq cycle-staked-ustx u0))
+                (new-rewards-per-ustx (if no-stx-stakers
                     u0
                     (/ (* stx-staker-rewards PRECISION) cycle-staked-ustx)
                 ))
                 (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+                ;; When no STX is staked, fold the staker cut into the reserve, otherwise zero.
+                (stranded-staker-cut (if no-stx-stakers
+                    stx-staker-rewards
+                    u0
+                ))
             )
             (print {
                 topic: "calculate-rewards",
@@ -1714,8 +1944,11 @@
                 stx-cycle: stx-cycle,
                 cycle-staked-ustx: cycle-staked-ustx,
                 next-rewards-per-ustx: next-rewards-per-ustx,
+                stranded-staker-cut: stranded-staker-cut,
             })
-            (var-set reserve-balance (+ cur-reserve new-reserve))
+            (var-set reserve-balance
+                (+ cur-reserve new-reserve stranded-staker-cut)
+            )
             (var-set last-reward-compute-height calculation-height)
             (var-set last-accounted-rewards-only
                 (+ prev-accounted-rewards (- accrued-rewards new-reserve))
@@ -1726,7 +1959,20 @@
             }
                 next-rewards-per-ustx
             )
-            (ok true)
+            (let ((result {
+                    bond-periods: bond-periods,
+                    calculation-height: calculation-height,
+                    remaining-rewards: remaining-rewards,
+                    accrued-rewards: accrued-rewards,
+                    new-reserve: new-reserve,
+                    stx-staker-rewards: stx-staker-rewards,
+                    stx-cycle: stx-cycle,
+                    cycle-staked-ustx: cycle-staked-ustx,
+                    next-rewards-per-ustx: next-rewards-per-ustx,
+                }))
+                (print (merge { topic: "calculate-rewards" } result))
+                (ok result)
+            )
         )
     )
 )
@@ -1906,19 +2152,15 @@
             (- prev-accrued-rewards total-rewards)
         )
 
-        (print {
-            topic: "claim-rewards",
-            stx-rewards: stx-rewards,
-            bond-rewards: (get bond-rewards bond-rewards),
-            bond-totals: bond-totals,
-            total-rewards: total-rewards,
-        })
-        (ok {
-            stx-rewards: stx-rewards,
-            bond-rewards: (get bond-rewards bond-rewards),
-            bond-totals: bond-totals,
-            total-rewards: total-rewards,
-        })
+        (let ((result {
+                stx-rewards: stx-rewards,
+                bond-rewards: (get bond-rewards bond-rewards),
+                bond-totals: bond-totals,
+                total-rewards: total-rewards,
+            }))
+            (print (merge { topic: "claim-rewards" } result))
+            (ok result)
+        )
     )
 )
 
@@ -2216,7 +2458,11 @@
             true
         )
 
-        (ok true)
+        (ok {
+            signer-key: signer-key,
+            signer-manager: signer-manager,
+            auth-id: auth-id,
+        })
     )
 )
 
@@ -2243,10 +2489,14 @@
             )
             ERR_UNAUTHORIZED
         )
-        (ok (map-delete signer-key-grants {
+        (ok {
             signer-key: signer-key,
             signer-manager: signer-manager,
-        }))
+            existed: (map-delete signer-key-grants {
+                signer-key: signer-key,
+                signer-manager: signer-manager,
+            }),
+        })
     )
 )
 
@@ -2307,14 +2557,6 @@
     )
 )
 
-;; Get the L1 unlock height for a given reward cycle.
-;; This is equal to exactly halfway through the provided cycle.
-(define-read-only (reward-cycle-to-unlock-height (cycle uint))
-    (+ (reward-cycle-to-burn-height cycle)
-        (/ (var-get pox-reward-cycle-length) u2)
-    )
-)
-
 ;; What's the current PoX reward cycle?
 (define-read-only (current-pox-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height)
@@ -2346,6 +2588,81 @@
         (- (reward-cycle-to-burn-height (+ current-cycle u1))
             (var-get pox-prepare-cycle-length)
         ))
+)
+
+;; Reject calls that would modify the next reward cycle's signer / staker
+;; set during the current cycle's prepare phase, when that set is frozen.
+;; Used by `stake`, `stake-update`, `register-for-bond`, and
+;; `update-bond-registration` as `(try! (verify-not-prepare-phase))`.
+(define-private (verify-not-prepare-phase)
+    (ok (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
+        ERR_STAKE_IN_PREPARE_PHASE
+    ))
+)
+
+;; The sBTC the staker currently has custodied in pox-5, derived from their
+;; bond membership. Returns u0 when the staker has no bond membership, or
+;; when their existing bond is an L1 lock (no sBTC is custodied for L1
+;; bonds). Used by `register-for-bond` and `stake` to compute the source
+;; side of a `roll-sbtc` net transfer.
+(define-read-only (get-staker-custodied-sbtc (staker principal))
+    (match (map-get? protocol-bond-memberships staker)
+        m (if (get is-l1-lock m)
+            u0
+            (get-staker-shares-staked-for-cycle staker true (get bond-index m)
+                (get signer m)
+            )
+        )
+        u0
+    )
+)
+
+;; True if `existing-membership` (when present) would overlap a new staking
+;; term starting at `new-first-reward-cycle`. A bond whose term ends at or
+;; before the new first cycle is non-overlapping. Callers wrap this in
+;; their own `asserts!` so they can pick the appropriate error code
+;; (`ERR_ALREADY_REGISTERED` in `register-for-bond`, `ERR_ALREADY_STAKED`
+;; in `stake`).
+(define-read-only (bond-overlaps-new-position?
+        (existing-membership (optional {
+            bond-index: uint,
+            amount-ustx: uint,
+            signer: principal,
+            is-l1-lock: bool,
+        }))
+        (new-first-reward-cycle uint)
+    )
+    (match existing-membership
+        existing (>
+            (+ BOND_LENGTH_CYCLES
+                (bond-period-to-reward-cycle (get bond-index existing))
+            )
+            new-first-reward-cycle
+        )
+        false
+    )
+)
+
+;; Reject a rollover attempt before the existing bond's L1 collateral would
+;; have unlocked -- same window an L1 bond holder has to redirect their
+;; BTC. No-op when there is no existing bond. Used by `register-for-bond`
+;; and `stake` as `(try! (verify-bond-rollover-window existing-membership))`,
+;; same shape as `verify-not-prepare-phase`.
+(define-private (verify-bond-rollover-window (existing-membership (optional {
+    bond-index: uint,
+    amount-ustx: uint,
+    signer: principal,
+    is-l1-lock: bool,
+})))
+    (ok (asserts!
+        (match existing-membership
+            existing (>= burn-block-height
+                (get-bond-l1-unlock-height (get bond-index existing))
+            )
+            true
+        )
+        ERR_ROLLOVER_TOO_EARLY
+    ))
 )
 
 (define-read-only (is-bond-active-at-height

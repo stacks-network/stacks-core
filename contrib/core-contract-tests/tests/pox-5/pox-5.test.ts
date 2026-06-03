@@ -5,7 +5,12 @@ import {
   isResponse,
   ok,
 } from '@clarigen/core';
-import { Cl, ClarityType } from '@stacks/transactions';
+import {
+  Cl,
+  ClarityType,
+  cvToValue,
+  deserializeCV,
+} from '@stacks/transactions';
 import { hex } from '@scure/base';
 import { accounts } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
@@ -42,6 +47,35 @@ const BASIS_POINTS = 10000n;
 
 function reserveRewards(rewards: bigint) {
   return (rewards * pox5.constants.RESERVE_RATIO) / BASIS_POINTS;
+}
+
+/**
+ * Read the staker's STX lock state via the native `(stx-account ...)`. Used
+ * by the rollover tests to verify the lock is carried forward across a
+ * bond/stake transition rather than released and re-acquired.
+ *
+ * NOTE: the pinned `@stacks/clarinet-sdk-wasm` doesn't currently apply
+ * pox-5 STX locks in simnet, so the assertions consuming this helper are
+ * commented out in the rollover tests until the wasm is refreshed against
+ * this branch's stacks-core.
+ */
+function stxAccount(address: string): {
+  locked: bigint;
+  unlocked: bigint;
+  unlockHeight: bigint;
+} {
+  const hex = simnet.runSnippet(`(stx-account '${address})`) as string;
+  // `cvToValue` returns tuple inner values as `{ type, value: string }` even
+  // for native uints, so we unwrap manually.
+  const tuple = cvToValue(deserializeCV(hex)) as Record<
+    string,
+    { type: string; value: string }
+  >;
+  return {
+    locked: BigInt(tuple.locked.value),
+    unlocked: BigInt(tuple.unlocked.value),
+    unlockHeight: BigInt(tuple['unlock-height'].value),
+  };
 }
 
 function stxRewards(rewards: bigint) {
@@ -194,6 +228,15 @@ test('scenario - setting up and starting a bond', () => {
     alice,
   );
 
+  expect(aliceRegister.value).toMatchObject({
+    bondIndex: 0n,
+    amountUstx: minAmountUstx,
+    firstRewardCycle: rov(pox5.bondPeriodToRewardCycle(0n)),
+    unlockCycle:
+      rov(pox5.bondPeriodToRewardCycle(0n)) + pox5.constants.BOND_LENGTH_CYCLES,
+    unlockBurnHeight: rov(pox5.bondPeriodToBurnHeight(6n)),
+  });
+
   const aliceInfo = rov(pox5.getBondMembership(alice))!;
   expect(aliceInfo).toEqual({
     amountSats: sbtcAmount,
@@ -277,6 +320,24 @@ test('scenario - setting up and starting a bond', () => {
     bob,
   );
 
+  expect(bobRegister.value).toMatchObject({
+    bondIndex: 0n,
+    amountUstx: minForOverAllowance,
+    firstRewardCycle: rov(pox5.bondPeriodToRewardCycle(0n)),
+    unlockCycle:
+      rov(pox5.bondPeriodToRewardCycle(0n)) + pox5.constants.BOND_LENGTH_CYCLES,
+    unlockBurnHeight: rov(pox5.bondPeriodToBurnHeight(6n)),
+  });
+
+  expect(bobRegister.value).toMatchObject({
+    bondIndex: 0n,
+    amountUstx: minForOverAllowance,
+    firstRewardCycle: rov(pox5.bondPeriodToRewardCycle(0n)),
+    unlockCycle:
+      rov(pox5.bondPeriodToRewardCycle(0n)) + pox5.constants.BOND_LENGTH_CYCLES,
+    unlockBurnHeight: rov(pox5.bondPeriodToBurnHeight(6n)),
+  });
+
   expect(rov(pox5.getStakerSharesStakedForCycle(bob, 1n, 0n, signer))).toBe(
     bobAllowance!,
   );
@@ -326,7 +387,7 @@ test('scenario - staking to a signer', () => {
   const signerInfo = rov(pox5.getSignerInfo(signer));
   expect(signerInfo).toEqual(signerKey);
 
-  txOk(
+  const aliceStake = txOk(
     pox5.stake({
       signerManager: signer,
       amountUstx: aliceAmount,
@@ -336,6 +397,19 @@ test('scenario - staking to a signer', () => {
     }),
     alice,
   );
+
+  const aliceFirstRewardCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
+  const aliceUnlockCycle = aliceFirstRewardCycle + 2n;
+  const aliceUnlockHeight = rov(pox5.rewardCycleToBurnHeight(aliceUnlockCycle));
+  expect(aliceStake.value).toMatchObject({
+    signer,
+    staker: alice,
+    amountUstx: aliceAmount,
+    firstRewardCycle: aliceFirstRewardCycle,
+    unlockCycle: aliceUnlockCycle,
+    unlockBurnHeight: aliceUnlockHeight,
+  });
+
   // cannot stake again
   const aliceStakeErr = txErr(
     pox5.stake({
@@ -379,7 +453,7 @@ test('scenario - staking to a signer', () => {
   expect(isSignerInCycle({ signer: signer, cycle: 1n })).toBeFalsy();
   expect(isSignerInCycle({ signer: signer, cycle: 2n })).toBeFalsy();
 
-  txOk(
+  const bobStake = txOk(
     pox5.stake({
       signerManager: signer,
       amountUstx: bobAmount,
@@ -389,6 +463,18 @@ test('scenario - staking to a signer', () => {
     }),
     bob,
   );
+
+  const bobFirstRewardCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
+  const bobUnlockCycle = bobFirstRewardCycle + 3n;
+  const bobUnlockHeight = rov(pox5.rewardCycleToBurnHeight(bobUnlockCycle));
+  expect(bobStake.value).toMatchObject({
+    signer,
+    staker: bob,
+    amountUstx: bobAmount,
+    firstRewardCycle: bobFirstRewardCycle,
+    unlockCycle: bobUnlockCycle,
+    unlockBurnHeight: bobUnlockHeight,
+  });
 
   expect(rov(pox5.getAmountDelegatedForSigner({ signer, cycle: 1n }))).toBe(
     aliceAmount + bobAmount,
@@ -512,7 +598,7 @@ test('scenario - updating a stake', () => {
 
   expectAllSignersHaveKeys();
 
-  mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
 
   txOk(
     pox5.stakeUpdate({
@@ -600,7 +686,7 @@ test('scenario - unstaking', () => {
 
   expectAllSignersHaveKeys();
 
-  mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
 
   txOk(pox5.unstake({ oldSignerManager: signer }), alice);
   expect(rov(pox5.getStakerInfo(alice))).toEqual({
@@ -616,7 +702,7 @@ test('scenario - unstaking', () => {
 
   expect(getAllStakers().length).toBe(0);
 
-  mineUntil(rov(pox5.rewardCycleToUnlockHeight(2n)));
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
 
   // `getStakerInfo` should return `none` because it's expired
   expect(rov(pox5.getStakerInfo(alice))).toBeNull();
@@ -766,9 +852,10 @@ test('bond rewards split across signers by staked sats', () => {
       totalShares: aliceSbtc + bobSbtc,
     }),
   );
-  expect(rov(pox5.getReserveBalance())).toBe(
-    reserveRewards(1000n - totalBondRewards),
-  );
+  // When no STX-only stake exists, the staker cut is
+  // rerouted to reserve rather than stranded, so reserve receives the
+  // full `remaining-rewards` (1000 - 960 = 40), not just 15% of it.
+  expect(rov(pox5.getReserveBalance())).toBe(1000n - totalBondRewards);
 });
 
 /**
@@ -2991,6 +3078,103 @@ test('register-for-bond rejects existing stx-only stakers', () => {
   expect(register.value).toEqual(pox5Errors.ERR_ALREADY_STAKED);
 });
 
+/**
+ * Stake-to-bond rollover: an STX-only staker with a long stake can `unstake`
+ * to shorten the term to the start of the next reward cycle, and then
+ * immediately `register-for-bond` for a bond whose first cycle is at or
+ * after that shortened term. The new gate allows non-overlapping rollover,
+ * the node-side handler extends the existing STX lock (no fresh lock, no
+ * release between stake and bond), and the staker-info entry is cleared so
+ * the old stake can no longer be touched via `stake-update` / `unstake`.
+ */
+test('STX-only staker can unstake and roll into a bond on the same cycle', () => {
+  const signer = testSigner.identifier;
+  const stakeAmount = stxToUStx(50_000);
+  const bondSbtc = 100000n;
+  registerSigner({ caller: deployer });
+
+  // Alice stakes STX-only with a long term: first=1, num=6, unlock cycle=7.
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Move into cycle 1 — out of cycle 0's prepare phase, past setup-bond(1)'s
+  // "too soon" gate, and after the stake's first cycle.
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: bondSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+
+  // The active long stake (unlock cycle 7) overlaps bond 1 (first cycle 3),
+  // so `register-for-bond` is rejected by the non-overlap gate.
+  const overlapping = txErr(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      btcLockup: err(bondSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(overlapping.value).toEqual(pox5Errors.ERR_ALREADY_STAKED);
+
+  // `unstake` shortens the stake to unlock at the start of cycle 2 — now
+  // strictly before bond 1's first cycle (3), so the rollover is allowed.
+  txOk(pox5.unstake({ oldSignerManager: signer }), alice);
+
+  // Same cycle as the unstake (no further mining): the new gate compares
+  // the raw `staker-info` entry's unlock cycle against the new bond's first
+  // cycle, so the rollover takes effect immediately.
+  const register = txOk(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      btcLockup: err(bondSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(register.value).toMatchObject({
+    bondIndex: 1n,
+    amountUstx: stakeAmount,
+  });
+
+  // The staker-info entry is cleared on rollover; bond membership is set.
+  expect(rov(pox5.getStakerInfo(alice))).toBeNull();
+  const membership = rov(pox5.getBondMembership(alice))!;
+  expect(membership.bondIndex).toBe(1n);
+  expect(membership.isL1Lock).toBe(false);
+
+  // STX lock carried from the (truncated) stx-only stake onto bond 1 — the
+  // lock never released across the stake → bond hand-off. Bond 1's unlock
+  // is at `bond-period-to-burn-height(1 + 6) = bond-period-to-burn-height(7)`.
+  //
+  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
+  // in simnet.
+  // const aliceLock = stxAccount(alice);
+  // expect(aliceLock.locked).toBe(stakeAmount);
+  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(7n)));
+});
+
 test('concurrent bonds with the same stx-value-ratio accept ascending bond-index order', () => {
   const signer = testSigner.identifier;
   const targetRate = 1200n;
@@ -3063,6 +3247,941 @@ test('concurrent bonds with the same stx-value-ratio accept ascending bond-index
   // Ascending bond-index order matches the comment in calculate-bond-rewards:
   // "the earlier bond period comes first".
   txOk(pox5.calculateRewards([0n, 1n]), deployer);
+});
+
+/**
+ * Helper: register alice for an sBTC bond using the minimum amount of STX
+ * required, and returning resulting events.
+ */
+function registerSbtcBondWithMinStx({
+  bondIndex,
+  signer,
+  sbtcAmount,
+  stxValueRatio,
+  minUstxRatio,
+  caller,
+}: {
+  bondIndex: bigint;
+  signer: string;
+  sbtcAmount: bigint;
+  stxValueRatio: bigint;
+  minUstxRatio: bigint;
+  caller: string;
+}) {
+  const amountUstx = rov(
+    pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio),
+  );
+  return txOk(
+    pox5.registerForBond({
+      bondIndex,
+      signerManager: signer,
+      amountUstx,
+      btcLockup: err(sbtcAmount),
+      signerCalldata: null,
+    }),
+    caller,
+  ).events;
+}
+
+/**
+ * Verify a staker can register for the next contiguous bond (index 6) during
+ * bond 0's gap window, with the bond's sBTC carried forward (no net transfer
+ * when the new amount equals the old), bond 0's reward shares preserved, and
+ * the membership pointing at the new bond.
+ */
+test('register-for-bond rolls a staker forward into bond N+6 with equal sBTC (no net transfer)', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  // Capture the contract's sBTC custody after bond 0.
+  const sbtcStakedAfterBond0 = rov(pox5.getTotalSbtcStaked());
+  expect(sbtcStakedAfterBond0).toBe(sbtcAmount);
+
+  // Mine into the gap before bond 6 starts: must be within BOND_GAP_CYCLES of
+  // bond 6's start, and before it.
+  mineUntil(rov(pox5.getBondL1UnlockHeight(0n)));
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 6n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+
+  const aliceRollEvents = registerSbtcBondWithMinStx({
+    bondIndex: 6n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  // Equal sBTC means no net transfer at all.
+  expect(
+    filterEvents(aliceRollEvents, CoreNodeEventType.FtTransferEvent),
+  ).toEqual([]);
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(sbtcAmount);
+
+  // Membership has moved to bond 6, but bond 0's reward shares are preserved
+  // (the staker keeps earning bond 0 rewards through its remaining cycles).
+  const membership = rov(pox5.getBondMembership(alice))!;
+  expect(membership.bondIndex).toBe(6n);
+  expect(membership.isL1Lock).toBe(false);
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 0n, signer))).toBe(
+    sbtcAmount,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 6n, signer))).toBe(
+    sbtcAmount,
+  );
+
+  // STX lock is carried forward — same locked amount, but the unlock height
+  // is rescheduled from bond 0's end to bond 6's end (`bond + 6 = 12`).
+  //
+  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
+  // in simnet. The same invariant is asserted in
+  // `check_pox_5_register_for_second_bond_no_downtime` (nakamoto integ).
+  // const aliceLock = stxAccount(alice);
+  // expect(aliceLock.locked).toBe(
+  //   rov(pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio)),
+  // );
+  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
+});
+
+/**
+ * Rolling into a larger sBTC bond pulls only the difference from the staker
+ * and bumps `total-sbtc-staked` by the same delta. Bond 0's shares are
+ * preserved.
+ */
+test('register-for-bond rolls forward and nets a larger sBTC amount from the staker', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const bond0Sbtc = 5000000n;
+  const bond6Sbtc = 8000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: bond0Sbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount: bond0Sbtc,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  mineUntil(rov(pox5.getBondL1UnlockHeight(0n)));
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 6n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: bond6Sbtc, staker: alice }],
+    }),
+    deployer,
+  );
+
+  const aliceRollEvents = registerSbtcBondWithMinStx({
+    bondIndex: 6n,
+    signer,
+    sbtcAmount: bond6Sbtc,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  const transfers = filterEvents(
+    aliceRollEvents,
+    CoreNodeEventType.FtTransferEvent,
+  );
+  expect(transfers.length).toBe(1);
+  expect(transfers[0]!.data.sender).toBe(alice);
+  expect(transfers[0]!.data.recipient).toBe(pox5.identifier);
+  expect(transfers[0]!.data.amount).toBe((bond6Sbtc - bond0Sbtc).toString());
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(bond6Sbtc);
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 0n, signer))).toBe(
+    bond0Sbtc,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 6n, signer))).toBe(
+    bond6Sbtc,
+  );
+
+  // STX lock is rescheduled to bond 6's unlock; locked amount increases to
+  // bond 6's `min-ustx-for-sats-amount` drawn from Alice's unlocked balance.
+  //
+  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
+  // in simnet.
+  // const aliceLock = stxAccount(alice);
+  // expect(aliceLock.locked).toBe(
+  //   rov(pox5.minUstxForSatsAmount(bond6Sbtc, stxValueRatio, minUstxRatio)),
+  // );
+  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
+});
+
+/**
+ * Rolling into a smaller sBTC bond refunds the difference to the staker and
+ * decreases `total-sbtc-staked` by the same delta.
+ */
+test('register-for-bond rolls forward and refunds when the new sBTC amount is smaller', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const bond0Sbtc = 8000000n;
+  const bond6Sbtc = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: bond0Sbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount: bond0Sbtc,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  mineUntil(rov(pox5.getBondL1UnlockHeight(0n)));
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 6n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: bond6Sbtc, staker: alice }],
+    }),
+    deployer,
+  );
+
+  const aliceRollEvents = registerSbtcBondWithMinStx({
+    bondIndex: 6n,
+    signer,
+    sbtcAmount: bond6Sbtc,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  const transfers = filterEvents(
+    aliceRollEvents,
+    CoreNodeEventType.FtTransferEvent,
+  );
+  expect(transfers.length).toBe(1);
+  expect(transfers[0]!.data.sender).toBe(pox5.identifier);
+  expect(transfers[0]!.data.recipient).toBe(alice);
+  expect(transfers[0]!.data.amount).toBe((bond0Sbtc - bond6Sbtc).toString());
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(bond6Sbtc);
+
+  // STX lock is reduced to bond 6's smaller `min-ustx-for-sats-amount` and
+  // rescheduled; the freed STX returns to Alice's unlocked balance
+  // (exercising `set_lock_v5`'s amount-down path).
+  //
+  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
+  // in simnet.
+  // const aliceLock = stxAccount(alice);
+  // expect(aliceLock.locked).toBe(
+  //   rov(pox5.minUstxForSatsAmount(bond6Sbtc, stxValueRatio, minUstxRatio)),
+  // );
+  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
+});
+
+/**
+ * Re-registering for a later bond after the old bond expires (without first
+ * calling `unstake-sbtc`) properly rolls the sBTC forward via `roll-sbtc`, the
+ * old bond's custodied sBTC is netted forward into the new bond, so
+ * `total-sbtc-staked` matches what is recoverable via the new bond's
+ * `unstake-sbtc`.
+ */
+test('register-for-bond after old bond expires nets sBTC forward (no stuck collateral)', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  const aliceSbtcAfterBond0 = sbtcBalance(alice);
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(sbtcAmount);
+
+  // Mine past bond 0's full expiry: `get-bond-membership` now hides bond 0
+  // (the helper returns `none`), but the raw `protocol-bond-memberships`
+  // entry is still there — this is the exact precondition that orphaned
+  // bond 0's sBTC under the old code.
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(6n)));
+  expect(rov(pox5.getBondMembership(alice))).toBeNull();
+
+  // Bond 7 setup window opens at `bondPeriodToBurnHeight(7) - 2 * L`, which
+  // is at or before bond 0's expiry, so it's already open here.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 7n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+
+  const aliceRollEvents = registerSbtcBondWithMinStx({
+    bondIndex: 7n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  // Equal amounts → no transfer, custody unchanged, and bond 7's shares cover
+  // the full physical sBTC.
+  expect(
+    filterEvents(aliceRollEvents, CoreNodeEventType.FtTransferEvent),
+  ).toEqual([]);
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(sbtcAmount);
+
+  const membership = rov(pox5.getBondMembership(alice))!;
+  expect(membership.bondIndex).toBe(7n);
+
+  // STX lock was carried forward to bond 7's unlock height (the bond
+  // re-acquired no fresh lock — the existing bond 0 lock simply extends).
+  //
+  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
+  // in simnet.
+  // const bond7Unlock = rov(pox5.bondPeriodToBurnHeight(13n));
+  // expect(stxAccount(alice).unlockHeight).toBe(bond7Unlock);
+
+  // Recover everything via the new bond's `unstake-sbtc`. Alice ends up with
+  // her original sBTC balance restored and no sBTC stuck in the contract.
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: sbtcAmount,
+    }),
+    alice,
+  );
+  expect(sbtcBalance(alice)).toBe(aliceSbtcAfterBond0 + sbtcAmount);
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(0n);
+
+  // `unstake-sbtc` only moves the bond's sBTC custody — the STX lock is
+  // untouched. Alice is still locked through bond 7's unlock height even
+  // though her sBTC backing is now 0.
+  //
+  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
+  // in simnet.
+  // const lock = stxAccount(alice);
+  // expect(lock.locked).toBeGreaterThan(0n);
+  // expect(lock.unlockHeight).toBe(bond7Unlock);
+});
+
+/**
+ * A rollover attempted before the old bond's L1 collateral would have
+ * unlocked must be rejected. The rollover window opens at
+ * `(get-bond-l1-unlock-height old)` (half a cycle before the old bond's end).
+ */
+test("register-for-bond rejects a rollover attempt before the old bond's L1 unlock window", () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  // One block before bond 0's L1 unlock — still inside the old bond's term,
+  // outside the rollover window. Bond 6's setup window has opened (cycles
+  // C+10..C+12), so this is a real "too-early" rollover, not blocked by
+  // `setup-bond` timing.
+  const bond0L1Unlock = rov(pox5.getBondL1UnlockHeight(0n));
+  mineUntil(bond0L1Unlock - 1n);
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 6n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+
+  const tooEarly = txErr(
+    pox5.registerForBond({
+      bondIndex: 6n,
+      signerManager: signer,
+      amountUstx: rov(
+        pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio),
+      ),
+      btcLockup: err(sbtcAmount),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(tooEarly.value).toEqual(pox5Errors.ERR_ROLLOVER_TOO_EARLY);
+
+  // One block later — inside the L1 unlock window — the same call now
+  // succeeds, confirming the gate opens exactly at the L1 unlock height.
+  mineUntil(bond0L1Unlock);
+  registerSbtcBondWithMinStx({
+    bondIndex: 6n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+  expect(rov(pox5.getBondMembership(alice))!.bondIndex).toBe(6n);
+});
+
+/**
+ * Bond → STX-only stake rollover: a staker can `stake` while still in
+ * their bond's L1-unlock window. The contract clears the bond membership,
+ * refunds the bond's sBTC custody (via `roll-sbtc(staker, X, 0)`), the
+ * node-side handler extends the STX lock to the new stake's unlock height
+ * (no release), and the staker's stx-only `staker-info` is set.
+ */
+test('stake rolls a bond participant forward into STX-only with sBTC refunded', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  // Mine into bond 0's L1 unlock window (the same window that opens the
+  // bond-to-bond rollover gate).
+  const bond0L1Unlock = rov(pox5.getBondL1UnlockHeight(0n));
+  mineUntil(bond0L1Unlock);
+
+  const aliceSbtcBefore = sbtcBalance(alice);
+  const stakeAmount = stxToUStx(50_000);
+
+  const stakeResult = txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      numCycles: 4n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(stakeResult.value).toMatchObject({
+    staker: alice,
+    amountUstx: stakeAmount,
+  });
+
+  // Bond membership cleared; staker-info now records the stx-only stake.
+  expect(rov(pox5.getBondMembership(alice))).toBeNull();
+  expect(rov(pox5.getStakerInfo(alice))).not.toBeNull();
+
+  // sBTC: bond 0's full custody is refunded to Alice, `total-sbtc-staked`
+  // drops to 0 (she's no longer in a bond).
+  const refund = filterEvents(
+    stakeResult.events,
+    CoreNodeEventType.FtTransferEvent,
+  );
+  expect(refund.length).toBe(1);
+  expect(refund[0]!.data.sender).toBe(pox5.identifier);
+  expect(refund[0]!.data.recipient).toBe(alice);
+  expect(refund[0]!.data.amount).toBe(sbtcAmount.toString());
+  expect(sbtcBalance(alice)).toBe(aliceSbtcBefore + sbtcAmount);
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(0n);
+
+  // STX lock carried from bond 0's unlock onto the new stake's unlock — the
+  // lock never released even though sBTC was fully refunded. Stake's
+  // `first-reward-cycle = current + 1 = 13`, `num-cycles = 4`, so
+  // `unlock-cycle = 17`.
+  //
+  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
+  // in simnet.
+  // const aliceLock = stxAccount(alice);
+  // expect(aliceLock.locked).toBe(stakeAmount);
+  // expect(aliceLock.unlockHeight).toBe(rov(pox5.rewardCycleToBurnHeight(17n)));
+});
+
+/**
+ * Bond → STX-only stake rollover before the bond's L1 unlock window is
+ * rejected, mirroring the bond-to-bond gate. Same `ERR_ROLLOVER_TOO_EARLY`
+ * (u46) error code.
+ */
+test("stake rejects a bond rollover attempt before the bond's L1 unlock window", () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  // One block before bond 0's L1 unlock — outside the rollover window.
+  const bond0L1Unlock = rov(pox5.getBondL1UnlockHeight(0n));
+  mineUntil(bond0L1Unlock - 1n);
+
+  const tooEarly = txErr(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 4n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(tooEarly.value).toEqual(pox5Errors.ERR_ROLLOVER_TOO_EARLY);
+
+  // Mine one block into the window — same call now succeeds.
+  mineUntil(bond0L1Unlock);
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 4n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(rov(pox5.getBondMembership(alice))).toBeNull();
+  expect(rov(pox5.getStakerInfo(alice))).not.toBeNull();
+});
+
+/**
+ * Anti-stuck-collateral analog of the `register-for-bond after old bond
+ * expires nets sBTC forward` regression, but via `stake`: after a bond
+ * expires naturally, calling `stake` rolls the staker out of the bond,
+ * refunds the bond's sBTC custody, and lets the STX get locked fresh for
+ * the new stx-only stake. Without the bond → stake rollover support, the
+ * bond's sBTC would orphan in the contract.
+ */
+test('stake after bond expires refunds the sBTC and clears bond membership', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  const aliceSbtcAfterBond0 = sbtcBalance(alice);
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(sbtcAmount);
+
+  // Bond 0 fully expires. `get-bond-membership` now hides bond 0, but the raw
+  // map entry remains — without `roll-sbtc` the sBTC would orphan here.
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(6n)));
+  expect(rov(pox5.getBondMembership(alice))).toBeNull();
+
+  const stakeResult = txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 4n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(stakeResult.value).toMatchObject({ staker: alice });
+
+  // The sBTC is fully refunded; the contract's custody drops to 0.
+  const refund = filterEvents(
+    stakeResult.events,
+    CoreNodeEventType.FtTransferEvent,
+  );
+  expect(refund.length).toBe(1);
+  expect(refund[0]!.data.sender).toBe(pox5.identifier);
+  expect(refund[0]!.data.recipient).toBe(alice);
+  expect(refund[0]!.data.amount).toBe(sbtcAmount.toString());
+  expect(sbtcBalance(alice)).toBe(aliceSbtcAfterBond0 + sbtcAmount);
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(0n);
+
+  // Bond membership cleared, staker-info now points at the new stx-only stake.
+  expect(rov(pox5.getStakerInfo(alice))).not.toBeNull();
+});
+
+/**
+ * Mirror of the `stake after bond expires` regression, but for the
+ * stake → bond direction: after a stx-only stake expires naturally
+ * (without `unstake`), the staker can `register-for-bond` for any later
+ * bond. The raw `staker-info` map still has the (expired) entry, and the
+ * non-overlap gate accepts it because `first + num` is in the past.
+ */
+test('register-for-bond after stx-only stake expires registers fresh on the new bond', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  const stakeAmount = stxToUStx(50_000);
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      numCycles: 1n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Mine past the stake's term: with `numCycles: 1` and current cycle 0, the
+  // stake covers cycle [1, 2) and ends at cycle 2.
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
+  expect(rov(pox5.getStakerInfo(alice))).toBeNull();
+
+  // setup-bond 1
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate: 1200n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 1n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  // staker-info entry cleared on rollover; bond 1 membership set.
+  expect(rov(pox5.getStakerInfo(alice))).toBeNull();
+  const membership = rov(pox5.getBondMembership(alice))!;
+  expect(membership.bondIndex).toBe(1n);
+
+  // Stake's lock was released at cycle 2 (its natural unlock), so
+  // register-for-bond(1) takes the fresh-lock path and locks Alice's STX
+  // for bond 1's term — unlock at `bond-period-to-burn-height(1 + 6)`.
+  //
+  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
+  // in simnet.
+  // const aliceLock = stxAccount(alice);
+  // expect(aliceLock.locked).toBe(
+  //   rov(pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio)),
+  // );
+  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(7n)));
+});
+
+/**
+ * The L1-unlock-window check and the prepare-phase check overlap toward the
+ * very end of the bond's last cycle: the prepare phase begins inside the
+ * rollover window. A `register-for-bond` issued inside both must surface as
+ * `ERR_STAKE_IN_PREPARE_PHASE`, not as `ok` (and not as
+ * `ERR_ROLLOVER_TOO_EARLY` since we're past the L1 unlock).
+ */
+test("register-for-bond is rejected with ERR_STAKE_IN_PREPARE_PHASE inside the bond's prepare phase", () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  // Bond 6 setup must happen before we enter cycle 12's prepare phase,
+  // since `setup-bond` runs no prepare-phase gate but `register-for-bond`
+  // does. Run setup while still well inside the L1 window.
+  mineUntil(rov(pox5.getBondL1UnlockHeight(0n)));
+  txOk(
+    pox5.setupBond({
+      bondIndex: 6n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+
+  // Mine into cycle 12's prepare phase. Still inside the L1 window
+  // (`>= getBondL1UnlockHeight(0)`) and bond 6 hasn't started yet
+  // (`< bondPeriodToBurnHeight(6)`), so neither the rollover-window gate nor
+  // `ERR_BOND_ALREADY_STARTED` fires — only the prepare-phase gate should.
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(6n)) - 5n);
+  const inPrepare = txErr(
+    pox5.registerForBond({
+      bondIndex: 6n,
+      signerManager: signer,
+      amountUstx: rov(
+        pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio),
+      ),
+      btcLockup: err(sbtcAmount),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(inPrepare.value).toEqual(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+});
+
+/**
+ * Re-registering for the SAME (still-active) bond is still rejected, as is
+ * registering for an overlapping bond. The relaxed gate only opens for
+ * non-overlapping later bonds. The non-overlap check fires before the
+ * L1-window check, so this surfaces as the more specific
+ * `ERR_ALREADY_REGISTERED` rather than `ERR_ROLLOVER_TOO_EARLY`.
+ */
+test('register-for-bond still rejects a duplicate registration for the same or overlapping bond', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  registerSbtcBondWithMinStx({
+    bondIndex: 0n,
+    signer,
+    sbtcAmount,
+    stxValueRatio,
+    minUstxRatio,
+    caller: alice,
+  });
+
+  const dup = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(
+        pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio),
+      ),
+      btcLockup: err(sbtcAmount),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(dup.value).toEqual(pox5Errors.ERR_ALREADY_REGISTERED);
+
+  // Advance into bond 1's setup-bond window, then set up bond 1 with Alice
+  // allowlisted. Bond 1 starts at cycle 3 and bond 0 doesn't end until cycle
+  // 13, so registering for it would overlap bond 0's term and must be rejected
+  // with `ERR_ALREADY_REGISTERED`.
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  const overlap = txErr(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: rov(
+        pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio),
+      ),
+      btcLockup: err(sbtcAmount),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(overlap.value).toEqual(pox5Errors.ERR_ALREADY_REGISTERED);
 });
 
 test('is-in-prepare-phase triggers near the end of the reward cycle', () => {
@@ -3140,6 +4259,102 @@ test('sbtc bond participant can recover sbtc after bond ends', () => {
     alice,
   );
   expect(sbtcBalance(alice)).toBe(aliceBalance + aliceSbtc);
+});
+
+test('below-threshold signer leaks phantom stx-only rewards via bond co-claim', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('phantom-bond-signer-2').identifier;
+  const bobSbtc = 400_000n;
+  const targetRate = 1200n;
+
+  registerSigner();
+
+  // Bond 0 with bob as the lone participant on signer1. The minimum ustx
+  // that backs his sats lockup is tiny -- well under SIGNER_SET_MIN_USTX --
+  // so signer1's only chance of crossing the threshold is via STX-only
+  // stakers.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: bobSbtc, staker: bob }],
+    }),
+    deployer,
+  );
+  const bobBondUstx = rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, 100n));
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: bobBondUstx,
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  // Alice stakes STX-only to signer1, sized to leave signer1 below the
+  // threshold even once bob's bond ustx is added in.
+  const aliceStake = stxToUStx(40_000);
+  expect(aliceStake + bobBondUstx).toBeLessThan(
+    pox5.constants.SIGNER_SET_MIN_USTX,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: aliceStake,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // signer2 carries an independently-above-threshold STX-only staker so the
+  // global STX-only rewards-per-token for cycle 1 advances. Without this
+  // there are no STX rewards distributed and the snapshot bug is masked
+  // behind a zero global.
+  txOk(
+    pox5.stake({
+      signerManager: signer2,
+      amountUstx: stxToUStx(60_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+
+  expect(isSignerInCycle({ signer: signer1, cycle: 1n })).toBe(false);
+  expect(isSignerInCycle({ signer: signer2, cycle: 1n })).toBe(true);
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer1, false, 1n))).toBe(0n);
+
+  // Fund rewards: enough for bob's bond to fully pay out, with surplus
+  // flowing through the STX waterfall so the global STX-only rpt advances.
+  sbtcTransfer(1000n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  // Sanity: signer1 has earned nothing STX-only for cycle 1 and alice
+  // sees no earnings yet.
+  expect(rov(pox5.getEarned(signer1, false, 1n))).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, false, 1n))).toBe(0n);
+
+  // Trigger the bond claim. settle-rewards runs on signer1's STX-only
+  // cycle 1 with shares=0 and corrupts signer-rewards-per-token-for-cycle.
+  txOk(testSigner.claimRewards([0n], 1n), deployer);
+
+  // signer1's STX-only earnings remain 0 -- it never contributed.
+  expect(rov(pox5.getEarned(signer1, false, 1n))).toBe(0n);
+
+  // Witnessing assertion: alice must not be owed STX-only rewards for a
+  // cycle where her signer was not a member. Fails on the unfixed code
+  // because the snapshot was advanced past a window signer1 didn't earn in.
+  expect(rov(testSigner.getEarnedStakerRewards(alice, false, 1n))).toBe(0n);
 });
 
 /**
@@ -3454,5 +4669,179 @@ test('below-min signer can later distribute legitimate stx rewards after crossin
       shares: bobStake,
       totalShares: bobStake + daveStake + signer2Stake,
     }),
+  );
+});
+
+/**
+ * Reject calls to `stake`, `stake-update`, `register-for-bond`, and
+ * `update-bond-registration` when in the prepare phase of the current reward
+ * cycle, since the signer and staker sets are frozen during this time.
+ */
+test('stake/register/update reject during the prepare phase', () => {
+  const signer = testSigner.identifier;
+  registerSigner();
+  // Second signer used as the new signer for stake-update /
+  // update-bond-registration switches.
+  const testSigner2 = deployTestSigner('test-signer-2');
+  const signer2 = testSigner2.identifier;
+
+  // Pre-stake alice and pre-register bob so stake-update and
+  // update-bond-registration have existing memberships to mutate. Charlie and
+  // dave stay fresh so they can exercise stake and register-for-bond; dave is
+  // allowlisted on bond 0 so the during-prepare attempt reaches the guard
+  // rather than tripping ERR_NOT_ALLOWLISTED in the let bindings.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [
+        { maxSats: 100000n, staker: bob },
+        { maxSats: 100000n, staker: dave },
+      ],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 4n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(100000n),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  // Cycle 0 prepare phase begins at height 90 (cycle-1-start - 10).
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) - 9n);
+  expect(rov(pox5.isInPreparePhase(rov(pox5.currentPoxRewardCycle())))).toBe(
+    true,
+  );
+
+  // stake during prepare phase -> ERR_STAKE_IN_PREPARE_PHASE
+  expect(
+    txErr(
+      pox5.stake({
+        signerManager: signer,
+        amountUstx: stxToUStx(50_000),
+        numCycles: 2n,
+        startBurnHt: simnet.burnBlockHeight,
+        signerCalldata: null,
+      }),
+      charlie,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // stake-update during prepare phase -> ERR_STAKE_IN_PREPARE_PHASE
+  expect(
+    txErr(
+      pox5.stakeUpdate({
+        signerManager: signer2,
+        oldSignerManager: signer,
+        cyclesToExtend: 1n,
+        amountIncrease: 0n,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // register-for-bond during prepare phase -> ERR_STAKE_IN_PREPARE_PHASE
+  expect(
+    txErr(
+      pox5.registerForBond({
+        bondIndex: 0n,
+        signerManager: signer,
+        amountUstx: stxToUStx(50_000),
+        btcLockup: err(100000n),
+        signerCalldata: null,
+      }),
+      dave,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // update-bond-registration during prepare phase -> ERR_STAKE_IN_PREPARE_PHASE
+  expect(
+    txErr(
+      pox5.updateBondRegistration({
+        signerManager: signer2,
+        oldSignerManager: signer,
+        signerCalldata: null,
+      }),
+      bob,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // Crossing into the next cycle clears prepare phase; all four functions
+  // succeed, confirming the prepare-phase guard was the sole blocker. Bond 0
+  // has now started, so a fresh bond 1 (which setup-bond can only configure
+  // once we're within 2 cycles of its start) is used for dave's success path.
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
+  expect(rov(pox5.isInPreparePhase(rov(pox5.currentPoxRewardCycle())))).toBe(
+    false,
+  );
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: 100000n, staker: dave }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+  txOk(
+    pox5.stakeUpdate({
+      signerManager: signer2,
+      oldSignerManager: signer,
+      cyclesToExtend: 1n,
+      amountIncrease: 0n,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(100000n),
+      signerCalldata: null,
+    }),
+    dave,
+  );
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      oldSignerManager: signer,
+      signerCalldata: null,
+    }),
+    bob,
   );
 });
