@@ -1023,8 +1023,8 @@
         (try! (check-caller-allowed))
 
         ;; Take a snapshot of the staker's and signer's current rewards
-        (settle-staker-rewards signer true bond-index tx-sender)
         (settle-rewards signer true bond-index)
+        (settle-staker-rewards signer true bond-index tx-sender)
 
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
