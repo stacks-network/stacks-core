@@ -236,9 +236,7 @@
         (bond-periods (list 6 uint))
         (reward-cycle uint)
     )
-    (let ((new-rewards-info (try! (as-contract? ()
-            (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))
-        ))))
+    (let ((new-rewards-info (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))))
         (update-rewards-info
             (get rewards-per-token (get stx-rewards new-rewards-info)) false
             reward-cycle
@@ -398,12 +396,10 @@
     )
     (begin
         (try! (authorize-admin))
-        (as-contract? ()
-            (try! (contract-call? .pox-5 grant-signer-key signer-key current-contract
-                auth-id signer-sig
-            ))
-            (try! (contract-call? .pox-5 register-signer signer-manager signer-key))
-        )
+        (try! (contract-call? .pox-5 grant-signer-key signer-key current-contract
+            auth-id signer-sig
+        ))
+        (contract-call? .pox-5 register-signer signer-manager signer-key)
     )
 )
 
