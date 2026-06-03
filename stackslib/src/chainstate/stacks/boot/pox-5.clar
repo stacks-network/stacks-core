@@ -625,7 +625,6 @@
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
         )
-        (settle-rewards signer first-reward-cycle (some bond-index))
         (try! (add-staker-to-bond-cycles tx-sender signer bond-index first-reward-cycle
             BOND_LENGTH_CYCLES sats-total
         ))
