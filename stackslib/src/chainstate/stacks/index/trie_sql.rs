@@ -194,7 +194,7 @@ pub fn read_squash_info(conn: &Connection) -> Result<Option<SqlSquashInfo>, Erro
         .ok_or_else(|| Error::CorruptionError("Invalid squash root hash bytes".to_string()))?;
 
     let squash_height = u32::try_from(squash_height)
-        .map_err(|_| Error::CorruptionError("Invalid squash_height".to_string()))?;
+        .map_err(|_| Error::CorruptionError("Invalid squash height".to_string()))?;
 
     Ok(Some(SqlSquashInfo {
         archival_marf_root_hash,
