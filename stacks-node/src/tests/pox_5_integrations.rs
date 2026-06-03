@@ -3157,10 +3157,31 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
 
     let announce_result = get_tx_result_by_id(&announce_txid)
         .expect("did not observe announce-l1-early-exit txid in test_observer");
+    let expected_announce_result = Value::okay(Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                ClarityName::try_from("amount-sats-released").unwrap(),
+                Value::UInt(BTC_LOCKUP_SATS),
+            ),
+            (
+                ClarityName::try_from("bond-index").unwrap(),
+                Value::UInt(bond_index),
+            ),
+            (
+                ClarityName::try_from("signer").unwrap(),
+                Value::Principal(test_signer_principal.clone()),
+            ),
+            (
+                ClarityName::try_from("staker").unwrap(),
+                Value::Principal(staker_addr.clone().into()),
+            ),
+        ])
+        .unwrap(),
+    ))
+    .unwrap();
     assert_eq!(
-        announce_result,
-        Value::okay_true(),
-        "announce-l1-early-exit should return (ok true) when called by the early-unlock admin with the matching signer-manager"
+        announce_result, expected_announce_result,
+        "announce-l1-early-exit should return (ok {{ released bond details }}) when called by the early-unlock admin with the matching signer-manager"
     );
 
     let post_announce_shares = call_read_only(
