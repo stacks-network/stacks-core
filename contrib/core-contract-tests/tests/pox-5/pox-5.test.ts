@@ -4099,6 +4099,102 @@ test('sbtc bond participant can recover sbtc after bond ends', () => {
   expect(sbtcBalance(alice)).toBe(aliceBalance + aliceSbtc);
 });
 
+test('below-threshold signer leaks phantom stx-only rewards via bond co-claim', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('phantom-bond-signer-2').identifier;
+  const bobSbtc = 400_000n;
+  const targetRate = 1200n;
+
+  registerSigner();
+
+  // Bond 0 with bob as the lone participant on signer1. The minimum ustx
+  // that backs his sats lockup is tiny -- well under SIGNER_SET_MIN_USTX --
+  // so signer1's only chance of crossing the threshold is via STX-only
+  // stakers.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: bobSbtc, staker: bob }],
+    }),
+    deployer,
+  );
+  const bobBondUstx = rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, 100n));
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: bobBondUstx,
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  // Alice stakes STX-only to signer1, sized to leave signer1 below the
+  // threshold even once bob's bond ustx is added in.
+  const aliceStake = stxToUStx(40_000);
+  expect(aliceStake + bobBondUstx).toBeLessThan(
+    pox5.constants.SIGNER_SET_MIN_USTX,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: aliceStake,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // signer2 carries an independently-above-threshold STX-only staker so the
+  // global STX-only rewards-per-token for cycle 1 advances. Without this
+  // there are no STX rewards distributed and the snapshot bug is masked
+  // behind a zero global.
+  txOk(
+    pox5.stake({
+      signerManager: signer2,
+      amountUstx: stxToUStx(60_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+
+  expect(isSignerInCycle({ signer: signer1, cycle: 1n })).toBe(false);
+  expect(isSignerInCycle({ signer: signer2, cycle: 1n })).toBe(true);
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer1, false, 1n))).toBe(0n);
+
+  // Fund rewards: enough for bob's bond to fully pay out, with surplus
+  // flowing through the STX waterfall so the global STX-only rpt advances.
+  sbtcTransfer(1000n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  // Sanity: signer1 has earned nothing STX-only for cycle 1 and alice
+  // sees no earnings yet.
+  expect(rov(pox5.getEarned(signer1, false, 1n))).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, false, 1n))).toBe(0n);
+
+  // Trigger the bond claim. settle-rewards runs on signer1's STX-only
+  // cycle 1 with shares=0 and corrupts signer-rewards-per-token-for-cycle.
+  txOk(testSigner.claimRewards([0n], 1n), deployer);
+
+  // signer1's STX-only earnings remain 0 -- it never contributed.
+  expect(rov(pox5.getEarned(signer1, false, 1n))).toBe(0n);
+
+  // Witnessing assertion: alice must not be owed STX-only rewards for a
+  // cycle where her signer was not a member. Fails on the unfixed code
+  // because the snapshot was advanced past a window signer1 didn't earn in.
+  expect(rov(testSigner.getEarnedStakerRewards(alice, false, 1n))).toBe(0n);
+});
+
 /**
  * Test against a scenario where an orphaned staker keeps phantom rewards when co-staker changes signer.
  *
