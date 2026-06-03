@@ -28,18 +28,18 @@ jobs:
           # CENTRAL USER REGISTRY
           USER_MAPPING: |
             {
-              "aaronb-stacks": { "id": "U067F1SRYT0", "name": "Aaron" },
-              "adriano-stacks": { "id": "U07CAH5D38Q", "name": "Adriano" },
-              "benjamin-stacks": { "id": "U09N5BM0SGP", "name": "Benjamin" },
-              "brice-stacks": { "id": "U067BVCJE30", "name": "Brice" },
-              "cylewitruk-stacks": { "id": "U06815BCSB0", "name": "Cyle" },
-              "dhaney-stacks": { "id": "U09538PV0RZ", "name": "David" },
-              "federico-stacks": { "id": "U08ASJ1LKEV", "name": "Federico" },
-              "francesco-stacks": { "id": "U07MCETKTKN", "name": "Francesco" },
-              "hstove-stacks": { "id": "U068W8VBSQM", "name": "Hank" },
-              "radu-stacks": { "id": "U0ANRRXD080", "name": "Radu" },
-              "rob-stacks": { "id": "U07UNFAS4BD", "name": "Roberto" },
-              "simone-stacks": { "id": "U09NA1TP8PK", "name": "Simone" }
+              "aaronb-stacks": "Aaron",
+              "adriano-stacks": "Adriano",
+              "benjamin-stacks": "Benjamin",
+              "brice-stacks": "Brice",
+              "cylewitruk-stacks": "Cyle",
+              "dhaney-stacks": "David",
+              "federico-stacks": "Federico",
+              "francesco-stacks": "Francesco",
+              "hstove-stacks": "Hank",
+              "radu-stacks": "Radu",
+              "rob-stacks": "Roberto",
+              "simone-stacks": "Simone"
             }
           # ------------------------------
           
@@ -70,7 +70,7 @@ jobs:
 
             const getDocName = (username) => {
               const clean = username.toLowerCase();
-              if (userMap[clean] && userMap[clean].name) return userMap[clean].name;
+              if (userMap[clean]) return userMap[clean];
               const base = clean.replace('-stacks', '');
               return base.charAt(0).toUpperCase() + base.slice(1);
             };
@@ -84,11 +84,8 @@ jobs:
             };
 
             // 2. Fetch open Pull Requests
-            const { data: prs } = await github.rest.pulls.list({
-              owner,
-              repo,
-              state: 'open',
-              per_page: 100
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open', per_page: 100
             });
 
             const filteredSortedPrs = prs
@@ -96,7 +93,7 @@ jobs:
                 if (ignoreDrafts && pr.draft) return false;
                 return allowedUsers.has(pr.user.login.toLowerCase());
               })
-              // MODIFIED: Sort alphabetically by team meeting display name
+              // Sort alphabetically by team meeting display name
               .sort((a, b) => {
                 const authorA = getDocName(a.user.login).toLowerCase();
                 const authorB = getDocName(b.user.login).toLowerCase();
