@@ -1803,6 +1803,18 @@ impl TestPeer<'_> {
         .unwrap()
         .unwrap();
 
+        // The coinbase-height mapping is immutable, so anchoring the read at any
+        // descendant tip on the same fork must return the same value as reading
+        // at the block itself.
+        let parent_coinbase_height_at_tip = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &block.header.parent_block_id,
+            &block.block_id(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parent_coinbase_height, parent_coinbase_height_at_tip);
+
         if let Some(tenure_tx) = block.get_tenure_change_tx_payload() {
             // crosses a tenure block-found boundary
             assert_eq!(parent_coinbase_height + 1, block_coinbase_height);
@@ -2122,6 +2134,29 @@ impl TestPeer<'_> {
             NakamotoChainState::get_nakamoto_tenure_length(chainstate.db(), &block.block_id())
                 .unwrap() as usize
         );
+
+        // Tip-invariance of coinbase-height reads must hold across deeper anchors
+        // too: reading the tenure-start block's height anchored at `block` (the
+        // deepest available descendant) must match reading it anchored at the
+        // tenure-start block itself.
+        if ancestors.len() > 1 {
+            let tenure_start_block = ancestors.last().unwrap();
+            let cbh_at_self = NakamotoChainState::get_coinbase_height(
+                &mut chainstate.index_conn(),
+                &tenure_start_block.block_id(),
+                &tenure_start_block.block_id(),
+            )
+            .unwrap()
+            .unwrap();
+            let cbh_at_tip = NakamotoChainState::get_coinbase_height(
+                &mut chainstate.index_conn(),
+                &tenure_start_block.block_id(),
+                &block.block_id(),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(cbh_at_self, cbh_at_tip);
+        }
 
         // has_processed_nakamoto_tenure
         // this tenure is unprocessed as of this block.
