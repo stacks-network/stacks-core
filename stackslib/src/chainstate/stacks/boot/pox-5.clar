@@ -1361,6 +1361,15 @@
         (map-set ustx-delegated-per-cycle cycle
             (+ (get-ustx-delegated-for-cycle cycle) amount)
         )
+        ;; Mark settled rewards for this cycle
+        (map-set staker-rewards-per-token-settled-for-cycle {
+            reward-cycle: cycle,
+            bond-index: none,
+            signer: signer,
+            staker: staker,
+        }
+            (get-signer-rewards-per-token-for-cycle signer cycle none)
+        )
         (ok accumulator)
     )
 )
@@ -1432,6 +1441,16 @@
         }
             amount-sats
         )
+        ;; Mark settled rewards for this cycle
+        (map-set staker-rewards-per-token-settled-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: (some bond-index),
+            signer: signer,
+            staker: (get staker accumulator),
+        }
+            (get-signer-rewards-per-token-for-cycle signer reward-cycle
+                (some bond-index)
+            ))
         (ok accumulator)
     )
 )
@@ -1999,12 +2018,20 @@
         }
             rewards-per-token
         )
-        (map-set signer-rewards-per-token-for-cycle {
-            signer: signer,
-            reward-cycle: reward-cycle,
-            bond-index: bond-index,
-        }
-            rewards-per-token
+        (if (>
+                (get-signer-shares-staked-for-cycle signer reward-cycle
+                    bond-index
+                )
+                u0
+            )
+            (map-set signer-rewards-per-token-for-cycle {
+                signer: signer,
+                reward-cycle: reward-cycle,
+                bond-index: bond-index,
+            }
+                rewards-per-token
+            )
+            true
         )
         {
             earned: earned,

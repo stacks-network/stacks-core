@@ -3179,3 +3179,197 @@ test('orphaned staker does not keep phantom rewards after co-staker unstakes', (
     rov(testSigner.getEarnedStakerRewards(bob, 2n, null)),
   ).toBeLessThanOrEqual(signer1Earned);
 });
+
+test('orphaned staker does not gain stx rewards when below-min signer claims bond rewards', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('orphan-bond-claim-signer-2').identifier;
+  const aliceStake = stxToUStx(60_000);
+  const bobStake = stxToUStx(40_000);
+  const signer2Stake = stxToUStx(80_000);
+  const charlieSbtc = 250000n;
+  const targetRate = 10000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 1n,
+      minUstxRatio: 1n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: charlieSbtc, staker: charlie }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: 1n,
+      btcLockup: err(charlieSbtc),
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: aliceStake,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: bobStake,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    bob,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer2,
+      amountUstx: signer2Stake,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    dave,
+  );
+
+  txOk(pox5.unstake(signer1), alice);
+  expect(isSignerInCycle({ signer: signer1, cycle: 1n })).toBe(false);
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer1, 1n, null))).toBe(0n);
+  expect(rov(pox5.getStakerSharesStakedForCycle(bob, 1n, null, signer1))).toBe(
+    bobStake,
+  );
+
+  sbtcTransfer(10000n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getEarned(signer1, 1n, null))).toBe(0n);
+  expect(rov(pox5.getEarned(signer1, 1n, 0n))).toBe(
+    bondTargetYieldPerCalculation({ sats: charlieSbtc, targetRate }),
+  );
+
+  txOk(testSigner.claimRewards([0n], 1n), deployer);
+
+  expect(rov(testSigner.getEarnedStakerRewards(bob, 1n, null))).toBe(0n);
+});
+
+test('below-min signer can later distribute legitimate stx rewards after crossing threshold', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('orphan-rejoin-signer-2').identifier;
+  const aliceStake = stxToUStx(60_000);
+  const bobStake = stxToUStx(40_000);
+  const daveStake = stxToUStx(10_000);
+  const signer2Stake = stxToUStx(80_000);
+  const charlieSbtc = 250000n;
+  const targetRate = 10000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 1n,
+      minUstxRatio: 1n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: charlieSbtc, staker: charlie }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: 1n,
+      btcLockup: err(charlieSbtc),
+      signerCalldata: null,
+    }),
+    charlie,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: aliceStake,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: bobStake,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    bob,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer2,
+      amountUstx: signer2Stake,
+      numCycles: 6n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    emily,
+  );
+
+  txOk(pox5.unstake(signer1), alice);
+  sbtcTransfer(10000n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+  txOk(testSigner.claimRewards([0n], 1n), deployer);
+
+  expect(rov(pox5.getEarned(signer1, 1n, null))).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(bob, 1n, null))).toBe(0n);
+
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: daveStake,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    dave,
+  );
+  expect(isSignerInCycle({ signer: signer1, cycle: 2n })).toBe(true);
+
+  const cycle2ExtraRewards = 1000n;
+  const cycle2BondRewards = bondTargetYieldPerCalculation({
+    sats: charlieSbtc,
+    targetRate,
+  });
+  sbtcTransfer(
+    cycle2BondRewards + cycle2ExtraRewards,
+    deployer,
+    pox5.identifier,
+  );
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+  txOk(testSigner.claimRewards([0n], 2n), deployer);
+
+  expect(rov(testSigner.getEarnedStakerRewards(bob, 2n, null))).toBe(
+    claimableRewards({
+      rewards: stxRewards(cycle2ExtraRewards),
+      shares: bobStake,
+      totalShares: bobStake + daveStake + signer2Stake,
+    }),
+  );
+});
