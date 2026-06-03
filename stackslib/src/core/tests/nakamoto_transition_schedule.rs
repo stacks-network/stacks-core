@@ -16,8 +16,9 @@
 //! Tests for the Epoch 4.0 / PoX-5 placement checks in
 //! `validate_nakamoto_transition_schedule`. The fixture uses
 //! `first_block_height = 100`, `reward_cycle_length = 10`,
-//! `prepare_length = 3`. Reward-phase offsets are 2..=7 (mod-0 and
-//! mod-8/9 are prepare-phase per `is_in_prepare_phase`).
+//! `prepare_length = 3`. Reward-phase offsets are 1..=7 (mod-0 and
+//! mod-8/9 are prepare-phase per `is_in_prepare_phase`. Offset 1
+//! is disallowed because of historical ambiguity.
 
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
