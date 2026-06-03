@@ -6,6 +6,7 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { stxToUStx } from '../test-helpers';
 import {
   deployer,
+  errorCodes,
   initPox5,
   pox5,
   registerSigner,
@@ -13,8 +14,6 @@ import {
   signSignerKeyGrant,
   testSigner,
 } from './pox-5-helpers';
-
-const ERR_REENTRANT_CALL = 46n;
 
 const alice = accounts.wallet_1.address;
 
@@ -120,7 +119,7 @@ test('reentrancy via validate-stake! is blocked with ERR_REENTRANT_CALL', () => 
     alice,
   );
 
-  expect(result.value).toBe(ERR_REENTRANT_CALL);
+  expect(result.value).toBe(errorCodes.ERR_REENTRANT_CALL);
   // sBTC remains locked; Alice's balance is unchanged (not drained).
   expect(sbtcBalance(alice)).toBe(aliceBalanceLocked);
   expect(rov(pox5.getTotalSbtcStaked())).toBe(aliceSbtc);
