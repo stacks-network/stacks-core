@@ -2025,6 +2025,8 @@
         (signer-sig (buff 65))
     )
     (begin
+        ;; Only the signer contract itself can call this function to grant a signer key
+        (asserts! (is-eq tx-sender signer-manager) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
         (asserts!
             (is-none (map-get? used-signer-key-grants {
                 signer-key: signer-key,
