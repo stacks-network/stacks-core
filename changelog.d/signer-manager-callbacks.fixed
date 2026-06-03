@@ -1,0 +1,1 @@
+Gate the pox-5 callback functions in the sample signer-manager contract so that they can only be called directly by pox-5.

@@ -557,8 +557,8 @@ impl std::default::Default for ConnectionOptions {
             read_only_call_limit: ExecutionCost {
                 write_length: 0,
                 write_count: 0,
-                read_length: 100000,
-                read_count: 30,
+                read_length: 200000,
+                read_count: 100,
                 runtime: 1_000_000_000,
             },
             maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
