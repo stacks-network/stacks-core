@@ -23,7 +23,7 @@
 (define-constant ERR_INVALID_POX_ADDR (err u1004))
 ;; The fees provided when updating fees is invalid
 (define-constant ERR_INVALID_FEES_BIPS (err u1005))
-;; A pox-5 callback (validate-stake!, checkpoint-staker) was invoked by a
+;; A pox-5 callback (validate-stake!) was invoked by a
 ;; principal other than the pox-5 contract.
 (define-constant ERR_UNAUTHORIZED_CALLER (err u1006))
 
@@ -297,7 +297,7 @@
 )
 
 ;; Ensure that the immediate caller is the pox-5 contract. The trait callbacks
-;; (validate-stake!, checkpoint-staker) write per-staker state keyed by the
+;; (validate-stake!) write per-staker state keyed by the
 ;; `staker` argument; they must only ever be driven by pox-5, never invoked
 ;; directly by an external principal.
 (define-private (authorize-pox-5)
