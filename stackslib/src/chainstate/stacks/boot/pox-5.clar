@@ -52,6 +52,9 @@
 (define-constant ERR_UPDATE_BOND_SAME_SIGNER (err u44))
 ;; The lockup amount does not match the specified amount of sats
 (define-constant ERR_INVALID_LOCKUP_AMOUNT (err u45))
+;; The same Bitcoin outpoint (txid + output-index) appeared twice in
+;; the L1 lockup proof list submitted to `register-for-bond`.
+(define-constant ERR_DUPLICATE_LOCKUP_OUTPOINT (err u46))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -643,7 +646,7 @@
                 sats-total: sats-total,
                 bond-index: bond-index,
                 first-reward-cycle: first-reward-cycle,
-                unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
                 unlock-cycle: unlock-cycle,
                 is-l1-lock: (is-ok btc-lockup),
             }))
@@ -870,7 +873,7 @@
                 amount-ustx: amount-ustx,
                 num-cycles: num-cycles,
                 first-reward-cycle: first-reward-cycle,
-                unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
                 unlock-cycle: unlock-cycle,
             }))
             (print (merge {topic: "stake" } result))
@@ -956,7 +959,7 @@
         })
 
         (let ((result {
-                unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
                 staker: tx-sender,
                 signer: signer,
                 old-signer: old-signer,
@@ -1184,7 +1187,7 @@
                 amount-ustx: (get amount-ustx current-info),
                 first-reward-cycle: first-reward-cycle,
                 unlock-cycle: unlock-cycle,
-                unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+                unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
             }))
             (print (merge {topic: "unstake" } result))
             (ok result)
@@ -1526,6 +1529,7 @@
                 (ok {
                     sum: u0,
                     expected-script-hash: expected-timelock-output,
+                    seen-outpoints: (list),
                 })
             )))
         )
@@ -1534,6 +1538,12 @@
 )
 
 ;; Fold function for validating l1 lockup info
+;;
+;; - `expected-script-hash` is the timelock script that the lockup must match
+;; - `sum` is the running total of sats from all valid lockups processed so far.
+;; - `seen-outpoints` tracks every (txid, output-index) pair already credited
+;;   in this call. Duplicate entries is rejected via
+;;   ERR_DUPLICATE_LOCKUP_OUTPOINT.
 (define-private (validate-l1-lockup
         (lockup {
             height: uint,
@@ -1548,6 +1558,7 @@
         (accumulator-res (response {
             expected-script-hash: (buff 34),
             sum: uint,
+            seen-outpoints: (list 10 { txid: (buff 32), output-index: uint }),
         }
             uint
         ))
@@ -1559,6 +1570,8 @@
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
+            (outpoint { txid: txid, output-index: (get output-index lockup) })
+            (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (verify-block-header (get header lockup) (get height lockup))
             ERR_INVALID_BTC_HEADER
@@ -1568,6 +1581,9 @@
         )
         (asserts! (is-eq (get amount output) (get amount lockup))
             ERR_INVALID_LOCKUP_AMOUNT
+        )
+        (asserts! (is-none (index-of? seen-outpoints outpoint))
+            ERR_DUPLICATE_LOCKUP_OUTPOINT
         )
         ;; verify merkle proof
         (asserts!
@@ -1584,6 +1600,9 @@
         (ok {
             expected-script-hash: (get expected-script-hash accumulator),
             sum: (+ (get sum accumulator) (get amount output)),
+            seen-outpoints: (unwrap-panic (as-max-len?
+                (append seen-outpoints outpoint) u10
+            )),
         })
     )
 )
@@ -2162,14 +2181,6 @@
 (define-read-only (reward-cycle-to-burn-height (cycle uint))
     (+ (var-get first-burnchain-block-height)
         (* cycle (var-get pox-reward-cycle-length))
-    )
-)
-
-;; Get the L1 unlock height for a given reward cycle.
-;; This is equal to exactly halfway through the provided cycle.
-(define-read-only (reward-cycle-to-unlock-height (cycle uint))
-    (+ (reward-cycle-to-burn-height cycle)
-        (/ (var-get pox-reward-cycle-length) u2)
     )
 )
 

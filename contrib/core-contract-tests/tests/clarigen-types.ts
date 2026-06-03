@@ -4270,6 +4270,23 @@ export const contracts = {
                       name: 'expected-script-hash',
                       type: { buffer: { length: 34 } },
                     },
+                    {
+                      name: 'seen-outpoints',
+                      type: {
+                        list: {
+                          type: {
+                            tuple: [
+                              { name: 'output-index', type: 'uint128' },
+                              {
+                                name: 'txid',
+                                type: { buffer: { length: 32 } },
+                              },
+                            ],
+                          },
+                          length: 10,
+                        },
+                      },
+                    },
                     { name: 'sum', type: 'uint128' },
                   ],
                 },
@@ -4286,6 +4303,20 @@ export const contracts = {
                   {
                     name: 'expected-script-hash',
                     type: { buffer: { length: 34 } },
+                  },
+                  {
+                    name: 'seen-outpoints',
+                    type: {
+                      list: {
+                        type: {
+                          tuple: [
+                            { name: 'output-index', type: 'uint128' },
+                            { name: 'txid', type: { buffer: { length: 32 } } },
+                          ],
+                        },
+                        length: 10,
+                      },
+                    },
                   },
                   { name: 'sum', type: 'uint128' },
                 ],
@@ -4313,6 +4344,10 @@ export const contracts = {
             Response<
               {
                 expectedScriptHash: Uint8Array;
+                seenOutpoints: {
+                  outputIndex: number | bigint;
+                  txid: Uint8Array;
+                }[];
                 sum: number | bigint;
               },
               number | bigint
@@ -4323,6 +4358,10 @@ export const contracts = {
         Response<
           {
             expectedScriptHash: Uint8Array;
+            seenOutpoints: {
+              outputIndex: bigint;
+              txid: Uint8Array;
+            }[];
             sum: bigint;
           },
           bigint
@@ -5847,15 +5886,6 @@ export const contracts = {
         [cycle: TypedAbiArg<number | bigint, 'cycle'>],
         bigint
       >,
-      rewardCycleToUnlockHeight: {
-        name: 'reward-cycle-to-unlock-height',
-        access: 'read_only',
-        args: [{ name: 'cycle', type: 'uint128' }],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
-        bigint
-      >,
       serializeCScriptNum: {
         name: 'serialize-c-script-num',
         access: 'read_only',
@@ -6389,6 +6419,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_DUPLICATE_LOCKUP_OUTPOINT: {
+        name: 'ERR_DUPLICATE_LOCKUP_OUTPOINT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INSUFFICIENT_STX: {
         name: 'ERR_INSUFFICIENT_STX',
         type: {
@@ -6844,6 +6884,10 @@ export const contracts = {
       ERR_DISTRIBUTION_ALREADY_COMPUTED: {
         isOk: false,
         value: 30n,
+      },
+      ERR_DUPLICATE_LOCKUP_OUTPOINT: {
+        isOk: false,
+        value: 46n,
       },
       ERR_INSUFFICIENT_STX: {
         isOk: false,

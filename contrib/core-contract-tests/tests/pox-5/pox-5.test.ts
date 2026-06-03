@@ -5,7 +5,7 @@ import {
   isResponse,
   ok,
 } from '@clarigen/core';
-import { Cl, ClarityType } from '@stacks/transactions';
+import { Cl, ClarityType, cvToValue } from '@stacks/transactions';
 import { hex } from '@scure/base';
 import { accounts } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
@@ -194,6 +194,15 @@ test('scenario - setting up and starting a bond', () => {
     alice,
   );
 
+  expect(aliceRegister.value).toMatchObject({
+    bondIndex: 0n,
+    amountUstx: minAmountUstx,
+    firstRewardCycle: rov(pox5.bondPeriodToRewardCycle(0n)),
+    unlockCycle:
+      rov(pox5.bondPeriodToRewardCycle(0n)) + pox5.constants.BOND_LENGTH_CYCLES,
+    unlockBurnHeight: rov(pox5.bondPeriodToBurnHeight(6n)),
+  });
+
   const aliceInfo = rov(pox5.getBondMembership(alice))!;
   expect(aliceInfo).toEqual({
     amountUstx: minAmountUstx,
@@ -276,6 +285,15 @@ test('scenario - setting up and starting a bond', () => {
     bob,
   );
 
+  expect(bobRegister.value).toMatchObject({
+    bondIndex: 0n,
+    amountUstx: minForOverAllowance,
+    firstRewardCycle: rov(pox5.bondPeriodToRewardCycle(0n)),
+    unlockCycle:
+      rov(pox5.bondPeriodToRewardCycle(0n)) + pox5.constants.BOND_LENGTH_CYCLES,
+    unlockBurnHeight: rov(pox5.bondPeriodToBurnHeight(6n)),
+  });
+
   expect(rov(pox5.getStakerSharesStakedForCycle(bob, true, 0n, signer))).toBe(
     bobAllowance!,
   );
@@ -325,7 +343,7 @@ test('scenario - staking to a signer', () => {
   const signerInfo = rov(pox5.getSignerInfo(signer));
   expect(signerInfo).toEqual(signerKey);
 
-  txOk(
+  const aliceStake = txOk(
     pox5.stake({
       signerManager: signer,
       amountUstx: aliceAmount,
@@ -335,6 +353,19 @@ test('scenario - staking to a signer', () => {
     }),
     alice,
   );
+
+  const aliceFirstRewardCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
+  const aliceUnlockCycle = aliceFirstRewardCycle + 2n;
+  const aliceUnlockHeight = rov(pox5.rewardCycleToBurnHeight(aliceUnlockCycle));
+  expect(aliceStake.value).toMatchObject({
+    signer,
+    staker: alice,
+    amountUstx: aliceAmount,
+    firstRewardCycle: aliceFirstRewardCycle,
+    unlockCycle: aliceUnlockCycle,
+    unlockBurnHeight: aliceUnlockHeight,
+  });
+
   // cannot stake again
   const aliceStakeErr = txErr(
     pox5.stake({
@@ -378,7 +409,7 @@ test('scenario - staking to a signer', () => {
   expect(isSignerInCycle({ signer: signer, cycle: 1n })).toBeFalsy();
   expect(isSignerInCycle({ signer: signer, cycle: 2n })).toBeFalsy();
 
-  txOk(
+  const bobStake = txOk(
     pox5.stake({
       signerManager: signer,
       amountUstx: bobAmount,
@@ -388,6 +419,18 @@ test('scenario - staking to a signer', () => {
     }),
     bob,
   );
+
+  const bobFirstRewardCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
+  const bobUnlockCycle = bobFirstRewardCycle + 3n;
+  const bobUnlockHeight = rov(pox5.rewardCycleToBurnHeight(bobUnlockCycle));
+  expect(bobStake.value).toMatchObject({
+    signer,
+    staker: bob,
+    amountUstx: bobAmount,
+    firstRewardCycle: bobFirstRewardCycle,
+    unlockCycle: bobUnlockCycle,
+    unlockBurnHeight: bobUnlockHeight,
+  });
 
   expect(rov(pox5.getAmountDelegatedForSigner({ signer, cycle: 1n }))).toBe(
     aliceAmount + bobAmount,
@@ -511,7 +554,7 @@ test('scenario - updating a stake', () => {
 
   expectAllSignersHaveKeys();
 
-  mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
 
   txOk(
     pox5.stakeUpdate({
@@ -599,7 +642,7 @@ test('scenario - unstaking', () => {
 
   expectAllSignersHaveKeys();
 
-  mineUntil(rov(pox5.rewardCycleToUnlockHeight(1n)));
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
 
   txOk(pox5.unstake({ oldSignerManager: signer }), alice);
   expect(rov(pox5.getStakerInfo(alice))).toEqual({
@@ -615,7 +658,7 @@ test('scenario - unstaking', () => {
 
   expect(getAllStakers().length).toBe(0);
 
-  mineUntil(rov(pox5.rewardCycleToUnlockHeight(2n)));
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
 
   // `getStakerInfo` should return `none` because it's expired
   expect(rov(pox5.getStakerInfo(alice))).toBeNull();
