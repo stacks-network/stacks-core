@@ -3359,10 +3359,10 @@ test('register-for-bond rolls a staker forward into bond N+6 with equal sBTC (no
   const membership = rov(pox5.getBondMembership(alice))!;
   expect(membership.bondIndex).toBe(6n);
   expect(membership.isL1Lock).toBe(false);
-  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 0n, signer))).toBe(
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 12n, 0n, signer))).toBe(
     sbtcAmount,
   );
-  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 6n, signer))).toBe(
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 13n, 6n, signer))).toBe(
     sbtcAmount,
   );
 
@@ -3446,10 +3446,10 @@ test('register-for-bond rolls forward and nets a larger sBTC amount from the sta
   expect(transfers[0]!.data.recipient).toBe(pox5.identifier);
   expect(transfers[0]!.data.amount).toBe((bond6Sbtc - bond0Sbtc).toString());
   expect(rov(pox5.getTotalSbtcStaked())).toBe(bond6Sbtc);
-  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 0n, signer))).toBe(
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 12n, 0n, signer))).toBe(
     bond0Sbtc,
   );
-  expect(rov(pox5.getStakerSharesStakedForCycle(alice, true, 6n, signer))).toBe(
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 13n, 6n, signer))).toBe(
     bond6Sbtc,
   );
 
@@ -4331,7 +4331,7 @@ test('below-threshold signer leaks phantom stx-only rewards via bond co-claim', 
 
   expect(isSignerInCycle({ signer: signer1, cycle: 1n })).toBe(false);
   expect(isSignerInCycle({ signer: signer2, cycle: 1n })).toBe(true);
-  expect(rov(pox5.getSignerSharesStakedForCycle(signer1, false, 1n))).toBe(0n);
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer1, 1n, null))).toBe(0n);
 
   // Fund rewards: enough for bob's bond to fully pay out, with surplus
   // flowing through the STX waterfall so the global STX-only rpt advances.
@@ -4341,20 +4341,20 @@ test('below-threshold signer leaks phantom stx-only rewards via bond co-claim', 
 
   // Sanity: signer1 has earned nothing STX-only for cycle 1 and alice
   // sees no earnings yet.
-  expect(rov(pox5.getEarned(signer1, false, 1n))).toBe(0n);
-  expect(rov(testSigner.getEarnedStakerRewards(alice, false, 1n))).toBe(0n);
+  expect(rov(pox5.getEarned(signer1, 1n, null))).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 1n, null))).toBe(0n);
 
   // Trigger the bond claim. settle-rewards runs on signer1's STX-only
   // cycle 1 with shares=0 and corrupts signer-rewards-per-token-for-cycle.
   txOk(testSigner.claimRewards([0n], 1n), deployer);
 
   // signer1's STX-only earnings remain 0 -- it never contributed.
-  expect(rov(pox5.getEarned(signer1, false, 1n))).toBe(0n);
+  expect(rov(pox5.getEarned(signer1, 1n, null))).toBe(0n);
 
   // Witnessing assertion: alice must not be owed STX-only rewards for a
   // cycle where her signer was not a member. Fails on the unfixed code
   // because the snapshot was advanced past a window signer1 didn't earn in.
-  expect(rov(testSigner.getEarnedStakerRewards(alice, false, 1n))).toBe(0n);
+  expect(rov(testSigner.getEarnedStakerRewards(alice, 1n, null))).toBe(0n);
 });
 
 /**

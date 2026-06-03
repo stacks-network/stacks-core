@@ -2609,9 +2609,7 @@
     (match (map-get? protocol-bond-memberships staker)
         m (if (get is-l1-lock m)
             u0
-            (get-staker-shares-staked-for-cycle staker true (get bond-index m)
-                (get signer m)
-            )
+            (get amount-sats m)
         )
         u0
     )
@@ -2629,6 +2627,7 @@
             amount-ustx: uint,
             signer: principal,
             is-l1-lock: bool,
+            amount-sats: uint,
         }))
         (new-first-reward-cycle uint)
     )
@@ -2653,6 +2652,7 @@
     amount-ustx: uint,
     signer: principal,
     is-l1-lock: bool,
+    amount-sats: uint,
 })))
     (ok (asserts!
         (match existing-membership
