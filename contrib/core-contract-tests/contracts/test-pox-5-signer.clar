@@ -50,22 +50,22 @@
 ;; rewards snapshot for this staker.
 (define-read-only (get-earned-staker-rewards
         (staker principal)
-        (is-bond bool)
-        (index uint)
+        (reward-cycle uint)
+        (bond-index (optional uint))
     )
-    (contract-call? .pox-5 get-earned-staker-rewards current-contract is-bond
-        index staker
+    (contract-call? .pox-5 get-earned-staker-rewards current-contract
+        reward-cycle bond-index staker
     )
 )
 
 (define-public (claim-staker-rewards
-        (is-bond bool)
-        (index uint)
+        (reward-cycle uint)
+        (bond-index (optional uint))
     )
     (let (
             (staker tx-sender)
-            (rewards-info (unwrap-panic (contract-call? .pox-5 claim-staker-rewards-for-signer staker is-bond
-                index
+            (rewards-info (unwrap-panic (contract-call? .pox-5 claim-staker-rewards-for-signer staker
+                reward-cycle bond-index
             )))
             (earned (get earned rewards-info))
         )

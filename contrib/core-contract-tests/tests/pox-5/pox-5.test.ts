@@ -2159,6 +2159,72 @@ test('bond signer update preserves old signer rewards and sends future rewards t
   expect(rov(pox5.getEarned(signer2, true, 0n))).toBe(1200n);
 });
 
+test('bond signer update keeps current-cycle uncrystallized rewards with old signer', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner(
+    'bond-update-current-cycle-signer-2',
+  ).identifier;
+  const aliceSbtc = 480000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1500n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + 1n);
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      signerCalldata: null,
+      oldSignerManager: signer1,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1200n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getSignerCycleMembership(alice, 1n))).toEqual({
+    amountUstx: stxToUStx(50_000),
+    signer: signer1,
+  });
+  expect(rov(pox5.getSignerCycleMembership(alice, 2n))).toEqual({
+    amountUstx: stxToUStx(50_000),
+    signer: signer2,
+  });
+  expect(rov(pox5.getEarned(signer1, 1n, 0n))).toBe(1200n);
+  expect(rov(pox5.getEarned(signer2, 1n, 0n))).toBe(0n);
+});
+
 /**
  * Regression: changing signer for an active bond must not let the staker
  * double-collect already-distributed bond rewards on the new signer. Before

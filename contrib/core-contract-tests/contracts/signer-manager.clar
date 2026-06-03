@@ -131,12 +131,12 @@
 ;; NOT account for fees.
 (define-read-only (get-earned-staker-rewards
         (staker principal)
-        (is-bond bool)
-        (index uint)
+        (reward-cycle uint)
+        (bond-index (optional uint))
     )
     (let (
             (earned-before-fees (contract-call? .pox-5 get-earned-staker-rewards current-contract
-                is-bond index staker
+                reward-cycle bond-index staker
             ))
             (fees (/ (* earned-before-fees (var-get fees-bips)) MAX_BIPS))
         )
@@ -156,13 +156,13 @@
 ;; the staker receives sBTC.
 (define-public (claim-staker-rewards
         (staker principal)
-        (is-bond bool)
-        (index uint)
+        (reward-cycle uint)
+        (bond-index (optional uint))
     )
     (let (
             ;; `unwrap-panic` is ok here: there is no `err` type returnable
-            (rewards-info (unwrap-panic (contract-call? .pox-5 claim-staker-rewards-for-signer staker is-bond
-                index
+            (rewards-info (unwrap-panic (contract-call? .pox-5 claim-staker-rewards-for-signer staker
+                reward-cycle bond-index
             )))
             (prev-fees (var-get earned-fees))
             (gross (get earned rewards-info))
@@ -205,8 +205,8 @@
                             amount: amount,
                         })),
                         staker: staker,
-                        index: index,
-                        is-bond: is-bond,
+                        reward-cycle: reward-cycle,
+                        bond-index: bond-index,
                     })
                     (map-set withdrawal-requests withdrawal-request staker)
                     true
@@ -217,8 +217,8 @@
                         amount-sats: earned,
                         l1-withdrawal: none,
                         staker: staker,
-                        index: index,
-                        is-bond: is-bond,
+                        reward-cycle: reward-cycle,
+                        bond-index: bond-index,
                     })
                     (try! (contract-call?
                         'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
