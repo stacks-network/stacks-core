@@ -913,11 +913,15 @@
             (signer (get signer membership))
             (bond (unwrap-panic (get-protocol-bond bond-index)))
             (current-cycle (current-pox-reward-cycle))
+            (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
             (next-cycle (+ current-cycle u1))
             (first-changed-reward-cycle (if (> next-cycle bond-end-cycle)
                 bond-end-cycle
-                next-cycle
+                (if (< next-cycle bond-start-cycle)
+                    bond-start-cycle
+                    next-cycle
+                )
             ))
             (amount-sats (get amount-sats membership))
         )
@@ -960,11 +964,15 @@
             (bond-index (get bond-index membership))
             (signer (get signer membership))
             (current-cycle (current-pox-reward-cycle))
+            (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
             (next-cycle (+ current-cycle u1))
             (first-changed-reward-cycle (if (> next-cycle bond-end-cycle)
                 bond-end-cycle
-                next-cycle
+                (if (< next-cycle bond-start-cycle)
+                    bond-start-cycle
+                    next-cycle
+                )
             ))
             (num-cycles (- bond-end-cycle first-changed-reward-cycle))
             (current-amount-sats (get amount-sats membership))
