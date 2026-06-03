@@ -22,6 +22,7 @@ serde = { workspace = true, features = ["derive"] }
 [features]
 default = []
 testing = ["stacks-common/testing", "clarity-types/testing"]
+wasm-web = ["stacks-common/wasm-web", "clarity-types/wasm-web"]
 
 [dev-dependencies]
 stacks-common = { path = "../stacks-common", features = ["testing"] }
