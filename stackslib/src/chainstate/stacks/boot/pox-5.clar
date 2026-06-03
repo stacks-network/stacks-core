@@ -962,10 +962,7 @@
         ;; `unstake-sbtc` / `update-bond-registration` can no longer reach
         ;; the old bond. The old bond's reward shares stay through its term;
         ;; only the management pointer is gone.
-        (if (is-some existing-membership)
-            (map-delete protocol-bond-memberships tx-sender)
-            true
-        )
+        (map-delete protocol-bond-memberships tx-sender)
 
         (let ((result {
                 signer: signer,
@@ -1606,7 +1603,7 @@
                 ))
                 (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) delta))
             )
-            (if (> old-sbtc new-sbtc)
+            (if (< new-sbtc old-sbtc)
                 (let ((delta (- old-sbtc new-sbtc)))
                     (try! (as-contract?
                         ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
@@ -1618,6 +1615,7 @@
                     ))
                     (var-set total-sbtc-staked (- (var-get total-sbtc-staked) delta))
                 )
+                ;; new-sbtc == old-sbtc, no transfer needed
                 true
             )
         )

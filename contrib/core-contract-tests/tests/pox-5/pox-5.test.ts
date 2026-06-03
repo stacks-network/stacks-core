@@ -2943,9 +2943,10 @@ test('concurrent bonds with the same stx-value-ratio accept ascending bond-index
 });
 
 /**
- * Helper: register alice for an sBTC bond, returning the FtTransferEvent if any.
+ * Helper: register alice for an sBTC bond using the minimum amount of STX
+ * required, and returning resulting events.
  */
-function registerSbtcBond({
+function registerSbtcBondWithMinStx({
   bondIndex,
   signer,
   sbtcAmount,
@@ -2972,7 +2973,7 @@ function registerSbtcBond({
       signerCalldata: null,
     }),
     caller,
-  );
+  ).events;
 }
 
 /**
@@ -3001,7 +3002,7 @@ test('register-for-bond rolls a staker forward into bond N+6 with equal sBTC (no
     deployer,
   );
 
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount,
@@ -3031,7 +3032,7 @@ test('register-for-bond rolls a staker forward into bond N+6 with equal sBTC (no
     deployer,
   );
 
-  const aliceRoll = registerSbtcBond({
+  const aliceRollEvents = registerSbtcBondWithMinStx({
     bondIndex: 6n,
     signer,
     sbtcAmount,
@@ -3042,7 +3043,7 @@ test('register-for-bond rolls a staker forward into bond N+6 with equal sBTC (no
 
   // Equal sBTC means no net transfer at all.
   expect(
-    filterEvents(aliceRoll.events, CoreNodeEventType.FtTransferEvent),
+    filterEvents(aliceRollEvents, CoreNodeEventType.FtTransferEvent),
   ).toEqual([]);
   expect(rov(pox5.getTotalSbtcStaked())).toBe(sbtcAmount);
 
@@ -3096,7 +3097,7 @@ test('register-for-bond rolls forward and nets a larger sBTC amount from the sta
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount: bond0Sbtc,
@@ -3120,7 +3121,7 @@ test('register-for-bond rolls forward and nets a larger sBTC amount from the sta
     deployer,
   );
 
-  const aliceRoll = registerSbtcBond({
+  const aliceRollEvents = registerSbtcBondWithMinStx({
     bondIndex: 6n,
     signer,
     sbtcAmount: bond6Sbtc,
@@ -3130,7 +3131,7 @@ test('register-for-bond rolls forward and nets a larger sBTC amount from the sta
   });
 
   const transfers = filterEvents(
-    aliceRoll.events,
+    aliceRollEvents,
     CoreNodeEventType.FtTransferEvent,
   );
   expect(transfers.length).toBe(1);
@@ -3181,7 +3182,7 @@ test('register-for-bond rolls forward and refunds when the new sBTC amount is sm
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount: bond0Sbtc,
@@ -3205,7 +3206,7 @@ test('register-for-bond rolls forward and refunds when the new sBTC amount is sm
     deployer,
   );
 
-  const aliceRoll = registerSbtcBond({
+  const aliceRollEvents = registerSbtcBondWithMinStx({
     bondIndex: 6n,
     signer,
     sbtcAmount: bond6Sbtc,
@@ -3215,7 +3216,7 @@ test('register-for-bond rolls forward and refunds when the new sBTC amount is sm
   });
 
   const transfers = filterEvents(
-    aliceRoll.events,
+    aliceRollEvents,
     CoreNodeEventType.FtTransferEvent,
   );
   expect(transfers.length).toBe(1);
@@ -3263,7 +3264,7 @@ test('register-for-bond after old bond expires nets sBTC forward (no stuck colla
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount,
@@ -3297,7 +3298,7 @@ test('register-for-bond after old bond expires nets sBTC forward (no stuck colla
     deployer,
   );
 
-  const aliceRoll = registerSbtcBond({
+  const aliceRollEvents = registerSbtcBondWithMinStx({
     bondIndex: 7n,
     signer,
     sbtcAmount,
@@ -3309,7 +3310,7 @@ test('register-for-bond after old bond expires nets sBTC forward (no stuck colla
   // Equal amounts → no transfer, custody unchanged, and bond 7's shares cover
   // the full physical sBTC.
   expect(
-    filterEvents(aliceRoll.events, CoreNodeEventType.FtTransferEvent),
+    filterEvents(aliceRollEvents, CoreNodeEventType.FtTransferEvent),
   ).toEqual([]);
   expect(rov(pox5.getTotalSbtcStaked())).toBe(sbtcAmount);
 
@@ -3371,7 +3372,7 @@ test("register-for-bond rejects a rollover attempt before the old bond's L1 unlo
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount,
@@ -3417,7 +3418,7 @@ test("register-for-bond rejects a rollover attempt before the old bond's L1 unlo
   // One block later — inside the L1 unlock window — the same call now
   // succeeds, confirming the gate opens exactly at the L1 unlock height.
   mineUntil(bond0L1Unlock);
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 6n,
     signer,
     sbtcAmount,
@@ -3454,7 +3455,7 @@ test('stake rolls a bond participant forward into STX-only with sBTC refunded', 
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount,
@@ -3539,7 +3540,7 @@ test("stake rejects a bond rollover attempt before the bond's L1 unlock window",
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount,
@@ -3607,7 +3608,7 @@ test('stake after bond expires refunds the sBTC and clears bond membership', () 
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount,
@@ -3696,7 +3697,7 @@ test('register-for-bond after stx-only stake expires registers fresh on the new 
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 1n,
     signer,
     sbtcAmount,
@@ -3749,7 +3750,7 @@ test("register-for-bond is rejected with ERR_STAKE_IN_PREPARE_PHASE inside the b
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount,
@@ -3821,7 +3822,7 @@ test('register-for-bond still rejects a duplicate registration for the same or o
     }),
     deployer,
   );
-  registerSbtcBond({
+  registerSbtcBondWithMinStx({
     bondIndex: 0n,
     signer,
     sbtcAmount,
