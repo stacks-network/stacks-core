@@ -1010,91 +1010,89 @@
         (signer-manager <signer-manager-trait>)
         (amount-to-withdrawal-sats uint)
     )
-    (begin
-        (let (
-                (staker tx-sender)
-                (membership (unwrap! (map-get? protocol-bond-memberships staker)
-                    ERR_NOT_BOND_PARTICIPANT
-                ))
-                (bond-index (get bond-index membership))
-                (signer (get signer membership))
-                (current-amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
-                (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
-                (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
-                (current-total-sbtc-staked (get-total-sbtc-staked))
-                ;; Cannot withdrawal more than they've staked
-                (new-amount-sats (try! (if (<= amount-to-withdrawal-sats current-amount-sats)
-
-                    (ok (- current-amount-sats amount-to-withdrawal-sats))
-                    ERR_INVALID_UNSTAKE_SBTC_AMOUNT
-                )))
-            )
-            ;; `signer-manager` must match the current signer
-            (asserts! (is-eq (contract-of signer-manager) signer)
-                ERR_INVALID_OLD_SIGNER_MANAGER
-            )
-
-            ;; Must be an sBTC lock
-            (asserts! (not (get is-l1-lock membership)) ERR_CANNOT_UNSTAKE_SBTC)
-
-            ;;  must be called directly by the tx-sender or by an allowed contract-caller
-            (try! (check-caller-allowed))
-
-            ;; Call `signer-manager`, and allow them to snapshot current
-            ;; data before updating. Do not throw any errors.
-            (try! (validate-no-reentrancy))
-            (var-set signer-manager-call-active true)
-            (match (contract-call? signer-manager checkpoint-staker staker bond-index u1
-                true
-            )
-                ok-val ok-val
-                err-val true
-            )
-            (var-set signer-manager-call-active false)
-
-            ;; Take a snapshot of the signer's current rewards
-            (settle-rewards signer true bond-index)
-
-            (map-set staker-shares-staked-for-cycle {
-                is-bond: true,
-                staker: staker,
-                signer: signer,
-                index: bond-index,
-            }
-                new-amount-sats
-            )
-            (map-set signer-shares-staked-for-cycle {
-                is-bond: true,
-                signer: signer,
-                index: bond-index,
-            }
-                (- current-shares amount-to-withdrawal-sats)
-            )
-            (map-set total-shares-staked-for-cycle {
-                is-bond: true,
-                index: bond-index,
-            }
-                (- current-total-shares amount-to-withdrawal-sats)
-            )
-            (var-set total-sbtc-staked
-                (- current-total-sbtc-staked amount-to-withdrawal-sats)
-            )
-
-            (try! (as-contract?
-                ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                    "sbtc-token" amount-to-withdrawal-sats
-                ))
-                (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                    transfer amount-to-withdrawal-sats tx-sender staker none
-                ))
+    (let (
+            (staker tx-sender)
+            (membership (unwrap! (map-get? protocol-bond-memberships staker)
+                ERR_NOT_BOND_PARTICIPANT
             ))
+            (bond-index (get bond-index membership))
+            (signer (get signer membership))
+            (current-amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
+            (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
+            (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
+            (current-total-sbtc-staked (get-total-sbtc-staked))
+            ;; Cannot withdrawal more than they've staked
+            (new-amount-sats (try! (if (<= amount-to-withdrawal-sats current-amount-sats)
 
-            (ok {
-                staker: staker,
-                signer: signer,
-                new-amount-sats: new-amount-sats,
-            })
+                (ok (- current-amount-sats amount-to-withdrawal-sats))
+                ERR_INVALID_UNSTAKE_SBTC_AMOUNT
+            )))
         )
+        ;; `signer-manager` must match the current signer
+        (asserts! (is-eq (contract-of signer-manager) signer)
+            ERR_INVALID_OLD_SIGNER_MANAGER
+        )
+
+        ;; Must be an sBTC lock
+        (asserts! (not (get is-l1-lock membership)) ERR_CANNOT_UNSTAKE_SBTC)
+
+        ;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (check-caller-allowed))
+
+        ;; Call `signer-manager`, and allow them to snapshot current
+        ;; data before updating. Do not throw any errors.
+        (try! (validate-no-reentrancy))
+        (var-set signer-manager-call-active true)
+        (match (contract-call? signer-manager checkpoint-staker staker bond-index u1
+            true
+        )
+            ok-val ok-val
+            err-val true
+        )
+        (var-set signer-manager-call-active false)
+
+        ;; Take a snapshot of the signer's current rewards
+        (settle-rewards signer true bond-index)
+
+        (map-set staker-shares-staked-for-cycle {
+            is-bond: true,
+            staker: staker,
+            signer: signer,
+            index: bond-index,
+        }
+            new-amount-sats
+        )
+        (map-set signer-shares-staked-for-cycle {
+            is-bond: true,
+            signer: signer,
+            index: bond-index,
+        }
+            (- current-shares amount-to-withdrawal-sats)
+        )
+        (map-set total-shares-staked-for-cycle {
+            is-bond: true,
+            index: bond-index,
+        }
+            (- current-total-shares amount-to-withdrawal-sats)
+        )
+        (var-set total-sbtc-staked
+            (- current-total-sbtc-staked amount-to-withdrawal-sats)
+        )
+
+        (try! (as-contract?
+            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                "sbtc-token" amount-to-withdrawal-sats
+            ))
+            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                transfer amount-to-withdrawal-sats tx-sender staker none
+            ))
+        ))
+
+        (ok {
+            staker: staker,
+            signer: signer,
+            new-amount-sats: new-amount-sats,
+        })
     )
 )
 
