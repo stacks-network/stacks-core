@@ -1341,6 +1341,61 @@ impl StacksEpochExtension for StacksEpoch {
             epoch_3_0_start % reward_cycle_length,
             burnchain.pox_constants
         );
+
+        // Validate Epoch 4.0 / PoX-5 transition if present.
+        //
+        // Only enforced when `pox_5_activation_height` is wired to Epoch 4.0's
+        // start (the production convention enforced by `apply_test_settings`).
+        // Tests/fixtures that include Epoch 4.0 in the epoch list but leave
+        // `pox_5_activation_height` at a default never drive the chain past
+        // pox-5 activation, so the dispatch-safety checks are irrelevant.
+        let Some(epoch_4_0) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch40) else {
+            return;
+        };
+        let epoch_4_0_start = epoch_4_0.start_height;
+        let pox_5_activation = u64::from(burnchain.pox_constants.pox_5_activation_height);
+        if pox_5_activation != epoch_4_0_start {
+            return;
+        }
+
+        // pox_5_activation_height must fall strictly inside a reward phase. If it lands
+        // inside the prepare phase that sets up the first PoX-5 cycle, two forks observing
+        // different blocks of that prepare phase can derive the signer set from pox-4 vs
+        // pox-5. The cycle-keyed predicate `active_pox_contract_for_cycle` makes the
+        // dispatch self-consistent regardless, but this check rejects ambiguous configs
+        // up front so failures are loud at startup rather than subtle at runtime.
+        assert!(
+            !burnchain.is_in_prepare_phase(pox_5_activation),
+            "FATAL: pox_5_activation_height must fall during a reward phase, not a prepare \
+            phase. Activation height: {pox_5_activation}, PoX Parameters: {:?}",
+            burnchain.pox_constants
+        );
+
+        // Mirror the Epoch 3.0 boundary exclusion: forbid offsets 0 and 1, where
+        // `first_pox_waterfall_block` (floor-division) and `active_pox_contract` (strict
+        // `>`) treat the boundary asymmetrically.
+        let pox_5_offset = pox_5_activation
+            .checked_sub(burnchain.first_block_height)
+            .expect("FATAL: pox_5_activation_height precedes first_block_height")
+            % reward_cycle_length;
+        assert!(
+            pox_5_offset > 1,
+            "FATAL: pox_5_activation_height must not fall on a reward cycle boundary \
+            (offset 0 or 1). Activation height: {pox_5_activation}, offset: {pox_5_offset}, \
+            PoX Parameters: {:?}",
+            burnchain.pox_constants
+        );
+
+        // Epoch 3.0 and Epoch 4.0 in distinct cycles, mirroring the 2.5/3.0 rule.
+        let epoch_4_0_reward_cycle = epoch_4_0_start / reward_cycle_length;
+        assert_ne!(
+            epoch_3_0_reward_cycle, epoch_4_0_reward_cycle,
+            "FATAL: Epoch 3.0 and Epoch 4.0 must not be in the same reward cycle. \
+            Epoch 3.0 cycle: {epoch_3_0_reward_cycle}, \
+            Epoch 4.0 cycle: {epoch_4_0_reward_cycle}, \
+            PoX Parameters: {:?}",
+            burnchain.pox_constants
+        );
     }
 }
 
