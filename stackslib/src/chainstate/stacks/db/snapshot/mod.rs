@@ -20,5 +20,4 @@ pub(crate) mod index;
 #[cfg(test)]
 mod tests;
 
-// Re-export public API so existing `use snapshot::*` imports continue to work.
 pub use index::{copy_index_side_tables, IndexSideTableStats};
