@@ -31,11 +31,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-
-use madhouse::{Command, CommandWrapper, State, TestContext, execute_commands, prop_allof};
+use madhouse::{execute_commands, prop_allof, Command, CommandWrapper, State, TestContext};
 use pinny::tag;
 use proptest::prelude::*;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use crate::burnchains::bitcoin::{WatchedP2WSHOutput, WitnessScriptHash};
 use crate::burnchains::db::BurnchainDB;
@@ -126,11 +125,7 @@ impl WatchedOutputsSut {
         }
     }
 
-    fn store_block(
-        &mut self,
-        header: &BurnchainBlockHeader,
-        outputs: &[WatchedP2WSHOutput],
-    ) {
+    fn store_block(&mut self, header: &BurnchainBlockHeader, outputs: &[WatchedP2WSHOutput]) {
         let db_tx = self.db.tx_begin().unwrap();
         db_tx.store_burnchain_db_entry(header).unwrap();
         db_tx.store_watched_outputs(header, outputs).unwrap();
@@ -389,4 +384,3 @@ fn p2wsh_store_lifecycle_madhouse() {
         });
     }
 }
-

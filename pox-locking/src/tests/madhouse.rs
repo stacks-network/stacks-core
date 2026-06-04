@@ -33,18 +33,12 @@ use std::sync::{Arc, Mutex};
 use clarity::types::StacksEpochId;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::clarity_db::StacksEpoch;
-use clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, MemoryBackingStore, NULL_HEADER_DB,
-};
+use clarity::vm::database::{BurnStateDB, ClarityDatabase, MemoryBackingStore, NULL_HEADER_DB};
 use clarity::vm::types::{PrincipalData, StandardPrincipalData, TupleData};
-use madhouse::{
-    Command, CommandWrapper, State, TestContext, execute_commands, prop_allof,
-};
+use madhouse::{execute_commands, prop_allof, Command, CommandWrapper, State, TestContext};
 use pinny::tag;
 use proptest::prelude::{Just, Strategy};
-use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, ConsensusHash, SortitionId,
-};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, SortitionId};
 
 use crate::pox_5::{pox_lock_update_v5, pox_lock_v5, pox_unstake_v5};
 use crate::LockingError;
@@ -120,10 +114,7 @@ impl BurnStateDB for ConfigurableBurnStateDB {
         })
     }
 
-    fn get_stacks_epoch_by_epoch_id(
-        &self,
-        _epoch_id: &StacksEpochId,
-    ) -> Option<StacksEpoch> {
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
     }
 
@@ -249,13 +240,10 @@ impl Pox5SystemUnderTest {
     where
         F: FnOnce(&mut ClarityDatabase) -> R,
     {
-        let mut db = ClarityDatabase::new(
-            &mut self.store,
-            &NULL_HEADER_DB,
-            &self.burn_state_db,
-        );
+        let mut db = ClarityDatabase::new(&mut self.store, &NULL_HEADER_DB, &self.burn_state_db);
         db.begin();
-        db.set_clarity_epoch_version(StacksEpochId::Epoch40).unwrap();
+        db.set_clarity_epoch_version(StacksEpochId::Epoch40)
+            .unwrap();
         let r = f(&mut db);
         db.commit().unwrap();
         r
@@ -355,8 +343,14 @@ fn classify_state(model: &Pox5StakerState, ctx: &Pox5Context) {
     let mut c = ctx.coverage.lock().unwrap();
     match &model.account {
         AccountState::Unlocked => c.unlocked += 1,
-        AccountState::Locked { unstake_scheduled: false, .. } => c.locked_nosched += 1,
-        AccountState::Locked { unstake_scheduled: true, .. } => c.locked_sched += 1,
+        AccountState::Locked {
+            unstake_scheduled: false,
+            ..
+        } => c.locked_nosched += 1,
+        AccountState::Locked {
+            unstake_scheduled: true,
+            ..
+        } => c.locked_sched += 1,
     }
 }
 
@@ -428,9 +422,7 @@ impl Command<Pox5StakerState, Pox5Context> for Stake {
                     unstake_scheduled: false,
                 };
             }
-            Err(e) => panic!(
-                "Stake expected to succeed (model says legal) but SUT returned {e:?}"
-            ),
+            Err(e) => panic!("Stake expected to succeed (model says legal) but SUT returned {e:?}"),
         }
         check_invariants(state, &self.ctx);
     }
@@ -439,7 +431,9 @@ impl Command<Pox5StakerState, Pox5Context> for Stake {
         format!("STAKE({}, unlock={})", self.amount, self.unlock_height)
     }
 
-    fn build(ctx: Arc<Pox5Context>) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
         let total = ctx.total_ustx;
         // Up to `total` (not `total/2`) so the full-balance edge is sampled.
         let amount_strategy = 1u128..=total;
@@ -485,9 +479,7 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
         };
         let result = {
             let mut sut = self.ctx.sut.lock().unwrap();
-            sut.run(|db| {
-                pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total)
-            })
+            sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total))
         };
         match result {
             Ok(_balance) => {
@@ -508,9 +500,7 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
                     *unlock_height = self.new_unlock_height;
                 }
             }
-            Err(e) => panic!(
-                "StakeUpdate expected to succeed but SUT returned {e:?}"
-            ),
+            Err(e) => panic!("StakeUpdate expected to succeed but SUT returned {e:?}"),
         }
         check_invariants(state, &self.ctx);
     }
@@ -522,7 +512,9 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
         )
     }
 
-    fn build(ctx: Arc<Pox5Context>) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
         let total = ctx.total_ustx;
         let new_total_strategy = 1u128..=total;
         let new_unlock_strategy = 1u64..=UNLOCK_WINDOW;
@@ -586,7 +578,9 @@ impl Command<Pox5StakerState, Pox5Context> for Unstake {
         "UNSTAKE".to_string()
     }
 
-    fn build(ctx: Arc<Pox5Context>) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
         Just(CommandWrapper::new(Unstake { ctx: ctx.clone() }))
     }
 }
@@ -616,7 +610,9 @@ impl Command<Pox5StakerState, Pox5Context> for AdvanceBurnHeight {
         format!("ADVANCE_BURN({})", self.delta)
     }
 
-    fn build(ctx: Arc<Pox5Context>) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
         (1u64..=10_000u64).prop_map(move |delta| {
             CommandWrapper::new(AdvanceBurnHeight {
                 ctx: ctx.clone(),
@@ -662,9 +658,7 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeWhileLocked {
         };
         match result {
             Err(LockingError::PoxAlreadyLocked) => {}
-            other => panic!(
-                "IllegalStakeWhileLocked expected PoxAlreadyLocked, got {other:?}"
-            ),
+            other => panic!("IllegalStakeWhileLocked expected PoxAlreadyLocked, got {other:?}"),
         }
         // Failed call must not mutate the SUT; model is unchanged.
         check_invariants(state, &self.ctx);
@@ -710,15 +704,13 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeUpdateOnUnlocked {
         let staker = self.ctx.sut.lock().unwrap().staker.clone();
         let result = {
             let mut sut = self.ctx.sut.lock().unwrap();
-            sut.run(|db| {
-                pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total)
-            })
+            sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total))
         };
         match result {
             Err(LockingError::PoxExtendNotLocked) => {}
-            other => panic!(
-                "IllegalStakeUpdateOnUnlocked expected PoxExtendNotLocked, got {other:?}"
-            ),
+            other => {
+                panic!("IllegalStakeUpdateOnUnlocked expected PoxExtendNotLocked, got {other:?}")
+            }
         }
         check_invariants(state, &self.ctx);
     }
@@ -764,15 +756,16 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalUnstakeOnUnlocked {
         };
         match result {
             Err(LockingError::PoxUnstakeNotLocked) => {}
-            other => panic!(
-                "IllegalUnstakeOnUnlocked expected PoxUnstakeNotLocked, got {other:?}"
-            ),
+            other => panic!("IllegalUnstakeOnUnlocked expected PoxUnstakeNotLocked, got {other:?}"),
         }
         check_invariants(state, &self.ctx);
     }
 
     fn label(&self) -> String {
-        format!("ILLEGAL_UNSTAKE_UNLOCKED(unlock={})", self.new_unlock_height)
+        format!(
+            "ILLEGAL_UNSTAKE_UNLOCKED(unlock={})",
+            self.new_unlock_height
+        )
     }
 
     fn build(
@@ -822,9 +815,7 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
         let staker = self.ctx.sut.lock().unwrap().staker.clone();
         let result = {
             let mut sut = self.ctx.sut.lock().unwrap();
-            sut.run(|db| {
-                pox_lock_update_v5(db, &staker, self.new_unlock_height, new_total)
-            })
+            sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, new_total))
         };
         match result {
             Err(LockingError::PoxInvalidIncrease) => {}
@@ -846,15 +837,13 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
         ctx: Arc<Pox5Context>,
     ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
         // `decrease` is bounded against the runtime locked amount in `check`.
-        (1u128..=ctx.total_ustx, 1u64..=UNLOCK_WINDOW).prop_map(
-            move |(decrease, new_unlock)| {
-                CommandWrapper::new(IllegalDecreaseInUpdate {
-                    ctx: ctx.clone(),
-                    decrease,
-                    new_unlock_height: new_unlock,
-                })
-            },
-        )
+        (1u128..=ctx.total_ustx, 1u64..=UNLOCK_WINDOW).prop_map(move |(decrease, new_unlock)| {
+            CommandWrapper::new(IllegalDecreaseInUpdate {
+                ctx: ctx.clone(),
+                decrease,
+                new_unlock_height: new_unlock,
+            })
+        })
     }
 }
 

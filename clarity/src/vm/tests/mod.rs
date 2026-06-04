@@ -27,8 +27,6 @@ use crate::vm::database::MemoryBackingStore;
 mod assets;
 #[cfg(test)]
 mod bitcoin;
-#[cfg(test)]
-pub(crate) mod proptest_strategies;
 mod contracts;
 #[cfg(test)]
 mod conversions;
@@ -42,6 +40,8 @@ mod epoch_gating;
 #[cfg(test)]
 mod post_conditions;
 mod principals;
+#[cfg(test)]
+pub(crate) mod proptest_strategies;
 #[cfg(test)]
 pub mod proptest_utils;
 #[cfg(test)]

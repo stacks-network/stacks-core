@@ -569,19 +569,20 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
 #[cfg(test)]
 mod tests {
-    use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use proptest::prelude::*;
+    use stacks_common::deps_common::bitcoin::blockdata::block::{
+        Block, BlockHeader, LoneBlockHeader,
+    };
+    use stacks_common::deps_common::bitcoin::blockdata::script::Script as BtcScript;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::{
+        OutPoint, Transaction, TxIn, TxOut,
+    };
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
     use stacks_common::types::Address;
     use stacks_common::util::hash::hex_bytes;
-
-    use proptest::prelude::*;
-    use stacks_common::deps_common::bitcoin::blockdata::block::BlockHeader;
-    use stacks_common::deps_common::bitcoin::blockdata::script::Script as BtcScript;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::{OutPoint, TxIn, TxOut};
-    use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
     use super::BitcoinBlockParser;
     use crate::burnchains::bitcoin::address::{

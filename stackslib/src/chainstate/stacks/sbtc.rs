@@ -221,9 +221,7 @@ fn write_compact_size(buf: &mut Vec<u8>, n: u64) {
 
 #[cfg(test)]
 mod tests {
-    use clarity::vm::types::{
-        PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-    };
+    use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
     use clarity::vm::ContractName;
     use serde::Deserialize;
     use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -731,14 +729,16 @@ mod tests {
     /// 33-byte compressed secp256k1 pubkey: prefix `0x02`/`0x03` + valid
     /// x-coordinate. Matches `get-current-aggregate-pubkey`'s output.
     fn arb_valid_compressed_pubkey_33() -> impl Strategy<Value = [u8; 33]> {
-        (arb_valid_xonly_pubkey(), prop_oneof![Just(0x02u8), Just(0x03u8)]).prop_map(
-            |(xonly, prefix)| {
+        (
+            arb_valid_xonly_pubkey(),
+            prop_oneof![Just(0x02u8), Just(0x03u8)],
+        )
+            .prop_map(|(xonly, prefix)| {
                 let mut compressed = [0u8; 33];
                 compressed[0] = prefix;
                 compressed[1..].copy_from_slice(&xonly);
                 compressed
-            },
-        )
+            })
     }
 
     /// Standard principal (version < 32, arbitrary 20-byte hash).
@@ -758,18 +758,16 @@ mod tests {
     /// only length + regex (there is no reserved-word check), so every
     /// generated name is accepted.
     fn arb_contract_name() -> impl Strategy<Value = ContractName> {
-        prop::collection::vec(
-            prop_oneof![b'a'..=b'z', b'0'..=b'9', Just(b'-')],
-            0..38,
+        prop::collection::vec(prop_oneof![b'a'..=b'z', b'0'..=b'9', Just(b'-')], 0..38).prop_map(
+            |rest| {
+                let mut s = String::with_capacity(2 + rest.len());
+                s.push_str("t-");
+                for c in rest {
+                    s.push(c as char);
+                }
+                ContractName::try_from(s).expect("structurally valid contract name")
+            },
         )
-        .prop_map(|rest| {
-            let mut s = String::with_capacity(2 + rest.len());
-            s.push_str("t-");
-            for c in rest {
-                s.push(c as char);
-            }
-            ContractName::try_from(s).expect("structurally valid contract name")
-        })
     }
 
     /// Standard- or Contract-variant principal, uniformly weighted. The

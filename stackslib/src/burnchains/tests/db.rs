@@ -1491,7 +1491,9 @@ fn watched_outputs_duplicate_pk_rejected() {
 
     let db_tx = db.tx_begin().unwrap();
     db_tx.store_burnchain_db_entry(&header).unwrap();
-    db_tx.store_watched_outputs(&header, &[original.clone()]).unwrap();
+    db_tx
+        .store_watched_outputs(&header, &[original.clone()])
+        .unwrap();
     db_tx.commit().unwrap();
 
     // Same PK (txid, vout, block_hash), different amount + script hash.
@@ -1900,9 +1902,9 @@ proptest! {
 fn prune_window_table_oracle() {
     // (reward_cycle_length, expected_window)
     let cases: &[(u32, u64)] = &[
-        (1, 1),       // (3*1)/2 = 1
-        (2, 3),       // (3*2)/2 = 3
-        (3, 4),       // (3*3)/2 = 4
+        (1, 1), // (3*1)/2 = 1
+        (2, 3), // (3*2)/2 = 3
+        (3, 4), // (3*3)/2 = 4
         (10, 15),
         (100, 150),
         (1000, 1500),

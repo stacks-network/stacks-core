@@ -204,13 +204,12 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyHonestProof {
     fn build(
         _ctx: Arc<AdversaryContext>,
     ) -> impl Strategy<Value = CommandWrapper<MerkleAdversaryState, AdversaryContext>> {
-        (any::<usize>(), any::<usize>())
-            .prop_map(|(tree_seed, leaf_seed)| {
-                CommandWrapper::new(VerifyHonestProof {
-                    tree_seed,
-                    leaf_seed,
-                })
+        (any::<usize>(), any::<usize>()).prop_map(|(tree_seed, leaf_seed)| {
+            CommandWrapper::new(VerifyHonestProof {
+                tree_seed,
+                leaf_seed,
             })
+        })
     }
 }
 
@@ -264,9 +263,8 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyForge3 {
     fn build(
         _ctx: Arc<AdversaryContext>,
     ) -> impl Strategy<Value = CommandWrapper<MerkleAdversaryState, AdversaryContext>> {
-        (any::<[u8; 32]>(), any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(|(a, b, c)| {
-            CommandWrapper::new(VerifyForge3 { a, b, c })
-        })
+        (any::<[u8; 32]>(), any::<[u8; 32]>(), any::<[u8; 32]>())
+            .prop_map(|(a, b, c)| CommandWrapper::new(VerifyForge3 { a, b, c }))
     }
 }
 
@@ -348,8 +346,7 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyWrongDepth {
         let tree_idx = self.tree_seed % state.trees.len();
         let tree = &state.trees[tree_idx];
         let leaf_idx = self.leaf_seed % tree.leaves.len();
-        let (leaf, root, tx_index, tx_count, mut siblings) =
-            honest_proof(&tree.leaves, leaf_idx);
+        let (leaf, root, tx_index, tx_count, mut siblings) = honest_proof(&tree.leaves, leaf_idx);
         if self.truncate {
             siblings.pop().expect("guarded by check");
         } else {
@@ -402,8 +399,7 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyOutOfRangeIndex {
         let tree_idx = self.tree_seed % state.trees.len();
         let tree = &state.trees[tree_idx];
         let leaf_idx = self.leaf_seed % tree.leaves.len();
-        let (leaf, root, _tx_index, tx_count, siblings) =
-            honest_proof(&tree.leaves, leaf_idx);
+        let (leaf, root, _tx_index, tx_count, siblings) = honest_proof(&tree.leaves, leaf_idx);
         let bad_idx = tx_count.saturating_add(self.slop as u128);
         assert!(
             !verify_merkle(leaf, root, bad_idx, tx_count, &siblings),
@@ -418,15 +414,13 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyOutOfRangeIndex {
     fn build(
         _ctx: Arc<AdversaryContext>,
     ) -> impl Strategy<Value = CommandWrapper<MerkleAdversaryState, AdversaryContext>> {
-        (any::<usize>(), any::<usize>(), 0u32..=64).prop_map(
-            |(tree_seed, leaf_seed, slop)| {
-                CommandWrapper::new(VerifyOutOfRangeIndex {
-                    tree_seed,
-                    leaf_seed,
-                    slop,
-                })
-            },
-        )
+        (any::<usize>(), any::<usize>(), 0u32..=64).prop_map(|(tree_seed, leaf_seed, slop)| {
+            CommandWrapper::new(VerifyOutOfRangeIndex {
+                tree_seed,
+                leaf_seed,
+                slop,
+            })
+        })
     }
 }
 
