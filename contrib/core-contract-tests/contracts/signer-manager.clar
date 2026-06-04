@@ -125,9 +125,7 @@
         (bond-periods (list 6 uint))
         (reward-cycle uint)
     )
-    (as-contract? ()
-        (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))
-    )
+    (contract-call? .pox-5 claim-rewards bond-periods reward-cycle)
 )
 
 ;;; Staker rewards
