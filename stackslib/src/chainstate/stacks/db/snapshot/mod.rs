@@ -13,6 +13,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! Offline copy of canonical chainstate data into a squashed destination
+//! database, driven by the squashed MARF's `marf_squashed_blocks` metadata.
+//!
+//! Every copy in this module assumes the marf-squash preconditions:
+//! - the snapshot contains nothing above the squash height;
+//! - the squash height is post-epoch-3.4, so the canonical tip is a
+//!   Nakamoto block;
+//! - the snapshot contains canonical data only (no orphaned/fork rows).
+//!
+//! Detectable violations surface as `CorruptionError`s.
+
 pub(crate) mod common;
 pub(crate) mod fork_storage;
 pub(crate) mod index;
