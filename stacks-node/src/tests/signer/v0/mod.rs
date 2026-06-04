@@ -624,6 +624,27 @@ pub(crate) fn pox5_signer_manager_source() -> &'static str {
     ))
   )
 )
+
+(define-public (claim-rewards
+    (bond-periods (list 6 uint))
+    (reward-cycle uint)
+  )
+  (as-contract? ()
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
+      bond-periods reward-cycle
+    ))
+  )
+)
+
+(define-read-only (get-earned-staker-rewards
+    (staker principal)
+    (is-bond bool)
+    (index uint)
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
+    current-contract is-bond index staker
+  )
+)
 "#
 }
 
