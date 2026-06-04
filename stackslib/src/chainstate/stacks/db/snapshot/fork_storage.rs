@@ -132,7 +132,7 @@ pub fn copy_canonical_fork_storage(
         .prepare("SELECT value_hash, value FROM src.__fork_storage")
         .map_err(Error::SQLError)?;
     let mut insert = conn
-        .prepare("INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)")
+        .prepare("INSERT INTO __fork_storage (value_hash, value) VALUES (?1, ?2)")
         .map_err(Error::SQLError)?;
     let mut rows: u64 = 0;
     let mut scanned: u64 = 0;

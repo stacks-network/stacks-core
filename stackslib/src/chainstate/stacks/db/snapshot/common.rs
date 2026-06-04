@@ -23,8 +23,8 @@ use crate::chainstate::stacks::index::Error;
 /// A spec for copying a single table from the ATTACHed `src` database.
 ///
 /// The `source_sql` is the exact `SELECT` used to filter source rows.
-/// Copy uses plain `INSERT ... SELECT` (no `OR IGNORE`) so that unexpected
-/// pre-population in the destination fails loudly.
+/// Copy uses plain `INSERT ... SELECT` (no `OR IGNORE`/`OR REPLACE`) so that
+/// unexpected pre-population in the destination fails loudly.
 pub struct TableCopySpec {
     pub table: &'static str,
     /// The exact SELECT for the source side, e.g.
