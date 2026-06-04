@@ -3195,10 +3195,10 @@ impl NakamotoChainState {
     /// well as the microblock stream they append to it.  But in Nakamoto,
     /// the coinbase height and block height are decoupled.
     ///
-    /// `tip` is the block at which the MARF lookup will be done; it must be a descendant of
-    /// `block` on the same fork. The coinbase-height mapping is written once per tenure and never
-    /// changes, so any such descendant yields the same value. Pass the canonical tip to keep the
-    /// read off blocks a squashed snapshot may have pruned.
+    /// `tip` is the block at which the MARF lookup will be done; it must be `block` itself or a
+    /// descendant of it on the same fork. The coinbase-height mapping is written once per tenure
+    /// and never changes, so any such tip yields the same value. Pass the canonical tip to keep
+    /// the read off blocks a squashed snapshot may have pruned.
     pub fn get_coinbase_height_at_tip<SDBI: StacksDBIndexed>(
         chainstate_conn: &mut SDBI,
         block: &StacksBlockId,
