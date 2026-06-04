@@ -16,7 +16,7 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
@@ -119,70 +119,35 @@ fn populate_canonical_blocks(conn: &Connection) -> Result<(), Error> {
     Ok(())
 }
 
-/// Scope of `signer_stats` rows the squashed dst should retain.
-#[derive(Debug, Clone, Copy)]
-pub enum RewardCycleScope {
-    /// Post-Nakamoto state with a canonical tip: keep `signer_stats`
-    /// rows where `reward_cycle <= cycle`.
-    Through(u64),
-    /// Pre-Nakamoto state: `src.nakamoto_block_headers` is empty, so
-    /// `src.signer_stats` must also be empty (asserted at derivation).
-    /// No rows to copy.
-    PreNakamoto,
-}
-
-/// Determine the `signer_stats` cutoff. Three real states:
-/// - Post-Nakamoto with canonical tip → `Through(cycle)`.
-/// - Pre-Nakamoto (no `nakamoto_block_headers` in src) → `PreNakamoto`,
-///   after asserting `src.signer_stats` is empty (it would be otherwise
-///   unfilterable).
-/// - `nakamoto_block_headers` non-empty but no canonical join match →
-///   `CorruptionError` (squashed canonical set absent from src).
+/// Derive the `signer_stats` cutoff: the reward cycle of the canonical tip
+/// (the highest `marf_squashed_blocks` entry), which must be a Nakamoto block.
+///
+/// Tip-cycle counters are copied as stored in src; `signer_stats` is a
+/// non-consensus RPC counter (`/v3/signer`), so counts that include
+/// post-boundary signatures are acceptable.
 fn derive_max_reward_cycle(
     conn: &Connection,
     first_burn_height: u64,
     reward_cycle_len: u64,
-) -> Result<RewardCycleScope, Error> {
-    let src_has_nakamoto: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM src.nakamoto_block_headers",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(Error::SQLError)?;
-    if !src_has_nakamoto {
-        let signer_stats_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM src.signer_stats", [], |row| {
-                row.get(0)
-            })
-            .map_err(Error::SQLError)?;
-        if signer_stats_count > 0 {
-            return Err(Error::CorruptionError(format!(
-                "pre-Nakamoto src (no nakamoto_block_headers) has {signer_stats_count} \
-                 signer_stats rows; expected empty"
-            )));
-        }
-        info!("[index] derive_max_reward_cycle: pre-Nakamoto (signer_stats empty)");
-        return Ok(RewardCycleScope::PreNakamoto);
-    }
-
+) -> Result<u64, Error> {
     let tip_burn_height: u64 = conn
         .query_row(
             "SELECT nh.burn_header_height \
-             FROM marf_squashed_blocks mh \
-             JOIN src.nakamoto_block_headers nh \
-               ON nh.index_block_hash = lower(hex(mh.block_hash)) \
-             ORDER BY mh.height DESC LIMIT 1",
+             FROM (SELECT block_hash FROM marf_squashed_blocks \
+                   ORDER BY height DESC LIMIT 1) tip \
+             LEFT JOIN src.nakamoto_block_headers nh \
+               ON nh.index_block_hash = lower(hex(tip.block_hash))",
             [],
-            |row| row.get::<_, i64>(0),
+            |row| row.get::<_, Option<i64>>(0),
         )
         .optional()
         .map_err(Error::SQLError)?
+        .flatten()
         .map(|h| h as u64)
         .ok_or_else(|| {
             Error::CorruptionError(
-                "src.nakamoto_block_headers has rows but none match marf_squashed_blocks; \
-                 squashed canonical set is absent from src"
+                "canonical tip is not a Nakamoto block (no match in \
+                 src.nakamoto_block_headers); squashing requires an epoch 3.4+ chainstate"
                     .into(),
             )
         })?;
@@ -199,14 +164,23 @@ fn derive_max_reward_cycle(
         ))
     })?;
     info!("[index] derive_max_reward_cycle: {cycle} (tip_burn_height={tip_burn_height})");
-    Ok(RewardCycleScope::Through(cycle))
+    Ok(cycle)
 }
 
-/// Build the copy specs for descriptor-driven index tables.
-/// These are the uniform `index_block_hash IN canonical_blocks` tables.
-fn index_copy_specs() -> Vec<TableCopySpec> {
+/// Build the copy specs for every SQL-expressible index-table copy.
+/// Most tables filter uniformly by `index_block_hash IN canonical_blocks`.
+///
+/// Special cases:
+/// - `db_config` is copied in full.
+/// - `staging_blocks` adds a check for processend and non-orphaned blocks.
+/// - `signer_stats` is cut off at the canonical tip's  reward cycle.
+pub(super) fn index_copy_specs(max_reward_cycle: u64) -> Vec<TableCopySpec> {
     let cb = "SELECT index_block_hash FROM canonical_blocks";
     vec![
+        TableCopySpec {
+            table: "db_config",
+            source_sql: "SELECT * FROM src.db_config".into(),
+        },
         TableCopySpec {
             table: "block_headers",
             source_sql: format!("SELECT * FROM src.block_headers WHERE index_block_hash IN ({cb})"),
@@ -253,6 +227,22 @@ fn index_copy_specs() -> Vec<TableCopySpec> {
             table: "epoch_transitions",
             source_sql: format!("SELECT * FROM src.epoch_transitions WHERE block_id IN ({cb})"),
         },
+        TableCopySpec {
+            table: "staging_blocks",
+            // Only canonical, fully-processed, non-orphaned blocks.
+            source_sql: format!(
+                "SELECT s.* FROM src.staging_blocks s \
+                 WHERE s.index_block_hash IN ({cb}) \
+                   AND s.processed = 1 \
+                   AND s.orphaned = 0"
+            ),
+        },
+        TableCopySpec {
+            table: "signer_stats",
+            source_sql: format!(
+                "SELECT * FROM src.signer_stats WHERE reward_cycle <= {max_reward_cycle}"
+            ),
+        },
     ]
 }
 
@@ -284,15 +274,6 @@ fn copy_tables_inner(
 ) -> Result<IndexSideTableStats, Error> {
     let total_start = Instant::now();
 
-    // Copy db_config verbatim.
-    let t = Instant::now();
-    conn.execute(
-        "INSERT OR REPLACE INTO db_config SELECT * FROM src.db_config",
-        [],
-    )
-    .map_err(Error::SQLError)?;
-    info!("[index] db_config done in {:?}", t.elapsed());
-
     // Copy only canonical __fork_storage rows. The squashed MARF trie
     // leaves reference these by value_hash. Non-canonical fork entries
     // are excluded.
@@ -306,8 +287,9 @@ fn copy_tables_inner(
         t.elapsed()
     );
 
-    // Execute descriptor-driven copies for uniform tables.
-    let specs = index_copy_specs();
+    let max_reward_cycle = derive_max_reward_cycle(conn, first_burn_height, reward_cycle_len)?;
+
+    let specs = index_copy_specs(max_reward_cycle);
     let results = execute_copy_specs(conn, &specs)?;
 
     let get = |name: &str| -> u64 {
@@ -315,48 +297,8 @@ fn copy_tables_inner(
             .iter()
             .find(|(t, _)| *t == name)
             .map(|(_, r)| *r)
-            .unwrap_or(0)
+            .unwrap_or_else(|| panic!("BUG: no copy-spec result for `{name}`"))
     };
-
-    // Custom: signer_stats filtered by derived reward cycle.
-    let signer_stats_scope = derive_max_reward_cycle(conn, first_burn_height, reward_cycle_len)?;
-
-    let t = Instant::now();
-    let signer_stats_rows = match signer_stats_scope {
-        RewardCycleScope::Through(cycle) => conn
-            .execute(
-                "INSERT INTO signer_stats SELECT * FROM src.signer_stats \
-                 WHERE reward_cycle <= ?1",
-                params![cycle as i64],
-            )
-            .map_err(Error::SQLError)? as u64,
-        // Pre-Nakamoto: `derive_max_reward_cycle` already verified
-        // `src.signer_stats` is empty; nothing to copy.
-        RewardCycleScope::PreNakamoto => 0,
-    };
-    info!(
-        "[index] signer_stats ({signer_stats_rows} rows) in {:?}",
-        t.elapsed()
-    );
-
-    // Custom: staging_blocks with semantic predicate.
-    let t = Instant::now();
-    let staging_blocks_rows = with_indexes_dropped(conn, "staging_blocks", |conn| {
-        Ok(conn
-            .execute(
-                "INSERT INTO staging_blocks \
-                 SELECT s.* FROM src.staging_blocks s \
-                 WHERE s.index_block_hash IN (SELECT index_block_hash FROM canonical_blocks) \
-                   AND s.processed = 1 \
-                   AND s.orphaned = 0",
-                [],
-            )
-            .map_err(Error::SQLError)? as u64)
-    })?;
-    info!(
-        "[index] staging_blocks ({staging_blocks_rows} rows) in {:?}",
-        t.elapsed()
-    );
 
     conn.execute_batch("DROP TABLE IF EXISTS canonical_blocks")
         .map_err(Error::SQLError)?;
@@ -370,11 +312,11 @@ fn copy_tables_inner(
         transactions_rows: get("transactions"),
         nakamoto_tenure_events_rows: get("nakamoto_tenure_events"),
         nakamoto_reward_sets_rows: get("nakamoto_reward_sets"),
-        signer_stats_rows,
+        signer_stats_rows: get("signer_stats"),
         matured_rewards_rows: get("matured_rewards"),
         burnchain_txids_rows: get("burnchain_txids"),
         epoch_transitions_rows: get("epoch_transitions"),
-        staging_blocks_rows,
+        staging_blocks_rows: get("staging_blocks"),
         fork_storage_rows,
     })
 }
