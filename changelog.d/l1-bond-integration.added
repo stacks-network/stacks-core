@@ -1,0 +1,1 @@
+Complete L1 bitcoin staking integration tests, including both normal exit after the timelock expires, and early exit.

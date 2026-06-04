@@ -33,6 +33,7 @@ use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, VmInternalError};
+use crate::vm::functions::buff_to_array;
 use crate::vm::types::{BuffData, ListData, SequenceData, TupleData, TypeSignature, Value};
 
 /// Maximum supported merkle proof depth for `(verify-merkle-proof ...)`.
@@ -171,18 +172,6 @@ pub(crate) fn verify_merkle(
     cur == root
 }
 
-/// Helper to coerce a Clarity buffer value into a fixed-size byte array.
-fn buff_to_array_32(value: &Value) -> Option<[u8; 32]> {
-    match value {
-        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => {
-            let mut out = [0u8; 32];
-            out.copy_from_slice(data);
-            Some(out)
-        }
-        _ => None,
-    }
-}
-
 /// Cost-input function for `verify-merkle-proof`: the number of siblings in
 /// the proof, which is what `ClarityCostFunction::VerifyMerkleProof` scales
 /// on. Ignore and default around type errors here since they are already
@@ -220,13 +209,13 @@ pub fn native_verify_merkle_proof(args: Vec<Value>) -> Result<Value, VmExecution
         .try_into()
         .map_err(|_| VmInternalError::Expect("verify-merkle-proof received wrong arity".into()))?;
 
-    let leaf = buff_to_array_32(&leaf_value).ok_or_else(|| {
+    let leaf = buff_to_array::<32>(&leaf_value).ok_or_else(|| {
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_32),
             leaf_value.to_error_string(),
         )
     })?;
-    let root = buff_to_array_32(&root_value).ok_or_else(|| {
+    let root = buff_to_array::<32>(&root_value).ok_or_else(|| {
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_32),
             root_value.to_error_string(),
@@ -272,7 +261,7 @@ pub fn native_verify_merkle_proof(args: Vec<Value>) -> Result<Value, VmExecution
 
     let mut siblings: Vec<[u8; 32]> = Vec::with_capacity(siblings_data.len());
     for v in &siblings_data {
-        match buff_to_array_32(v) {
+        match buff_to_array::<32>(v) {
             Some(b) => siblings.push(b),
             // A list element that isn't a 32-byte buff is structurally invalid
             // — return false rather than a runtime error so that callers can
