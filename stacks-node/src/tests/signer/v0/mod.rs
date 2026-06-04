@@ -629,10 +629,8 @@ pub(crate) fn pox5_signer_manager_source() -> &'static str {
     (bond-periods (list 6 uint))
     (reward-cycle uint)
   )
-  (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
-      bond-periods reward-cycle
-    ))
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
+    bond-periods reward-cycle
   )
 )
 
