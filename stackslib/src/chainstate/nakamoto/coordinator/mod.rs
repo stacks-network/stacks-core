@@ -75,23 +75,6 @@ macro_rules! inf_or_debug {
     })
 }
 
-/// In Nakamoto, an empty reward set or missing signer set forces PoX
-/// anchor-block rebuild.
-fn ensure_usable_nakamoto_reward_set(reward_set: &RewardSet, debug_log: bool) -> Result<(), Error> {
-    if reward_set.rewarded_addresses.is_empty() {
-        err_or_debug!(debug_log, "No PoX participation");
-        return Err(Error::PoXAnchorBlockRequired);
-    }
-    if reward_set.signers.is_none() {
-        err_or_debug!(
-            debug_log,
-            "FATAL: PoX reward set did not specify signer set in Nakamoto"
-        );
-        return Err(Error::PoXAnchorBlockRequired);
-    }
-    Ok(())
-}
-
 impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     /// Read a reward_set written while updating .signers
     /// `debug_log` should be set to true if the reward set loading should
@@ -235,7 +218,11 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         // This method should only ever called if the current reward cycle is a nakamoto reward cycle
         //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
         //  Non participation is fatal.
-        ensure_usable_nakamoto_reward_set(&reward_set, debug_log)?;
+        if reward_set.rewarded_addresses.is_empty() {
+            // no one is stacking
+            err_or_debug!(debug_log, "No PoX participation");
+            return Err(Error::PoXAnchorBlockRequired);
+        }
 
         inf_or_debug!(
             debug_log,
@@ -245,6 +232,14 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             "stacks_block_height" => reward_set_block.stacks_block_height,
             "burn_header_height" => reward_set_block.burn_header_height,
         );
+
+        if reward_set.signers.is_none() {
+            err_or_debug!(
+                debug_log,
+                "FATAL: PoX reward set did not specify signer set in Nakamoto"
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        }
 
         Ok(reward_set)
     }
