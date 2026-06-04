@@ -13,12 +13,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashSet;
+
+use clarity::vm::costs::ExecutionCost;
 use rusqlite::{params, Connection};
+use stacks_common::types::chainstate::{
+    BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
+};
 use tempfile::tempdir;
 
 use super::common::{unclassified_tables, MARF_INFRA_TABLES};
-use super::index::copy_index_side_tables;
-use crate::chainstate::stacks::db::StacksChainState;
+use super::index::{copy_index_side_tables, index_copy_specs, COPIED_TABLES};
+use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, CHAINSTATE_VERSION};
 use crate::chainstate::stacks::index::Error;
 
 /// Create a source `index.sqlite`
@@ -51,8 +58,9 @@ fn hex_id(label: &str) -> String {
 ///
 /// Each label is stored as raw UTF-8 bytes in the BLOB column, so
 /// `lower(hex(block_hash))` returns the same TEXT that test chainstate
-/// inserts write via [`hex_id`].
-fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&str]) {
+/// inserts write via [`hex_id`]. Returns the connection for
+/// [`append_canonical_block`].
+fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&str]) -> Connection {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS marf_squashed_blocks (
@@ -70,6 +78,18 @@ fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&st
         )
         .unwrap();
     }
+    conn
+}
+
+/// Append a canonical block above the existing ones. `block_hash` is the
+/// raw BLOB content: a test label or a computed [`StacksBlockId`].
+fn append_canonical_block(conn: &Connection, block_hash: &[u8]) {
+    conn.execute(
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
+         VALUES ((SELECT COALESCE(MAX(height) + 1, 0) FROM marf_squashed_blocks), ?1, X'00')",
+        params![block_hash],
+    )
+    .unwrap();
 }
 
 /// Insert a block_headers row at the given height.
@@ -121,6 +141,57 @@ fn insert_transaction(conn: &Connection, id: i64, ibh_label: &str) {
     )
     .unwrap();
 }
+/// Assert `err` is a [`Error::CorruptionError`] whose message contains
+/// `needle`, pinning which corruption guard fired.
+fn assert_corruption_containing(err: Error, needle: &str) {
+    match err {
+        Error::CorruptionError(msg) => {
+            assert!(msg.contains(needle), "wrong corruption message: {msg}")
+        }
+        other => panic!("expected CorruptionError, got {other:?}"),
+    }
+}
+
+/// Insert a `nakamoto_block_headers` row at the given burn height via the
+/// production writer, so the fixture tracks the real schema. The header's
+/// consensus hash is seeded from `label`; returns the computed
+/// `index_block_hash` for [`append_canonical_block`].
+fn insert_nakamoto_header(conn: &Connection, label: &str, burn_height: u32) -> StacksBlockId {
+    let mut ch = [0u8; 20];
+    let len = label.len().min(20);
+    ch[..len].copy_from_slice(&label.as_bytes()[..len]);
+
+    let mut header = NakamotoBlockHeader::empty();
+    header.consensus_hash = ConsensusHash(ch);
+    header.chain_length = burn_height.into();
+
+    let tip_info = StacksHeaderInfo {
+        anchored_header: header.clone().into(),
+        microblock_tail: None,
+        stacks_block_height: header.chain_length,
+        index_root: TrieHash([0u8; 32]),
+        consensus_hash: header.consensus_hash.clone(),
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_height: burn_height,
+        burn_header_timestamp: 0,
+        anchored_block_size: 0,
+        burn_view: Some(header.consensus_hash.clone()),
+        total_tenure_size: 0,
+    };
+    NakamotoChainState::insert_stacks_block_header(
+        conn,
+        &tip_info,
+        &header,
+        None,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        true,
+        1,
+        0,
+    )
+    .unwrap();
+    tip_info.index_block_hash()
+}
 
 /// End-to-end copy of the index side-tables: only rows belonging to the
 /// canonical set land in dst, and the schema-only tables exist but are empty.
@@ -136,6 +207,8 @@ fn test_copy_index_side_tables_round_trip() {
         insert_payment(&conn, h, s);
         insert_transaction(&conn, h as i64, &format!("ibh{s}"));
     }
+    // Canonical Nakamoto tip (squashing requires an epoch 3.4+ src).
+    let tip_id = insert_nakamoto_header(&conn, "tip", 4);
     conn.execute(
             "INSERT INTO nakamoto_tenure_events (tenure_id_consensus_hash, prev_tenure_id_consensus_hash, \
              burn_view_consensus_hash, cause, block_hash, block_id, coinbase_height, num_blocks_confirmed) \
@@ -150,9 +223,12 @@ fn test_copy_index_side_tables_round_trip() {
     .unwrap();
     drop(conn);
 
-    // Destination: canonical blocks are ibh1, ibh2 (height 0, 1) - ibh3 is NOT canonical.
+    // Destination: canonical blocks are ibh1, ibh2 and the Nakamoto tip -
+    // ibh3 is NOT canonical.
     let dst_path = dir.path().join("dst_index.sqlite");
-    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh2"]);
+    let dst = create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh2"]);
+    append_canonical_block(&dst, &tip_id.0);
+    drop(dst);
 
     // Copy: only canonical blocks ibh1 and ibh2 should be included.
     let stats =
@@ -160,6 +236,7 @@ fn test_copy_index_side_tables_round_trip() {
             .unwrap();
 
     assert_eq!(stats.block_headers_rows, 2, "2 canonical block_headers");
+    assert_eq!(stats.nakamoto_block_headers_rows, 1, "the Nakamoto tip");
     assert_eq!(stats.payments_rows, 2, "2 canonical payments");
     assert_eq!(stats.transactions_rows, 2, "2 canonical transactions");
     assert_eq!(
@@ -181,6 +258,18 @@ fn test_copy_index_side_tables_round_trip() {
         count("SELECT COUNT(*) FROM invalidated_microblocks_data"),
         0
     );
+    // db_config is copied verbatim (values set by `create_source_db`).
+    let (version, mainnet, chain_id): (String, i64, i64) = dst
+        .query_row(
+            "SELECT version, mainnet, chain_id FROM db_config",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (version.as_str(), mainnet, chain_id),
+        (CHAINSTATE_VERSION, 0, 1)
+    );
 }
 
 /// Two blocks at the same height - one canonical, one fork: only the
@@ -197,11 +286,15 @@ fn test_copy_excludes_fork_rows() {
     // Insert fork block at same height 1 (different consensus hash).
     insert_block_header(&conn, 1, "1_fork");
     insert_transaction(&conn, 2, "ibh1_fork");
+    // Canonical Nakamoto tip (squashing requires an epoch 3.4+ src).
+    let tip_id = insert_nakamoto_header(&conn, "tip", 2);
     drop(conn);
 
-    // Only ibh1_canonical is in the canonical set.
+    // Only ibh1_canonical (and the tip) is in the canonical set.
     let dst_path = dir.path().join("dst_index.sqlite");
-    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1_canonical"]);
+    let dst = create_dest_db_with_canonical_blocks(&dst_path, &["ibh1_canonical"]);
+    append_canonical_block(&dst, &tip_id.0);
+    drop(dst);
 
     let stats =
         copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
@@ -272,8 +365,14 @@ fn test_copy_canonical_fork_storage_filters_by_leaf_hash() {
         .unwrap();
     assert_eq!(forked, 0, "non-canonical fork row excluded");
 }
-/// Insert a staging_blocks row for a canonical processed block.
-fn insert_staging_block(conn: &Connection, suffix: &str, height: u32) {
+/// Insert a staging_blocks row with the given `processed`/`orphaned` flags.
+fn insert_staging_block(
+    conn: &Connection,
+    suffix: &str,
+    height: u32,
+    processed: i64,
+    orphaned: i64,
+) {
     conn.execute(
         "INSERT INTO staging_blocks (\
                 anchored_block_hash, parent_anchored_block_hash, \
@@ -282,7 +381,7 @@ fn insert_staging_block(conn: &Connection, suffix: &str, height: u32) {
                 microblock_pubkey_hash, height, attachable, orphaned, processed, \
                 commit_burn, sortition_burn, index_block_hash, \
                 download_time, arrival_time, processed_time) \
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, 'mph', ?6, 1, 0, 1, 0, 0, ?7, 100, 200, 300)",
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, 'mph', ?6, 1, ?7, ?8, 0, 0, ?9, 100, 200, 300)",
         params![
             format!("bh{suffix}"),
             format!("parent_bh{suffix}"),
@@ -290,6 +389,8 @@ fn insert_staging_block(conn: &Connection, suffix: &str, height: u32) {
             format!("parent_ch{suffix}"),
             "0000000000000000000000000000000000000000000000000000000000000000",
             height,
+            orphaned,
+            processed,
             hex_id(&format!("ibh{suffix}")),
         ],
     )
@@ -297,7 +398,8 @@ fn insert_staging_block(conn: &Connection, suffix: &str, height: u32) {
 }
 
 /// The staging_blocks copy keeps canonical processed blocks with all
-/// columns preserved and drops non-canonical ones.
+/// columns preserved, and drops non-canonical, unprocessed, and
+/// orphaned ones.
 #[test]
 fn test_staging_blocks_populated_for_canonical() {
     let dir = tempdir().unwrap();
@@ -307,19 +409,29 @@ fn test_staging_blocks_populated_for_canonical() {
     // Insert block headers and staging blocks at heights 1, 2, 3.
     for (h, s) in [(1, "1"), (2, "2"), (3, "3")] {
         insert_block_header(&conn, h, s);
-        insert_staging_block(&conn, s, h);
+        insert_staging_block(&conn, s, h, 1, 0);
     }
+    // Canonical blocks excluded by the semantic predicate:
+    // ibh4 is unprocessed, ibh5 is orphaned.
+    insert_block_header(&conn, 4, "4");
+    insert_staging_block(&conn, "4", 4, 0, 0);
+    insert_block_header(&conn, 5, "5");
+    insert_staging_block(&conn, "5", 5, 1, 1);
+    // Canonical Nakamoto tip (squashing requires an epoch 3.4+ src).
+    let tip_id = insert_nakamoto_header(&conn, "tip", 6);
     drop(conn);
 
-    // Canonical set includes ibh1 and ibh2, but NOT ibh3.
+    // Canonical set includes ibh1, ibh2, ibh4, ibh5, but NOT ibh3.
     let dst_path = dir.path().join("dst.sqlite");
-    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh2"]);
+    let dst = create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh2", "ibh4", "ibh5"]);
+    append_canonical_block(&dst, &tip_id.0);
+    drop(dst);
 
     let stats =
         copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
             .unwrap();
 
-    // Only 2 staging_blocks rows for canonical blocks.
+    // Only the 2 canonical processed rows survive.
     assert_eq!(stats.staging_blocks_rows, 2);
 
     // Verify all columns preserved verbatim.
@@ -336,15 +448,157 @@ fn test_staging_blocks_populated_for_canonical() {
     assert_eq!(arrival_time, 200);
     assert_eq!(processed_time, 300);
 
-    // ibh3 should NOT be present.
-    let count: i64 = dst_conn
-        .query_row(
-            "SELECT COUNT(*) FROM staging_blocks WHERE index_block_hash = ?1",
-            params![hex_id("ibh3")],
-            |row| row.get(0),
-        )
+    // Non-canonical (ibh3), unprocessed (ibh4), and orphaned (ibh5)
+    // rows are all excluded.
+    for label in ["ibh3", "ibh4", "ibh5"] {
+        let count: i64 = dst_conn
+            .query_row(
+                "SELECT COUNT(*) FROM staging_blocks WHERE index_block_hash = ?1",
+                params![hex_id(label)],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "{label} must not be copied");
+    }
+}
+
+/// `signer_stats` is copied through the reward cycle of the canonical
+/// Nakamoto tip and later cycles are excluded.
+#[test]
+fn test_signer_stats_copied_through_tip_reward_cycle() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+
+    // Canonical chain: epoch2 block ibh1, Nakamoto tip at burn height 10.
+    insert_block_header(&conn, 1, "1");
+    let tip_id = insert_nakamoto_header(&conn, "tip", 10);
+    conn.execute(
+        "INSERT INTO signer_stats (public_key, reward_cycle, blocks_signed) \
+         VALUES ('pk1', 1, 5), ('pk2', 2, 3), ('pk3', 3, 7)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst.sqlite");
+    let dst = create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
+    append_canonical_block(&dst, &tip_id.0);
+    drop(dst);
+
+    // first_burn_height=0, reward_cycle_len=5 → tip cycle = 10 / 5 = 2.
+    let stats =
+        copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 5)
+            .unwrap();
+
+    assert_eq!(stats.nakamoto_block_headers_rows, 1);
+    assert_eq!(
+        stats.signer_stats_rows, 2,
+        "cycles 1 and 2 copied, cycle 3 excluded"
+    );
+    let dst = Connection::open(&dst_path).unwrap();
+    let max_cycle: i64 = dst
+        .query_row("SELECT MAX(reward_cycle) FROM signer_stats", [], |r| {
+            r.get(0)
+        })
         .unwrap();
-    assert_eq!(count, 0);
+    assert_eq!(max_cycle, 2);
+}
+
+/// A source with no Nakamoto blocks at all violates the epoch 3.4+
+/// squash precondition and is rejected.
+#[test]
+fn test_src_without_nakamoto_blocks_is_corruption() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+
+    insert_block_header(&conn, 1, "1");
+    drop(conn);
+
+    let dst_path = dir.path().join("dst.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
+
+    let err = copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 5)
+        .unwrap_err();
+    assert_corruption_containing(err, "canonical tip is not a Nakamoto block");
+}
+
+/// A canonical set whose tip is an epoch-2 block sitting above a Nakamoto
+/// block is corrupt: epochs are monotonic, so the canonical tip itself
+/// must be Nakamoto - a lower Nakamoto block must not satisfy the check.
+#[test]
+fn test_epoch2_tip_above_nakamoto_block_is_corruption() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+
+    let nak_id = insert_nakamoto_header(&conn, "nak", 10);
+    insert_block_header(&conn, 2, "2");
+    drop(conn);
+
+    // ibh2 (epoch-2) sits above the Nakamoto block in the canonical set.
+    let dst_path = dir.path().join("dst.sqlite");
+    let dst = create_dest_db_with_canonical_blocks(&dst_path, &[]);
+    append_canonical_block(&dst, &nak_id.0);
+    append_canonical_block(&dst, "ibh2".as_bytes());
+    drop(dst);
+
+    let err = copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 5)
+        .unwrap_err();
+    assert_corruption_containing(err, "canonical tip is not a Nakamoto block");
+}
+
+/// An empty `marf_squashed_blocks` (the squash recorded no canonical
+/// blocks) must fail loudly instead of producing an empty copy.
+#[test]
+fn test_empty_canonical_set_is_corruption() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+    insert_block_header(&conn, 1, "1");
+    drop(conn);
+
+    let dst_path = dir.path().join("dst.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &[]);
+
+    let err = copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+        .unwrap_err();
+    assert_corruption_containing(err, "marf_squashed_blocks is empty");
+}
+
+/// A canonical block recorded by the squash but absent from the source
+/// headers (epoch2 and Nakamoto) is corruption: src is incomplete.
+#[test]
+fn test_canonical_block_missing_from_src_is_corruption() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+    insert_block_header(&conn, 1, "1");
+    drop(conn);
+
+    let dst_path = dir.path().join("dst.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh_missing"]);
+
+    let err = copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+        .unwrap_err();
+    assert_corruption_containing(
+        err,
+        "absent from src.block_headers and src.nakamoto_block_headers",
+    );
+}
+
+/// Copy-spec coverage guard: every table in [`COPIED_TABLES`] has exactly
+/// one copy spec, so a table can't be classified as copied yet receive no
+/// rows - or two specs' worth of duplicates.
+#[test]
+fn test_copy_specs_match_copied_tables() {
+    let copied: HashSet<&str> = COPIED_TABLES.iter().copied().collect();
+
+    let specs: Vec<&str> = index_copy_specs(0).iter().map(|s| s.table).collect();
+    let spec_set: HashSet<&str> = specs.iter().copied().collect();
+    assert_eq!(specs.len(), spec_set.len(), "duplicate spec tables");
+    assert_eq!(spec_set, copied);
 }
 
 /// Drift guard: every table the chainstate migrations create must be
