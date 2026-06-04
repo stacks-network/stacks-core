@@ -981,6 +981,23 @@
     )
 )
 
+;; Announce that the staker has exited their L1 lockup.
+;;
+;; This contract call notifies PoX-5 to stop counting the staker for this
+;; bond period. It zeroes the staker's shares, debits the share totals by
+;; that amount, settles outstanding rewards, and flips
+;; `has-announced-l1-early-exit` to true for the callers active bond.
+;;
+;; Only the staker who is currently registered for a bond can successfully
+;; call this function; other contracts cannot forward this call.
+;;
+;; Preconditions, for successfully calling this function are:
+;; 1. The caller is the staker.
+;; 2. The staker is an L1 bondholder, not an sBTC bondholders. sBTC
+;;    bondholders must use `unstake-sbtc` instead.
+;; 3. The `old-signer-manager` matches the staker's signer.
+;; 4. The staker has not already called this function for their active
+;;    bond.
 (define-public (announce-l1-early-exit
         (staker principal)
         (old-signer-manager <signer-manager-trait>)
@@ -2484,8 +2501,8 @@
     (map-get? protocol-bonds bond-index)
 )
 
-;; Returns true if the staker has already announced an L1 early exit
-;; for the given bond period.
+;; Returns `true` if and only if the given staker has already successfully
+;; called `announce-l1-early-exit` for the given bond index.
 (define-read-only (has-announced-l1-early-exit
         (bond-index uint)
         (staker principal)
