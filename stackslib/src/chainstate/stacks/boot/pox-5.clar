@@ -592,6 +592,8 @@
             (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
             (current-total-staked (get-total-shares-staked-for-cycle true bond-index))
             (current-signer-staked (get-signer-shares-staked-for-cycle signer true bond-index))
+            (stx-balance (stx-account tx-sender))
+            (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
         (try! (verify-not-prepare-phase))
         ;; Verify that they're sending enough STX
@@ -614,9 +616,12 @@
         ;; here -- the lock just extends forward via the node-side handler.
         (asserts!
             (match existing-stake
-                stake-info (<= (+ (get first-reward-cycle stake-info)
-                                  (get num-cycles stake-info))
-                               first-reward-cycle)
+                stake-info (<=
+                    (+ (get first-reward-cycle stake-info)
+                        (get num-cycles stake-info)
+                    )
+                    first-reward-cycle
+                )
                 true
             )
             ERR_ALREADY_STAKED
@@ -626,9 +631,11 @@
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
 
         ;; Must have enough unlocked STX
-        (asserts! (>= (get unlocked (stx-account tx-sender)) amount-ustx)
-            ERR_INSUFFICIENT_STX
-        )
+        ;;  the Staker must have sufficient total funds (locked + unlocked).
+        ;;  On a roll-over the staker's STX is still locked by the ending
+        ;;  bond; the node-side handler extends that lock to the new amount,
+        ;;  so checking only `stx-get-balance` (unlocked) would falsely fail.
+        (asserts! (>= total-balance amount-ustx) ERR_INSUFFICIENT_STX)
 
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
@@ -946,9 +953,7 @@
         ;;  On a roll-over the staker's STX is still locked by the ending
         ;;  bond; the node-side handler extends that lock to the new amount,
         ;;  so checking only `stx-get-balance` (unlocked) would falsely fail.
-        (asserts! (>= total-balance amount-ustx)
-            ERR_INSUFFICIENT_STX
-        )
+        (asserts! (>= total-balance amount-ustx) ERR_INSUFFICIENT_STX)
 
         ;; Refund any sBTC custodied for the rolled-over bond (zero-target
         ;; net transfer). No-op when there is no existing bond, or when the
@@ -1606,7 +1611,8 @@
     (begin
         (if (> new-sbtc old-sbtc)
             (let ((delta (- new-sbtc old-sbtc)))
-                (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                (try! (contract-call?
+                    'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                     transfer delta tx-sender current-contract none
                 ))
                 (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) delta))
@@ -1614,14 +1620,18 @@
             (if (< new-sbtc old-sbtc)
                 (let ((delta (- old-sbtc new-sbtc)))
                     (try! (as-contract?
-                        ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                        ((with-ft
+                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                             "sbtc-token" delta
                         ))
-                        (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                        (try! (contract-call?
+                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                             transfer delta tx-sender staker none
                         ))
                     ))
-                    (var-set total-sbtc-staked (- (var-get total-sbtc-staked) delta))
+                    (var-set total-sbtc-staked
+                        (- (var-get total-sbtc-staked) delta)
+                    )
                 )
                 ;; new-sbtc == old-sbtc, no transfer needed
                 true
@@ -1692,7 +1702,10 @@
         (accumulator-res (response {
             expected-script-hash: (buff 34),
             sum: uint,
-            seen-outpoints: (list 10 { txid: (buff 32), output-index: uint }),
+            seen-outpoints: (list 10 {
+                txid: (buff 32),
+                output-index: uint,
+            }),
         }
             uint
         ))
@@ -1704,7 +1717,10 @@
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
-            (outpoint { txid: txid, output-index: (get output-index lockup) })
+            (outpoint {
+                txid: txid,
+                output-index: (get output-index lockup),
+            })
             (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (verify-block-header (get header lockup) (get height lockup))
@@ -1734,9 +1750,7 @@
         (ok {
             expected-script-hash: (get expected-script-hash accumulator),
             sum: (+ (get sum accumulator) (get amount output)),
-            seen-outpoints: (unwrap-panic (as-max-len?
-                (append seen-outpoints outpoint) u10
-            )),
+            seen-outpoints: (unwrap-panic (as-max-len? (append seen-outpoints outpoint) u10)),
         })
     )
 )
@@ -2359,8 +2373,7 @@
 ;; Used by `stake`, `stake-update`, `register-for-bond`, and
 ;; `update-bond-registration` as `(try! (verify-not-prepare-phase))`.
 (define-private (verify-not-prepare-phase)
-    (ok (asserts!
-        (not (is-in-prepare-phase (current-pox-reward-cycle)))
+    (ok (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
         ERR_STAKE_IN_PREPARE_PHASE
     ))
 )
@@ -2374,9 +2387,10 @@
     (match (map-get? protocol-bond-memberships staker)
         m (if (get is-l1-lock m)
             u0
-            (get-staker-shares-staked-for-cycle staker true
-                (get bond-index m) (get signer m)
-            ))
+            (get-staker-shares-staked-for-cycle staker true (get bond-index m)
+                (get signer m)
+            )
+        )
         u0
     )
 )
@@ -2397,10 +2411,12 @@
         (new-first-reward-cycle uint)
     )
     (match existing-membership
-        existing (> (+ BOND_LENGTH_CYCLES
-                       (bond-period-to-reward-cycle (get bond-index existing))
-                    )
-                    new-first-reward-cycle)
+        existing (>
+            (+ BOND_LENGTH_CYCLES
+                (bond-period-to-reward-cycle (get bond-index existing))
+            )
+            new-first-reward-cycle
+        )
         false
     )
 )
@@ -2410,18 +2426,17 @@
 ;; BTC. No-op when there is no existing bond. Used by `register-for-bond`
 ;; and `stake` as `(try! (verify-bond-rollover-window existing-membership))`,
 ;; same shape as `verify-not-prepare-phase`.
-(define-private (verify-bond-rollover-window
-        (existing-membership (optional {
-            bond-index: uint,
-            amount-ustx: uint,
-            signer: principal,
-            is-l1-lock: bool,
-        }))
-    )
+(define-private (verify-bond-rollover-window (existing-membership (optional {
+    bond-index: uint,
+    amount-ustx: uint,
+    signer: principal,
+    is-l1-lock: bool,
+})))
     (ok (asserts!
         (match existing-membership
             existing (>= burn-block-height
-                (get-bond-l1-unlock-height (get bond-index existing)))
+                (get-bond-l1-unlock-height (get bond-index existing))
+            )
             true
         )
         ERR_ROLLOVER_TOO_EARLY
