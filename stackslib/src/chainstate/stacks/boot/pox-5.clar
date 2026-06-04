@@ -55,6 +55,8 @@
 ;; The same Bitcoin outpoint (txid + output-index) appeared twice in
 ;; the L1 lockup proof list submitted to `register-for-bond`.
 (define-constant ERR_DUPLICATE_LOCKUP_OUTPOINT (err u46))
+;; The staker already announced an L1 early exit for this bond period
+(define-constant ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED (err u47))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -108,8 +110,6 @@
         ;; The OP_ELSE (early-exit) subscript of the L1 lockup witness
         ;; script for this bond period.
         early-unlock-bytes: (buff 683),
-        ;; The Stacks principal that can announce early L1 unlocks
-        early-unlock-admin: principal,
     }
 )
 
@@ -136,6 +136,16 @@
 (define-map protocol-bonds-total-staked
     uint
     uint
+)
+
+;; Tracks whether a staker has announced their L1 early exit
+;; for a given bond period.
+(define-map protocol-bond-l1-early-exit-announced
+    {
+        bond-index: uint,
+        staker: principal,
+    }
+    bool
 )
 
 (define-map signer-key-grants
@@ -391,8 +401,6 @@
 ;; @param early-unlock-bytes: Bitcoin script that will be used to validate
 ;; early exit from the bond. It should be of the form
 ;; `<pubkey> OP_CHECKSIGVERIFY` or an M-of-N `CHECKMULTISIGVERIFY` template.
-;; @param early-unlock-admin: The principal that will be allowed to announce
-;; early exits from the bond.
 ;; @param allowlist: A list of allowed stakers and their maximum sats that can
 ;; be staked for this bond.
 ;;
@@ -403,7 +411,6 @@
         (stx-value-ratio uint)
         (min-ustx-ratio uint)
         (early-unlock-bytes (buff 683))
-        (early-unlock-admin principal)
         (allowlist (list 1000 {
             staker: principal,
             max-sats: uint,
@@ -443,7 +450,6 @@
                 stx-value-ratio: stx-value-ratio,
                 min-ustx-ratio: min-ustx-ratio,
                 early-unlock-bytes: early-unlock-bytes,
-                early-unlock-admin: early-unlock-admin,
             })
             ERR_BOND_ALREADY_SETUP
         )
@@ -455,11 +461,10 @@
             stx-value-ratio: stx-value-ratio,
             min-ustx-ratio: min-ustx-ratio,
             early-unlock-bytes: early-unlock-bytes,
-            early-unlock-admin: early-unlock-admin,
             first-reward-cycle: first-reward-cycle,
             bond-start-height: bond-start-height,
             unlock-cycle: unlock-cycle,
-            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
         })
 
         (let ((accumulator (try! (fold add-staker-to-bond allowlist
@@ -985,19 +990,22 @@
             (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
             (bond-index (get bond-index membership))
             (signer (get signer membership))
-            (bond (unwrap-panic (get-protocol-bond bond-index)))
             (amount-sats (get-staker-shares-staked-for-cycle staker true bond-index signer))
             (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
             (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
         )
-        ;; Only the early unlock admin for this bond period can call this function.
+        ;; Only the staker themselves can announce their L1 early exit.
         ;; Calling via other contracts is not allowed.
         (asserts!
-            (and (is-eq contract-caller tx-sender) (is-eq contract-caller (get early-unlock-admin bond)))
+            (and (is-eq contract-caller tx-sender) (is-eq contract-caller staker))
             ERR_UNAUTHORIZED
         )
         (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
         (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
+        (asserts!
+            (not (has-announced-l1-early-exit bond-index staker))
+            ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED
+        )
 
         ;; Call `old-signer-manager`, and allow them to snapshot current
         ;; data before updating. Do not throw any errors.
@@ -1030,6 +1038,12 @@
             is-bond: true,
         }
             (- current-total-shares amount-sats)
+        )
+        (map-set protocol-bond-l1-early-exit-announced {
+            bond-index: bond-index,
+            staker: staker,
+        }
+            true
         )
         (let ((result {
                 staker: staker,
@@ -2468,6 +2482,20 @@
 
 (define-read-only (get-protocol-bond (bond-index uint))
     (map-get? protocol-bonds bond-index)
+)
+
+;; Returns true if the staker has already announced an L1 early exit
+;; for the given bond period.
+(define-read-only (has-announced-l1-early-exit
+        (bond-index uint)
+        (staker principal)
+    )
+    (default-to false
+        (map-get? protocol-bond-l1-early-exit-announced {
+            bond-index: bond-index,
+            staker: staker,
+        })
+    )
 )
 
 ;; Returns the expected L1 unlock height for a given bond index.
