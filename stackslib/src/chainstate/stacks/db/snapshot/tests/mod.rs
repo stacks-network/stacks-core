@@ -122,6 +122,8 @@ fn insert_transaction(conn: &Connection, id: i64, ibh_label: &str) {
     .unwrap();
 }
 
+/// End-to-end copy of the index side-tables: only rows belonging to the
+/// canonical set land in dst, and the schema-only tables exist but are empty.
 #[test]
 fn test_copy_index_side_tables_round_trip() {
     let dir = tempdir().unwrap();
@@ -181,6 +183,8 @@ fn test_copy_index_side_tables_round_trip() {
     );
 }
 
+/// Two blocks at the same height - one canonical, one fork: only the
+/// canonical block's rows are copied.
 #[test]
 fn test_copy_excludes_fork_rows() {
     let dir = tempdir().unwrap();
@@ -219,6 +223,8 @@ fn test_copy_excludes_fork_rows() {
     assert_eq!(tx, 1, "only the canonical transaction is copied");
 }
 
+/// The `__fork_storage` copy keeps only rows whose `value_hash` is
+/// referenced by a canonical MARF leaf and drops fork-only entries.
 #[test]
 fn test_copy_canonical_fork_storage_filters_by_leaf_hash() {
     let dir = tempdir().unwrap();
@@ -290,6 +296,8 @@ fn insert_staging_block(conn: &Connection, suffix: &str, height: u32) {
     .unwrap();
 }
 
+/// The staging_blocks copy keeps canonical processed blocks with all
+/// columns preserved and drops non-canonical ones.
 #[test]
 fn test_staging_blocks_populated_for_canonical() {
     let dir = tempdir().unwrap();
@@ -339,10 +347,10 @@ fn test_staging_blocks_populated_for_canonical() {
     assert_eq!(count, 0);
 }
 
+/// Drift guard: every table the chainstate migrations create must be
+/// classified, so a future migration can't silently drop one from the copy.
 #[test]
 fn test_no_unclassified_source_tables() {
-    // Drift guard: every table the chainstate migrations create must be
-    // classified, so a future migration can't silently drop one from the copy.
     let dir = tempdir().unwrap();
     let conn = create_source_db(&dir.path().join("src.sqlite"));
     let known: Vec<&str> = super::index::COPIED_TABLES
