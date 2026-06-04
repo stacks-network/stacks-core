@@ -21,8 +21,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::tests::signer::v0::{
-    wait_for_block_pre_commits_from_signers, wait_for_block_proposal,
-    wait_for_block_pushed_by_miner_key, wait_for_block_rejections_from_signers, MultipleMinerTest,
+    MultipleMinerTest, wait_for_block_pre_commits_from_signers, wait_for_block_proposal, wait_for_block_pushed_by_miner_key, wait_for_block_rejections_from_signers
 };
 
 #[test]
@@ -98,9 +97,9 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
 
     // Make sure we know which miner will win in the stalled block
     let sortdb = SortitionDB::open(
-        &conf_1.get_burn_db_file_path(),
-        false,
-        conf_1.get_burnchain().pox_constants,
+    &conf_1.get_burn_db_file_path(),
+    false,
+    conf_1.get_burnchain().pox_constants,
     )
     .unwrap();
     miners.ensure_commit_miner_1(&sortdb);
@@ -144,8 +143,7 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
     // Now that validation is resumed, the stalled signer should issue an approval
     wait_for_block_pre_commits_from_signers(30, &signer_signature_hash, &stalled_signers)
         .expect("Stalled signers failed to issue commits");
-    wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1)
-        .expect("Failed to mine block N+1");
+    wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1).expect("Failed to mine block N+1");
     info!("------------------------- Shutting down -------------------------");
     miners.shutdown();
 }

@@ -69,8 +69,6 @@ pub enum VmExecutionError {
     EarlyReturn(EarlyReturnError),
     #[cfg(feature = "clarity-wasm")]
     Wasm(WasmError),
-    #[cfg(feature = "clarity-wasm")]
-    Unchecked(StaticCheckErrorKind),
 }
 
 /// Represents an internal, unrecoverable error within the Clarity VM.
@@ -205,6 +203,7 @@ pub enum WasmError {
     TopLevelNotFound,
     MemoryNotFound,
     GlobalNotFound(String),
+    NotInDatabase(String),
     WasmCompileFailed(wasmtime::Error),
     UnableToLoadModule(wasmtime::Error),
     UnableToLinkHostFunction(String, wasmtime::Error),
@@ -217,11 +216,13 @@ pub enum WasmError {
     ValueTypeMismatch,
     InvalidNoTypeInValue,
     InvalidListUnionTypeInValue,
-    InvalidFunctionKind(i32),
+    InvalidFunctionKind(String),
     DefineFunctionCalledInRunMode,
     ExpectedReturnValue,
     InvalidIndicator(i32),
     Runtime(wasmtime::Error),
+    /// Type description is invalid or malformed, preventing proper type-checking.
+    InvalidTypeDescription,
     Expect(String),
 }
 
@@ -235,6 +236,7 @@ impl fmt::Display for WasmError {
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
             WasmError::GlobalNotFound(e) => write!(f, "Global variable not found: {e}"),
+            WasmError::NotInDatabase(s) => write!(f, "Could not find resource in database for {s}"),
             WasmError::WasmCompileFailed(e) => write!(f, "Wasm compile failed: {e}"),
             WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {e}"),
             WasmError::UnableToLinkHostFunction(name, e) => {
@@ -262,6 +264,7 @@ impl fmt::Display for WasmError {
                 write!(f, "Invalid response/optional indicator: {indicator}")
             }
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
+            WasmError::InvalidTypeDescription => write!(f, "Invalid type description"),
             WasmError::Expect(s) => write!(f, "{s}"),
         }
     }
@@ -323,13 +326,6 @@ impl error::Error for RuntimeError {
 impl From<ParseError> for RuntimeError {
     fn from(value: ParseError) -> Self {
         RuntimeError::ASTError(Box::new(value))
-    }
-}
-
-#[cfg(feature = "clarity-wasm")]
-impl From<StaticCheckErrorKind> for VmExecutionError {
-    fn from(value: StaticCheckErrorKind) -> Self {
-        VmExecutionError::Unchecked(value)
     }
 }
 

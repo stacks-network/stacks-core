@@ -27,7 +27,7 @@ use stacks_common::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 
 use super::clarity_store::SpecialCaseHandler;
-pub use super::key_value_wrapper::ValueResult;
+use super::key_value_wrapper::ValueResult;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};

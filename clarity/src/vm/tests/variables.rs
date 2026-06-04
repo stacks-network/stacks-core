@@ -38,7 +38,7 @@ fn test_block_height(
 ) {
     let contract = "(define-read-only (test-func) block-height)";
 
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let mut owned_env = tl_env_factory.get_env(epoch);
@@ -102,7 +102,7 @@ fn test_stacks_block_height(
 ) {
     let contract = "(define-read-only (test-func) stacks-block-height)";
 
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let mut owned_env = tl_env_factory.get_env(epoch);
@@ -169,7 +169,7 @@ fn test_tenure_height(
 ) {
     let contract = "(define-read-only (test-func) tenure-height)";
 
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let mut owned_env = tl_env_factory.get_env(epoch);
@@ -248,7 +248,7 @@ fn expect_contract_error(
     )],
     expected_success: Value,
 ) {
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::local(name).unwrap(), version);
 
     let mut owned_env = tl_env_factory.get_env(epoch);

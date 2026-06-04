@@ -765,10 +765,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_pre_commit_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_addr_time
+CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_addr_time 
 ON signer_pending_pre_commit_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_hash_time
+CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_hash_time 
 ON signer_pending_pre_commit_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -781,10 +781,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_signature_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_addr_time
+CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_addr_time 
 ON signer_pending_signature_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_hash_time
+CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_hash_time 
 ON signer_pending_signature_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -797,10 +797,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_rejection_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_addr_time
+CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_addr_time 
 ON signer_pending_rejection_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_hash_time
+CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_hash_time 
 ON signer_pending_rejection_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -1644,7 +1644,7 @@ impl SignerDb {
             "vote" => vote
         );
         self.db.execute(
-            "INSERT OR REPLACE INTO blocks
+            "INSERT OR REPLACE INTO blocks 
               (reward_cycle, burn_block_height, signer_signature_hash, block_info,
                broadcasted, stacks_height, consensus_hash, valid, state, signed_group, signed_self, approved_time,
                proposed_time, validation_time_ms, tenure_change, tenure_change_cause)

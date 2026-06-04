@@ -381,8 +381,6 @@ pub enum StaticCheckErrorKind {
     /// Expected a callable type (e.g., function or trait) but found a different type.
     /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedCallableType(Box<TypeSignature>),
-    // unexpected interpreter behavior
-    Expects(String),
     // get-block-info? errors
     /// Referenced block info property does not exist.
     /// The `String` wraps the non-existent property name.
@@ -1118,7 +1116,6 @@ impl DiagnosableError for StaticCheckErrorKind {
     fn message(&self) -> String {
         match &self {
             StaticCheckErrorKind::SupertypeTooLarge => "supertype of two types is too large".into(),
-            StaticCheckErrorKind::Expects(s) => format!("unexpected interpreter behavior: {s}"),
             StaticCheckErrorKind::Unreachable(s) => format!("unexpected and unacceptable interpreter behavior: {s}"),
             StaticCheckErrorKind::BadMatchOptionSyntax(source) =>
                 format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",

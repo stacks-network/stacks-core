@@ -1,8 +1,8 @@
-import fc from 'fast-check';
-import { assert, expect, it } from 'vitest';
-import { Cl, ClarityType, isClarityType } from '@stacks/transactions';
+import fc from "fast-check";
+import { assert, expect, it } from "vitest";
+import { Cl, ClarityType, isClarityType } from "@stacks/transactions";
 
-it('should return correct reward-cycle-to-burn-height', () => {
+it("should return correct reward-cycle-to-burn-height", () => {
   fc.assert(
     fc.property(
       fc.constantFrom(...simnet.getAccounts().values()),
@@ -10,22 +10,22 @@ it('should return correct reward-cycle-to-burn-height', () => {
       (account: string, reward_cycle: number) => {
         // Arrange
         const { result: pox_4_info } = simnet.callReadOnlyFn(
-          'pox-4',
-          'get-pox-info',
+          "pox-4",
+          "get-pox-info",
           [],
           account,
         );
         assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
         assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          pox_4_info.value.value['first-burnchain-block-height'];
+          pox_4_info.value.value["first-burnchain-block-height"];
         const reward_cycle_length =
-          pox_4_info.value.value['reward-cycle-length'];
+          pox_4_info.value.value["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(
-          'signers-voting',
-          'reward-cycle-to-burn-height',
+          "signers-voting",
+          "reward-cycle-to-burn-height",
           [Cl.uint(reward_cycle)],
           account,
         );
@@ -33,8 +33,7 @@ it('should return correct reward-cycle-to-burn-height', () => {
         // Assert
         assert(isClarityType(reward_cycle_length, ClarityType.UInt));
         assert(isClarityType(first_burnchain_block_height, ClarityType.UInt));
-        const expected =
-          reward_cycle * Number(reward_cycle_length.value) +
+        const expected = (reward_cycle * Number(reward_cycle_length.value)) +
           Number(first_burnchain_block_height.value);
         expect(actual).toBeUint(expected);
       },
@@ -43,7 +42,7 @@ it('should return correct reward-cycle-to-burn-height', () => {
   );
 });
 
-it('should return correct burn-height-to-reward-cycle', () => {
+it("should return correct burn-height-to-reward-cycle", () => {
   fc.assert(
     fc.property(
       fc.constantFrom(...simnet.getAccounts().values()),
@@ -51,22 +50,22 @@ it('should return correct burn-height-to-reward-cycle', () => {
       (account: string, height: number) => {
         // Arrange
         const { result: pox_4_info } = simnet.callReadOnlyFn(
-          'pox-4',
-          'get-pox-info',
+          "pox-4",
+          "get-pox-info",
           [],
           account,
         );
         assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
         assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          pox_4_info.value.value['first-burnchain-block-height'];
+          pox_4_info.value.value["first-burnchain-block-height"];
         const reward_cycle_length =
-          pox_4_info.value.value['reward-cycle-length'];
+          pox_4_info.value.value["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(
-          'signers-voting',
-          'burn-height-to-reward-cycle',
+          "signers-voting",
+          "burn-height-to-reward-cycle",
           [Cl.uint(height)],
           account,
         );
@@ -85,7 +84,7 @@ it('should return correct burn-height-to-reward-cycle', () => {
   );
 });
 
-it('should return correct is-in-prepare-phase', () => {
+it("should return correct is-in-prepare-phase", () => {
   fc.assert(
     fc.property(
       fc.constantFrom(...simnet.getAccounts().values()),
@@ -93,24 +92,24 @@ it('should return correct is-in-prepare-phase', () => {
       (account: string, height: number) => {
         // Arrange
         const { result: pox_4_info } = simnet.callReadOnlyFn(
-          'pox-4',
-          'get-pox-info',
+          "pox-4",
+          "get-pox-info",
           [],
           account,
         );
         assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
         assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          pox_4_info.value.value['first-burnchain-block-height'];
+          pox_4_info.value.value["first-burnchain-block-height"];
         const prepare_cycle_length =
-          pox_4_info.value.value['prepare-cycle-length'];
+          pox_4_info.value.value["prepare-cycle-length"];
         const reward_cycle_length =
-          pox_4_info.value.value['reward-cycle-length'];
+          pox_4_info.value.value["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(
-          'signers-voting',
-          'is-in-prepare-phase',
+          "signers-voting",
+          "is-in-prepare-phase",
           [Cl.uint(height)],
           account,
         );
@@ -119,11 +118,9 @@ it('should return correct is-in-prepare-phase', () => {
         assert(isClarityType(first_burnchain_block_height, ClarityType.UInt));
         assert(isClarityType(prepare_cycle_length, ClarityType.UInt));
         assert(isClarityType(reward_cycle_length, ClarityType.UInt));
-        const expected =
-          (height -
-            Number(first_burnchain_block_height.value) +
-            Number(prepare_cycle_length.value)) %
-            Number(reward_cycle_length.value) <
+        const expected = ((height - Number(first_burnchain_block_height.value) +
+          Number(prepare_cycle_length.value)) %
+          Number(reward_cycle_length.value)) <
           Number(prepare_cycle_length.value);
         expect(actual).toBeBool(expected);
       },

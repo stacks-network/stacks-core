@@ -743,7 +743,7 @@ impl SpvClient {
         header: BlockHeader,
         height: u64,
     ) -> Result<(), btc_error> {
-        let sql = "INSERT OR REPLACE INTO headers
+        let sql = "INSERT OR REPLACE INTO headers 
         (version, prev_blockhash, merkle_root, time, bits, nonce, height, hash)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         let args = params![
@@ -994,7 +994,7 @@ impl SpvClient {
             Some(child_header) => {
                 // contiguous?
                 if last_block_header.header.bitcoin_hash() != child_header.header.prev_blockhash {
-                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})",
+                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})", 
                           end_height, &child_header, child_header.header.bitcoin_hash(), &last_block_header, &last_block_header.header.bitcoin_hash());
                     return Err(btc_error::NoncontiguousHeader);
                 }
@@ -1107,10 +1107,10 @@ impl SpvClient {
         let max_target_bits = BlockHeader::compact_target_from_u256(&max_target);
 
         let parent_header = if !headers_in_range.is_empty() {
-            headers_in_range[0].clone()
+            headers_in_range[0]
         } else {
             match self.read_block_header(current_header_height - 1)? {
-                Some(res) => res.header.clone(),
+                Some(res) => res.header,
                 None => return Ok(None),
             }
         };
@@ -1322,8 +1322,8 @@ mod test {
         let genesis_header = LoneBlockHeader {
             header: BlockHeader {
                 version: 1,
-                prev_blockhash: genesis_prev_blockhash.clone(),
-                merkle_root: genesis_merkle_root.clone(),
+                prev_blockhash: genesis_prev_blockhash,
+                merkle_root: genesis_merkle_root,
                 time: 1231006505,
                 bits: 0x1d00ffff,
                 nonce: 2083236893,
@@ -1332,9 +1332,9 @@ mod test {
         };
 
         test_debug!("\n");
-        test_debug!("genesis prev blockhash = {genesis_prev_blockhash}");
-        test_debug!("genesis merkle root = {genesis_merkle_root}");
-        test_debug!("genesis block hash = {genesis_block_hash}");
+        test_debug!("genesis prev blockhash = {}", genesis_prev_blockhash);
+        test_debug!("genesis merkle root = {}", genesis_merkle_root);
+        test_debug!("genesis block hash = {}", genesis_block_hash);
 
         assert_eq!(genesis_header.header.bitcoin_hash(), genesis_block_hash);
     }

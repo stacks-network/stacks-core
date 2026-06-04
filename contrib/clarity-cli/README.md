@@ -33,17 +33,14 @@ clarity-cli initialize [OPTIONS] <DB_PATH> [ALLOCATIONS_FILE]
 ```
 
 **Arguments:**
-
 - `DB_PATH` - Directory path for the VM state database
 - `ALLOCATIONS_FILE` - Optional JSON file with initial STX allocations (or `-` for stdin)
 
 **Options:**
-
 - `--testnet` - Use testnet boot code and block limits (default: mainnet)
 - `--epoch <EPOCH>` - Stacks epoch to use (default: 3.4)
 
 **Example:**
-
 ```bash
 # Initialize mainnet database
 clarity-cli initialize ./my-db
@@ -53,17 +50,10 @@ clarity-cli initialize --testnet ./my-db allocations.json
 ```
 
 **Allocations JSON format:**
-
 ```json
 [
-  {
-    "principal": "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
-    "amount": 1000000
-  },
-  {
-    "principal": "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.my-contract",
-    "amount": 500000
-  }
+  { "principal": "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM", "amount": 1000000 },
+  { "principal": "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.my-contract", "amount": 500000 }
 ]
 ```
 
@@ -78,9 +68,8 @@ clarity-cli generate-address
 ```
 
 **Example output:**
-
 ```json
-{ "address": "ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG" }
+{"address": "ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG"}
 ```
 
 ---
@@ -94,12 +83,10 @@ clarity-cli check [OPTIONS] <CONTRACT_FILE> [DB_PATH]
 ```
 
 **Arguments:**
-
 - `CONTRACT_FILE` - Path to `.clar` file (or `-` for stdin)
 - `DB_PATH` - Optional database path for resolving contract dependencies
 
 **Options:**
-
 - `--contract-id <ID>` - Contract identifier (default: transient)
 - `--output-analysis` - Include contract interface analysis in output
 - `--costs` - Include execution costs in output
@@ -108,7 +95,6 @@ clarity-cli check [OPTIONS] <CONTRACT_FILE> [DB_PATH]
 - `--epoch <EPOCH>` - Stacks epoch (e.g., `2.1`, `2.5`, `3.0`)
 
 **Example:**
-
 ```bash
 # Basic type check
 clarity-cli check my-contract.clar
@@ -134,13 +120,11 @@ clarity-cli launch [OPTIONS] <CONTRACT_ID> <CONTRACT_FILE> <DB_PATH>
 ```
 
 **Arguments:**
-
 - `CONTRACT_ID` - Fully qualified contract identifier (e.g., `ST1PQHQ...PGZGM.my-contract`)
 - `CONTRACT_FILE` - Path to `.clar` file (or `-` for stdin)
 - `DB_PATH` - Database path (must be initialized first)
 
 **Options:**
-
 - `--costs` - Include execution costs in output
 - `--assets` - Include asset changes in output
 - `--output-analysis` - Include contract interface analysis
@@ -148,7 +132,6 @@ clarity-cli launch [OPTIONS] <CONTRACT_ID> <CONTRACT_FILE> <DB_PATH>
 - `--epoch <EPOCH>` - Stacks epoch
 
 **Example:**
-
 ```bash
 # Deploy a contract
 clarity-cli launch ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.tokens \
@@ -170,7 +153,6 @@ clarity-cli execute [OPTIONS] <CONTRACT_ID> <FUNCTION_NAME> <SENDER> <DB_PATH> [
 ```
 
 **Arguments:**
-
 - `CONTRACT_ID` - Contract identifier
 - `FUNCTION_NAME` - Public function name to call
 - `SENDER` - Sender principal address (becomes `tx-sender`)
@@ -178,14 +160,12 @@ clarity-cli execute [OPTIONS] <CONTRACT_ID> <FUNCTION_NAME> <SENDER> <DB_PATH> [
 - `ARGS` - Function arguments as Clarity literals
 
 **Options:**
-
 - `--costs` - Include execution costs
 - `--assets` - Include asset changes
 - `--clarity-version <VERSION>` - Clarity version
 - `--epoch <EPOCH>` - Stacks epoch
 
 **Example:**
-
 ```bash
 # Call a function with no arguments
 clarity-cli execute ST1PQHQ...PGZGM.tokens get-balance \
@@ -211,19 +191,16 @@ clarity-cli eval [OPTIONS] <CONTRACT_ID> <DB_PATH> [PROGRAM_FILE]
 ```
 
 **Arguments:**
-
 - `CONTRACT_ID` - Contract context for evaluation
 - `DB_PATH` - Database path
 - `PROGRAM_FILE` - File with Clarity code (or `-` for stdin; omit for stdin)
 
 **Options:**
-
 - `--costs` - Include execution costs
 - `--clarity-version <VERSION>` - Clarity version
 - `--epoch <EPOCH>` - Stacks epoch
 
 **Example:**
-
 ```bash
 # Evaluate from file
 clarity-cli eval ST1PQHQ...PGZGM.tokens ./my-db query.clar
@@ -255,14 +232,12 @@ clarity-cli eval-at-block [OPTIONS] <INDEX_BLOCK_HASH> <CONTRACT_ID> <VM_DIR> [P
 ```
 
 **Arguments:**
-
 - `INDEX_BLOCK_HASH` - Block hash (hex string, e.g., `0x1234...`)
 - `CONTRACT_ID` - Contract context
 - `VM_DIR` - VM/clarity directory path
 - `PROGRAM_FILE` - File with Clarity code (or `-` for stdin; omit for stdin)
 
 **Options:**
-
 - `--costs` - Include execution costs
 - `--clarity-version <VERSION>` - Clarity version
 - `--epoch <EPOCH>` - Stacks epoch
@@ -278,17 +253,14 @@ clarity-cli eval-raw [OPTIONS] [PROGRAM_FILE]
 ```
 
 **Arguments:**
-
 - `PROGRAM_FILE` - File with Clarity code (or `-` for stdin; omit for stdin)
 
 **Options:**
-
 - `--testnet` - Use testnet configuration
 - `--clarity-version <VERSION>` - Clarity version
 - `--epoch <EPOCH>` - Stacks epoch
 
 **Example:**
-
 ```bash
 # Quick calculation
 echo "(+ 1 2)" | clarity-cli eval-raw
@@ -308,13 +280,11 @@ clarity-cli repl [OPTIONS]
 ```
 
 **Options:**
-
 - `--testnet` - Use testnet configuration
 - `--clarity-version <VERSION>` - Clarity version
 - `--epoch <EPOCH>` - Stacks epoch
 
 **Example:**
-
 ```bash
 clarity-cli repl --clarity-version clarity3
 > (+ 1 2)
@@ -360,19 +330,19 @@ The CLI defaults to Epoch 3.4 with Clarity 5. You can specify earlier epochs/ver
 **Valid clarity version values:** `clarity1`, `clarity2`, `clarity3`, `clarity4`, `clarity5`
 
 | Epoch | Default Clarity Version |
-| ----- | ----------------------- |
-| 2.0   | Clarity 1               |
-| 2.05  | Clarity 1               |
-| 2.1   | Clarity 2               |
-| 2.2   | Clarity 2               |
-| 2.3   | Clarity 2               |
-| 2.4   | Clarity 2               |
-| 2.5   | Clarity 2               |
-| 3.0   | Clarity 3               |
-| 3.1   | Clarity 3               |
-| 3.2   | Clarity 3               |
-| 3.3   | Clarity 4               |
-| 3.4   | Clarity 5               |
+|-------|------------------------|
+| 2.0   | Clarity 1              |
+| 2.05  | Clarity 1              |
+| 2.1   | Clarity 2              |
+| 2.2   | Clarity 2              |
+| 2.3   | Clarity 2              |
+| 2.4   | Clarity 2              |
+| 2.5   | Clarity 2              |
+| 3.0   | Clarity 3              |
+| 3.1   | Clarity 3              |
+| 3.2   | Clarity 3              |
+| 3.3   | Clarity 4              |
+| 3.4   | Clarity 5              |
 
 See `clarity/src/vm/version.rs` for Clarity version definitions and `stacks-common/src/types/mod.rs` for epoch definitions.
 

@@ -23,12 +23,11 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
-#[allow(unused_imports)]
 use crate::vm::{
     ContractContext,
     contexts::AssetMapEntry,
     database::MemoryBackingStore,
-    errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError},
+    errors::RuntimeCheckErrorKind,
     tests::{
         TopLevelMemoryEnvironmentGenerator, execute, is_committed, is_err_code,
         symbols_from_values, tl_env_factory as env_factory,
@@ -849,7 +848,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+        crate::vm::errors::ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
             RuntimeCheckErrorKind::TypeValueError(_, _)
         ))
     ));
@@ -859,7 +858,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+        crate::vm::errors::ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
             RuntimeCheckErrorKind::TypeValueError(_, _)
         ))
     ));
@@ -908,7 +907,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     .unwrap_err();
     println!("{err}");
     assert!(match err {
-        VmExecutionError::Runtime(RuntimeError::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
+        VmExecutionError::Runtime(crate::vm::errors::RuntimeError::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
         _ => false,
     });
 }
@@ -976,7 +975,7 @@ fn test_simple_naming_system(
         panic!("Expected principal data");
     };
 
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let tokens_contract_id =

@@ -1,6 +1,6 @@
 # Property Testing
 
-In the stacks-core repo, we want every new consensus-critical feature to be thoroughly tested: we want unit tests with tight assertions, test fixtures, integration tests, and end-to-end tests. In order to ensure that the new functions are sufficiently tested, we also want to have _property tests_ in place.
+In the stacks-core repo, we want every new consensus-critical feature to be thoroughly tested: we want unit tests with tight assertions, test fixtures, integration tests, and end-to-end tests. In order to ensure that the new functions are sufficiently tested, we also want to have *property tests* in place.
 
 Property testing incorporates a few different concepts, but fundamentally, property testing means:
 
@@ -14,12 +14,11 @@ The goal is that every new feature and function in the stacks-core repo supplies
 
 The test harness we'll use for this will be [`proptest-rs`](https://proptest-rs.github.io/proptest/). There's a bit of a learning curve to using this library, but once you get used to it (and we develop enough strategies for input generation in our codebase) it shouldn't pose too much of a burden.
 
-We recommend perusing the [`proptest-rs`](https://proptest-rs.github.io/proptest/) tutorial as it contains a lot of useful theory and information. At a high-level, though, to use the library, you'll define testing functions which return proptest error types indicating whether or not the test failed or the input was invalid for the test (panics also work like a normal rust test). Then, you'll use macros provided by the library to define input-generation _strategies_ for your test function. `proptest` defines strategies for many standard types in rust, and also provides macros for combining/mapping strategies into new ones (examples discussed below may be useful). Once you've done this, your new proptest will run like any other rust unit test during `cargo test`. During the test execution, `proptest-rs` generates and runs 250 cases for the property test before marking the test as _passed_.
+We recommend perusing the [`proptest-rs`](https://proptest-rs.github.io/proptest/) tutorial as it contains a lot of useful theory and information. At a high-level, though, to use the library, you'll define testing functions which return proptest error types indicating whether or not the test failed or the input was invalid for the test (panics also work like a normal rust test). Then, you'll use macros provided by the library to define input-generation *strategies* for your test function. `proptest` defines strategies for many standard types in rust, and also provides macros for combining/mapping strategies into new ones (examples discussed below may be useful). Once you've done this, your new proptest will run like any other rust unit test during `cargo test`. During the test execution, `proptest-rs` generates and runs 250 cases for the property test before marking the test as *passed*.
 
 ## Examples
 
 There are a couple examples of proptest in action in our codebase. The first is a set of property tests for new clarity functions in Epoch 3.3 (Clarity4). These tests generate clarity code (as strings) for property tests that assert the new clarity functions behave as expected ([vm::tests::post_conditions](https://github.com/stacks-network/stacks-core/blob/9c6a2ff42bfb50da65b2d3a8f9fde33283f2e090/clarity/src/vm/tests/post_conditions.rs#L1870)). The second is a property test for `make_reward_set`, which is used to translate data pulled from the `pox` contracts into the actual reward set ([chainstate::stacks::tests::reward_set](https://github.com/stacks-network/stacks-core/blob/9c6a2ff42bfb50da65b2d3a8f9fde33283f2e090/stackslib/src/chainstate/stacks/tests/reward_set.rs)).
-
 ### Reward Set Example
 
 The reward set example can be thought of as two major pieces: the test itself and the input generation. Let's first look at the test:
@@ -176,7 +175,7 @@ This uses `proptest`'s vec generation to generate a vec of reward set entries fo
 
 This works great, but one downside of property testing is that it doesn't necessarily surface corner cases very well: random input generation is great, but if corner cases are low probability, they won't get caught in 250 random cases.
 
-For the above example, one thing we really want to be sure of is that multiple entries from the same address are handled effectively. `proptest` _should_ eventually generate cases with multiple entries for the same address, but if you comment out the duplicate entry handling lines in the `make_reward_set` function, you can see that the property test still often passes!
+For the above example, one thing we really want to be sure of is that multiple entries from the same address are handled effectively. `proptest` *should* eventually generate cases with multiple entries for the same address, but if you comment out the duplicate entry handling lines in the `make_reward_set` function, you can see that the property test still often passes!
 
 So to deal with this, we can alter our input generation so that we're getting more interesting test cases:
 
@@ -190,7 +189,7 @@ So to deal with this, we can alter our input generation so that we're getting mo
         to_duplicate in prop::collection::vec((0..25_000usize, 0..100_000_000u128), 0..25_000)
     ) {
         ...
-
+        
         let _ = addrs.try_reserve(to_duplicate.len());
         for (to_dup_ix, duplicated_amount) in to_duplicate.into_iter() {
             let mut new_entry = addrs[to_dup_ix % addrs.len()].clone();
@@ -204,9 +203,9 @@ So to deal with this, we can alter our input generation so that we're getting mo
 
 This technique allows to be sure that proptest generates a lot of cases where there are multiple entries for the same reward address. Unfortunately, this kind of thing tends to be more art than science, which means that PR authors and reviewers will need to be careful about the input strategies for property tests (this should also be aided by the CI task for PRs). This is one of the reasons that property tests can't totally supplant unit tests. However, a lot of the work of property tests helps with writing unit tests: many unit tests can be essentially fixed inputs to the property test.
 
-> NOTE: As a requirement for CI automation, prop tests need to be tagged with `#[tag(t_prop)]`.
+> NOTE: As a requirement for CI automation, prop tests need to be tagged with `#[tag(t_prop)]`. 
 
-## Reusing Strategies
+## Reusing Strategies 
 
 Writing new input strategies may be the most tedious part of writing property tests, so it is worthwhile figuring out if the input you are looking for (or maybe a component of the input you're looking for) already has a strategy in the codebase. If you search for functions that return `impl Strategy<Value = ?>` in the codebase, you should find the set of functions that have already been written.
 
@@ -214,7 +213,7 @@ Except in cases where input strategies are highly tailored to a particular test,
 
 ## Continuous Integration
 
-By default, we'll get some CI integration from `proptest` automatically: the new property tests will run with 250 randomly generated inputs on every execution of the unit test job in CI. This is great. However, we want some additional support for executing _new_ property tests extra amounts before PRs merge.
+By default, we'll get some CI integration from `proptest` automatically: the new property tests will run with 250 randomly generated inputs on every execution of the unit test job in CI. This is great. However, we want some additional support for executing *new* property tests extra amounts before PRs merge.
 
 The environment variable `PROPTEST_CASES` can be set to a higher number (e.g., `PROPTEST_CASES=2500`) to explore more test cases before declaring success. From the CI, we have then a job which:
 

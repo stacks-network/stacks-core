@@ -48,22 +48,26 @@ The release must be timed so that it does not interfere with a _prepare phase_.
 The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/tools?tool=2); to avoid interfering with the prepare phase, all releases should happen at least 24 hours before the start of a new cycle.
 
 1. Before creating the release, the _version number_ must be determined, where the factors that determine the version number are discussed in [Versioning](#versioning).
+
    - First determine whether there are any "non-consensus-breaking changes that require a fresh chainstate".
      - In other words, the database schema has changed, but an automatic migration was not implemented.
      - Determine whether this a feature release, as opposed to a hotfix or a patch.
    - A new branch in the format `release/X.Y.Z.A.n(-rc[0-9])` is created from the base branch `develop`.
 
 2. Enumerate PRs and/or issues that would _block_ the release.
+
    - A label should be applied to each such issue/PR as `X.Y.Z.A.n-blocker`.
 
 3. Perform a [block-validation](../contrib/tools/block-validation.sh) using an existing chainstate, or sync from genesis
 
 4. Since development is continuing in the `develop` branch, it may be necessary to cherry-pick some commits into the release branch or open a PR against the release branch.
+
    - Create a feature branch from `release/X.Y.Z.A.n`, ex: `feat/X.Y.Z.A.n-pr_number`.
    - Add cherry-picked commits to the `feat/X.Y.Z.A.n-pr_number` branch
    - Merge `feat/X.Y.Z.A.n-pr_number` into `release/X.Y.Z.A.n`.
 
 5. Open a PR to assemble the changelog and update versions in the `release/X.Y.Z.A.n` branch.
+
    - Create a chore branch from `release/X.Y.Z.A.n`, ex: `chore/X.Y.Z.A.n-changelog`.
    - Update [versions.toml](../versions.toml) to match this release:
      - Update the `stacks_node_version` string to match this release version.
@@ -85,11 +89,13 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
    - This PR must be merged before continuing to the next steps
 
 6. A build may be started by manually triggering the [`CI` workflow](../.github/workflows/ci.yml) against the `release/X.Y.Z.A.n` branch.
+
    - **Note**: A `stacks-signer` release will also be produced when this workflow is run
 
 7. Once the release candidate has been built and binaries are available, ecosystem participants shall be notified to test the tagged release on various staging infrastructure.
 
 8. If bugs or issues emerge from the rollout on staging infrastructure, the release will be delayed until those regressions are resolved.
+
    - As regressions are resolved, additional release candidates should be tagged.
    - Repeat steps 3-7 as necessary.
 

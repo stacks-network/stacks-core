@@ -1,6 +1,6 @@
 use std::io::{Cursor, Write as _};
 
-use clarity_types::errors::{RuntimeCheckErrorKind, StaticCheckErrorKind};
+use clarity_types::errors::RuntimeCheckErrorKind;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
@@ -534,16 +534,16 @@ pub fn call_function<'a>(
     // Validate argument count
     let expected_args = func_types.get_arg_types();
     if args.len() != expected_args.len() {
-        return Err(VmExecutionError::Unchecked(
-            StaticCheckErrorKind::IncorrectArgumentCount(expected_args.len(), args.len()),
+        return Err(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::IncorrectArgumentCount(expected_args.len(), args.len()),
         ));
     }
 
     // Validate argument types
     for (arg, expected_type) in args.iter().zip(expected_args.iter()) {
         if !expected_type.admits(&epoch, arg)? {
-            return Err(VmExecutionError::Unchecked(
-                StaticCheckErrorKind::TypeError(
+            return Err(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeError(
                     Box::new(expected_type.clone()),
                     Box::new(TypeSignature::type_of(arg)?),
                 ),
@@ -1861,11 +1861,11 @@ pub fn signature_from_string(
         version,
         epoch,
     )
-    .map_err(|e| RuntimeError::ASTError(Box::new(e)))?
+    .map_err(|e| -> RuntimeError { e.into() })?
     .expressions;
-    let expr = expr.first().ok_or(VmExecutionError::Unchecked(
-        StaticCheckErrorKind::InvalidTypeDescription,
-    ))?;
+    let expr = expr
+        .first()
+        .ok_or(VmExecutionError::Wasm(WasmError::InvalidTypeDescription))?;
     Ok(TypeSignature::parse_type_repr(
         StacksEpochId::latest(),
         expr,
@@ -1996,8 +1996,10 @@ fn wasm_to_clarity_value(
                         store,
                         epoch,
                     )?;
-                    Some(Value::some(value.ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::CouldNotDetermineType,
+                    Some(Value::some(value.ok_or(VmExecutionError::Wasm(
+                        WasmError::Expect(
+                            "Failed to construct Optional Some from inner value".into(),
+                        ),
                     ))?)?)
                 } else {
                     Some(Value::none())
@@ -2023,8 +2025,10 @@ fn wasm_to_clarity_value(
                         store,
                         epoch,
                     )?;
-                    Some(Value::okay(ok.ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::CouldNotDetermineResponseOkType,
+                    Some(Value::okay(ok.ok_or(VmExecutionError::Wasm(
+                        WasmError::Expect(
+                            "Failed to construct Ok response from inner value".into(),
+                        ),
                     ))?)?)
                 } else {
                     let (err, _) = wasm_to_clarity_value(
@@ -2035,8 +2039,8 @@ fn wasm_to_clarity_value(
                         store,
                         epoch,
                     )?;
-                    Some(Value::error(err.ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::CouldNotDetermineResponseErrType,
+                    Some(Value::error(err.ok_or(VmExecutionError::Wasm(
+                        WasmError::Expect("Failed to construct Err value from inner value".into()),
                     ))?)?)
                 },
                 1 + ok_types.len() + err_types.len(),
@@ -2168,12 +2172,9 @@ fn wasm_to_clarity_value(
                 data_map.push((
                     name.clone(),
                     value.ok_or_else(|| {
-                        VmExecutionError::Unchecked(StaticCheckErrorKind::BadTupleConstruction(
-                            format!(
-                                "Failed to convert Wasm value into Clarity value for field `{}`",
-                                name.to_owned()
-                            ),
-                        ))
+                        VmExecutionError::Wasm(WasmError::Expect(format!(
+                            "Failed to convert Wasm value into Clarity value for field `{name}`"
+                        )))
                     })?,
                 ));
                 index += increment;
@@ -2313,9 +2314,9 @@ fn link_define_variable_fn(
                         WasmError::DefineFunctionCalledInRunMode,
                     ))?
                     .get_persisted_variable_type(name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::DefineVariableBadSignature,
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(
+                        "Persisted value".into(),
+                    )))?
                     .clone();
 
                 let contract = caller.data().contract_context().contract_identifier.clone();
@@ -2498,9 +2499,9 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
                     ))?
                     .non_fungible_tokens
                     .get(&cname)
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::DefineNFTBadSignature,
-                    ))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(
+                        "NFT".into(),
+                    )))?;
 
                 caller
                     .data_mut()
@@ -2579,9 +2580,9 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
                         WasmError::DefineFunctionCalledInRunMode,
                     ))?
                     .get_map_type(&name)
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::BadMapTypeDefinition,
-                    ))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(
+                        "Map".into(),
+                    )))?;
 
                 caller
                     .data_mut()
@@ -2662,54 +2663,57 @@ fn link_define_function_fn(
                 let function_cname = ClarityName::try_from(function_name.clone())?;
 
                 // Retrieve the kind of function
-                let (define_type, function_type) = match kind {
-                    0 => (
-                        DefineType::ReadOnly,
-                        caller
-                            .data()
-                            .contract_analysis
-                            .ok_or(VmExecutionError::Wasm(
-                                WasmError::DefineFunctionCalledInRunMode,
-                            ))?
-                            .get_read_only_function_type(&function_name)
-                            .ok_or(VmExecutionError::Unchecked(
-                                StaticCheckErrorKind::UnknownFunction(function_name.clone()),
-                            ))?,
-                    ),
-                    1 => (
-                        DefineType::Public,
-                        caller
-                            .data()
-                            .contract_analysis
-                            .ok_or(VmExecutionError::Wasm(
-                                WasmError::DefineFunctionCalledInRunMode,
-                            ))?
-                            .get_public_function_type(&function_name)
-                            .ok_or(VmExecutionError::Unchecked(
-                                StaticCheckErrorKind::UnknownFunction(function_name.clone()),
-                            ))?,
-                    ),
-                    2 => (
-                        DefineType::Private,
-                        caller
-                            .data()
-                            .contract_analysis
-                            .ok_or(VmExecutionError::Wasm(
-                                WasmError::DefineFunctionCalledInRunMode,
-                            ))?
-                            .get_private_function(&function_name)
-                            .ok_or(VmExecutionError::Unchecked(
-                                StaticCheckErrorKind::UnknownFunction(function_name.clone()),
-                            ))?,
-                    ),
-                    _ => Err(VmExecutionError::Wasm(WasmError::InvalidFunctionKind(kind)))?,
-                };
+                let (define_type, function_type) =
+                    match kind {
+                        0 => (
+                            DefineType::ReadOnly,
+                            caller
+                                .data()
+                                .contract_analysis
+                                .ok_or(VmExecutionError::Wasm(
+                                    WasmError::DefineFunctionCalledInRunMode,
+                                ))?
+                                .get_read_only_function_type(&function_name)
+                                .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(
+                                    format!("Read-only function: {}", function_name),
+                                )))?,
+                        ),
+                        1 => (
+                            DefineType::Public,
+                            caller
+                                .data()
+                                .contract_analysis
+                                .ok_or(VmExecutionError::Wasm(
+                                    WasmError::DefineFunctionCalledInRunMode,
+                                ))?
+                                .get_public_function_type(&function_name)
+                                .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(
+                                    format!("Public function: {}", function_name),
+                                )))?,
+                        ),
+                        2 => (
+                            DefineType::Private,
+                            caller
+                                .data()
+                                .contract_analysis
+                                .ok_or(VmExecutionError::Wasm(
+                                    WasmError::DefineFunctionCalledInRunMode,
+                                ))?
+                                .get_private_function(&function_name)
+                                .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(
+                                    format!("Private function: {}", function_name),
+                                )))?,
+                        ),
+                        _ => Err(VmExecutionError::Wasm(WasmError::InvalidFunctionKind(
+                            format!("Invalid number identifier: {kind}"),
+                        )))?,
+                    };
 
                 let fixed_type = match function_type {
                     FunctionType::Fixed(fixed_type) => fixed_type,
-                    _ => Err(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::DefineFunctionBadSignature,
-                    ))?,
+                    _ => Err(VmExecutionError::Wasm(WasmError::InvalidFunctionKind(
+                        "Expected fixed function for definition".into(),
+                    )))?,
                 };
 
                 let function = DefinedFunction::new(
@@ -2774,9 +2778,9 @@ fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
                         WasmError::DefineFunctionCalledInRunMode,
                     ))?
                     .get_defined_trait(name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::DefineTraitBadSignature,
-                    ))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(
+                        "Trait".into(),
+                    )))?;
 
                 caller
                     .data_mut()
@@ -2861,9 +2865,10 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
                     .contract_context()
                     .meta_data_var
                     .get(var_name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "Variable {}",
+                        var_name.to_string()
+                    ))))?
                     .clone();
 
                 let result = caller
@@ -2939,9 +2944,10 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
                     .contract_context()
                     .meta_data_var
                     .get(var_name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "Variable {}",
+                        var_name.to_string()
+                    ))))?
                     .clone();
 
                 // TODO: clarity-wasm issue #344 Include this cost
@@ -3913,9 +3919,10 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                     .contract_context()
                     .meta_ft
                     .get(&token_name)
-                    .ok_or(VmExecutionError::Unchecked(StaticCheckErrorKind::NoSuchFT(
-                        token_name.to_string(),
-                    )))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "NFT: {}",
+                        token_name.to_string()
+                    ))))?
                     .clone();
 
                 let balance = caller.data_mut().global_context.database.get_ft_balance(
@@ -4126,9 +4133,10 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
                     .contract_context()
                     .meta_ft
                     .get(token_name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(StaticCheckErrorKind::NoSuchFT(
-                        token_name.to_string(),
-                    )))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "FT: {}",
+                        token_name
+                    ))))?
                     .clone();
 
                 caller
@@ -4279,9 +4287,10 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
                     .contract_context()
                     .meta_ft
                     .get(&token_name)
-                    .ok_or(VmExecutionError::Unchecked(StaticCheckErrorKind::NoSuchFT(
-                        token_name.to_string(),
-                    )))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "FT: {}",
+                        token_name
+                    ))))?
                     .clone();
 
                 let from_bal = caller.data_mut().global_context.database.get_ft_balance(
@@ -4410,9 +4419,10 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .contract_context()
                     .meta_nft
                     .get(&asset_name)
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchNFT(asset_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "NFT: {}",
+                        asset_name
+                    ))))?
                     .clone();
 
                 let expected_asset_type = &nft_metadata.key_type;
@@ -4519,9 +4529,10 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
                     .contract_context()
                     .meta_nft
                     .get(&asset_name)
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchNFT(asset_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "NFT: {}",
+                        asset_name
+                    ))))?
                     .clone();
 
                 let expected_asset_type = &nft_metadata.key_type;
@@ -4662,9 +4673,10 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
                     .contract_context()
                     .meta_nft
                     .get(&asset_name)
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchNFT(asset_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "NFT: {}",
+                        asset_name
+                    ))))?
                     .clone();
 
                 let expected_asset_type = &nft_metadata.key_type;
@@ -4796,9 +4808,10 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
                     .contract_context()
                     .meta_nft
                     .get(&asset_name)
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchNFT(asset_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "NFT: {}",
+                        asset_name
+                    ))))?
                     .clone();
 
                 let expected_asset_type = &nft_metadata.key_type;
@@ -4970,9 +4983,9 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
                     .contract_context()
                     .meta_data_map
                     .get(map_name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchMap(map_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "Map: {map_name}"
+                    ))))?
                     .clone();
 
                 // Read in the key from the Wasm memory
@@ -5047,9 +5060,9 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
              mut value_offset: i32,
              mut value_length: i32| {
                 if caller.data().global_context.is_read_only() {
-                    return Err(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::WriteAttemptedInReadOnly,
-                    )
+                    return Err(VmExecutionError::Wasm(WasmError::Expect(
+                        "Tried to set in a read only context".into(),
+                    ))
                     .into());
                 }
 
@@ -5072,9 +5085,9 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
                     .contract_context()
                     .meta_data_map
                     .get(map_name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchMap(map_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "Map name: {map_name}"
+                    ))))?
                     .clone();
 
                 // Read in the key from the Wasm memory
@@ -5160,9 +5173,9 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
              mut value_offset: i32,
              mut value_length: i32| {
                 if caller.data().global_context.is_read_only() {
-                    return Err(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::WriteAttemptedInReadOnly,
-                    )
+                    return Err(VmExecutionError::Wasm(WasmError::Expect(
+                        "Tried to insert in read only cont".into(),
+                    ))
                     .into());
                 }
 
@@ -5185,9 +5198,9 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
                     .contract_context()
                     .meta_data_map
                     .get(map_name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchMap(map_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::Expect(format!(
+                        "Map: {map_name}"
+                    ))))?
                     .clone();
 
                 // Read in the key from the Wasm memory
@@ -5271,9 +5284,9 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
              mut key_offset: i32,
              mut key_length: i32| {
                 if caller.data().global_context.is_read_only() {
-                    return Err(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::WriteAttemptedInReadOnly,
-                    )
+                    return Err(VmExecutionError::Wasm(WasmError::Expect(
+                        "Tried to delete in read only context".into(),
+                    ))
                     .into());
                 }
 
@@ -5295,9 +5308,9 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
                     .contract_context()
                     .meta_data_map
                     .get(map_name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchMap(map_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "Map: {map_name}"
+                    ))))?
                     .clone();
 
                 // Read in the key from the Wasm memory
@@ -6694,10 +6707,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let contract_id = match &contract_val {
                     Value::Principal(PrincipalData::Contract(contract_id)) => contract_id,
                     _ => {
-                        return Err(VmExecutionError::Unchecked(
-                            StaticCheckErrorKind::ContractCallExpectName,
-                        )
-                        .into());
+                        return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch).into());
                     }
                 };
 
@@ -6721,12 +6731,9 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .contract_context
                     .functions
                     .get(function_name.as_str())
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::NoSuchPublicFunction(
-                            contract_id.to_string(),
-                            function_name.to_string(),
-                        ),
-                    ))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::Expect(format!(
+                        "Contract {contract_id} does not contain public function {function_name}"
+                    ))))?;
 
                 let mut args = Vec::new();
                 let mut args_sizes = Vec::new();
@@ -6799,9 +6806,9 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     function
                         .get_return_type()
                         .as_ref()
-                        .ok_or(VmExecutionError::Unchecked(
-                            StaticCheckErrorKind::DefineFunctionBadSignature,
-                        ))?
+                        .ok_or(VmExecutionError::Wasm(WasmError::Expect(
+                            "Function should be typed".into(),
+                        )))?
                 } else {
                     // This is a dynamic call
                     let trait_id =
@@ -6822,9 +6829,10 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                         .get(trait_id.name.as_str())
                         .and_then(|trait_functions| trait_functions.get(function_name.as_str()))
                         .map(|f_ty| &f_ty.returns)
-                        .ok_or(VmExecutionError::Unchecked(
-                            StaticCheckErrorKind::DefineFunctionBadSignature,
-                        ))?
+                        .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                            "Trait: {}",
+                            trait_id.name
+                        ))))?
                 };
 
                 write_to_wasm(
@@ -7647,9 +7655,9 @@ fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .contract_context()
                     .variables
                     .get(&ClarityName::from(const_name.as_str()))
-                    .ok_or(VmExecutionError::Unchecked(
-                        StaticCheckErrorKind::UndefinedVariable(const_name.to_string()),
-                    ))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
+                        "Constant: {const_name}"
+                    ))))?
                     .clone();
 
                 // Constant value type
@@ -9314,7 +9322,7 @@ mod tests {
 }
 
 mod error_mapping {
-    use clarity_types::errors::RuntimeCheckErrorKind;
+    use clarity_types::errors::{CommonCheckErrorKind, RuntimeCheckErrorKind};
     use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
@@ -9322,9 +9330,7 @@ mod error_mapping {
         read_bytes_from_wasm, read_from_wasm_indirect, read_identifier_from_wasm,
         signature_from_string,
     };
-    use crate::vm::errors::{
-        EarlyReturnError, RuntimeError, StaticCheckErrorKind, VmExecutionError, WasmError,
-    };
+    use crate::vm::errors::{EarlyReturnError, RuntimeError, VmExecutionError, WasmError};
     use crate::vm::types::{OptionalData, ResponseData};
     use crate::vm::{ClarityVersion, Value};
 
@@ -9459,32 +9465,6 @@ mod error_mapping {
             };
         }
 
-        if let Some(vm_error) = e.root_cause().downcast_ref::<StaticCheckErrorKind>() {
-            // SAFETY:
-            //
-            // This unsafe operation returns the value of a location pointed by `*mut T`.
-            //
-            // The purpose of this code is to take the ownership of the `vm_error` value
-            // since clarity::vm::errors::VmExecutionError is not a Clonable type.
-            //
-            // Converting a `&T` (vm_error) to a `*mut T` doesn't cause any issues here
-            // because the reference is not borrowed elsewhere.
-            //
-            // The replaced `T` value is deallocated after the operation. Therefore, the chosen `T`
-            // is a dummy value, solely to satisfy the signature of the replace function
-            // and not cause harm when it is deallocated.
-            //
-            // Specifically, StaticCheckErrorKind::ExpectedName was selected as the placeholder value.
-            return unsafe {
-                let err = core::ptr::replace(
-                    (vm_error as *const StaticCheckErrorKind) as *mut StaticCheckErrorKind,
-                    StaticCheckErrorKind::ExpectedName,
-                );
-
-                <StaticCheckErrorKind as std::convert::Into<VmExecutionError>>::into(err)
-            };
-        }
-
         // Check if the error is caused by
         // an unreachable Wasm trap.
         //
@@ -9597,21 +9577,15 @@ mod error_mapping {
             }
             ErrorMap::ArgumentCountMismatch => {
                 let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
-                VmExecutionError::Unchecked(StaticCheckErrorKind::IncorrectArgumentCount(
-                    expected, got,
-                ))
+                CommonCheckErrorKind::IncorrectArgumentCount(expected, got).into()
             }
             ErrorMap::ArgumentCountAtLeast => {
                 let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
-                VmExecutionError::Unchecked(StaticCheckErrorKind::RequiresAtLeastArguments(
-                    expected, got,
-                ))
+                CommonCheckErrorKind::RequiresAtLeastArguments(expected, got).into()
             }
             ErrorMap::ArgumentCountAtMost => {
                 let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
-                VmExecutionError::Unchecked(StaticCheckErrorKind::RequiresAtMostArguments(
-                    expected, got,
-                ))
+                CommonCheckErrorKind::RequiresAtMostArguments(expected, got).into()
             }
             _ => panic!("Runtime error code {} not supported", runtime_error_code),
         }

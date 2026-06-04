@@ -2,9 +2,9 @@
 name = "stacks-common"
 version = "0.0.2"
 authors = [
-  "Jude Nelson <jude@stacks.org>",
-  "Aaron Blankstein <aaron@blockstack.com>",
-  "Ludo Galabru <ludovic@blockstack.com>",
+    "Jude Nelson <jude@stacks.org>",
+    "Aaron Blankstein <aaron@blockstack.com>",
+    "Ludo Galabru <ludovic@blockstack.com>",
 ]
 license = "GPL-3.0-only"
 homepage = "https://github.com/blockstack/stacks-blockchain"
@@ -54,10 +54,10 @@ nix = {version = "0.23", default-features = false, optional = true}
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = [
-  "consoleapi",
-  "handleapi",
-  "synchapi",
-  "winbase",
+    "consoleapi",
+    "handleapi",
+    "synchapi",
+    "winbase",
 ], optional = true }
 
 [target.'cfg(windows)'.dev-dependencies]

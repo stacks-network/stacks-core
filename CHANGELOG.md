@@ -379,7 +379,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 ### Changed
-
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
 - Add index to `metadata_table` in Clarity DB on `blockhash`
@@ -393,26 +392,24 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 ### Changed
-
-- Fixes a few bugs in the relayer and networking stack
+- Fixes  a few bugs in the relayer and networking stack
   - detects and deprioritizes unhealthy replicas
   - fixes an issue in the p2p stack which was preventing it from caching the reward set.
 
 ## [3.0.0.0.1]
 
 ### Changed
-
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
 - Various test fixes for CI (5353, 5368, 5372, 5371, 5380, 5378, 5387, 5396, 5390, 5394)
 - Various log fixes:
-  - don't say proceeding to mine blocks if not a miner
-  - misc. warns downgraded to debugs
+    - don't say proceeding to mine blocks if not a miner
+    - misc. warns downgraded to debugs
 - 5391: Update default block proposal timeout to 10 minutes
 - 5406: After block rejection, miner pauses
 - Docs fixes
-  - Fix signer docs link
-  - Specify burn block in clarity docs
+    - Fix signer docs link
+    - Specify burn block in clarity docs
 
 ## [3.0.0.0.0]
 

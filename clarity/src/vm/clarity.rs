@@ -26,7 +26,6 @@ use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext, OwnedEnvi
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 #[cfg(feature = "clarity-wasm")]
-// MARCEL here change might be needed
 use crate::vm::errors::WasmError;
 use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;

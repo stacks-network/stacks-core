@@ -603,7 +603,7 @@ impl CLIHeadersDB {
 
         let parent_block_hash = get_cli_chain_tip(&tx);
 
-        let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+        let random_bytes = rand::thread_rng().r#gen::<[u8; 32]>();
         let next_block_hash = friendly_expect_opt(
             StacksBlockId::from_bytes(&random_bytes),
             "Failed to generate random block header.",
@@ -1136,7 +1136,7 @@ pub fn invoke_command_with_db(
         }
         "generate_address" => {
             // random 20 bytes
-            let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
+            let random_bytes = rand::thread_rng().r#gen::<[u8; 20]>();
             // version = 22
             let addr =
                 friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");

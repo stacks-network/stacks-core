@@ -909,7 +909,7 @@ impl<'a> OwnedEnvironment<'a> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
         analysis_db: &mut analysis::AnalysisDatabase,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -936,7 +936,7 @@ impl<'a> OwnedEnvironment<'a> {
         contract_analysis: &ContractAnalysis,
         contract_string: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -1565,7 +1565,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         analysis_db: &mut analysis::AnalysisDatabase,
-    ) -> Result<(), VmExecutionError> {
+    ) -> Result<(), ClarityEvalError> {
         let clarity_version = invoke_ctx.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast(
@@ -1593,7 +1593,11 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             error!("Analysis step has failed: {err:?}");
             err
         })
-        .map_err(|e| -> VmExecutionError { e.into() })?;
+        .map_err(|e| {
+            VmExecutionError::Internal(VmInternalError::Expect(format!(
+                "Contract analysis failure in initialize contract {e}"
+            )))
+        })?;
 
         self.initialize_contract_from_ast(
             invoke_ctx,
@@ -1613,7 +1617,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
         contract_content: &mut ContractAST,
         contract_analysis: &ContractAnalysis,
         contract_string: &str,
-    ) -> Result<(), VmExecutionError> {
+    ) -> Result<(), ClarityEvalError> {
         self.global_context.begin();
 
         // wrap in a closure so that `?` can be caught and the global_context can roll_back()
@@ -1672,7 +1676,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             }
             Err(e) => {
                 self.global_context.roll_back()?;
-                Err(e)
+                Err(e.into())
             }
         }
     }
@@ -2811,7 +2815,7 @@ mod test {
     fn vm_initialize_contract_already_exists(
         #[case] version: ClarityVersion,
         #[case] epoch: StacksEpochId,
-    ) -> Result<(), VmExecutionError> {
+    ) -> Result<(), ClarityEvalError> {
         // --- Setup VM ---
 
         let mut store = crate::vm::database::MemoryBackingStore::new();
@@ -2865,7 +2869,9 @@ mod test {
             let (boxed_check_error, _cost_tracker) = *boxed_err;
             let err = *boxed_check_error.err;
             error!("Analysis step has failed: {err:?}");
-            err
+            VmExecutionError::Internal(VmInternalError::Expect(format!(
+                "Contract analysis failure in initialize contract {err}"
+            )))
         })?;
 
         // First initialization succeeds
@@ -2894,7 +2900,9 @@ mod test {
             let (boxed_check_error, _cost_tracker) = *boxed_err;
             let err = *boxed_check_error.err;
             error!("Analysis step has failed: {err:?}");
-            err
+            VmExecutionError::Internal(VmInternalError::Expect(format!(
+                "Contract analysis failure in initialize contract {err}"
+            )))
         })?;
 
         // Second initialization hits ContractAlreadyExists
@@ -2914,6 +2922,7 @@ mod test {
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".to_string()
             ))
+            .into()
         );
         Ok(())
     }

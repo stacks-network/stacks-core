@@ -1051,7 +1051,7 @@ pub fn no_type() -> TypeSignature {
 }
 
 impl<'a, 'b> TypeChecker<'a, 'b> {
-    pub fn new(
+    fn new(
         epoch: &StacksEpochId,
         db: &'a mut AnalysisDatabase<'b>,
         cost_track: LimitedCostTracker,

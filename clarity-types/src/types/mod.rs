@@ -1802,7 +1802,13 @@ pub fn byte_len_of_serialization(serialized: &str) -> u64 {
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct FunctionIdentifier {
-    pub identifier: String,
+    identifier: String,
+}
+
+impl AsRef<str> for FunctionIdentifier {
+    fn as_ref(&self) -> &str {
+        &self.identifier
+    }
 }
 
 impl fmt::Display for FunctionIdentifier {

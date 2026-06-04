@@ -24,16 +24,15 @@ use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 #[cfg(test)]
-#[allow(unused_imports)]
 use crate::vm::{
     ast::errors::ParseErrorKind,
     database::MemoryBackingStore,
     errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError},
     tests::{
         MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator, env_factory, execute,
-        is_committed, is_err_code_i128 as is_err_code, symbols_from_values, tl_env_factory,
+        symbols_from_values, tl_env_factory,
     },
-    types::{OptionalData, ResponseData, TypeSignature},
+    types::{OptionalData, TypeSignature},
     {ClarityVersion, ContractContext, execute as vm_execute, max_call_stack_depth_for_epoch},
 };
 
@@ -229,7 +228,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
            (as-contract (contract-call? .contract-a get-caller)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -264,7 +263,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
         let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert_eq!(
             exec_state
@@ -402,7 +401,7 @@ fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
         .expect_principal()
         .unwrap();
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -473,7 +472,7 @@ fn test_fully_qualified_contract_call(
            (as-contract (contract-call? .contract-a get-caller)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -510,7 +509,7 @@ fn test_fully_qualified_contract_call(
         let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert_eq!(
             exec_state
@@ -568,6 +567,8 @@ fn test_fully_qualified_contract_call(
 #[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_epochs)]
 fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
+    use crate::vm::tests::{is_committed, is_err_code_i128 as is_err_code};
+
     let mut owned_env = env_factory.get_env(epoch);
 
     let tokens_contract = SIMPLE_TOKENS;
@@ -632,7 +633,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -656,7 +657,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
         let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
 
         assert!(is_err_code(
@@ -677,7 +678,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
         let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &exec_state
@@ -709,7 +710,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
         let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_err_code(
             &exec_state
@@ -730,7 +731,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
         let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &exec_state
@@ -750,7 +751,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
         let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &exec_state
@@ -825,7 +826,7 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
             (contract-call? .factorial-contract compute 8008))
         ";
 
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -833,7 +834,7 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
         Some(get_principal().expect_principal().unwrap()),
         None,
-        &mut placeholder_context,
+        &placeholder_context,
     );
 
     let mut store = MemoryBackingStore::new();
@@ -898,6 +899,8 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
 #[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_epochs)]
 fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
+    use crate::vm::types::ResponseData;
+
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_1 = "
@@ -933,7 +936,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
     (contract-call? .contract-1 modify-data 105 105)
     (err 1)))
 ";
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -1066,7 +1069,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
 fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
 
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -1283,7 +1286,7 @@ fn test_cc_stack_depth(
     let nested_plus = build_nested_plus("1", (max_call_stack_depth_for_epoch(epoch) - 3) as usize);
     let contract_one = format!(
         "(define-public (foo)
-                (ok {nested_plus}))"
+            (ok {nested_plus}))"
     );
 
     let contract_two = "(unwrap-panic (contract-call? .c-foo foo))";
@@ -1335,7 +1338,7 @@ fn test_cc_trait_stack_depth(
         (bar .c-foo)
         ";
 
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let mut store = MemoryBackingStore::new();
@@ -1376,7 +1379,7 @@ fn test_eval_with_non_existing_contract(
 ) {
     let mut owned_env = env_factory.get_env(epoch);
 
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -1384,7 +1387,7 @@ fn test_eval_with_non_existing_contract(
     let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
         Some(get_principal().expect_principal().unwrap()),
         None,
-        &mut placeholder_context,
+        &placeholder_context,
     );
 
     let result = exec_state.eval_read_only(
