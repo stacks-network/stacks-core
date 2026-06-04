@@ -18,83 +18,14 @@ use tempfile::tempdir;
 
 use super::common::{unclassified_tables, MARF_INFRA_TABLES};
 use super::index::copy_index_side_tables;
-use crate::chainstate::nakamoto::{
-    NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
-    NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
-    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8,
-};
-use crate::chainstate::stacks::db::{
-    CHAINSTATE_INDEXES, CHAINSTATE_INITIAL_SCHEMA, CHAINSTATE_SCHEMA_2, CHAINSTATE_SCHEMA_3,
-    CHAINSTATE_SCHEMA_4, CHAINSTATE_SCHEMA_5,
-};
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::Error;
 
-/// Create a source `index.sqlite` with the full chainstate schema by replaying
-/// the real migration pipeline. Returns the connection for inserting test data.
+/// Create a source `index.sqlite`
 fn create_source_db(path: &std::path::Path) -> Connection {
-    let conn = Connection::open(path).unwrap();
-
-    for cmd in CHAINSTATE_INITIAL_SCHEMA {
-        conn.execute_batch(cmd).unwrap();
-    }
-    conn.execute(
-        "INSERT INTO db_config (version, mainnet, chain_id) VALUES (?1, ?2, ?3)",
-        params!["1", 1i64, 1i64],
-    )
-    .unwrap();
-
-    // Apply all migrations in order (same as StacksChainState::apply_schema_migrations).
-    for cmd in CHAINSTATE_SCHEMA_2 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in CHAINSTATE_SCHEMA_3 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_4 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_5 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in CHAINSTATE_SCHEMA_4 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_6 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in CHAINSTATE_SCHEMA_5 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_7 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_8 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in CHAINSTATE_INDEXES {
-        conn.execute_batch(cmd).unwrap();
-    }
-
-    // Tests skip the MARF migration; create `__fork_storage` empty so
-    // `copy_canonical_fork_storage`'s strict src-has-table check passes.
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS __fork_storage (
-            value_hash TEXT NOT NULL,
-            value TEXT NOT NULL,
-            PRIMARY KEY(value_hash)
-        );",
-    )
-    .unwrap();
-
-    conn
+    let _ = StacksChainState::instantiate_db(false, 1, path.to_str().unwrap(), true, None)
+        .expect("chainstate DB init failed");
+    Connection::open(path).unwrap()
 }
 
 /// Render a short test identifier as the lowercase-hex form of its UTF-8 bytes.
