@@ -598,7 +598,6 @@ fn check_pox_5_register_for_bond_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -1065,7 +1064,6 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(early_unlock_bytes.clone()).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -2066,7 +2064,6 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(early_unlock_bytes.clone()).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -2528,9 +2525,85 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "staker should have {BTC_LOCKUP_SATS} bond shares from the L1 lockup before announce-l1-early-exit"
     );
 
+    let pre_announce_flag = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "has-announced-l1-early-exit",
+        vec![
+            &Value::UInt(bond_index),
+            &Value::Principal(staker_addr.clone().into()),
+        ],
+    )
+    .result()
+    .expect("has-announced-l1-early-exit failed")
+    .expect_bool()
+    .expect("has-announced-l1-early-exit should return a bool");
+    assert!(
+        !pre_announce_flag,
+        "has-announced-l1-early-exit must be false before the staker announces"
+    );
+
+    // Non-staker case: the bond admin (the principal that USED to be allowed
+    // to announce, before this change) submits `announce-l1-early-exit` for
+    // the staker and must hit ERR_UNAUTHORIZED. This is the L1-bond
+    // counterpart to the sBTC-bond unauthorized test in
+    // `contrib/core-contract-tests`; that suite can't reach an L1 lock
+    // because simnet's fake burn header hashes don't pass the contract's
+    // header check, so we cover it here instead.
+    test_observer::clear();
+    let unauthorized_announce_tx = make_contract_call(
+        &bond_admin_sk,
+        1,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "announce-l1-early-exit",
+        &[
+            Value::Principal(staker_addr.clone().into()),
+            Value::Principal(test_signer_principal.clone()),
+        ],
+    );
+    let unauthorized_announce_txid = submit_tx(&http_origin, &unauthorized_announce_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 2
+            && get_tx_result_by_id(&unauthorized_announce_txid).is_some())
+    })
+    .expect("Timed out waiting for unauthorized announce-l1-early-exit");
+    let unauthorized_result = get_tx_result_by_id(&unauthorized_announce_txid)
+        .expect("did not observe unauthorized announce-l1-early-exit txid");
+    assert_eq!(
+        unauthorized_result,
+        Value::err_uint(1),
+        "non-staker callers must hit ERR_UNAUTHORIZED (u1); got {unauthorized_result:?}"
+    );
+    // The staker's shares must still match the pre-announce snapshot — the
+    // unauthorized attempt should not have mutated any of the share maps.
+    let shares_after_unauthorized = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-staker-shares-staked-for-cycle",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::Bool(true),
+            &Value::UInt(bond_index),
+            &Value::Principal(test_signer_principal.clone()),
+        ],
+    )
+    .result()
+    .expect("get-staker-shares-staked-for-cycle failed")
+    .expect_u128()
+    .expect("get-staker-shares-staked-for-cycle should return a uint");
+    assert_eq!(
+        shares_after_unauthorized, BTC_LOCKUP_SATS,
+        "unauthorized announce-l1-early-exit must not zero the staker's shares"
+    );
+
     test_observer::clear();
     let announce_tx = make_contract_call(
-        &bond_admin_sk,
+        &staker_sk,
         1,
         call_fee,
         naka_conf.burnchain.chain_id,
@@ -2546,17 +2619,16 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     info!("Submitted pox-5 announce-l1-early-exit txid: {announce_txid}");
 
     wait_for(60, || {
-        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 2
+        Ok(get_account(&http_origin, &staker_addr).nonce == 2
             && get_tx_result_by_id(&announce_txid).is_some())
     })
     .expect("Timed out waiting for announce-l1-early-exit");
 
     let announce_result = get_tx_result_by_id(&announce_txid)
         .expect("did not observe announce-l1-early-exit txid in test_observer");
-    assert_eq!(
-        announce_result,
-        Value::okay_true(),
-        "announce-l1-early-exit should return (ok true) when called by the early-unlock admin with the matching signer-manager"
+    assert!(
+        matches!(&announce_result, Value::Response(r) if r.committed),
+        "announce-l1-early-exit should return (ok ...) when called by the staker themselves; got {announce_result:?}"
     );
 
     let post_announce_shares = call_read_only(
@@ -2578,6 +2650,53 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     assert_eq!(
         post_announce_shares, 0,
         "announce-l1-early-exit should zero out the staker's bond shares"
+    );
+
+    let post_announce_flag = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "has-announced-l1-early-exit",
+        vec![
+            &Value::UInt(bond_index),
+            &Value::Principal(staker_addr.clone().into()),
+        ],
+    )
+    .result()
+    .expect("has-announced-l1-early-exit failed")
+    .expect_bool()
+    .expect("has-announced-l1-early-exit should return a bool");
+    assert!(
+        post_announce_flag,
+        "has-announced-l1-early-exit must be true after the staker announces"
+    );
+
+    // The second announcement attempt must hit the idempotency guard rather
+    // than zero out shares again or double-debit the signer totals.
+    let second_announce_tx = make_contract_call(
+        &staker_sk,
+        2,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "announce-l1-early-exit",
+        &[
+            Value::Principal(staker_addr.clone().into()),
+            Value::Principal(test_signer_principal.clone()),
+        ],
+    );
+    let second_announce_txid = submit_tx(&http_origin, &second_announce_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &staker_addr).nonce == 3
+            && get_tx_result_by_id(&second_announce_txid).is_some())
+    })
+    .expect("Timed out waiting for second announce-l1-early-exit");
+    let second_announce_result = get_tx_result_by_id(&second_announce_txid)
+        .expect("did not observe second announce-l1-early-exit txid");
+    assert!(
+        matches!(&second_announce_result, Value::Response(r) if !r.committed),
+        "a second announce-l1-early-exit from the same staker must return an error; got {second_announce_result:?}"
     );
 
     coord_channel
@@ -3418,7 +3537,6 @@ fn check_with_stacking_allowances_register_for_bond() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
