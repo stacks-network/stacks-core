@@ -23,6 +23,9 @@
 (define-constant ERR_INVALID_POX_ADDR (err u1004))
 ;; The fees provided when updating fees is invalid
 (define-constant ERR_INVALID_FEES_BIPS (err u1005))
+;; A pox-5 callback (validate-stake!, checkpoint-staker) was invoked by a
+;; principal other than the pox-5 contract.
+(define-constant ERR_UNAUTHORIZED_CALLER (err u1006))
 
 ;; Used to prevent fractional multiplication errors
 ;; during reward calculations
@@ -117,27 +120,30 @@
         (is-bond bool)
         (signer-calldata (optional (buff 500)))
     )
-    (ok (match signer-calldata
-        calldata
-        (let ((pox-addr (unwrap!
-                (from-consensus-buff? {
-                    pox-addr: {
-                        version: (buff 1),
-                        hashbytes: (buff 32),
-                    },
-                    max-fee: uint,
-                }
-                    calldata
-                )
-                ERR_INVALID_CALLDATA
-            )))
-            (map-set pox-addrs staker pox-addr)
-            true
-        )
-        ;; If `signer-calldata` is not provided, delete (if present)
-        ;; their entry from `pox-addrs`.
-        (map-delete pox-addrs staker)
-    ))
+    (begin
+        (try! (authorize-pox-5))
+        (ok (match signer-calldata
+            calldata
+            (let ((pox-addr (unwrap!
+                    (from-consensus-buff? {
+                        pox-addr: {
+                            version: (buff 1),
+                            hashbytes: (buff 32),
+                        },
+                        max-fee: uint,
+                    }
+                        calldata
+                    )
+                    ERR_INVALID_CALLDATA
+                )))
+                (map-set pox-addrs staker pox-addr)
+                true
+            )
+            ;; If `signer-calldata` is not provided, delete (if present)
+            ;; their entry from `pox-addrs`.
+            (map-delete pox-addrs staker)
+        ))
+    )
 )
 
 ;; Handling rewards checkpointing for a staker
@@ -148,6 +154,7 @@
         (is-bond bool)
     )
     (begin
+        (try! (authorize-pox-5))
         (try! (fold checkpoint-staker-for-index
             (unwrap-panic (slice?
                 (list
@@ -237,7 +244,9 @@
         (reward-cycle uint)
     )
     (let ((new-rewards-info (try! (as-contract? ()
-            (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))
+            (try! (contract-call? .pox-5 claim-rewards
+                bond-periods reward-cycle
+            ))
         ))))
         (update-rewards-info
             (get rewards-per-token (get stx-rewards new-rewards-info)) false
@@ -263,8 +272,9 @@
         (index uint)
     )
     (let (
-            (shares (contract-call? .pox-5 get-staker-shares-staked-for-cycle staker
-                is-bond index current-contract
+            (shares (contract-call? .pox-5
+                get-staker-shares-staked-for-cycle staker is-bond index
+                current-contract
             ))
             (rpt-current (get-rewards-per-token-for-cycle is-bond index))
             (rpt-paid (get-staker-rewards-per-token-paid-for-cycle staker is-bond index))
@@ -399,10 +409,12 @@
     (begin
         (try! (authorize-admin))
         (as-contract? ()
-            (try! (contract-call? .pox-5 grant-signer-key signer-key current-contract
-                auth-id signer-sig
+            (try! (contract-call? .pox-5 grant-signer-key
+                signer-key current-contract auth-id signer-sig
             ))
-            (try! (contract-call? .pox-5 register-signer signer-manager signer-key))
+            (try! (contract-call? .pox-5 register-signer
+                signer-manager signer-key
+            ))
         )
     )
 )
@@ -410,6 +422,16 @@
 (define-private (authorize-admin)
     (ok (asserts! (and (is-eq contract-caller tx-sender) (is-admin tx-sender))
         ERR_UNAUTHORIZED_ADMIN
+    ))
+)
+
+;; Ensure that the immediate caller is the pox-5 contract. The trait callbacks
+;; (validate-stake!, checkpoint-staker) write per-staker state keyed by the
+;; `staker` argument; they must only ever be driven by pox-5, never invoked
+;; directly by an external principal.
+(define-private (authorize-pox-5)
+    (ok (asserts! (is-eq contract-caller .pox-5)
+        ERR_UNAUTHORIZED_CALLER
     ))
 )
 
