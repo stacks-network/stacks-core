@@ -231,8 +231,7 @@ where
 
 /// Drop user-defined indexes on `main.table` while `body` bulk-loads
 /// it, then recreate them on `Ok` (one rebuild vs N per-row B-tree
-/// updates). On `Err`, indexes are not recreated . marf-squash
-/// discards dst on failure, so the half-state is never observed.
+/// updates). On `Err`, indexes are not recreated.
 pub fn with_indexes_dropped<F, T>(conn: &Connection, table: &str, body: F) -> Result<T, Error>
 where
     F: FnOnce(&Connection) -> Result<T, Error>,
@@ -291,6 +290,8 @@ mod tests {
 
     use super::percent_encode_path;
 
+    /// Representative paths survive the `file:` URI percent-encoding used
+    /// by [`super::with_offline_write_session`]'s read-only ATTACH.
     #[rstest]
     #[case::unix_absolute("/tmp/marf-squash/index.sqlite", "/tmp/marf-squash/index.sqlite")]
     #[case::windows_drive_letter("C:/Users/test/index.sqlite", "C:/Users/test/index.sqlite")]

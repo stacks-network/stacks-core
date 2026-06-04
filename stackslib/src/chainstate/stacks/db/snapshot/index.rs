@@ -259,6 +259,9 @@ fn index_copy_specs() -> Vec<TableCopySpec> {
 /// Copy required non-MARF tables from the source `index.sqlite` into the
 /// squashed destination. Only canonical rows (determined by the squashed MARF's
 /// `marf_squashed_blocks`) are included, excluding non-canonical fork data.
+///
+/// Per the squash preconditions, src must be an epoch 3.4+ chainstate:
+/// the canonical set must contain a Nakamoto tip.
 pub fn copy_index_side_tables(
     src_path: &str,
     dst_path: &str,
