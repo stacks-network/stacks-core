@@ -231,7 +231,7 @@ pub struct SquashStats {
 /// Step 1: load confirmed `(block_id, block_hash, external_offset)` rows and
 /// seed the blob-offset cache from the same scan.
 ///
-/// Later steps reuse this Vec: header prefetch sorts it by offset, and
+/// Later steps reuse this Vec: header pre-read sorts it by offset, and
 /// placeholder insertion consumes it to build a `block_hash -> id` map.
 fn collect_block_entries<T: MarfTrieId>(src: &mut MARF<T>) -> Result<Vec<(u32, T, u64)>, Error> {
     src.with_conn(|conn| {
@@ -262,10 +262,11 @@ fn verify_blob_root_matches_marf<T: MarfTrieId>(
 /// Read blob headers in storage order for the later in-memory chain walk.
 ///
 /// Caller must pre-sort `block_entries` by `(external_offset, block_id)`;
-/// `bulk_read_blob_headers_sorted` relies on that order for prefetch to be
-/// effective. Falls back to per-row reads through SQLite `blob_open` when
-/// the source MARF stores blobs inside the SQLite database.
-fn prefetch_blob_headers<T: MarfTrieId>(
+/// `bulk_read_blob_headers_sorted` splits that order into contiguous chunks
+/// so each parallel reader stays in one file region. Falls back to per-row
+/// reads through SQLite `blob_open` when the source MARF stores blobs
+/// inside the SQLite database.
+fn pre_read_blob_headers<T: MarfTrieId + Send + Sync>(
     conn: &mut TrieStorageConnection<T>,
     block_entries: &[(u32, T, u64)],
     label: &str,
@@ -290,7 +291,7 @@ fn prefetch_blob_headers<T: MarfTrieId>(
 ///
 /// Headers are pre-read in storage order, then the parent walk uses the
 /// in-memory map. Re-squash fills old heights from `marf_squashed_blocks`.
-fn collect_per_height_metadata<T: MarfTrieId>(
+fn collect_per_height_metadata<T: MarfTrieId + Send + Sync>(
     conn: &mut TrieStorageConnection<T>,
     block_at_height: &T,
     block_entries: &mut [(u32, T, u64)],
@@ -308,7 +309,7 @@ fn collect_per_height_metadata<T: MarfTrieId>(
 
     // Pre-read in offset order.
     block_entries.sort_unstable_by_key(|(block_id, _, off)| (*off, *block_id));
-    let headers = prefetch_blob_headers(conn, block_entries, label)?;
+    let headers = pre_read_blob_headers(conn, block_entries, label)?;
 
     // Walk down to the squash boundary, if any.
     let walk_start = Instant::now();
@@ -630,7 +631,10 @@ impl<T: MarfTrieId> MARF<T> {
         tip: &T,
         height: u32,
         label: &str,
-    ) -> Result<SquashStats, Error> {
+    ) -> Result<SquashStats, Error>
+    where
+        T: Send + Sync,
+    {
         let dst_db_path = PathBuf::from(dst_path);
         let dst_blobs_path = PathBuf::from(format!("{dst_path}.blobs"));
         let dst_dir = match dst_db_path.parent() {
@@ -677,7 +681,10 @@ impl<T: MarfTrieId> MARF<T> {
         tip: &T,
         height: u32,
         label: &str,
-    ) -> Result<SquashStats, Error> {
+    ) -> Result<SquashStats, Error>
+    where
+        T: Send + Sync,
+    {
         let dst_path = dst_db_path.to_str().ok_or_else(|| {
             Error::CorruptionError(format!(
                 "squash dst path is not valid UTF-8: {}",
@@ -1026,6 +1033,8 @@ impl<T: MarfTrieId> MARF<T> {
                 if !child_is_leaf {
                     // Async-prefetch each non-empty grandchild's page so the
                     // foreground reads a few iterations later land warm.
+                    // Already-collected nodes are skipped: the DFS never
+                    // reads them again, so their readahead would be wasted.
                     for ptr in child_ptrs_vec.iter() {
                         if ptr.id() == TrieNodeID::Empty as u8 {
                             continue;
@@ -1035,6 +1044,9 @@ impl<T: MarfTrieId> MARF<T> {
                         } else {
                             (child_block_id, ptr.ptr())
                         };
+                        if source_to_idx.contains_key(&(target_block_id, target_in_block_ptr)) {
+                            continue;
+                        }
                         source.prefetch_node(target_block_id, target_in_block_ptr);
                     }
                     descend_frame = Some(DfsFrame {

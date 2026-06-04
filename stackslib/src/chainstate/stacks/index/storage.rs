@@ -29,7 +29,7 @@ use crate::chainstate::stacks::index::bits::{
     write_nodetype_bytes, write_nodetype_bytes_compressed,
 };
 use crate::chainstate::stacks::index::cache::*;
-use crate::chainstate::stacks::index::file::{BlobAccessAdvice, TrieFile, TrieFileNodeHashReader};
+use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::node::{
     is_backptr, set_backptr, TrieCowPtr, TrieNode, TrieNodeID, TrieNodePatch, TrieNodeType, TriePtr,
@@ -2513,14 +2513,6 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
     }
 
-    /// Forwards to [`TrieFile::advise_blob_access`].
-    /// No-op for SQLite-internal storage.
-    pub(crate) fn advise_blob_access(&self, advice: BlobAccessAdvice) {
-        if let Some(trie_file) = self.blobs.as_deref() {
-            trie_file.advise_blob_access(advice);
-        }
-    }
-
     /// Forwards to [`TrieFile::prefetch_node`].
     /// No-op for SQLite-internal storage.
     pub(crate) fn prefetch_node(&self, block_id: u32, in_block_ptr: u64) {
@@ -2529,15 +2521,18 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
     }
 
-    /// Bulk-read `(parent_hash, root_hash)` for many blocks. Entries must
-    /// be sorted by `external_offset` ascending for the prefetch path to
-    /// be effective. Only disk-backed `TrieFile`s use the prefetch path;
-    /// RAM-backed `TrieFile`s and SQLite-internal storage fall back to
-    /// per-block reads.
+    /// Bulk-read `(parent_hash, root_hash)` for many blocks. Entries should
+    /// be sorted by `external_offset` ascending so each parallel reader
+    /// works a contiguous file region. Only disk-backed `TrieFile`s use the
+    /// parallel path; RAM-backed `TrieFile`s and SQLite-internal storage
+    /// fall back to per-block reads.
     pub(crate) fn bulk_read_blob_headers_sorted(
         &mut self,
         sorted_entries: &[(u32, T, u64)],
-    ) -> Result<HashMap<T, (T, TrieHash)>, Error> {
+    ) -> Result<HashMap<T, (T, TrieHash)>, Error>
+    where
+        T: Send + Sync,
+    {
         if let Some(trie_file @ TrieFile::Disk(_)) = self.blobs.as_deref() {
             return trie_file.bulk_read_blob_headers_sorted(sorted_entries);
         }
