@@ -2544,13 +2544,9 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "has-announced-l1-early-exit must be false before the staker announces"
     );
 
-    // Non-staker case: the bond admin (the principal that USED to be allowed
-    // to announce, before this change) submits `announce-l1-early-exit` for
-    // the staker and must hit ERR_UNAUTHORIZED. This is the L1-bond
-    // counterpart to the sBTC-bond unauthorized test in
-    // `contrib/core-contract-tests`; that suite can't reach an L1 lock
-    // because simnet's fake burn header hashes don't pass the contract's
-    // header check, so we cover it here instead.
+    // No one, including the bond admin, can announce an early exit for a
+    // bondholder. So the call below to `announce-l1-early-exit` should
+    // fail.
     test_observer::clear();
     let unauthorized_announce_tx = make_contract_call(
         &bond_admin_sk,
@@ -2671,8 +2667,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "has-announced-l1-early-exit must be true after the staker announces"
     );
 
-    // The second announcement attempt must hit the idempotency guard rather
-    // than zero out shares again or double-debit the signer totals.
+    // The second announcement attempt must hit the idempotency guard.
     let second_announce_tx = make_contract_call(
         &staker_sk,
         2,
