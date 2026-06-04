@@ -1758,7 +1758,8 @@ impl TestPeer<'_> {
 
     /// Check various properties of the chainstate regarding this nakamoto block.
     /// Tests:
-    /// * get_coinbase_height
+    /// * get_coinbase_height_at
+    /// * get_coinbase_height_at_tip
     /// * get_tenure_start_block_header
     /// * get_nakamoto_tenure_start_block_header
     /// * get_highest_block_header_in_tenure
@@ -1785,19 +1786,17 @@ impl TestPeer<'_> {
             panic!("No parent block for {block:?}");
         };
 
-        // get_coinbase_height
+        // get_coinbase_height_at
         // Verify that it only increases if the given block has a tenure-change block-found
         // transaction
-        let block_coinbase_height = NakamotoChainState::get_coinbase_height(
+        let block_coinbase_height = NakamotoChainState::get_coinbase_height_at(
             &mut chainstate.index_conn(),
-            &block.block_id(),
             &block.block_id(),
         )
         .unwrap()
         .unwrap();
-        let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height_at(
             &mut chainstate.index_conn(),
-            &block.header.parent_block_id,
             &block.header.parent_block_id,
         )
         .unwrap()
@@ -1806,7 +1805,7 @@ impl TestPeer<'_> {
         // The coinbase-height mapping is immutable, so anchoring the read at any
         // descendant tip on the same fork must return the same value as reading
         // at the block itself.
-        let parent_coinbase_height_at_tip = NakamotoChainState::get_coinbase_height(
+        let parent_coinbase_height_at_tip = NakamotoChainState::get_coinbase_height_at_tip(
             &mut chainstate.index_conn(),
             &block.header.parent_block_id,
             &block.block_id(),
@@ -2141,14 +2140,13 @@ impl TestPeer<'_> {
         // tenure-start block itself.
         if ancestors.len() > 1 {
             let tenure_start_block = ancestors.last().unwrap();
-            let cbh_at_self = NakamotoChainState::get_coinbase_height(
+            let cbh_at_self = NakamotoChainState::get_coinbase_height_at(
                 &mut chainstate.index_conn(),
-                &tenure_start_block.block_id(),
                 &tenure_start_block.block_id(),
             )
             .unwrap()
             .unwrap();
-            let cbh_at_tip = NakamotoChainState::get_coinbase_height(
+            let cbh_at_tip = NakamotoChainState::get_coinbase_height_at_tip(
                 &mut chainstate.index_conn(),
                 &tenure_start_block.block_id(),
                 &block.block_id(),

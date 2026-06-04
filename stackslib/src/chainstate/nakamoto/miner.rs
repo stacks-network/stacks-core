@@ -488,9 +488,8 @@ impl NakamotoBlockBuilder {
         };
 
         let parent_block_id = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
-        let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height_at(
             &mut chainstate.index_conn(),
-            &parent_block_id,
             &parent_block_id,
         )
         .ok()

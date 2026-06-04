@@ -1144,9 +1144,8 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
 
     // find coinbase height
     let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
-    let coinbase_height = NakamotoChainState::get_coinbase_height(
+    let coinbase_height = NakamotoChainState::get_coinbase_height_at(
         &mut peer_1.chainstate().index_conn(),
-        &stacks_tip,
         &stacks_tip,
     )
     .unwrap()
