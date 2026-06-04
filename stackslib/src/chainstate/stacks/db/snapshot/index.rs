@@ -338,16 +338,18 @@ fn copy_tables_inner(
 
     // Custom: staging_blocks with semantic predicate.
     let t = Instant::now();
-    let staging_blocks_rows = conn
-        .execute(
-            "INSERT INTO staging_blocks \
-             SELECT s.* FROM src.staging_blocks s \
-             WHERE s.index_block_hash IN (SELECT index_block_hash FROM canonical_blocks) \
-               AND s.processed = 1 \
-               AND s.orphaned = 0",
-            [],
-        )
-        .map_err(Error::SQLError)? as u64;
+    let staging_blocks_rows = with_indexes_dropped(conn, "staging_blocks", |conn| {
+        Ok(conn
+            .execute(
+                "INSERT INTO staging_blocks \
+                 SELECT s.* FROM src.staging_blocks s \
+                 WHERE s.index_block_hash IN (SELECT index_block_hash FROM canonical_blocks) \
+                   AND s.processed = 1 \
+                   AND s.orphaned = 0",
+                [],
+            )
+            .map_err(Error::SQLError)? as u64)
+    })?;
     info!(
         "[index] staging_blocks ({staging_blocks_rows} rows) in {:?}",
         t.elapsed()
