@@ -1136,8 +1136,6 @@ impl Burnchain {
             cur_epoch.epoch_id,
             first_pox_waterfall_block,
         )?;
-        let p2wsh_outputs =
-            BurnchainDB::get_watched_outputs_at_block(burnchain_db.conn(), &header.block_hash)?;
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
@@ -1149,7 +1147,6 @@ impl Burnchain {
             false,
             &header,
             blockstack_txs,
-            p2wsh_outputs,
             burnchain,
             &sortition_tip,
             None,
