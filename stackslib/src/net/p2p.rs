@@ -4924,7 +4924,6 @@ impl PeerNetwork {
                 sortdb,
                 chainstate,
                 buffered_messages,
-                ibd,
                 false,
             );
             ret.extend(unhandled);
@@ -5035,7 +5034,6 @@ impl PeerNetwork {
             sortdb,
             chainstate,
             unhandled_messages,
-            ibd,
             true,
         );
         let unhandled_messages =
