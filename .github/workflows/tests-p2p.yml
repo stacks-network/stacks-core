@@ -1,0 +1,101 @@
+# Github workflow to run p2p tests
+
+name: "Tests: P2P"
+
+on:
+  workflow_call:
+    inputs:
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default env vars
+#  - transferred to composite action steps
+env:
+  BITCOIND_TEST: 0
+  RUST_BACKTRACE: full
+  TEST_TIMEOUT: 30
+
+# Configure concurrency
+concurrency:
+  group: stackslib-tests-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  # P2P integration tests with code coverage
+  integration-tests:
+    name: Integration Tests
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    strategy:
+      # Continue with the test matrix even if we've had a failure
+      fail-fast: false
+      matrix:
+        test-name:
+          - net::tests::convergence::test_walk_ring_allow_15
+          - net::tests::convergence::test_walk_ring_15_plain
+          - net::tests::convergence::test_walk_ring_15_pingback
+          - net::tests::convergence::test_walk_ring_15_org_biased
+          - net::tests::convergence::test_walk_line_allowed_15
+          - net::tests::convergence::test_walk_line_15_plain
+          - net::tests::convergence::test_walk_line_15_org_biased
+          - net::tests::convergence::test_walk_line_15_pingback
+          - net::tests::convergence::test_walk_star_allowed_15
+          - net::tests::convergence::test_walk_star_15_plain
+          - net::tests::convergence::test_walk_star_15_pingback
+          - net::tests::convergence::test_walk_star_15_org_biased
+          - net::tests::convergence::test_walk_inbound_line_15
+          - net::api::tests::postblock_proposal::test_try_make_response
+          - net::server::test::test_http_10_threads_getinfo
+          - net::server::test::test_http_10_threads_getblock
+          - net::server::test::test_http_too_many_clients
+          - net::server::test::test_http_slow_client
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: ./.github/actions/run-tests
+        with:
+          test-names: ${{ matrix.test-name }}
+          codecov-test-name: ${{ matrix.test-name }}
+          archive-file: ${{ inputs.archive-file }}
+
+  # Check that all jobs in this workflow have succeeded.
+  #   - will not run if the job is cancelled
+  check-tests:
+    name: Check Tests
+    needs:
+      - integration-tests
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Check if all jobs succeeded
+      - name: Check Jobs Status
+        shell: bash
+        env:
+          JOBS: ${{ toJson(needs) }}
+          SUMMARY_PRINT: "true"
+        run: bash ./.github/scripts/check_jobs_status.sh

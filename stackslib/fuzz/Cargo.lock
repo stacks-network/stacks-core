@@ -1418,6 +1418,11 @@ dependencies = [
 [[package]]
 name = "stacks-codec"
 version = "0.1.0"
+dependencies = [
+ "clarity-types",
+ "serde",
+ "stacks-common",
+]
 
 [[package]]
 name = "stacks-common"
@@ -1442,7 +1447,6 @@ dependencies = [
  "sha3",
  "slog",
  "slog-term",
- "stacks-codec",
  "thiserror",
  "toml",
  "winapi 0.3.9",
@@ -1472,6 +1476,7 @@ dependencies = [
  "sha2 0.10.9",
  "siphasher",
  "slog",
+ "stacks-codec",
  "stacks-common",
  "time",
  "toml",

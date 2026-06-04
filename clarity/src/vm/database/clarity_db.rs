@@ -29,8 +29,10 @@ use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use crate::vm::contexts::ContractContext;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
+use crate::vm::database::caching::{CachedContract, ClarityExecutionCache};
 use crate::vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot,
@@ -50,6 +52,7 @@ pub const CLARITY_STORAGE_BLOCK_TIME_KEY: &str = "_stx-data::clarity_storage::bl
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
+#[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum StoreType {
     DataMap = 0x00,
@@ -115,6 +118,16 @@ impl ContractDataVarName {
             Self::ContractDataSize => "contract-data-size",
         }
     }
+
+    pub fn metadata_key(&self) -> String {
+        ClarityDatabase::make_metadata_key(StoreType::Contract, self.as_str())
+    }
+}
+
+impl AsRef<str> for ContractDataVarName {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
 }
 
 impl TryFrom<&str> for ContractDataVarName {
@@ -136,6 +149,10 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
+    /// Optional per-tx execution-cache container attached via [`Self::with_cache`].
+    /// Exclusive borrow — the contained caches have no interior mutability, so the borrow
+    /// checker enforces single-writer for the lifetime of this database.
+    execution_cache: Option<&'a mut ClarityExecutionCache>,
 }
 
 pub trait HeadersDB {
@@ -154,6 +171,7 @@ pub trait HeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed>;
     fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
@@ -166,21 +184,25 @@ pub trait HeadersDB {
     fn get_miner_address(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress>;
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_stacks_height_for_tenure_height(
@@ -270,6 +292,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         _bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         None
@@ -319,6 +342,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         None
@@ -326,6 +350,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -333,6 +358,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -340,6 +366,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -449,6 +476,7 @@ impl<'a> ClarityDatabase<'a> {
             store: RollbackWrapper::new(store),
             headers_db,
             burn_state_db,
+            execution_cache: None,
         }
     }
 
@@ -461,7 +489,14 @@ impl<'a> ClarityDatabase<'a> {
             store,
             headers_db,
             burn_state_db,
+            execution_cache: None,
         }
+    }
+
+    /// Attach a [`ClarityExecutionCache`] to this instance for the duration of its lifetime.
+    pub fn with_cache(mut self, cache: &'a mut ClarityExecutionCache) -> Self {
+        self.execution_cache = Some(cache);
+        self
     }
 
     pub fn initialize(&mut self) {}
@@ -759,27 +794,27 @@ impl<'a> ClarityDatabase<'a> {
             .transpose()
     }
 
-    pub fn get_contract_size(
+    /// Read and sum the `contract-size` and `contract-data-size` metadata entries for the given
+    /// contract, returning the total size for the contract as needed for `LoadContract` cost
+    /// calculations.
+    ///
+    /// Reads through the rollback-aware metadata layer; does not consult or populate the cache.
+    fn read_contract_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<u64, VmExecutionError> {
-        let key = ClarityDatabase::make_metadata_key(
-            StoreType::Contract,
-            ContractDataVarName::ContractSize.as_str(),
-        );
-        let contract_size: u64 =
-            self.fetch_metadata(contract_identifier, &key)?
-                .ok_or_else(|| {
-                    VmInternalError::Expect(
+        let contract_size_key = ContractDataVarName::ContractSize.metadata_key();
+        let contract_size: u64 = self
+            .fetch_metadata(contract_identifier, &contract_size_key)?
+            .ok_or_else(|| {
+                VmInternalError::Expect(
             "Failed to read non-consensus contract metadata, even though contract exists in MARF."
         .into())
-                })?;
-        let key = ClarityDatabase::make_metadata_key(
-            StoreType::Contract,
-            ContractDataVarName::ContractDataSize.as_str(),
-        );
+            })?;
+
+        let data_size_key = ContractDataVarName::ContractDataSize.metadata_key();
         let data_size: u64 = self
-            .fetch_metadata(contract_identifier, &key)?
+            .fetch_metadata(contract_identifier, &data_size_key)?
             .ok_or_else(|| {
                 VmInternalError::Expect(
             "Failed to read non-consensus contract metadata, even though contract exists in MARF."
@@ -788,6 +823,24 @@ impl<'a> ClarityDatabase<'a> {
 
         // u64 overflow is _checked_ on insert into contract-data-size
         Ok(data_size + contract_size)
+    }
+
+    /// `LoadContract` cost size (`contract_size + data_size`).
+    ///
+    /// When a cache is attached to this instance and the store isn't retargeted by e.g. `at-block`,
+    /// this method attempts to serve values via a passive cache lookup. Cache hits do not update
+    /// FIFO counters, and misses fall through to reading from the backing store.
+    pub fn get_contract_size(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<u64, VmExecutionError> {
+        if !self.store.is_retargeted()
+            && let Some(cached) = self.peek_cached_contract(contract_identifier)
+        {
+            return Ok(cached.load_cost_size);
+        }
+
+        self.read_contract_size(contract_identifier)
     }
 
     /// used for adding the memory usage of `define-constant` variables.
@@ -822,11 +875,9 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         contract: Contract,
     ) -> Result<(), VmExecutionError> {
-        let key = ClarityDatabase::make_metadata_key(
-            StoreType::Contract,
-            ContractDataVarName::Contract.as_str(),
-        );
-        self.insert_metadata(contract_identifier, &key, &contract)?;
+        let key = ContractDataVarName::Contract.metadata_key();
+
+        self.insert_metadata(contract_identifier, &key, &*contract)?;
         Ok(())
     }
 
@@ -838,20 +889,119 @@ impl<'a> ClarityDatabase<'a> {
         self.store.has_metadata_entry(contract_identifier, &key)
     }
 
+    /// Read and deserialize the contract blob from the backing store, canonicalizing its types to
+    /// the current epoch.
+    ///
+    /// Reads through the rollback-aware metadata layer; does not consult or populate the contract
+    /// cache.
+    fn read_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<Contract, VmExecutionError> {
+        let contract_key = ContractDataVarName::Contract.metadata_key();
+        let mut contract_context = self
+            .fetch_metadata::<ContractContext>(contract_identifier, &contract_key)?
+            .ok_or_else(|| {
+                VmInternalError::Expect(
+            "Failed to read non-consensus contract metadata, even though contract exists in MARF."
+            .into())
+            })?;
+
+        let epoch = self.get_clarity_epoch_version()?;
+        contract_context.canonicalize_types(&epoch)?;
+
+        Ok(contract_context.into())
+    }
+
+    /// Check for any pending metadata writes to the metadata keys used for loading/materializing a
+    /// [`Contract`] from the backing store and calculating its `LoadContract` costs.
+    ///
+    /// This is used for defensive checks in e.g. [`Self::get_contract`].
+    fn has_pending_metadata_for_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> bool {
+        let contract_key = ContractDataVarName::Contract.metadata_key();
+        let size_key = ContractDataVarName::ContractSize.metadata_key();
+        let data_size_key = ContractDataVarName::ContractDataSize.metadata_key();
+
+        self.store.has_pending_metadata(
+            contract_identifier,
+            &[&contract_key, &size_key, &data_size_key],
+        )
+    }
+
+    /// Load a parsed contract, returning a canonicalized [`Contract`].
+    ///
+    /// Consults the attached cache when attached and the store is not retargeted; on a miss the
+    /// contract is read from the backing store and inserted into the cache before being returned.
+    ///
+    /// The cache is bypassed entirely during `(at-block ...)` retargeting; those reads hit the
+    /// backing store and are not cached, since they reflect a different chainstate view.
+    ///
+    /// Reads served from uncommitted pending metadata (e.g. a contract deployed earlier in the same
+    /// rollback layer but not yet committed to the backing store) are not cached.
     pub fn get_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract, VmExecutionError> {
-        let key = ClarityDatabase::make_metadata_key(
-            StoreType::Contract,
-            ContractDataVarName::Contract.as_str(),
-        );
-        let mut data: Contract = self.fetch_metadata(contract_identifier, &key)?
-            .ok_or_else(|| VmInternalError::Expect(
-                "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-                .into()))?;
-        data.canonicalize_types(&self.get_clarity_epoch_version()?)?;
-        Ok(data)
+        let retargeted = self.store.is_retargeted();
+
+        // Attempt to serve from cache ONLY if we are reading at chain tip (not retargeted).
+        if !retargeted && let Some(entry) = self.cached_contract(contract_identifier) {
+            return Ok(entry.contract.clone());
+        }
+
+        // Miss path: read from store, then (when applicable) populate the cache.
+        let contract = self.read_contract(contract_identifier)?;
+
+        // Defensive check: this is not expected on the ordinary contract-call path, but we include
+        // it conservatively as this is a lower-level DB API which can be reached while a rollback
+        // layer contains pending metadata (e.g., if the cache were ever reused across transaction
+        // boundaries).
+        let is_pending = self.has_pending_metadata_for_contract(contract_identifier);
+
+        // Only populate the cache on reads at tip and when there are no pending writes to relevant
+        // metadata keys.
+        if !retargeted && !is_pending {
+            let load_cost_size = self.read_contract_size(contract_identifier)?;
+
+            self.cache_contract(
+                contract_identifier.clone(),
+                CachedContract {
+                    contract: contract.clone(),
+                    load_cost_size,
+                },
+            );
+        }
+
+        Ok(contract)
+    }
+
+    /// Borrow the cached contract entry for the provided [`QualifiedContractIdentifier`] if a cache
+    /// is attached to this [`ClarityDatabase`] instance and the contract cache contains it.
+    ///
+    /// On cache hit, hit/miss counters are updated, but FIFO ordering is unchanged.
+    ///
+    /// Returns [`None`] if no cache is attached or the cache does not contain the entry.
+    fn cached_contract(&mut self, id: &QualifiedContractIdentifier) -> Option<&CachedContract> {
+        self.execution_cache.as_deref_mut()?.contracts.get(id)
+    }
+
+    /// Borrow the cached contract entry for the provided [`QualifiedContractIdentifier`] if a cache
+    /// is attached to this [`ClarityDatabase`] instance, without altering FIFO counters.
+    ///
+    /// Returns [`None`] if no cache is attached or the cache does not contain the entry.
+    fn peek_cached_contract(&self, id: &QualifiedContractIdentifier) -> Option<&CachedContract> {
+        self.execution_cache.as_deref()?.contracts.peek(id)
+    }
+
+    /// Insert an entry into the cache if one is attached; otherwise this is a no-op.
+    fn cache_contract(&mut self, id: QualifiedContractIdentifier, entry: CachedContract) {
+        let weight = entry.load_cost_size;
+        if let Some(cache) = self.execution_cache.as_deref_mut() {
+            cache.contracts.insert(id, entry, weight);
+        }
     }
 
     pub fn ustx_liquid_supply_key() -> &'static str {
@@ -1032,6 +1182,13 @@ impl ClarityDatabase<'_> {
         self.store.get_current_block_height()
     }
 
+    /// The canonical evaluation tip (parent of the block being constructed), used to anchor
+    /// immutable tenure-start reads (see `HeadersDB`) instead of a possibly-pruned historical block.
+    fn eval_tip_block_id(&mut self) -> Result<StacksBlockId, VmExecutionError> {
+        let current_height = self.get_current_block_height();
+        self.get_index_block_header_hash(current_height.saturating_sub(1))
+    }
+
     /// Return the height for PoX v1 -> v2 auto unlocks
     ///   from the burn state db
     pub fn get_v1_unlock_height(&self) -> u32 {
@@ -1095,7 +1252,7 @@ impl ClarityDatabase<'_> {
             return Ok(Some(tenure_height));
         }
         // query from the parent
-        let query_tip = self.get_index_block_header_hash(current_height.saturating_sub(1))?;
+        let query_tip = self.eval_tip_block_id()?;
         Ok(self
             .headers_db
             .get_stacks_height_for_tenure_height(&query_tip, tenure_height))
@@ -1278,9 +1435,10 @@ impl ClarityDatabase<'_> {
 
     pub fn get_block_vrf_seed(&mut self, block_height: u32) -> Result<VRFSeed, VmExecutionError> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
-            .get_vrf_seed_for_block(&id_bhh, &epoch)
+            .get_vrf_seed_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| VmInternalError::Expect("Failed to get block data.".into()).into())
     }
 
@@ -1289,10 +1447,11 @@ impl ClarityDatabase<'_> {
         block_height: u32,
     ) -> Result<StandardPrincipalData, VmExecutionError> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_miner_address(&id_bhh, &epoch)
+            .get_miner_address(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| VmInternalError::Expect("Failed to get block data.".into()))?
             .into())
     }
@@ -1303,10 +1462,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_burnchain_tokens_spent_for_winning_block(&id_bhh, &epoch)
+            .get_burnchain_tokens_spent_for_winning_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect(
                     "FATAL: no winning burnchain token spend record for block".into(),
@@ -1320,10 +1480,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_burnchain_tokens_spent_for_block(&id_bhh, &epoch)
+            .get_burnchain_tokens_spent_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect(
                     "FATAL: no total burnchain token spend record for block".into(),
@@ -1348,10 +1509,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         let reward: u128 = self
             .headers_db
-            .get_tokens_earned_for_block(&id_bhh, &epoch)
+            .get_tokens_earned_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect("FATAL: matured block has no recorded reward".into())
             })?;
@@ -2559,6 +2721,155 @@ fn checked_decrease_token_supply_underflow() {
     );
 
     db.commit().unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::version::ClarityVersion;
+
+    /// Deploy a minimal stub contract under `id` in its own committed db transaction.
+    #[track_caller]
+    fn deploy_stub_contract(db: &mut ClarityDatabase, id: &QualifiedContractIdentifier) {
+        db.begin();
+        let contract = ContractContext::new(id.clone(), ClarityVersion::Clarity2).into();
+        db.insert_contract_hash(id, "(define-public (noop) (ok true))")
+            .expect("insert_contract_hash");
+        db.set_contract_data_size(id, 0)
+            .expect("set_contract_data_size");
+        db.insert_contract(id, contract).expect("insert_contract");
+        db.commit().expect("commit stub contract");
+    }
+
+    #[test]
+    fn get_contract_populates_cache_on_miss() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("cached").unwrap();
+
+        // Deploy outside the cache attachment so the cache starts empty.
+        deploy_stub_contract(&mut store.as_clarity_db(), &id);
+
+        // Each `db` block scopes the exclusive borrow on `cache` so we can inspect counters
+        // between calls.
+        let first = {
+            let mut db = store.as_clarity_db().with_cache(&mut cache);
+            db.begin();
+            let entry = db.get_contract(&id).expect("load contract");
+            db.roll_back().unwrap();
+            entry
+        };
+        assert_eq!(first.contract_identifier, id);
+        assert_eq!(cache.contracts.misses(), 1);
+        assert_eq!(cache.contracts.hits(), 0);
+
+        let second = {
+            let mut db = store.as_clarity_db().with_cache(&mut cache);
+            db.begin();
+            let entry = db.get_contract(&id).expect("cached load");
+            db.roll_back().unwrap();
+            entry
+        };
+        // Both `Contract`s should deref to the same underlying `ContractContext`, confirming the
+        // cached entry's Arc was shared rather than deserialized fresh.
+        assert!(
+            std::ptr::eq(&*first, &*second),
+            "second call should share the cached Arc, not a fresh deserialization",
+        );
+        assert_eq!(cache.contracts.hits(), 1);
+        assert_eq!(cache.contracts.misses(), 1);
+    }
+
+    #[test]
+    fn get_contract_load_cost_size_serves_from_cache() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("size-cached").unwrap();
+        deploy_stub_contract(&mut store.as_clarity_db(), &id);
+
+        // Prime the cache via `get_contract`, then capture the expected size separately.
+        let expected_size = {
+            let mut db = store.as_clarity_db().with_cache(&mut cache);
+            db.begin();
+            let _contract = db.get_contract(&id).expect("prime cache");
+            let s = db.read_contract_size(&id).unwrap();
+            db.roll_back().unwrap();
+            s
+        };
+        let counters_after_prime = (cache.contracts.hits(), cache.contracts.misses());
+
+        // Subsequent `get_contract_size` must come from the cache, and being a passive `peek` it
+        // must not bump hit/miss counters.
+        let size = {
+            let mut db = store.as_clarity_db().with_cache(&mut cache);
+            db.begin();
+            let s = db.get_contract_size(&id).expect("load_cost_size");
+            db.roll_back().unwrap();
+            s
+        };
+        assert_eq!(size, expected_size);
+        assert_eq!(
+            (cache.contracts.hits(), cache.contracts.misses()),
+            counters_after_prime,
+            "passive size lookup must not alter hit/miss counters",
+        );
+    }
+
+    #[test]
+    fn get_contract_load_cost_size_falls_back_without_cache() {
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("no-cache").unwrap();
+        deploy_stub_contract(&mut store.as_clarity_db(), &id);
+
+        let mut db = store.as_clarity_db();
+        db.begin();
+        let size = db.get_contract_size(&id).expect("load_cost_size");
+        let expected = db.read_contract_size(&id).unwrap();
+        assert_eq!(size, expected);
+        db.roll_back().unwrap();
+    }
+
+    /// A contract deployed in an uncommitted rollback layer is visible via `get_contract` (pending
+    /// metadata is served), but it must not be cached: if the surrounding context rolls back, a
+    /// cached entry would point at a contract that no longer exists on the backing store, and the
+    /// next lookup in the same tx would falsely succeed.
+    #[test]
+    fn get_contract_does_not_cache_pending_writes() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("pending").unwrap();
+
+        // Deploy + load inside a rollback layer, then discard the layer.
+        {
+            let mut db = store.as_clarity_db().with_cache(&mut cache);
+            db.begin();
+            let contract = ContractContext::new(id.clone(), ClarityVersion::Clarity2).into();
+            db.insert_contract_hash(&id, "(define-public (noop) (ok true))")
+                .expect("insert_contract_hash");
+            db.set_contract_data_size(&id, 0)
+                .expect("set_contract_data_size");
+            db.insert_contract(&id, contract).expect("insert_contract");
+            let _ = db
+                .get_contract(&id)
+                .expect("pending-state load should succeed via uncommitted metadata");
+            db.roll_back().unwrap();
+        }
+
+        // The rolled-back contract must not be served from cache on a subsequent lookup. The
+        // backing store also doesn't have it (the deploy was never committed), so the lookup must
+        // error.
+        {
+            let mut db = store.as_clarity_db().with_cache(&mut cache);
+            db.begin();
+            let result = db.get_contract(&id);
+            assert!(
+                result.is_err(),
+                "rolled-back contract must not be served from cache after rollback",
+            );
+            db.roll_back().unwrap();
+        }
+    }
 }
 
 #[test]
