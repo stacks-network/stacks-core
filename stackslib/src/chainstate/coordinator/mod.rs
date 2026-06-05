@@ -1205,11 +1205,7 @@ impl<
         let mut revalidated_stacks_block = false;
 
         for unprocessed_block in sortitions_to_process.into_iter() {
-            let BurnchainBlockData {
-                header,
-                ops,
-                p2wsh_outputs,
-            } = unprocessed_block;
+            let BurnchainBlockData { header, ops } = unprocessed_block;
 
             // only evaluate epoch 2.x.
             // NOTE: epoch 3 starts _right after_ the first block in the first epoch3 reward cycle,
@@ -1325,7 +1321,6 @@ impl<
                             self.chain_state_db.mainnet,
                             &header,
                             ops,
-                            p2wsh_outputs,
                             &self.burnchain,
                             &last_processed_ancestor,
                             reward_cycle_info,

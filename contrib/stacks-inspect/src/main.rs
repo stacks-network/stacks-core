@@ -1572,7 +1572,6 @@ fn analyze_sortition_mev(
                 true,
                 &burn_block.header,
                 burn_block.ops.clone(),
-                vec![],
                 &burnchain,
                 &tip_sort_id,
                 rc_info_opt,

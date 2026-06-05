@@ -280,12 +280,10 @@
     )
     (begin
         (try! (authorize-admin))
-        (as-contract? ()
-            (try! (contract-call? .pox-5 grant-signer-key signer-key current-contract
-                auth-id signer-sig
-            ))
-            (try! (contract-call? .pox-5 register-signer signer-manager signer-key))
-        )
+        (try! (contract-call? .pox-5 grant-signer-key signer-key current-contract
+            auth-id signer-sig
+        ))
+        (contract-call? .pox-5 register-signer signer-manager signer-key)
     )
 )
 
