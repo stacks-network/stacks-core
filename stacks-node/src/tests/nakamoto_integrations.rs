@@ -12125,19 +12125,21 @@ fn rbf_on_config_change() {
     })
     .expect("Failed to wait for last commit");
 
-    let commits_before = counters.naka_submitted_commits.get();
-
     let commit_amount_before = counters.naka_submitted_commit_last_commit_amount.get();
 
     info!("---- Updating config ----");
 
     update_config(155000, 57);
 
+    // Wait until a commit reflecting the *new* config is observed. We can't
+    // simply wait for the commit count to increase: the miner submits RBF
+    // commits every initiative, so an old-config commit submitted between the
+    // snapshot above and the config reload would satisfy a count-based wait
+    // while still carrying the old commit amount, flaking the assertions below.
     wait_for(30, || {
-        let commit_count = &counters.naka_submitted_commits.get();
-        Ok(*commit_count > commits_before)
+        Ok(counters.naka_submitted_commit_last_commit_amount.get() == 155000)
     })
-    .expect("Expected new commit after config change");
+    .expect("Expected a commit with the updated burn fee cap after config change");
 
     let commit_amount_after = counters.naka_submitted_commit_last_commit_amount.get();
     assert_eq!(commit_amount_after, 155000);
