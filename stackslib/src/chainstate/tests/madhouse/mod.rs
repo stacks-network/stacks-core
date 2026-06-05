@@ -20,7 +20,6 @@ mod state;
 use std::sync::Arc;
 
 use madhouse::{execute_commands, prop_allof, scenario, Command};
-use pinny::tag;
 use proptest::prelude::Strategy;
 
 use self::commands::*;
