@@ -287,6 +287,9 @@ pub enum Error {
     },
     /// Operation is not supported on a squashed MARF (e.g. proof generation).
     UnsupportedOnSquashedMarf(&'static str),
+    /// Operation requires a different `TrieFile` backing. Carries the 
+    /// operation name.
+    UnsupportedTrieFileType(&'static str),
     /// A destination path required to be empty already exists. Carries the
     /// offending path.
     DestinationExists(String),
@@ -370,6 +373,12 @@ impl fmt::Display for Error {
             ),
             Error::UnsupportedOnSquashedMarf(op) => {
                 write!(f, "Operation `{op}` is not supported on a squashed MARF")
+            }
+            Error::UnsupportedTrieFileType(op) => {
+                write!(
+                    f,
+                    "Operation `{op}` is not supported by this TrieFile backing"
+                )
             }
             Error::DestinationExists(ref p) => {
                 write!(f, "Destination path already exists: {p}")

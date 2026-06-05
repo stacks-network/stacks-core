@@ -635,8 +635,8 @@ impl TrieFile {
         sorted_entries: &[MarfDataEntry<T>],
     ) -> Result<HashMap<T, BlobHeader<T>>, Error> {
         let TrieFile::Disk(disk) = self else {
-            return Err(Error::CorruptionError(
-                "bulk_read_blob_headers_sorted requires a disk-backed TrieFile".into(),
+            return Err(Error::UnsupportedTrieFileType(
+                "bulk_read_blob_headers_sorted",
             ));
         };
         if sorted_entries.is_empty() {
