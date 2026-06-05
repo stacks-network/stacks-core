@@ -298,9 +298,10 @@ pub struct PoxConstants {
     pub pox_3_activation_height: u32,
     /// After this burn height, reward cycles use pox-4 for reward set data
     pub pox_4_activation_height: u32,
-    /// After this burn height, reward cycles use pox-5 for reward set data
-    /// DO NOT set this to a reward cycle boundary
-    /// i.e. where (block height - first block height) % cycle_length == 0
+    /// After this burn height, reward cycles use pox-5 for reward set data.
+    /// Placement is policed by `validate_nakamoto_transition_schedule`: must
+    /// equal Epoch 4.0 start, fall in a reward phase (not a prepare phase),
+    /// and sit at cycle offset > 1.
     pub pox_5_activation_height: u32,
     _shadow: PhantomData<()>,
 }
@@ -414,6 +415,45 @@ impl PoxConstants {
             u64::from(self.pox_5_activation_height),
             burn_height,
         )
+    }
+
+    /// Returns the PoX contract controlling the signer set and reward set
+    /// for `reward_cycle`.
+    ///
+    /// Cycle-keyed counterpart to `active_pox_contract`.
+    ///
+    /// All cycle-scoped callers (signer-set computation, reward-address
+    /// resolution) must use this; only tip-scoped callers (RPC, "what's
+    /// live now") use the burn-height variant.
+    ///
+    /// The PoX-5 branch is derived from `first_pox_waterfall_block` so that
+    /// `active_pox_contract_for_cycle` and the waterfall block-commit /
+    /// nakamoto-cycle-start predicates agree on a single boundary.
+    ///
+    /// For pre-PoX-5 transitions the existing tip-keyed answer is preserved by
+    /// evaluating at the cycle's mod-1 (classic reward-phase start) block.
+    pub fn active_pox_contract_for_cycle(
+        &self,
+        first_block_height: u64,
+        reward_cycle: u64,
+    ) -> &'static str {
+        if let Some(wf) = self.first_pox_waterfall_block(first_block_height) {
+            if self.nakamoto_first_block_of_cycle(first_block_height, reward_cycle) >= wf {
+                return POX_5_NAME;
+            }
+        }
+        // PoX-5 already ruled out, now cascade through earlier
+        // activations using a tip-height inside the cycle.
+        let h = self.reward_cycle_to_block_height(first_block_height, reward_cycle);
+        if h > u64::from(self.pox_4_activation_height) {
+            POX_4_NAME
+        } else if h > u64::from(self.pox_3_activation_height) {
+            POX_3_NAME
+        } else if h > u64::from(self.v1_unlock_height) {
+            POX_2_NAME
+        } else {
+            POX_1_NAME
+        }
     }
 
     /// Note: even in PoX-waterfall, the number of reward slots is used to
