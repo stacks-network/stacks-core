@@ -26,7 +26,7 @@
 
 pub(crate) mod common;
 pub(crate) mod fork_storage;
-pub(crate) mod index;
+mod index;
 
 #[cfg(test)]
 mod tests;
