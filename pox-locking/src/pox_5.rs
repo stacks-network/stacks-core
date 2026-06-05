@@ -1971,9 +1971,6 @@ mod tests {
             other => panic!("Expected STXLockEvent, got: {other:?}"),
         }
     }
-
-    // Property tests.
-
     use proptest::prelude::*;
 
     proptest! {
