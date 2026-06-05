@@ -322,7 +322,20 @@ test('bond rewards remain claimable from old signer after staker changes signers
     rov(
       pox5.getStakerSharesStakedForCycle(
         alice,
-        true,
+        1n,
+        bondIndex,
+        signerManager.identifier,
+      ),
+    ),
+  ).toBe(aliceSats);
+  expect(
+    rov(pox5.getStakerSharesStakedForCycle(alice, 1n, bondIndex, signer2)),
+  ).toBe(0n);
+  expect(
+    rov(
+      pox5.getStakerSharesStakedForCycle(
+        alice,
+        2n,
         bondIndex,
         signerManager.identifier,
       ),
@@ -332,7 +345,7 @@ test('bond rewards remain claimable from old signer after staker changes signers
     rov(
       pox5.getStakerUnclaimedRewardsForCycle(
         signerManager.identifier,
-        true,
+        1n,
         bondIndex,
         alice,
       ),
@@ -342,10 +355,10 @@ test('bond rewards remain claimable from old signer after staker changes signers
   txOk(signerManager.claimRewards([bondIndex], 1n), deployer);
 
   const aliceBalance = sbtcBalance(alice);
-  txOk(signerManager.claimStakerRewards(alice, true, bondIndex), alice);
+  txOk(signerManager.claimStakerRewards(alice, 1n, bondIndex), alice);
   expect(sbtcBalance(alice)).toBe(aliceBalance + rewards);
   expect(
-    rov(signerManager.getEarnedStakerRewards(alice, true, bondIndex)),
+    rov(signerManager.getEarnedStakerRewards(alice, 1n, bondIndex)),
   ).toEqual({
     earned: 0n,
     fees: 0n,

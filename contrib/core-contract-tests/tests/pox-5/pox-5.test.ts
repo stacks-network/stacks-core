@@ -2517,20 +2517,20 @@ test('destination signer baseline is initialized when bond staker switches signe
   txOk(pox5.calculateRewards([bondIndex]), deployer);
 
   const bondRewardsPerToken = rov(
-    pox5.getRewardsPerTokenForCycle(true, bondIndex),
+    pox5.getRewardsPerTokenForCycle(1n, bondIndex),
   );
   expect(bondRewardsPerToken).toBeGreaterThan(0n);
 
   txOk(signerBContract.claimRewards([bondIndex], 1n), deployer);
   expect(
-    rov(pox5.getSignerRewardsPerTokenForCycle(signerB, true, bondIndex)),
+    rov(pox5.getSignerRewardsPerTokenForCycle(signerB, 1n, bondIndex)),
   ).toBe(bondRewardsPerToken);
 
   const exploitCredit =
     (attackerSats * bondRewardsPerToken) / pox5.constants.PRECISION;
   expect(exploitCredit).toBeGreaterThan(0n);
   expect(
-    rov(signerBContract.getEarnedStakerRewards(alice, true, bondIndex)),
+    rov(signerBContract.getEarnedStakerRewards(alice, 1n, bondIndex)),
   ).toBe(0n);
 
   txOk(
@@ -2543,23 +2543,26 @@ test('destination signer baseline is initialized when bond staker switches signe
   );
 
   expect(
-    rov(pox5.getStakerSharesStakedForCycle(alice, true, bondIndex, signerB)),
+    rov(pox5.getStakerSharesStakedForCycle(alice, 1n, bondIndex, signerB)),
+  ).toBe(0n);
+  expect(
+    rov(pox5.getStakerSharesStakedForCycle(alice, 1n, bondIndex, signerA)),
   ).toBe(attackerSats);
   expect(
     rov(
       pox5.getStakerRewardsPerTokenSettledForCycle(
         signerB,
-        true,
+        1n,
         bondIndex,
         alice,
       ),
     ),
   ).toBe(bondRewardsPerToken);
   expect(
-    rov(signerBContract.getEarnedStakerRewards(alice, true, bondIndex)),
+    rov(signerBContract.getEarnedStakerRewards(alice, 1n, bondIndex)),
   ).toBe(0n);
   expect(
-    txErr(signerBContract.claimStakerRewards(true, bondIndex), alice).value,
+    txErr(signerBContract.claimStakerRewards(1n, bondIndex), alice).value,
   ).toBe(testSignerErrors.ERR_NO_CLAIMABLE_REWARDS);
 });
 
