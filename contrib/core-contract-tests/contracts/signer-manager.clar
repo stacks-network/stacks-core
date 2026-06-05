@@ -125,16 +125,15 @@
         (bond-periods (list 6 uint))
         (reward-cycle uint)
     )
-    (as-contract? ()
-        (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))
-    )
+    (contract-call? .pox-5 claim-rewards bond-periods reward-cycle)
 )
 
 ;;; Staker rewards
 
 ;; Get the total amount of rewards earned since the last
-;; rewards snapshot for this staker. Note that this does
-;; NOT account for fees.
+;; rewards snapshot for this staker. Returns a tuple of `{ earned, fees }`.
+;; The total portion of rewards the staker has accounted for
+;; is `earned + fees`.
 (define-read-only (get-earned-staker-rewards
         (staker principal)
         (reward-cycle uint)

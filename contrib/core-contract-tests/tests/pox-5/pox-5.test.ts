@@ -26,6 +26,7 @@ import {
   registerSigner,
   sbtc,
   sbtcBalance,
+  testSignerErrors,
   testSigner,
   sbtcTransfer,
   pox5,
@@ -2463,6 +2464,103 @@ test('bond signer update does not duplicate staker rewards on new signer', () =>
   // before claiming should not create a phantom claimable balance on signer2.
   expect(rov(testSigner.getEarnedStakerRewards(alice, 1n, 0n))).toBe(1200n);
   expect(rov(signer2Contract.getEarnedStakerRewards(alice, 1n, 0n))).toBe(0n);
+});
+
+test('destination signer baseline is initialized when bond staker switches signers', () => {
+  const bondIndex = 0n;
+  const signerA = testSigner.identifier;
+  const signerBContract = deployTestSigner('c4-destination-signer');
+  const signerB = signerBContract.identifier;
+  const attackerSats = 2_000_000n;
+  const honestSats = 6_000_000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [
+        { maxSats: attackerSats, staker: alice },
+        { maxSats: honestSats, staker: bob },
+      ],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex,
+      signerManager: signerB,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(honestSats),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex,
+      signerManager: signerA,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(attackerSats),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  sbtcTransfer(1_000_000_000n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([bondIndex]), deployer);
+
+  const bondRewardsPerToken = rov(
+    pox5.getRewardsPerTokenForCycle(true, bondIndex),
+  );
+  expect(bondRewardsPerToken).toBeGreaterThan(0n);
+
+  txOk(signerBContract.claimRewards([bondIndex], 1n), deployer);
+  expect(
+    rov(pox5.getSignerRewardsPerTokenForCycle(signerB, true, bondIndex)),
+  ).toBe(bondRewardsPerToken);
+
+  const exploitCredit =
+    (attackerSats * bondRewardsPerToken) / pox5.constants.PRECISION;
+  expect(exploitCredit).toBeGreaterThan(0n);
+  expect(
+    rov(signerBContract.getEarnedStakerRewards(alice, true, bondIndex)),
+  ).toBe(0n);
+
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signerB,
+      oldSignerManager: signerA,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(
+    rov(pox5.getStakerSharesStakedForCycle(alice, true, bondIndex, signerB)),
+  ).toBe(attackerSats);
+  expect(
+    rov(
+      pox5.getStakerRewardsPerTokenSettledForCycle(
+        signerB,
+        true,
+        bondIndex,
+        alice,
+      ),
+    ),
+  ).toBe(bondRewardsPerToken);
+  expect(
+    rov(signerBContract.getEarnedStakerRewards(alice, true, bondIndex)),
+  ).toBe(0n);
+  expect(
+    txErr(signerBContract.claimStakerRewards(true, bondIndex), alice).value,
+  ).toBe(testSignerErrors.ERR_NO_CLAIMABLE_REWARDS);
 });
 
 /**
