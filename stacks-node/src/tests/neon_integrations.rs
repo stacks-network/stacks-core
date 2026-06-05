@@ -8235,7 +8235,12 @@ fn test_problematic_blocks_are_not_mined() {
     debug!("Submit problematic tx_high transaction {tx_high_txid}");
     std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "1");
     submit_tx(&http_origin, &tx_high);
-    assert!(get_unconfirmed_tx(&http_origin, &tx_high_txid).is_some());
+    // `get_unconfirmed_tx` returns `None` on *any* non-success response, which
+    // includes transient RPC errors while the node is busy processing a block.
+    wait_for(30, || {
+        Ok(get_unconfirmed_tx(&http_origin, &tx_high_txid).is_some())
+    })
+    .expect("Problematic tx_high should be accepted into the mempool");
     std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "0");
 
     btc_regtest_controller.build_next_block(1);
