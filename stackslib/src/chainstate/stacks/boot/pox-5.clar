@@ -299,6 +299,38 @@
     uint
 )
 
+;; Represents a snapshot of `rewards-per-token` at the last
+;; time of rewards settlement for this specific staker
+(define-map staker-rewards-per-token-settled-for-cycle
+    {
+        is-bond: bool,
+        index: uint,
+        signer: principal,
+        staker: principal,
+    }
+    uint
+)
+
+;; Represents pending, but unclaimed rewards for a staker
+(define-map staker-unclaimed-rewards-for-cycle
+    {
+        is-bond: bool,
+        index: uint,
+        signer: principal,
+        staker: principal,
+    }
+    uint
+)
+
+(define-map signer-rewards-per-token-for-cycle
+    {
+        signer: principal,
+        is-bond: bool,
+        index: uint,
+    }
+    uint
+)
+
 ;; The role that is allowed to set bond parameters.
 ;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
 ;; configured admin before deploy.
@@ -342,11 +374,6 @@
     (validate-stake!
         ;; staker, first-index, num-indexes, amount-ustx, amount-sats, is-bond, signer-calldata
         (principal uint uint uint uint bool (optional (buff 500)))
-        (response bool uint)
-    )
-    (checkpoint-staker
-        ;; staker, first-index, num-indexes, is-bond
-        (principal uint uint bool)
         (response bool uint)
     )
 ))
@@ -414,9 +441,11 @@
             max-sats: uint,
         }))
     )
-    (let ((bond-start-height (bond-period-to-burn-height bond-index))
-          (first-reward-cycle (bond-period-to-reward-cycle bond-index))
-          (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES)))
+    (let (
+            (bond-start-height (bond-period-to-burn-height bond-index))
+            (first-reward-cycle (bond-period-to-reward-cycle bond-index))
+            (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
+        )
         ;; only bond admin can call this.
         (asserts! (is-eq contract-caller (var-get bond-admin)) ERR_UNAUTHORIZED)
 
@@ -590,6 +619,8 @@
             (unlock-cycle (+ first-reward-cycle BOND_LENGTH_CYCLES))
             (current-total-staked (get-total-shares-staked-for-cycle true bond-index))
             (current-signer-staked (get-signer-shares-staked-for-cycle signer true bond-index))
+            (stx-balance (stx-account tx-sender))
+            (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
         (try! (verify-not-prepare-phase))
         ;; Verify that they're sending enough STX
@@ -612,15 +643,26 @@
         ;; here -- the lock just extends forward via the node-side handler.
         (asserts!
             (match existing-stake
-                stake-info (<= (+ (get first-reward-cycle stake-info)
-                                  (get num-cycles stake-info))
-                               first-reward-cycle)
+                stake-info (<=
+                    (+ (get first-reward-cycle stake-info)
+                        (get num-cycles stake-info)
+                    )
+                    first-reward-cycle
+                )
                 true
             )
             ERR_ALREADY_STAKED
         )
 
+        ;; Cannot stake more sats than their allowance
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
+
+        ;; Must have enough unlocked STX
+        ;;  the Staker must have sufficient total funds (locked + unlocked).
+        ;;  On a roll-over the staker's STX is still locked by the ending
+        ;;  bond; the node-side handler extends that lock to the new amount,
+        ;;  so checking only `stx-get-balance` (unlocked) would falsely fail.
+        (asserts! (>= total-balance amount-ustx) ERR_INSUFFICIENT_STX)
 
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
@@ -640,6 +682,10 @@
             ERR_ALREADY_REGISTERED
         )
 
+        ;; Settle rewards before updating state
+        (settle-rewards signer true bond-index)
+        (settle-staker-rewards signer true bond-index tx-sender)
+
         ;; A rollover from a non-overlapping existing bond may only happen in
         ;; that bond's L1 unlock window, the last 1/2 cycle.
         (try! (verify-bond-rollover-window existing-membership))
@@ -657,7 +703,6 @@
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
         )
-        (settle-rewards signer true bond-index)
         (map-set total-shares-staked-for-cycle {
             index: bond-index,
             is-bond: true,
@@ -705,7 +750,7 @@
                 unlock-cycle: unlock-cycle,
                 is-l1-lock: (is-ok btc-lockup),
             }))
-            (print (merge {topic: "register-for-bond" } result))
+            (print (merge { topic: "register-for-bond" } result))
             (ok result)
         )
     )
@@ -761,23 +806,17 @@
             signer-calldata
         ))
 
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker tx-sender bond-index
-            u1 true
-        )
-            ok-val ok-val
-            err-val true
-        )
-
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
+        ;; Settle rewards before mutating related state
         (settle-rewards current-signer true bond-index)
         (settle-rewards signer true bond-index)
+        (settle-staker-rewards current-signer true bond-index tx-sender)
+        (settle-staker-rewards signer true bond-index tx-sender)
 
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender first-reward-cycle num-cycles false))
@@ -836,7 +875,7 @@
                 num-cycles: num-cycles,
                 is-l1-lock: (get is-l1-lock current-membership),
             }))
-            (print (merge {topic: "update-bond-registration" } result))
+            (print (merge { topic: "update-bond-registration" } result))
             (ok result)
         )
     )
@@ -861,7 +900,7 @@
                 signer: signer,
                 signer-key: signer-key,
             }))
-            (print (merge {topic: "register-signer" } result))
+            (print (merge { topic: "register-signer" } result))
             (ok result)
         )
     )
@@ -938,9 +977,7 @@
         ;;  On a roll-over the staker's STX is still locked by the ending
         ;;  bond; the node-side handler extends that lock to the new amount,
         ;;  so checking only `stx-get-balance` (unlocked) would falsely fail.
-        (asserts! (>= total-balance amount-ustx)
-            ERR_INSUFFICIENT_STX
-        )
+        (asserts! (>= total-balance amount-ustx) ERR_INSUFFICIENT_STX)
 
         ;; Refund any sBTC custodied for the rolled-over bond (zero-target
         ;; net transfer). No-op when there is no existing bond, or when the
@@ -973,7 +1010,7 @@
                 unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
                 unlock-cycle: unlock-cycle,
             }))
-            (print (merge {topic: "stake" } result))
+            (print (merge { topic: "stake" } result))
             (ok result)
         )
     )
@@ -1028,18 +1065,6 @@
             ERR_INSUFFICIENT_STX
         )
 
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker tx-sender
-            first-reward-cycle (- prev-unlock-cycle current-cycle u1) false
-        )
-            ;; Allow any errors
-            ok-val
-            ok-val
-            err-val
-            true
-        )
-
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender (+ u1 current-cycle)
             (- prev-unlock-cycle current-cycle u1) true
@@ -1068,7 +1093,7 @@
                 amount-increase: amount-increase,
                 cycles-to-extend: cycles-to-extend,
             }))
-            (print (merge {topic: "stake-update" } result))
+            (print (merge { topic: "stake-update" } result))
             (ok result)
         )
     )
@@ -1097,16 +1122,9 @@
         (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
         (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
 
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker staker bond-index u1
-            true
-        )
-            ok-val ok-val
-            err-val true
-        )
-
+        ;; Settle rewards before updating state
         (settle-rewards signer true bond-index)
+        (settle-staker-rewards signer true bond-index staker)
 
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
@@ -1135,7 +1153,7 @@
                 bond-index: bond-index,
                 amount-sats-released: amount-sats,
             }))
-            (print (merge {topic: "announce-l1-early-exit" } result))
+            (print (merge { topic: "announce-l1-early-exit" } result))
             (ok result)
         )
     )
@@ -1176,17 +1194,9 @@
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
 
-        ;; Call `signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? signer-manager checkpoint-staker staker bond-index u1
-            true
-        )
-            ok-val ok-val
-            err-val true
-        )
-
-        ;; Take a snapshot of the signer's current rewards
+        ;; Take a snapshot of the staker's and signer's current rewards
         (settle-rewards signer true bond-index)
+        (settle-staker-rewards signer true bond-index tx-sender)
 
         (map-set staker-shares-staked-for-cycle {
             is-bond: true,
@@ -1229,7 +1239,7 @@
                 amount-withdrawn-sats: amount-to-withdrawal-sats,
                 new-amount-sats: new-amount-sats,
             }))
-            (print (merge {topic: "unstake-sbtc" } result))
+            (print (merge { topic: "unstake-sbtc" } result))
             (ok result)
         )
     )
@@ -1257,16 +1267,6 @@
             ERR_UNSTAKE_IN_PREPARE_PHASE
         )
 
-        ;; Call `old-signer-manager`, and allow them to snapshot current
-        ;; data before updating. Do not throw any errors.
-        (match (contract-call? old-signer-manager checkpoint-staker tx-sender
-            (+ current-cycle u1) (- prev-unlock-cycle current-cycle u1)
-            false
-        )
-            ok-val ok-val
-            err-val true
-        )
-
         ;; Remove the staker from all existing cycles
         (try! (remove-staker-from-cycles tx-sender (+ u1 current-cycle)
             (- prev-unlock-cycle current-cycle u1) true
@@ -1287,7 +1287,7 @@
                 unlock-cycle: unlock-cycle,
                 unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
             }))
-            (print (merge {topic: "unstake" } result))
+            (print (merge { topic: "unstake" } result))
             (ok result)
         )
     )
@@ -1363,8 +1363,9 @@
             (new-delegated (- cur-delegated-for-signer amount))
             (is-in-signer-set (is-some (get-signer-set-item-for-cycle signer cycle)))
         )
-        ;; Crystallize STX-only rewards before mutating anything
+        ;; Settle STX-only rewards before mutating anything
         (settle-rewards signer false cycle)
+        (settle-staker-rewards signer false cycle staker)
         (if is-in-signer-set
             (if (< new-delegated SIGNER_SET_MIN_USTX)
                 ;; They've crossed back below the threshold - remove from the signer set
@@ -1513,6 +1514,7 @@
         )
         ;; Crystallize STX-only rewards before mutating anything
         (settle-rewards signer false cycle)
+        (settle-staker-rewards signer false cycle staker)
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
                 (map-set signer-shares-staked-for-cycle {
@@ -1581,6 +1583,15 @@
         (map-set ustx-delegated-per-cycle cycle
             (+ (get-ustx-delegated-for-cycle cycle) amount)
         )
+        ;; Mark settled rewards for this cycle
+        (map-set staker-rewards-per-token-settled-for-cycle {
+            index: cycle,
+            is-bond: false,
+            signer: signer,
+            staker: staker,
+        }
+            (get-signer-rewards-per-token-for-cycle signer false cycle)
+        )
         (ok accumulator)
     )
 )
@@ -1598,7 +1609,8 @@
     (begin
         (if (> new-sbtc old-sbtc)
             (let ((delta (- new-sbtc old-sbtc)))
-                (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                (try! (contract-call?
+                    'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                     transfer delta tx-sender current-contract none
                 ))
                 (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) delta))
@@ -1606,14 +1618,18 @@
             (if (< new-sbtc old-sbtc)
                 (let ((delta (- old-sbtc new-sbtc)))
                     (try! (as-contract?
-                        ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                        ((with-ft
+                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                             "sbtc-token" delta
                         ))
-                        (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                        (try! (contract-call?
+                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                             transfer delta tx-sender staker none
                         ))
                     ))
-                    (var-set total-sbtc-staked (- (var-get total-sbtc-staked) delta))
+                    (var-set total-sbtc-staked
+                        (- (var-get total-sbtc-staked) delta)
+                    )
                 )
                 ;; new-sbtc == old-sbtc, no transfer needed
                 true
@@ -1684,7 +1700,10 @@
         (accumulator-res (response {
             expected-script-hash: (buff 34),
             sum: uint,
-            seen-outpoints: (list 10 { txid: (buff 32), output-index: uint }),
+            seen-outpoints: (list 10 {
+                txid: (buff 32),
+                output-index: uint,
+            }),
         }
             uint
         ))
@@ -1696,7 +1715,10 @@
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
-            (outpoint { txid: txid, output-index: (get output-index lockup) })
+            (outpoint {
+                txid: txid,
+                output-index: (get output-index lockup),
+            })
             (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (verify-block-header (get header lockup) (get height lockup))
@@ -1726,9 +1748,7 @@
         (ok {
             expected-script-hash: (get expected-script-hash accumulator),
             sum: (+ (get sum accumulator) (get amount output)),
-            seen-outpoints: (unwrap-panic (as-max-len?
-                (append seen-outpoints outpoint) u10
-            )),
+            seen-outpoints: (unwrap-panic (as-max-len? (append seen-outpoints outpoint) u10)),
         })
     )
 )
@@ -1800,7 +1820,10 @@
                 ))
                 (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
                 ;; When no STX is staked, fold the staker cut into the reserve, otherwise zero.
-                (stranded-staker-cut (if no-stx-stakers stx-staker-rewards u0))
+                (stranded-staker-cut (if no-stx-stakers
+                    stx-staker-rewards
+                    u0
+                ))
             )
             (print {
                 topic: "calculate-rewards",
@@ -1838,7 +1861,7 @@
                     cycle-staked-ustx: cycle-staked-ustx,
                     next-rewards-per-ustx: next-rewards-per-ustx,
                 }))
-                (print (merge {topic: "calculate-rewards" } result))
+                (print (merge { topic: "calculate-rewards" } result))
                 (ok result)
             )
         )
@@ -1938,22 +1961,47 @@
 
 ;; Get the total amount of rewards earned since the last
 ;; rewards snapshot.
-;;
-;; `earned = (shares * (rpt - rptPaid)) / PRECISION + pending`
 (define-read-only (get-earned
         (signer principal)
         (is-bond bool)
         (index uint)
     )
-    (let (
-            (shares (get-signer-shares-staked-for-cycle signer is-bond index))
-            (rpt-current (get-rewards-per-token-for-cycle is-bond index))
-            (rpt-paid (get-signer-rewards-per-token-settled-for-cycle signer is-bond index))
-            (pending (get-signer-unclaimed-rewards-for-cycle signer is-bond index))
-            (newly-earned (/ (* shares (- rpt-current rpt-paid)) PRECISION))
-        )
-        (+ pending newly-earned)
+    (compute-earned-rewards
+        (get-signer-shares-staked-for-cycle signer is-bond index)
+        (get-rewards-per-token-for-cycle is-bond index)
+        (get-signer-rewards-per-token-settled-for-cycle signer is-bond index)
+        (get-signer-unclaimed-rewards-for-cycle signer is-bond index)
     )
+)
+
+;; Get the total amount of _staker_ rewards earned since the last
+;; rewards snapshot.
+(define-read-only (get-earned-staker-rewards
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+        (staker principal)
+    )
+    (compute-earned-rewards
+        (get-staker-shares-staked-for-cycle staker is-bond index signer)
+        (get-signer-rewards-per-token-for-cycle signer is-bond index)
+        (get-staker-rewards-per-token-settled-for-cycle signer is-bond index
+            staker
+        )
+        (get-staker-unclaimed-rewards-for-cycle signer is-bond index staker)
+    )
+)
+
+;; Pure math formula for computing rewards earned since the last snapshot
+;;
+;; `earned = (shares * (rpt - rptPaid)) / PRECISION + pending`
+(define-read-only (compute-earned-rewards
+        (shares uint)
+        (rpt-current uint)
+        (rpt-paid uint)
+        (pending uint)
+    )
+    (+ pending (/ (* shares (- rpt-current rpt-paid)) PRECISION))
 )
 
 (define-public (claim-rewards
@@ -1992,9 +2040,31 @@
                 bond-totals: bond-totals,
                 total-rewards: total-rewards,
             }))
-            (print (merge {topic: "claim-rewards" } result))
+            (print (merge { topic: "claim-rewards" } result))
             (ok result)
         )
+    )
+)
+
+;; As a signer manager contract, mark a specific staker as having claimed
+;; rewards. This is used to mutate internal rewards settlement state.
+;;
+;; This is only callable by the signer manager contract.
+(define-public (claim-staker-rewards-for-signer
+        (staker principal)
+        (is-bond bool)
+        (index uint)
+    )
+    (let ((rewards-info (settle-staker-rewards contract-caller is-bond index staker)))
+        (map-set staker-unclaimed-rewards-for-cycle {
+            is-bond: is-bond,
+            index: index,
+            signer: contract-caller,
+            staker: staker,
+        }
+            u0
+        )
+        (ok rewards-info)
     )
 )
 
@@ -2048,7 +2118,7 @@
 )
 
 ;; Update all earned-but-unclaimed rewards for a signer, and update the snapshot
-;; (signer-rewards-per-token-paid) for the signer.
+;; (signer-rewards-per-token-settled-for-cycle) for the signer.
 ;;
 ;; This MUST be called before any update to `signer-shares-staked-for-cycle`,
 ;; because changes to that state will effect rewards calculations.
@@ -2072,6 +2142,54 @@
             is-bond: is-bond,
             index: index,
             signer: signer,
+        }
+            rewards-per-token
+        )
+        (if (> (get-signer-shares-staked-for-cycle signer is-bond index) u0)
+            (map-set signer-rewards-per-token-for-cycle {
+                signer: signer,
+                index: index,
+                is-bond: is-bond,
+            }
+                rewards-per-token
+            )
+            true
+        )
+        {
+            earned: earned,
+            rewards-per-token: rewards-per-token,
+        }
+    )
+)
+
+;; Update all earned-but-unclaimed rewards for a staker, and update the snapshot
+;; (staker-rewards-per-token-settled-for-cycle) for the staker.
+;;
+;; This MUST be called before any update to `staker-shares-staked-for-cycle`,
+;; because changes to that state will effect rewards calculations.
+(define-private (settle-staker-rewards
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+        (staker principal)
+    )
+    (let (
+            (earned (get-earned-staker-rewards signer is-bond index staker))
+            (rewards-per-token (get-signer-rewards-per-token-for-cycle signer is-bond index))
+        )
+        (map-set staker-unclaimed-rewards-for-cycle {
+            is-bond: is-bond,
+            index: index,
+            signer: signer,
+            staker: staker,
+        }
+            earned
+        )
+        (map-set staker-rewards-per-token-settled-for-cycle {
+            is-bond: is-bond,
+            index: index,
+            signer: signer,
+            staker: staker,
         }
             rewards-per-token
         )
@@ -2350,8 +2468,7 @@
 ;; Used by `stake`, `stake-update`, `register-for-bond`, and
 ;; `update-bond-registration` as `(try! (verify-not-prepare-phase))`.
 (define-private (verify-not-prepare-phase)
-    (ok (asserts!
-        (not (is-in-prepare-phase (current-pox-reward-cycle)))
+    (ok (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
         ERR_STAKE_IN_PREPARE_PHASE
     ))
 )
@@ -2365,9 +2482,10 @@
     (match (map-get? protocol-bond-memberships staker)
         m (if (get is-l1-lock m)
             u0
-            (get-staker-shares-staked-for-cycle staker true
-                (get bond-index m) (get signer m)
-            ))
+            (get-staker-shares-staked-for-cycle staker true (get bond-index m)
+                (get signer m)
+            )
+        )
         u0
     )
 )
@@ -2388,10 +2506,12 @@
         (new-first-reward-cycle uint)
     )
     (match existing-membership
-        existing (> (+ BOND_LENGTH_CYCLES
-                       (bond-period-to-reward-cycle (get bond-index existing))
-                    )
-                    new-first-reward-cycle)
+        existing (>
+            (+ BOND_LENGTH_CYCLES
+                (bond-period-to-reward-cycle (get bond-index existing))
+            )
+            new-first-reward-cycle
+        )
         false
     )
 )
@@ -2401,18 +2521,17 @@
 ;; BTC. No-op when there is no existing bond. Used by `register-for-bond`
 ;; and `stake` as `(try! (verify-bond-rollover-window existing-membership))`,
 ;; same shape as `verify-not-prepare-phase`.
-(define-private (verify-bond-rollover-window
-        (existing-membership (optional {
-            bond-index: uint,
-            amount-ustx: uint,
-            signer: principal,
-            is-l1-lock: bool,
-        }))
-    )
+(define-private (verify-bond-rollover-window (existing-membership (optional {
+    bond-index: uint,
+    amount-ustx: uint,
+    signer: principal,
+    is-l1-lock: bool,
+})))
     (ok (asserts!
         (match existing-membership
             existing (>= burn-block-height
-                (get-bond-l1-unlock-height (get bond-index existing)))
+                (get-bond-l1-unlock-height (get bond-index existing))
+            )
             true
         )
         ERR_ROLLOVER_TOO_EARLY
@@ -2616,6 +2735,52 @@
     )
     (default-to u0
         (map-get? signer-unclaimed-rewards-for-cycle {
+            signer: signer,
+            is-bond: is-bond,
+            index: index,
+        })
+    )
+)
+
+(define-read-only (get-staker-rewards-per-token-settled-for-cycle
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+        (staker principal)
+    )
+    (default-to u0
+        (map-get? staker-rewards-per-token-settled-for-cycle {
+            staker: staker,
+            signer: signer,
+            is-bond: is-bond,
+            index: index,
+        })
+    )
+)
+
+(define-read-only (get-staker-unclaimed-rewards-for-cycle
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+        (staker principal)
+    )
+    (default-to u0
+        (map-get? staker-unclaimed-rewards-for-cycle {
+            staker: staker,
+            signer: signer,
+            is-bond: is-bond,
+            index: index,
+        })
+    )
+)
+
+(define-read-only (get-signer-rewards-per-token-for-cycle
+        (signer principal)
+        (is-bond bool)
+        (index uint)
+    )
+    (default-to u0
+        (map-get? signer-rewards-per-token-for-cycle {
             signer: signer,
             is-bond: is-bond,
             index: index,
