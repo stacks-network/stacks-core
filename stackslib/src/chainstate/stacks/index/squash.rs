@@ -307,7 +307,9 @@ fn collect_per_height_metadata<T: MarfTrieId + Send + Sync>(
     let walk_floor = src_squash_height.map(|sh| sh + 1).unwrap_or(0);
     debug_assert!(walk_floor <= height);
 
-    // Pre-read in offset order.
+    // Pre-read in offset order. Offsets are not unique on a re-squash
+    // source (every pre-boundary row shares the squash blob's offset), so
+    // `block_id` breaks ties to keep the order deterministic.
     block_entries.sort_unstable_by_key(|e| (e.external_offset, e.block_id));
     let headers = pre_read_blob_headers(conn, block_entries, label)?;
 
@@ -475,7 +477,13 @@ fn insert_placeholder_blocks<T: MarfTrieId>(
         }
     }
 
-    // Mirror the source sentinel id when it exists, so sentinel backpointers remap.
+    // Every archival `block_id` that appears as a node origin in the DFS
+    // must be mappable in `archival_to_squashed`. The loop above covers the
+    // historical heights but skips `block_at_height` and the sentinel; add
+    // them explicitly so `remap_child_ptrs` can resolve all children.
+    //
+    // Sentinel: already flushed to the destination `marf_data` by
+    // `tx.begin()` -> `flush()`, so mirror its id when the source has one.
     let sentinel = T::sentinel();
     if let Some(&archival_sentinel_id) = block_map.get(&sentinel) {
         let squashed_sentinel_id: u32 = conn.query_row(
@@ -488,7 +496,10 @@ fn insert_placeholder_blocks<T: MarfTrieId>(
             .ok_or(Error::OverflowError)? = squashed_sentinel_id;
     }
 
-    // Claim the tip block_id now; step [7/8] updates this row with the real blob.
+    // `block_at_height`: not yet in the destination `marf_data` (only in
+    // `block_extension_locks`). Insert an empty placeholder now to get a
+    // real `block_id`; step [7/8] will UPDATE this row with the real blob
+    // via `update_external_trie_blob` instead of inserting a new one.
     let archival_tip_id = *block_map.get(block_at_height).ok_or(Error::NotFoundError)?;
     let empty_blob: &[u8] = &[];
     let squashed_tip_placeholder_id: u32 = stmt

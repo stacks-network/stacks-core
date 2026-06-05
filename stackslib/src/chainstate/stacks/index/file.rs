@@ -43,7 +43,7 @@ const PREFETCH_PAGE_SIZE: u64 = 4096;
 ///
 /// The workers spend nearly all their time blocked on small positioned
 /// reads, so the count targets a device queue depth rather than a core
-/// count.
+/// count. Always in `16..=32`.
 fn header_read_parallelism() -> usize {
     let cores = std::thread::available_parallelism()
         .map(|n| n.get())
@@ -240,8 +240,10 @@ impl TrieFile {
 
     /// Async-prefetch the single 4 KiB page containing the start offset of
     /// the node at `(block_id, in_block_ptr)`. The largest node (Node256)
-    /// is ~3.7 KiB and could spill into the next page, but we have few
-    /// nodes that large.
+    /// is ~3.7 KiB and could spill into the next page, but nodes that wide
+    /// are rare: hinting exactly one aligned page benchmarks faster than
+    /// any wider or unaligned window, whose extra readahead outweighs the
+    /// saved faults.
     ///
     /// Best-effort: requires the blob offset already in `trie_offsets`,
     /// else no-op. No-op for RAM-backed `TrieFile`s and non-Linux targets.

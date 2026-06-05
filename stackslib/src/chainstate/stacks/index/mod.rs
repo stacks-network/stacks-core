@@ -287,7 +287,7 @@ pub enum Error {
     },
     /// Operation is not supported on a squashed MARF (e.g. proof generation).
     UnsupportedOnSquashedMarf(&'static str),
-    /// Operation requires a different `TrieFile` backing. Carries the 
+    /// Operation requires a different `TrieFile` backing. Carries the
     /// operation name.
     UnsupportedTrieFileType(&'static str),
     /// A destination path required to be empty already exists. Carries the
