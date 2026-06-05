@@ -2534,6 +2534,13 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     where
         T: Send + Sync,
     {
+        // Checked here so the disk path and the per-row fallback below
+        // reject an empty input identically.
+        if sorted_entries.is_empty() {
+            return Err(Error::CorruptionError(
+                "bulk_read_blob_headers_sorted: no block entries; source MARF has no confirmed blocks".into(),
+            ));
+        }
         if let Some(trie_file @ TrieFile::Disk(_)) = self.blobs.as_deref() {
             return trie_file.bulk_read_blob_headers_sorted(sorted_entries);
         }

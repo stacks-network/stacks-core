@@ -640,10 +640,9 @@ impl TrieFile {
             ));
         };
         if sorted_entries.is_empty() {
-            return Err(Error::CorruptionError(
-                "bulk_read_blob_headers_sorted: no block entries; source MARF has no confirmed blocks"
-                    .into(),
-            ));
+            // Callers resolve the tip block before reaching this point, so a
+            // confirmed-block-free entry list means a corrupt source.
+            return Err(Error::CorruptionError("bulk_read_blob_headers_sorted: no block entries; source MARF has no confirmed blocks".into()));
         }
 
         let num_threads = header_read_parallelism().min(sorted_entries.len());
