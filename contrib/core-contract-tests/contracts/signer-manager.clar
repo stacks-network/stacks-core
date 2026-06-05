@@ -64,6 +64,14 @@
     uint
 )
 
+(define-map fee-bips-for-cycle
+    {
+        index: uint,
+        is-bond: bool,
+    }
+    uint
+)
+
 (define-map staker-rewards-per-token-settled-for-cycle
     {
         is-bond: bool,
@@ -282,7 +290,7 @@
             (rpt-paid (get-staker-rewards-per-token-paid-for-cycle staker is-bond index))
             (pending (get-staker-unclaimed-rewards-for-cycle staker is-bond index))
             (newly-earned-before-fees (/ (* shares (- rpt-current rpt-paid)) PRECISION))
-            (fees (/ (* newly-earned-before-fees (var-get fees-bips)) MAX_BIPS))
+            (fees (/ (* newly-earned-before-fees (get-fee-bips-for-cycle is-bond index)) MAX_BIPS))
             (newly-earned (- newly-earned-before-fees fees))
         )
         {
@@ -468,6 +476,12 @@
         (index uint)
     )
     (begin
+        (map-insert fee-bips-for-cycle {
+            index: index,
+            is-bond: is-bond,
+        }
+            (var-get fees-bips)
+        )
         (map-set rewards-per-token-for-cycle {
             index: index,
             is-bond: is-bond,
@@ -486,11 +500,19 @@
         ;; #[allow(unused_binding)]
         (acc bool)
     )
-    (map-set rewards-per-token-for-cycle {
-        is-bond: true,
-        index: (get bond-index bond-info),
-    }
-        (get rewards-per-token bond-info)
+    (begin
+        (map-insert fee-bips-for-cycle {
+            is-bond: true,
+            index: (get bond-index bond-info),
+        }
+            (var-get fees-bips)
+        )
+        (map-set rewards-per-token-for-cycle {
+            is-bond: true,
+            index: (get bond-index bond-info),
+        }
+            (get rewards-per-token bond-info)
+        )
     )
 )
 
@@ -504,6 +526,22 @@
             is-bond: is-bond,
         })
     )
+)
+
+(define-read-only (get-fee-bips-for-cycle
+        (is-bond bool)
+        (index uint)
+    )
+    (default-to u0
+        (map-get? fee-bips-for-cycle {
+            index: index,
+            is-bond: is-bond,
+        })
+    )
+)
+
+(define-read-only (get-earned-fees)
+    (var-get earned-fees)
 )
 
 (define-read-only (get-staker-rewards-per-token-paid-for-cycle

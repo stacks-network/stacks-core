@@ -421,9 +421,10 @@ test('claiming staker rewards with pox-addr errors when earned is less than max-
   ).toBe(signerManagerErrors.ERR_NO_CLAIMABLE_REWARDS);
 });
 
-test('fee changes apply to all uncrystallized rewards', () => {
+test('fee changes do not apply retroactively to an already recorded cycle', () => {
   const rewards = 2000n;
   const grossAfterTwoCalculations = stxRewards(rewards * 2n) / 2n;
+  const fee = grossAfterTwoCalculations / 10n;
 
   txOk(signerManager.updateFees(1000n), deployer);
   setupTwoStakers();
@@ -443,8 +444,8 @@ test('fee changes apply to all uncrystallized rewards', () => {
   );
 
   expect(rov(signerManager.getEarnedStakerRewards(alice, false, 1n))).toEqual({
-    earned: grossAfterTwoCalculations / 2n,
-    fees: grossAfterTwoCalculations / 2n,
+    earned: grossAfterTwoCalculations - fee,
+    fees: fee,
   });
 });
 
@@ -468,9 +469,9 @@ test('already claimed rewards are not affected by later fee changes', () => {
   );
 
   expect(rov(signerManager.getEarnedStakerRewards(alice, false, 1n))).toEqual({
-    earned: 425n,
-    fees: 425n,
+    earned: 765n,
+    fees: 85n,
   });
   txOk(signerManager.claimStakerRewards(alice, false, 1n), alice);
-  expect(sbtcBalance(alice)).toBe(aliceBalance + 765n + 425n);
+  expect(sbtcBalance(alice)).toBe(aliceBalance + 765n + 765n);
 });
