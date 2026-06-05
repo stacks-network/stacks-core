@@ -28,7 +28,7 @@ use crate::vm::errors::{
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{PrincipalData, TypeSignature, Value};
+use crate::vm::types::{BuffData, PrincipalData, SequenceData, TypeSignature, Value};
 use crate::vm::{LocalContext, eval, is_reserved};
 
 macro_rules! switch_on_global_epoch {
@@ -190,6 +190,8 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
     VerifyMerkleProof("verify-merkle-proof", ClarityVersion::Clarity6, None),
     GetBitcoinTxOutput("get-bitcoin-tx-output?", ClarityVersion::Clarity6, None),
+    Ed25519Verify("ed25519-verify", ClarityVersion::Clarity6, None),
+    Secp256k1Decompress("secp256k1-decompress?", ClarityVersion::Clarity6, None),
 });
 
 ///
@@ -591,6 +593,17 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 ClarityCostFunction::GetBitcoinTxOutput,
                 &bitcoin::cost_input_get_bitcoin_tx_output,
             ),
+            Ed25519Verify => NativeFunction205(
+                "native_ed25519-verify",
+                NativeHandle::MoreArg(&crypto::native_ed25519_verify),
+                ClarityCostFunction::Ed25519verify,
+                &crypto::cost_input_ed25519_verify,
+            ),
+            Secp256k1Decompress => NativeFunction(
+                "native_secp256k1-decompress",
+                NativeHandle::SingleArg(&crypto::native_secp256k1_decompress),
+                ClarityCostFunction::Secp256k1decompress,
+            ),
         };
         Some(callable)
     } else {
@@ -915,6 +928,28 @@ fn special_contract_of(
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
     Ok(contract_principal)
+}
+
+/// Helper to coerce a Clarity buffer value into a fixed-size byte array.
+pub fn buff_to_array<const N: usize>(value: &Value) -> Option<[u8; N]> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == N => {
+            let mut out = [0u8; N];
+            out.copy_from_slice(data);
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// Helper to coerce a Clarity buffer value into a Vec<u8> if-and-only-if buff.len() <= max_size
+pub fn buff_to_vec(value: &Value, max_size: usize) -> Option<Vec<u8>> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= max_size => {
+            Some(data.clone())
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
