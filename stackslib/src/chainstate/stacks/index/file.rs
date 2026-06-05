@@ -58,7 +58,7 @@ fn header_read_parallelism() -> usize {
 /// `FileExt::seek_read` does mutate the cursor, so we save and restore it
 /// explicitly via the `Seek` impl on `&File`. This save/read/restore sequence
 /// is not atomic with other cursor-using operations on the same file handle.
-pub(crate) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+pub(super) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::FileExt;
@@ -247,7 +247,7 @@ impl TrieFile {
     ///
     /// Best-effort: requires the blob offset already in `trie_offsets`,
     /// else no-op. No-op for RAM-backed `TrieFile`s and non-Linux targets.
-    pub(crate) fn prefetch_node(&self, block_id: u32, in_block_ptr: u64) {
+    pub(super) fn prefetch_node(&self, block_id: u32, in_block_ptr: u64) {
         let TrieFile::Disk(disk) = self else {
             return;
         };
@@ -489,7 +489,7 @@ impl NodeHashReader for TrieFileNodeHashReader<'_> {
 
 impl TrieFile {
     /// Cache a known trie blob offset.
-    pub(crate) fn cache_trie_offset(&mut self, block_id: u32, offset: u64) {
+    pub(super) fn cache_trie_offset(&mut self, block_id: u32, offset: u64) {
         let offsets_cache = match self {
             TrieFile::RAM(ref mut ram) => &mut ram.trie_offsets,
             TrieFile::Disk(ref mut disk) => &mut disk.trie_offsets,
