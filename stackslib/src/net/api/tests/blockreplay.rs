@@ -203,8 +203,8 @@ fn test_try_make_response() {
             tip_tx.events.len()
         };
         assert_eq!(resp_tx.events.len(), expected_events);
-        assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
+        assert!(resp_tx.execution_stats.secs >= 0.0);
         assert!(!resp_tx.post_condition_aborted);
     }
 
@@ -256,8 +256,8 @@ fn replay_block_with_pc_failure() {
             );
 
             let contract_call = {
-                let contract_name = ContractName::from("test");
-                let function_name = ClarityName::from("test");
+                let contract_name = ContractName::from_literal("test");
+                let function_name = ClarityName::from_literal("test");
 
                 let payload = TransactionContractCall {
                     address: addr.clone(),
@@ -401,7 +401,6 @@ fn test_try_make_response_with_unsuccessful_transaction() {
             tip_tx.events.len()
         };
         assert_eq!(resp_tx.events.len(), expected_events);
-        assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
         assert!(!resp_tx.post_condition_aborted);
     }

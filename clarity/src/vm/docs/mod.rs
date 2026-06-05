@@ -3010,6 +3010,7 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ClarityName;
     use clarity_types::types::StandardPrincipalData;
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
     use stacks_common::types::StacksEpochId;
@@ -3062,6 +3063,7 @@ mod test {
         fn get_vrf_seed_for_block(
             &self,
             _bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             epoch: &StacksEpochId,
         ) -> Option<VRFSeed> {
             Some(
@@ -3099,6 +3101,7 @@ mod test {
         fn get_miner_address(
             &self,
             _id_bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<StacksAddress> {
             None
@@ -3106,6 +3109,7 @@ mod test {
         fn get_burnchain_tokens_spent_for_block(
             &self,
             id_bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(12345)
@@ -3114,6 +3118,7 @@ mod test {
         fn get_burnchain_tokens_spent_for_winning_block(
             &self,
             id_bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(2345)
@@ -3122,6 +3127,7 @@ mod test {
         fn get_tokens_earned_for_block(
             &self,
             id_bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(12000)
@@ -3227,9 +3233,12 @@ mod test {
             Some((
                 vec![
                     TupleData::from_data(vec![
-                        ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
                         (
-                            "hashbytes".into(),
+                            ClarityName::from_literal("version"),
+                            Value::buff_from(vec![0u8]).unwrap(),
+                        ),
+                        (
+                            ClarityName::from_literal("hashbytes"),
                             Value::buff_from(
                                 hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap(),
                             )
@@ -3238,9 +3247,12 @@ mod test {
                     ])
                     .unwrap(),
                     TupleData::from_data(vec![
-                        ("version".into(), Value::buff_from(vec![1u8]).unwrap()),
                         (
-                            "hashbytes".into(),
+                            ClarityName::from_literal("version"),
+                            Value::buff_from(vec![1u8]).unwrap(),
+                        ),
+                        (
+                            ClarityName::from_literal("hashbytes"),
                             Value::buff_from(
                                 hex_bytes("7c6775e20e3e938d2d7e9d79ac310108ba501ddb").unwrap(),
                             )

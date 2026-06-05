@@ -18,7 +18,6 @@ use std::{error, fmt};
 
 use clarity_types::Value;
 pub use clarity_types::errors::{ClarityTypeError, IncomparableError};
-use clarity_types::errors::{CostErrors, ParseError};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::FunctionIdentifier;
 #[cfg(feature = "rusqlite")]
@@ -30,6 +29,8 @@ pub use crate::vm::analysis::errors::{
     SyntaxBindingError, SyntaxBindingErrorType, check_argument_count, check_arguments_at_least,
     check_arguments_at_most,
 };
+use crate::vm::ast::errors::ParseError;
+use crate::vm::costs::CostErrors;
 
 pub type StackTrace = Vec<FunctionIdentifier>;
 

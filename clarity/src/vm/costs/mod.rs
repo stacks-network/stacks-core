@@ -17,8 +17,6 @@
 use std::collections::HashMap;
 use std::{cmp, fmt};
 
-pub use clarity_types::errors::CostErrors;
-pub use clarity_types::execution_cost::{CostOverflowingMath, ExecutionCost};
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
@@ -30,8 +28,11 @@ use stacks_common::types::StacksEpochId;
 
 use super::errors::{RuntimeCheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
-use crate::vm::contexts::{ContractContext, ExecutionState, GlobalContext, InvocationContext};
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
+use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
+pub use crate::vm::costs::errors::CostErrors;
+pub use crate::vm::costs::execution_cost::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::errors::VmExecutionError;
@@ -54,6 +55,8 @@ pub mod costs_2_testnet;
 pub mod costs_3;
 #[allow(unused_variables)]
 pub mod costs_4;
+pub mod errors;
+pub mod execution_cost;
 
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 
@@ -68,11 +71,26 @@ lazy_static! {
         #[allow(clippy::expect_used)]
         TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![
-                ("runtime".into(), TypeSignature::UIntType),
-                ("write_length".into(), TypeSignature::UIntType),
-                ("write_count".into(), TypeSignature::UIntType),
-                ("read_count".into(), TypeSignature::UIntType),
-                ("read_length".into(), TypeSignature::UIntType),
+                (
+                    ClarityName::from_literal("runtime"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("write_length"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("write_count"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("read_count"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("read_length"),
+                    TypeSignature::UIntType,
+                ),
             ])
             .expect("BUG: failed to construct type signature for cost tuple"),
         )
@@ -328,7 +346,7 @@ impl CostStateSummary {
 /// This struct holds all of the data required for non-free LimitedCostTracker instances
 pub struct TrackerData {
     cost_function_references: HashMap<&'static ClarityCostFunction, ClarityCostFunctionEvaluator>,
-    cost_contracts: HashMap<QualifiedContractIdentifier, ContractContext>,
+    cost_contracts: HashMap<QualifiedContractIdentifier, Contract>,
     contract_call_circuits:
         HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference>,
     total: ExecutionCost,
@@ -541,7 +559,7 @@ fn load_cost_functions(
                 "confirmed-proposals",
                 &Value::from(
                     TupleData::from_data(vec![(
-                        "confirmed-id".into(),
+                        ClarityName::from_literal("confirmed-id"),
                         Value::UInt(confirmed_proposal),
                     )])
                     .map_err(|_| {
@@ -836,6 +854,7 @@ impl LimitedCostTracker {
         Self::Free
     }
 
+    /// Return the default cost contract name for the provided epoch.
     pub fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String, CostErrors> {
         let result = match epoch_id {
             StacksEpochId::Epoch10 => {
@@ -951,9 +970,8 @@ impl TrackerData {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
             if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
-                let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
-                {
-                    Ok(contract) => contract.contract_context,
+                let contract = match clarity_db.get_contract(&cost_function_ref.contract_id) {
+                    Ok(contract) => contract,
                     Err(e) => {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
@@ -964,7 +982,7 @@ impl TrackerData {
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
+                cost_contracts.insert(cost_function_ref.contract_id.clone(), contract);
             }
 
             if cost_function_ref.contract_id == boot_costs_id {
@@ -979,8 +997,8 @@ impl TrackerData {
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
             if !cost_contracts.contains_key(&circuit_target.contract_id) {
-                let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
-                    Ok(contract) => contract.contract_context,
+                let contract = match clarity_db.get_contract(&circuit_target.contract_id) {
+                    Ok(contract) => contract,
                     Err(e) => {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %boot_costs_id.to_string(),
@@ -991,7 +1009,7 @@ impl TrackerData {
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
-                cost_contracts.insert(circuit_target.contract_id.clone(), contract_context);
+                cost_contracts.insert(circuit_target.contract_id.clone(), contract);
             }
         }
 
@@ -1118,7 +1136,12 @@ pub fn compute_cost(
         )))?;
 
     let mut program = vec![SymbolicExpression::atom(
-        cost_function_reference.function_name[..].into(),
+        cost_function_reference.function_name[..]
+            .to_string()
+            .try_into()
+            .map_err(|_| {
+                CostErrors::Expect("Cost function should be a valid Clarity name".to_string())
+            })?,
     )];
 
     for input_size in input_sizes.iter() {

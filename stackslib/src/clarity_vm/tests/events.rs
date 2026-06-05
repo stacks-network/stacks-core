@@ -20,7 +20,7 @@ use clarity::vm::tests::{
     execute, test_only_mainnet_to_chain_id, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use clarity::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
-use clarity::vm::{ClarityVersion, ContractContext};
+use clarity::vm::{ClarityName, ClarityVersion, ContractContext};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
@@ -326,7 +326,7 @@ fn test_emit_ft_transfer_ok() {
             let contract_identifier = QualifiedContractIdentifier::local("contract").unwrap();
             let asset_identifier = AssetIdentifier {
                 contract_identifier,
-                asset_name: "token".into(),
+                asset_name: ClarityName::from_literal("token"),
             };
             assert_eq!(data.asset_identifier, asset_identifier);
             assert_eq!(data.amount, 10u128);
@@ -376,7 +376,7 @@ fn test_emit_ft_mint_ok() {
             let contract_identifier = QualifiedContractIdentifier::local("contract").unwrap();
             let asset_identifier = AssetIdentifier {
                 contract_identifier,
-                asset_name: "token".into(),
+                asset_name: ClarityName::from_literal("token"),
             };
             assert_eq!(data.asset_identifier, asset_identifier);
             assert_eq!(data.amount, 10u128);
@@ -422,7 +422,7 @@ fn test_emit_nft_transfer_ok() {
             let contract_identifier = QualifiedContractIdentifier::local("contract").unwrap();
             let asset_identifier = AssetIdentifier {
                 contract_identifier,
-                asset_name: "token".into(),
+                asset_name: ClarityName::from_literal("token"),
             };
             assert_eq!(data.asset_identifier, asset_identifier);
             assert_eq!(data.value, execute("u1"));
@@ -472,7 +472,7 @@ fn test_emit_nft_mint_ok() {
             let contract_identifier = QualifiedContractIdentifier::local("contract").unwrap();
             let asset_identifier = AssetIdentifier {
                 contract_identifier,
-                asset_name: "token".into(),
+                asset_name: ClarityName::from_literal("token"),
             };
             assert_eq!(data.asset_identifier, asset_identifier);
             assert_eq!(data.value, execute("u1"));

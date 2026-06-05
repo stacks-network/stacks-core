@@ -21,7 +21,7 @@ use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
-use clarity::vm::{ClarityVersion, Value as ClarityValue};
+use clarity::vm::{ClarityVersion, ContractName, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
@@ -93,6 +93,12 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             trait_method_unknown_transitive_use_trait_ccall,
         ]),
         Unreachable(_) => Unreachable_ExpectLike, // This error is used in places where we expect the code to be unreachable, so if we hit it, it indicates a bug.
+        AbortedByExecutionHook(_) => Unreachable_Functionally(
+            "All consensus-critical code paths (block validation and transaction processing)
+             leave GlobalContext::abort_callback as None. The callback is only installed
+             by the miner during block assembly and by proposal validation, never during
+             normal block append or block replay, so this variant is unreachable in
+             consensus-critical execution."),
         ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => Tested(vec![
             runtime_check_error_kind_type_error_cdeploy,
@@ -133,6 +139,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             invalid_characters_detected_invalid_ascii,
             invalid_characters_detected_invalid_utf8
         ]),
+        RestrictAssetsMemoryExceeded(_, _) => todo!(),
         InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         },
@@ -583,9 +590,6 @@ fn runtime_check_error_kind_type_error_ccall() {
     )
     .with_clarity_version(ClarityVersion::Clarity1); // Only works with clarity 1 or 2
 
-    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
-    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
-
     contract_call_consensus_test!(
         contract_name: "value-too-large",
         contract_code: "
@@ -608,7 +612,7 @@ fn runtime_check_error_kind_type_error_ccall() {
         (get-shares u999 .pool))",
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: &deploy_epochs,
+        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
         call_epochs: &[StacksEpochId::Epoch33],
         setup_contracts: &[contract_1, contract_2],
     );
@@ -673,7 +677,7 @@ fn runtime_check_error_kind_contract_call_expect_name_cdeploy() {
             (define-constant default-target .contract-2)
 
             (contract-call? default-target ping)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
         setup_contracts: &[contract_1, contract_2],
     );
 }
@@ -715,7 +719,7 @@ fn runtime_check_error_kind_contract_call_expect_name_ccall() {
         function_args: &[],
         deploy_epochs: EPOCHS_TO_TEST,
         call_epochs: EPOCHS_TO_TEST,
-        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
         setup_contracts: &[contract_1, contract_2],
     );
 }
@@ -746,7 +750,7 @@ fn runtime_check_error_kind_union_type_value_error_cdeploy() {
 
             (define-constant trigger-error
                 (foo .contract-1))",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
         setup_contracts: &[contract_1],
     );
 }
@@ -780,7 +784,7 @@ fn runtime_check_error_kind_union_type_value_error_ccall() {
         function_name: "trigger-runtime-error",
         function_args: &[],
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
         setup_contracts: &[contract_1],
     );
 }
@@ -897,7 +901,7 @@ fn runtime_check_error_kind_expected_contract_principal_value_cdeploy() {
                 (as-contract?
                     ((with-ft tx-sender "token" u0))
                     true))"#,
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -917,7 +921,7 @@ fn runtime_check_error_kind_expected_contract_principal_value_ccall() {
         function_name: "trigger-error",
         function_args: &[],
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 
@@ -1035,12 +1039,7 @@ fn runtime_check_error_kind_could_not_determine_type_ccall() {
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch23],
         call_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
-        exclude_clarity_versions: &[
-            ClarityVersion::Clarity1,
-            ClarityVersion::Clarity3,
-            ClarityVersion::Clarity4,
-            ClarityVersion::Clarity5
-        ],
+        clarity_versions: &[ClarityVersion::Clarity2],
         setup_contracts: &[trait_contract, trait_impl],
     );
 }
@@ -1132,7 +1131,7 @@ fn bad_trait_implementation_mismatched_args() {
         function_args: &[ClarityValue::Principal(PrincipalData::Contract(
             QualifiedContractIdentifier::new(
                 FAUCET_ADDRESS.clone().into(),
-                "target-contract".into(),
+                ContractName::from_literal("target-contract"),
             )
         ))],
         setup_contracts: &[trait_definer, target_contract],
@@ -1154,7 +1153,7 @@ fn invalid_characters_detected_invalid_ascii() {
                 ;; (0x0d = string-ascii type, 0x00000003 = length 3, then invalid bytes)
                 (from-consensus-buff? (string-ascii 3) 0x0d00000003000102))
         ",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2), // Clarity1 does not support from-consensus-buff?
     );
 }
 
@@ -1173,7 +1172,7 @@ fn invalid_characters_detected_invalid_utf8() {
                 ;; (0x0e = string-utf8 type, 0x00000002 = length 2, then invalid UTF-8)
                 (from-consensus-buff? (string-utf8 2) 0x0e00000002fffe))
         ",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2), // Clarity1 does not support from-consensus-buff?
     );
 }
 
@@ -1189,7 +1188,7 @@ fn arithmetic_zero_n_log_n_cdeploy() {
         contract_name: "zero-n-log-n-deploy",
         contract_code: "(define-constant overflow (from-consensus-buff? int 0x))",
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
 
@@ -1210,7 +1209,7 @@ fn arithmetic_zero_n_log_n_ccall() {
         function_name: "trigger",
         function_args: &[],
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
 

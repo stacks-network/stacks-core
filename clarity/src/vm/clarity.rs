@@ -65,6 +65,8 @@ pub enum ClarityError {
         /// A human-readable explanation for aborting the transaction
         reason: String,
     },
+    /// Transaction exceeded the maximum execution time allowed.
+    ExecutionTimeExpired,
 }
 
 impl fmt::Display for ClarityError {
@@ -82,6 +84,7 @@ impl fmt::Display for ClarityError {
             ClarityError::Wasm(e) => fmt::Display::fmt(e, f),
             ClarityError::Interpreter(e) => fmt::Display::fmt(e, f),
             ClarityError::BadTransaction(s) => fmt::Display::fmt(s, f),
+            ClarityError::ExecutionTimeExpired => write!(f, "Execution time expired"),
         }
     }
 }
@@ -97,6 +100,7 @@ impl std::error::Error for ClarityError {
             ClarityError::Parse(ref e) => Some(e),
             ClarityError::Interpreter(ref e) => Some(e),
             ClarityError::BadTransaction(ref _s) => None,
+            ClarityError::ExecutionTimeExpired => None,
         }
     }
 }
@@ -111,9 +115,7 @@ impl From<StaticCheckError> for ClarityError {
             StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticCheckErrorKind::ExecutionTimeExpired => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
+            StaticCheckErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
             _ => ClarityError::StaticCheck(e),
         }
     }
@@ -160,7 +162,7 @@ impl From<VmExecutionError> for ClarityError {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired) => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+                ClarityError::ExecutionTimeExpired
             }
             _ => ClarityError::Interpreter(e),
         }
@@ -177,9 +179,7 @@ impl From<ParseError> for ClarityError {
             ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrorKind::ExecutionTimeExpired => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
+            ParseErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
             _ => ClarityError::Parse(e),
         }
     }

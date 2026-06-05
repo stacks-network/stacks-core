@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,8 +28,8 @@ use clarity::types::{PrivateKey, PublicKey};
 use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
-use clarity::vm::Value;
-use libsigner::VERSION_STRING;
+use clarity::vm::{ClarityName, Value};
+use libsigner::VERSION_ONLY_STRING;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -43,7 +43,7 @@ extern crate alloc;
 
 /// The CLI arguments for the stacks signer
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_version = VERSION_STRING.as_str())]
+#[command(author, version, about, long_version = VERSION_ONLY_STRING.as_str())]
 pub struct Cli {
     /// Subcommand action to take
     #[command(subcommand)]
@@ -184,8 +184,14 @@ impl VoteInfo {
     /// Get the digest to sign that authenticates this vote data
     fn digest(&self) -> Sha256Sum {
         let vote_message = TupleData::from_data(vec![
-            ("sip".into(), Value::UInt(self.sip.into())),
-            ("vote".into(), Value::UInt(self.vote.to_u8().into())),
+            (
+                ClarityName::from_literal("sip"),
+                Value::UInt(self.sip.into()),
+            ),
+            (
+                ClarityName::from_literal("vote"),
+                Value::UInt(self.vote.to_u8().into()),
+            ),
         ])
         .unwrap();
         let data_domain =

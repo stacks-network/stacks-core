@@ -37,6 +37,8 @@ pub mod deps_common {
     pub mod ctrlc;
 }
 
+pub mod alloc_tracker;
+
 #[cfg(not(feature = "wasm"))]
 pub mod bitvec;
 

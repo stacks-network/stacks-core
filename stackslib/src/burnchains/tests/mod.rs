@@ -45,26 +45,6 @@ use crate::util_lib::db::*;
 // same SPV header timestamps regardless of when they are instantiated.
 pub const BURNCHAIN_TEST_BLOCK_TIME: u64 = 1629739098;
 
-impl Txid {
-    pub fn from_test_data(
-        block_height: u64,
-        vtxindex: u32,
-        burn_header_hash: &BurnchainHeaderHash,
-        noise: u64,
-    ) -> Txid {
-        let mut bytes = vec![];
-        bytes.extend_from_slice(&block_height.to_be_bytes());
-        bytes.extend_from_slice(&vtxindex.to_be_bytes());
-        bytes.extend_from_slice(burn_header_hash.as_bytes());
-        bytes.extend_from_slice(&noise.to_be_bytes());
-        let h = DoubleSha256::from_data(&bytes[..]);
-        let mut hb = [0u8; 32];
-        hb.copy_from_slice(h.as_bytes());
-
-        Txid(hb)
-    }
-}
-
 impl BurnchainBlockHeader {
     pub fn from_parent_snapshot(
         parent_sn: &BlockSnapshot,

@@ -19,10 +19,10 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-use clarity_types::errors::{ParseError, ParseErrorKind};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
+use stacks_common::alloc_tracker::{AllocationCounter, thread_allocated};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 #[cfg(feature = "clarity-wasm")]
@@ -33,10 +33,12 @@ use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::call_function;
 use crate::vm::ast::ContractAST;
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostErrors, CostTracker, ExecutionCost, LimitedCostTracker, runtime_cost};
+use crate::vm::costs::execution_cost::ExecutionCost;
+use crate::vm::costs::{CostErrors, CostTracker, LimitedCostTracker, runtime_cost};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
@@ -279,6 +281,58 @@ pub enum ExecutionTimeTracker {
     },
 }
 
+/// Per-`eval` abort check. This operates alongside the execution time
+/// tracker.
+///
+/// The `None` variant is a no-op (the common case during
+/// block append/replay); other variants encode specific abort
+/// conditions and are dispatched statically via match.
+#[derive(Clone)]
+pub enum AbortCallback {
+    /// No abort check.
+    None,
+    /// Abort when net heap allocation since `baseline` exceeds
+    /// `limit_bytes` (per-thread).
+    ///
+    /// Used by miner block assembly and proposal validation.
+    MemAbort {
+        baseline: AllocationCounter,
+        limit_bytes: u64,
+    },
+    /// Test fixture: always aborts with the given reason.
+    #[cfg(test)]
+    AlwaysAbort(String),
+}
+
+impl AbortCallback {
+    /// Run the abort check.
+    ///
+    /// Returns:
+    ///   * `Ok(())` to continue
+    ///   * `Err(reason)` to abort execution with
+    ///     `RuntimeCheckErrorKind::AbortedByExecutionHook`.
+    pub fn check(&self) -> Result<(), String> {
+        match self {
+            Self::None => Ok(()),
+            Self::MemAbort {
+                baseline,
+                limit_bytes,
+            } => {
+                let net_alloc = thread_allocated().net_allocated(baseline);
+                if net_alloc > *limit_bytes {
+                    Err(format!(
+                        "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            #[cfg(test)]
+            Self::AlwaysAbort(reason) => Err(reason.clone()),
+        }
+    }
+}
+
 /** GlobalContext represents the outermost context for a single transaction's
      execution. It tracks an asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
@@ -300,6 +354,11 @@ pub struct GlobalContext<'a> {
     pub execution_time_tracker: ExecutionTimeTracker,
     #[cfg(feature = "clarity-wasm")]
     pub engine: Engine,
+    /// Callback checked at every `eval` call. When `check()` returns
+    /// `Err(reason)`, execution is aborted with
+    /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
+    /// default `AbortCallback::None` is a no-op.
+    pub abort_callback: AbortCallback,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -750,6 +809,11 @@ impl<'a> OwnedEnvironment<'a> {
         }
     }
 
+    /// Set an abort callback that will be checked at every `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.context.abort_callback = callback;
+    }
+
     pub fn get_exec_environment<'b>(
         &'b mut self,
         sender: Option<PrincipalData>,
@@ -1184,7 +1248,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
 
         let result = {
             let nested_view = InvocationContext {
-                contract_context: &contract.contract_context,
+                contract_context: &contract,
                 sender: invoke_ctx.sender.clone(),
                 caller: invoke_ctx.caller.clone(),
                 sponsor: invoke_ctx.sponsor.clone(),
@@ -1308,10 +1372,13 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
 
         self.global_context.add_memory(contract_size)?;
 
+        // NOTE: When contract caching is used, then the memory counters here will drop the
+        // `contract_size` after the contract execution has completed, but the contracts will remain
+        // in the cache (up to the cache eviction policy's limits).
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
-            let func = contract.contract_context.lookup_function(tx_name)
+            let func = contract.lookup_function(tx_name)
                 .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
             if !allow_private && !func.is_public() {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
@@ -1347,7 +1414,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
                 return Err(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&contract.contract_context), allow_private);
+            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&*contract), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1388,7 +1455,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
-            let func = contract.contract_context.lookup_function(tx_name)
+            let func = contract.lookup_function(tx_name)
                 .ok_or_else(|| { VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) )})?;
             if !func.is_public() {
                 return Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string())));
@@ -1400,7 +1467,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             }
             self.call_stack.insert(&func_identifier, true);
 
-            let res = self.execute_function_as_transaction(invoke_ctx,&func, args, Some(&contract.contract_context), false);
+            let res = self.execute_function_as_transaction(invoke_ctx,&func, args, Some(&contract), false);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1663,7 +1730,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
 
         match result {
             Ok(contract) => {
-                let data_size = contract.contract_context.data_size;
+                let data_size = contract.data_size;
                 self.global_context
                     .database
                     .insert_contract(&contract_identifier, contract)?;
@@ -1953,6 +2020,7 @@ impl<'a> GlobalContext<'a> {
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
             #[cfg(feature = "clarity-wasm")]
             engine,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -2055,7 +2123,7 @@ impl<'a> GlobalContext<'a> {
         &mut self,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
-        contract_context: ContractContext,
+        contract_context: &ContractContext,
         f: F,
     ) -> std::result::Result<A, E>
     where
@@ -2073,7 +2141,7 @@ impl<'a> GlobalContext<'a> {
                 call_stack: &mut callstack,
             };
             let invoke_ctx = InvocationContext {
-                contract_context: &contract_context,
+                contract_context,
                 sender: Some(sender.clone()),
                 caller: Some(sender),
                 sponsor,
@@ -2464,6 +2532,7 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ContractName;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::Hash160;
@@ -2487,11 +2556,11 @@ mod test {
 
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let _t2 = AssetIdentifier {
             contract_identifier: b_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
 
         let mut am1 = AssetMap::new();
@@ -2530,23 +2599,23 @@ mod test {
 
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t2 = AssetIdentifier {
             contract_identifier: b_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t3 = AssetIdentifier {
             contract_identifier: c_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t4 = AssetIdentifier {
             contract_identifier: d_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t5 = AssetIdentifier {
             contract_identifier: e_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
         let t6 = AssetIdentifier::STX();
         let t7 = AssetIdentifier::STX_burned();
@@ -2656,23 +2725,23 @@ mod test {
     fn test_canonicalize_contract_context() {
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".into(),
-            "my-trait".into(),
+            ContractName::from_literal("my-contract"),
+            ClarityName::from_literal("my-trait"),
         );
         let mut contract_context = ContractContext::new(
             QualifiedContractIdentifier::local("foo").unwrap(),
             ClarityVersion::Clarity1,
         );
         contract_context.functions.insert(
-            "foo".into(),
+            ClarityName::from_literal("foo"),
             DefinedFunction::new(
                 vec![(
-                    "a".into(),
+                    ClarityName::from_literal("a"),
                     TypeSignature::TraitReferenceType(trait_id.clone()),
                 )],
                 SymbolicExpression::atom_value(Value::Int(3)),
                 DefineType::Public,
-                &"foo".into(),
+                &ClarityName::from_literal("foo"),
                 "testing",
                 Some(TypeSignature::IntType),
             ),
@@ -2680,7 +2749,7 @@ mod test {
 
         let mut trait_functions = BTreeMap::new();
         trait_functions.insert(
-            "alpha".into(),
+            ClarityName::from_literal("alpha"),
             FunctionSignature {
                 args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
                 returns: TypeSignature::ResponseType(Box::new((
@@ -2691,7 +2760,7 @@ mod test {
         );
         contract_context
             .defined_traits
-            .insert("bar".into(), trait_functions);
+            .insert(ClarityName::from_literal("bar"), trait_functions);
 
         contract_context
             .canonicalize_types(&StacksEpochId::Epoch21)
@@ -2721,7 +2790,7 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: ClarityName::from_literal("a"),
         };
 
         let mut am1 = AssetMap::new();

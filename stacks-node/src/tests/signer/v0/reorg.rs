@@ -4545,11 +4545,13 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
         |config| {
-            config.miner.max_execution_time_secs = Some(0);
+            config.miner.max_execution_time_secs = 0;
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
         |config| {
-            config.miner.max_execution_time_secs = None;
+            // Effectively disable the timeout for miner 2 so it can complete the tx
+            // that miner 1 skipped due to the 0-second timeout.
+            config.miner.max_execution_time_secs = u64::MAX;
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
     );
@@ -4685,11 +4687,13 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
         |config| {
-            config.miner.max_execution_time_secs = Some(0);
+            config.miner.max_execution_time_secs = 0;
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
         |config| {
-            config.miner.max_execution_time_secs = None;
+            // Effectively disable the timeout for miner 2 so it can complete the tx
+            // that miner 1 skipped due to the 0-second timeout.
+            config.miner.max_execution_time_secs = u64::MAX;
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
     );
@@ -4744,8 +4748,16 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
 
+    // Submit to miner 2's RPC: miner 1 (with `max_execution_time_secs = 0`)
+    // marked the tx as problematic and blacklisted it locally. Miner 2 has no
+    // execution time limit, so its mempool will accept and mine it.
     let _ = miners
-        .send_and_mine_contract_publish(sender_nonce + 1, "dummy-contract", dummy_contract_src, 60)
+        .send_and_mine_contract_publish_to_node_2(
+            sender_nonce + 1,
+            "dummy-contract",
+            dummy_contract_src,
+            60,
+        )
         .expect("Failed to publish contract in a new block");
 
     verify_sortition_winner(&sortdb, &miner_pkh_2);

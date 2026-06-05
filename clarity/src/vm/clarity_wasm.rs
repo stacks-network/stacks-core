@@ -1,6 +1,5 @@
 use std::io::{Cursor, Write as _};
 
-use clarity_types::errors::RuntimeCheckErrorKind;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
@@ -23,7 +22,7 @@ use super::{CallStack, ClarityVersion, ContractName, ExecutionState, SymbolicExp
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::contexts::{GlobalContext, InvocationContext};
-use crate::vm::errors::{RuntimeError, VmExecutionError, WasmError};
+use crate::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, WasmError};
 use crate::vm::types::{
     BufferLength, SequenceSubtype, SequencedValue, StringSubtype, TypeSignature, TypeSignatureExt,
 };
@@ -2376,7 +2375,7 @@ fn link_define_variable_fn(
                     .data_mut()
                     .contract_context_mut()?
                     .meta_data_var
-                    .insert(ClarityName::from(name.as_str()), data_types);
+                    .insert(ClarityName::try_from(name)?, data_types);
 
                 Ok(())
             },
@@ -6048,27 +6047,33 @@ fn link_get_burn_block_info_pox_addrs_property_fn(
                     .database
                     .get_pox_payout_addrs_for_burnchain_height(height_value)?;
                 let addr_ty: TypeSignature = TupleTypeSignature::try_from(vec![
-                    ("hashbytes".into(), TypeSignature::BUFFER_32.clone()),
-                    ("version".into(), TypeSignature::BUFFER_1.clone()),
+                    (
+                        ClarityName::from_literal("hashbytes"),
+                        TypeSignature::BUFFER_32.clone(),
+                    ),
+                    (
+                        ClarityName::from_literal("version"),
+                        TypeSignature::BUFFER_1.clone(),
+                    ),
                 ])?
                 .into();
                 let addrs_ty = TypeSignature::list_of(addr_ty.clone(), 2)?;
                 let tuple_ty = TupleTypeSignature::try_from(vec![
-                    ("addrs".into(), addrs_ty),
-                    ("payout".into(), TypeSignature::UIntType),
+                    (ClarityName::from_literal("addrs"), addrs_ty),
+                    (ClarityName::from_literal("payout"), TypeSignature::UIntType),
                 ])?;
                 let value = match pox_addrs_and_payout {
                     Some((addrs, payout)) => {
                         Value::some(Value::Tuple(TupleData::from_data(vec![
                             (
-                                "addrs".into(),
+                                ClarityName::from_literal("addrs"),
                                 Value::list_with_type(
                                     &caller.data_mut().global_context.epoch_id,
                                     addrs.into_iter().map(Value::Tuple).collect(),
                                     ListTypeData::new_list(addr_ty, 2)?,
                                 )?,
                             ),
-                            ("payout".into(), Value::UInt(payout)),
+                            (ClarityName::from_literal("payout"), Value::UInt(payout)),
                         ])?))?
                     }
                     None => Value::none(),
@@ -6727,13 +6732,11 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .get_contract(contract_id)?;
 
                 // Retrieve the function we're calling
-                let function = contract
-                    .contract_context
-                    .functions
-                    .get(function_name.as_str())
-                    .ok_or(VmExecutionError::Wasm(WasmError::Expect(format!(
+                let function = &contract.functions.get(function_name.as_str()).ok_or(
+                    VmExecutionError::Wasm(WasmError::Expect(format!(
                         "Contract {contract_id} does not contain public function {function_name}"
-                    ))))?;
+                    ))),
+                )?;
 
                 let mut args = Vec::new();
                 let mut args_sizes = Vec::new();
@@ -6776,7 +6779,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 };
 
                 let invoke_ctx = InvocationContext {
-                    contract_context: &contract.contract_context,
+                    contract_context: &contract,
                     sender,
                     caller: Some(caller_contract),
                     sponsor,
@@ -6824,7 +6827,6 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                             .get_contract(&trait_id.contract_identifier)?
                     };
                     contract
-                        .contract_context
                         .defined_traits
                         .get(trait_id.name.as_str())
                         .and_then(|trait_functions| trait_functions.get(function_name.as_str()))
@@ -7598,7 +7600,7 @@ fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 // Get constant name from the memory.
                 let const_name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
-                let cname = ClarityName::from(const_name.as_str());
+                let cname = ClarityName::try_from(const_name.clone())?;
 
                 // Get constant value type.
                 let value_ty = caller
@@ -7654,7 +7656,7 @@ fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .data()
                     .contract_context()
                     .variables
-                    .get(&ClarityName::from(const_name.as_str()))
+                    .get(&ClarityName::try_from(const_name.clone())?)
                     .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
                         "Constant: {const_name}"
                     ))))?
@@ -8554,9 +8556,9 @@ mod tests {
         let offset = 14;
         let expected = Value::Tuple(
             TupleData::from_data(vec![
-                ("a".into(), Value::Int(42)),
-                ("b".into(), Value::Bool(false)),
-                ("another".into(), Value::UInt(1234)),
+                (ClarityName::from_literal("a"), Value::Int(42)),
+                (ClarityName::from_literal("b"), Value::Bool(false)),
+                (ClarityName::from_literal("another"), Value::UInt(1234)),
             ])
             .unwrap(),
         );
@@ -8601,12 +8603,12 @@ mod tests {
         let expected = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "a".into(),
+                    ClarityName::from_literal("a"),
                     Value::list_from(vec![Value::Int(42), Value::Int(-42)]).unwrap(),
                 ),
-                ("b".into(), Value::Bool(false)),
+                (ClarityName::from_literal("b"), Value::Bool(false)),
                 (
-                    "another".into(),
+                    ClarityName::from_literal("another"),
                     Value::string_ascii_from_bytes("this is a string!".as_bytes().to_vec())
                         .unwrap(),
                 ),
@@ -9233,9 +9235,9 @@ mod tests {
         let offset = 14;
         let expected = Value::Tuple(
             TupleData::from_data(vec![
-                ("a".into(), Value::Int(42)),
-                ("b".into(), Value::Bool(false)),
-                ("another".into(), Value::UInt(1234)),
+                (ClarityName::from_literal("a"), Value::Int(42)),
+                (ClarityName::from_literal("b"), Value::Bool(false)),
+                (ClarityName::from_literal("another"), Value::UInt(1234)),
             ])
             .unwrap(),
         );
@@ -9279,12 +9281,12 @@ mod tests {
         let expected = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "a".into(),
+                    ClarityName::from_literal("a"),
                     Value::list_from(vec![Value::Int(42), Value::Int(-42)]).unwrap(),
                 ),
-                ("b".into(), Value::Bool(false)),
+                (ClarityName::from_literal("b"), Value::Bool(false)),
                 (
-                    "another".into(),
+                    ClarityName::from_literal("another"),
                     Value::string_ascii_from_bytes("this is a string!".as_bytes().to_vec())
                         .unwrap(),
                 ),
@@ -9322,7 +9324,6 @@ mod tests {
 }
 
 mod error_mapping {
-    use clarity_types::errors::{CommonCheckErrorKind, RuntimeCheckErrorKind};
     use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
@@ -9330,7 +9331,10 @@ mod error_mapping {
         read_bytes_from_wasm, read_from_wasm_indirect, read_identifier_from_wasm,
         signature_from_string,
     };
-    use crate::vm::errors::{EarlyReturnError, RuntimeError, VmExecutionError, WasmError};
+    use crate::vm::errors::{
+        CommonCheckErrorKind, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError,
+        VmExecutionError, WasmError,
+    };
     use crate::vm::types::{OptionalData, ResponseData};
     use crate::vm::{ClarityVersion, Value};
 

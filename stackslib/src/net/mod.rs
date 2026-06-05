@@ -34,7 +34,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use {rusqlite, url};
+use url;
 
 use self::dns::*;
 use crate::burnchains::{Error as burnchain_error, Txid};
@@ -263,6 +263,19 @@ impl From<libstackerdb_error> for Error {
         match e {
             libstackerdb_error::SigningError(s) => Error::SigningError(s),
             libstackerdb_error::VerifyingError(s) => Error::VerifyingError(s),
+        }
+    }
+}
+
+impl From<stacks_codec::transaction::AuthError> for Error {
+    fn from(e: stacks_codec::transaction::AuthError) -> Self {
+        use stacks_codec::transaction::AuthError;
+        match e {
+            AuthError::SigningError(s) => Error::SigningError(s),
+            AuthError::VerifyingError(s) => Error::VerifyingError(s),
+            AuthError::IncompatibleSpendingConditionError => Error::SerializeError(
+                "Spending condition is incompatible with this operation".to_string(),
+            ),
         }
     }
 }
@@ -2250,14 +2263,14 @@ pub mod test {
     use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::*;
-    use rand::RngCore;
+    use mio;
+    use rand::{self, RngCore};
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
     use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::vrf::*;
-    use {mio, rand};
 
     use super::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -2668,7 +2681,7 @@ pub mod test {
                 org: 0,
                 allowed: 0,
                 denied: 0,
-                data_url: "".into(),
+                data_url: UrlString::from_literal(""),
                 setup_code: "".into(),
                 check_pox_invariants: None,
                 stacker_db_configs: vec![],

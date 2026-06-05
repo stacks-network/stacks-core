@@ -18,8 +18,7 @@ use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPA
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use regex::{Captures, Regex};
-use serde_json;
-use serde_json::json;
+use serde_json::{self, json};
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::secp256k1::MessageSignature;

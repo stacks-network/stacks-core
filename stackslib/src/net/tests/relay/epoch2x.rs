@@ -20,6 +20,8 @@ use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
+use pinny::tag;
+use proptest::prelude::*;
 use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -504,206 +506,6 @@ fn test_relay_outbound_peer_rankings() {
     assert_eq!(ranking.len(), 2);
     assert_eq!(*ranking.get(&nk_2).unwrap(), 4 - 2 + 1);
     assert_eq!(*ranking.get(&nk_3).unwrap(), 4 - 2 + 1);
-}
-
-#[test]
-#[ignore]
-fn test_get_blocks_and_microblocks_3_peers_push_available() {
-    with_timeout(600, || {
-        run_get_blocks_and_microblocks(
-            "test_get_blocks_and_microblocks_3_peers_push_available",
-            4200,
-            3,
-            |ref mut peer_configs| {
-                // build initial network topology.
-                assert_eq!(peer_configs.len(), 3);
-
-                // peer 0 produces the blocks
-                peer_configs[0].connection_opts.disable_chat_neighbors = true;
-
-                // peer 1 downloads the blocks from peer 0, and sends
-                // BlocksAvailable and MicroblocksAvailable messages to
-                // peer 2.
-                peer_configs[1].connection_opts.disable_chat_neighbors = true;
-
-                // peer 2 learns about the blocks and microblocks from peer 1's
-                // BlocksAvaiable and MicroblocksAvailable messages, but
-                // not from inv syncs.
-                peer_configs[2].connection_opts.disable_chat_neighbors = true;
-                peer_configs[2].connection_opts.disable_inv_sync = true;
-
-                // disable nat punches -- disconnect/reconnect
-                // clears inv state
-                peer_configs[0].connection_opts.disable_natpunch = true;
-                peer_configs[1].connection_opts.disable_natpunch = true;
-                peer_configs[2].connection_opts.disable_natpunch = true;
-
-                // do not push blocks and microblocks; only announce them
-                peer_configs[0].connection_opts.disable_block_push = true;
-                peer_configs[1].connection_opts.disable_block_push = true;
-                peer_configs[2].connection_opts.disable_block_push = true;
-
-                peer_configs[0].connection_opts.disable_microblock_push = true;
-                peer_configs[1].connection_opts.disable_microblock_push = true;
-                peer_configs[2].connection_opts.disable_microblock_push = true;
-
-                // generous timeouts
-                peer_configs[0].connection_opts.connect_timeout = 180;
-                peer_configs[1].connection_opts.connect_timeout = 180;
-                peer_configs[2].connection_opts.connect_timeout = 180;
-                peer_configs[0].connection_opts.timeout = 180;
-                peer_configs[1].connection_opts.timeout = 180;
-                peer_configs[2].connection_opts.timeout = 180;
-
-                let peer_0 = peer_configs[0].to_neighbor();
-                let peer_1 = peer_configs[1].to_neighbor();
-                let peer_2 = peer_configs[2].to_neighbor();
-
-                peer_configs[0].add_neighbor(&peer_1);
-                peer_configs[1].add_neighbor(&peer_0);
-                peer_configs[2].add_neighbor(&peer_1);
-            },
-            |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
-                    .unwrap();
-                let this_reward_cycle = peers[0]
-                    .config
-                    .chain_config
-                    .burnchain
-                    .block_height_to_reward_cycle(tip.block_height)
-                    .unwrap();
-
-                // build up block data to replicate
-                let mut block_data = vec![];
-                for _ in 0..num_blocks {
-                    // only produce blocks for a single reward
-                    // cycle, since pushing block/microblock
-                    // announcements in reward cycles the remote
-                    // peer doesn't know about won't work.
-                    let tip =
-                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
-                            .unwrap();
-                    if peers[0]
-                        .config
-                        .chain_config
-                        .burnchain
-                        .block_height_to_reward_cycle(tip.block_height)
-                        .unwrap()
-                        != this_reward_cycle
-                    {
-                        continue;
-                    }
-
-                    let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
-
-                    let (_, burn_header_hash, consensus_hash) =
-                        peers[0].next_burnchain_block(burn_ops.clone());
-                    peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
-
-                    for i in 1..peers.len() {
-                        peers[i].next_burnchain_block_raw(burn_ops.clone());
-                    }
-
-                    let sn =
-                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
-                            .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
-                }
-
-                assert_eq!(block_data.len(), 5);
-
-                block_data
-            },
-            |ref mut peers| {
-                // make sure peer 2's inv has an entry for peer 1, even
-                // though it's not doing an inv sync. This is required for the downloader to
-                // work, and for (Micro)BlocksAvailable messages to be accepted
-                let peer_1_nk = peers[1].to_neighbor().addr;
-                let peer_2_nk = peers[2].to_neighbor().addr;
-                let bc = peers[1].config.chain_config.burnchain.clone();
-                match peers[2].network.inv_state {
-                    Some(ref mut inv_state) => {
-                        if inv_state.get_stats(&peer_1_nk).is_none() {
-                            test_debug!("initialize inv statistics for peer 1 in peer 2");
-                            inv_state.add_peer(peer_1_nk.clone(), true);
-                            if let Some(ref mut stats) = inv_state.get_stats_mut(&peer_1_nk) {
-                                stats.scans = 1;
-                                stats.inv.merge_pox_inv(&bc, 0, 6, vec![0xff], false);
-                                stats.inv.merge_blocks_inv(
-                                    0,
-                                    30,
-                                    vec![0, 0, 0, 0, 0],
-                                    vec![0, 0, 0, 0, 0],
-                                    false,
-                                );
-                            } else {
-                                panic!("Unable to instantiate inv stats for {:?}", &peer_1_nk);
-                            }
-                        } else {
-                            test_debug!("peer 2 has inv state for peer 1");
-                        }
-                    }
-                    None => {
-                        test_debug!("No inv state for peer 1");
-                    }
-                }
-
-                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
-                    .unwrap();
-                let this_reward_cycle = peers[0]
-                    .config
-                    .chain_config
-                    .burnchain
-                    .block_height_to_reward_cycle(tip.block_height)
-                    .unwrap();
-
-                let peer_1_nk = peers[1].to_neighbor().addr;
-                match peers[2].network.inv_state {
-                    Some(ref mut inv_state) => {
-                        if inv_state.get_stats(&peer_1_nk).is_none() {
-                            test_debug!("initialize inv statistics for peer 1 in peer 2");
-                            inv_state.add_peer(peer_1_nk.clone(), true);
-
-                            inv_state
-                                .get_stats_mut(&peer_1_nk)
-                                .unwrap()
-                                .inv
-                                .num_reward_cycles = this_reward_cycle;
-                            inv_state.get_stats_mut(&peer_1_nk).unwrap().inv.pox_inv = vec![0x3f];
-                        } else {
-                            test_debug!("peer 2 has inv state for peer 1");
-                        }
-                    }
-                    None => {
-                        test_debug!("No inv state for peer 2");
-                    }
-                }
-
-                // peer 2 should never see a BlocksInv
-                // message.  That would imply it asked for an inv
-                for (_, convo) in peers[2].network.peers.iter() {
-                    assert_eq!(
-                        convo
-                            .stats
-                            .get_message_recv_count(StacksMessageID::BlocksInv),
-                        0
-                    );
-                }
-            },
-            |ref peer| {
-                // check peer health
-                // TODO
-                true
-            },
-            |_| true,
-        );
-    })
 }
 
 fn is_peer_connected(peer: &TestPeer, dest: &NeighborKey) -> bool {
@@ -3702,6 +3504,59 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
 
     peer.chain.sortdb = Some(sortdb);
     peer.chain.stacks_node = Some(node);
+}
+
+proptest! {
+    // Epoch34 removes the relay depth filter. The same over-limit contract
+    // must be rejected pre-Epoch34 but accepted in Epoch34. Depths 100+ avoid
+    // parser-version boundary ambiguity.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_relay_depth_filter_removed_at_epoch34(
+        depth in 100usize..300,
+        pre_epoch in prop::sample::select(
+            StacksEpochId::ALL
+                .iter()
+                .copied()
+                .filter(|e| *e >= StacksEpochId::Epoch20
+                    && *e < StacksEpochId::Epoch34)
+                .collect::<Vec<_>>()
+        )
+    ) {
+        let body = format!(
+            "{} 1 {}",
+            "(+ ".repeat(depth),
+            ")".repeat(depth)
+        );
+        let tx = make_contract_tx(
+            &StacksPrivateKey::random(),
+            0,
+            100,
+            "proptest-depth",
+            &body,
+        );
+
+        // Pre-Epoch34: rejected.
+        let result_pre = Relayer::static_check_problematic_relayed_tx(
+            false, pre_epoch, &tx,
+        );
+        prop_assert!(
+            result_pre.is_err(),
+            "{:?} should reject depth {} (limit {})",
+            pre_epoch, depth,
+            StackDepthLimits::for_epoch(pre_epoch).max_nesting_depth()
+        );
+
+        // Epoch34: accepted (filter removed).
+        let result_34 = Relayer::static_check_problematic_relayed_tx(
+            false, StacksEpochId::Epoch34, &tx,
+        );
+        prop_assert!(
+            result_34.is_ok(),
+            "Epoch34 should accept depth {}: {:?}",
+            depth, result_34.err()
+        );
+    }
 }
 
 // TODO: process bans

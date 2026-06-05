@@ -1,18 +1,25 @@
 # Changelog Fragments (Signer)
 
+The changelog helps developers keep track of the changes happening across the
+codebase. All PRs, other than those which are purely "chore" tasks (e.g.
+formatting, typos) should include a changelog entry. The changelog is NOT
+limited to only user-facing changes.
+
 Instead of editing `CHANGELOG.md` directly, each PR should add a **fragment
 file** to this directory. This avoids merge conflicts and makes the release
-process clearer.
+process clearer. Each fragment should be one or more complete sentences. Each
+line in the fragment file will become a separate bullet point in the final
+CHANGELOG.md.
 
 ## How to add a changelog entry
 
-1. Create a file in this directory named: `<PR#>-<short-description>.<category>`
+1. Create a file in this directory named: `<short-description>.<category>`
 
    **Categories:** `added`, `changed`, `fixed`, `removed`
 
    **Examples:**
-   - `6800-track-pending-blocks.added`
-   - `6801-db-schema-v19.changed`
+   - `track-pending-blocks.added`
+   - `db-schema-v19.changed`
 
 2. Write the changelog entry text in the file (one or more lines of markdown):
 
@@ -21,7 +28,7 @@ process clearer.
    ```
 
 3. That's it. The fragment will be assembled into `stacks-signer/CHANGELOG.md`
-   at release time using `contrib/assemble-changelog.sh`.
+   at release time using `contrib/tools/assemble-changelog.sh`.
 
 ## Notes
 

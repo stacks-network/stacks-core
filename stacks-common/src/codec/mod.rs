@@ -17,10 +17,7 @@
 use std::io::{Read, Write};
 use std::{error, fmt, io, mem};
 
-// use crate::types::chainstate::MARFValue;
 use crate::types::chainstate::SortitionId;
-use crate::util::hash::HASH160_ENCODED_SIZE;
-use crate::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 #[macro_use]
 pub mod macros;
@@ -101,9 +98,6 @@ pub trait StacksMessageCodec {
         bytes
     }
 }
-
-// impl_byte_array_message_codec!(MARFValue, 40);
-impl_byte_array_message_codec!(SortitionId, 32);
 
 impl_stacks_message_codec_for_int!(u8; [0; 1]);
 impl_stacks_message_codec_for_int!(u16; [0; 2]);
@@ -209,6 +203,24 @@ pub fn read_next_exact<R: Read, T: StacksMessageCodec + Sized>(
     read_next_vec::<T, R>(fd, num_items, 0)
 }
 
+impl<A, B> StacksMessageCodec for (A, B)
+where
+    A: StacksMessageCodec + Sized,
+    B: StacksMessageCodec + Sized,
+{
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
+        write_next(fd, &self.0)?;
+        write_next(fd, &self.1)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<(A, B), Error> {
+        let a: A = read_next(fd)?;
+        let b: B = read_next(fd)?;
+        Ok((a, b))
+    }
+}
+
 impl<T> StacksMessageCodec for Vec<T>
 where
     T: StacksMessageCodec + Sized,
@@ -253,3 +265,9 @@ pub const RELAY_DATA_ENCODED_SIZE: u32 = NEIGHBOR_ADDRESS_ENCODED_SIZE + 4;
 
 pub const NEIGHBOR_ADDRESS_ENCODED_SIZE: u32 = PEER_ADDRESS_ENCODED_SIZE + 2 + HASH160_ENCODED_SIZE;
 pub const PEER_ADDRESS_ENCODED_SIZE: u32 = 16;
+
+pub const HASH160_ENCODED_SIZE: u32 = 20;
+pub const MESSAGE_SIGNATURE_ENCODED_SIZE: u32 = 65;
+
+// Stacks-specific codec impls that depend on types defined in this crate.
+impl_byte_array_message_codec!(SortitionId, 32);

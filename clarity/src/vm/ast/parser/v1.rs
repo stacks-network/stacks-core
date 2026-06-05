@@ -733,6 +733,7 @@ pub fn parse_no_stack_limit(input: &str) -> ParseResult<Vec<PreSymbolicExpressio
 
 #[cfg(test)]
 mod test {
+    use clarity_types::{ClarityName, ContractName};
     use stacks_common::types::StacksEpochId;
 
     use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
@@ -745,13 +746,13 @@ mod test {
     }
 
     fn make_atom(
-        x: &str,
+        x: &'static str,
         start_line: u32,
         start_column: u32,
         end_line: u32,
         end_column: u32,
     ) -> PreSymbolicExpression {
-        let mut e = PreSymbolicExpression::atom(x.into());
+        let mut e = PreSymbolicExpression::atom(ClarityName::from_literal(x));
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -951,7 +952,7 @@ mod test {
             Some(Value::Principal(PrincipalData::Contract(identifier))) => {
                 format!("{}", PrincipalData::Standard(identifier.issuer.clone()))
                     == "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR"
-                    && identifier.name == "contract-a".into()
+                    && identifier.name == ContractName::from_literal("contract-a")
             }
             _ => false,
         });
@@ -964,7 +965,7 @@ mod test {
             Some(Value::Principal(PrincipalData::Contract(identifier))) => {
                 format!("{}", PrincipalData::Standard(identifier.issuer.clone()))
                     == "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR"
-                    && identifier.name == "a".into()
+                    && identifier.name == ContractName::from_literal("a")
             }
             _ => false,
         });
@@ -977,7 +978,7 @@ mod test {
 
         let x1 = &parsed[0];
         assert!(match x1.match_trait_reference() {
-            Some(trait_name) => *trait_name == "a".into(),
+            Some(trait_name) => *trait_name == ClarityName::from_literal("a"),
             _ => false,
         });
     }
@@ -995,8 +996,8 @@ mod test {
                     "{}",
                     PrincipalData::Standard(data.contract_identifier.issuer.clone())
                 ) == "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR"
-                    && data.contract_identifier.name == "my-contract".into()
-                    && data.name == "my-trait".into()
+                    && data.contract_identifier.name == ContractName::from_literal("my-contract")
+                    && data.name == ClarityName::from_literal("my-trait")
             }
             _ => false,
         });
@@ -1010,7 +1011,8 @@ mod test {
         let x1 = &parsed[0];
         assert!(match &x1.pre_expr {
             PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, field_name) => {
-                *contract_name == "my-contract".into() && *field_name == "my-trait".into()
+                *contract_name == ContractName::from_literal("my-contract")
+                    && *field_name == ClarityName::from_literal("my-trait")
             }
             _ => false,
         });

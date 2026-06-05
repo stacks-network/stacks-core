@@ -1209,7 +1209,7 @@ impl RelayerThread {
             .get_active()
             .ok_or_else(|| NakamotoNodeError::NoVRFKeyActive)?;
 
-        let commit = LeaderBlockCommitOp {
+        let mut commit = LeaderBlockCommitOp {
             // NOTE: to be filled in
             treatment: vec![],
             // NOTE: PoX sunset has been disabled prior to taking effect
@@ -1242,6 +1242,43 @@ impl RelayerThread {
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
         };
+
+        if std::env::var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL") == Ok("1".to_string()) {
+            info!("Zeroing parent_vtxindex");
+            commit.parent_vtxindex = 0;
+        }
+
+        if std::env::var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL") == Ok("1".to_string()) {
+            info!("Altering parent_block_ptr");
+            commit.parent_block_ptr = commit.parent_block_ptr.saturating_sub(1);
+
+            let parent_tenure_tip_id = highest_tenure_start_block_header
+                .anchored_header
+                .as_stacks_nakamoto()
+                .unwrap()
+                .parent_block_id
+                .clone();
+
+            let parent_tenure_tip =
+                NakamotoChainState::get_block_header(&self.chainstate.db(), &parent_tenure_tip_id)
+                    .unwrap()
+                    .unwrap();
+
+            let parent_tip_vrf_proof = NakamotoChainState::get_block_vrf_proof(
+                &mut self.chainstate.index_conn(),
+                &stacks_tip,
+                &parent_tenure_tip.consensus_hash,
+            )
+            .unwrap()
+            .unwrap();
+
+            info!(
+                "Altering new_seed from {} to {}",
+                &commit.new_seed,
+                &VRFSeed::from_proof(&parent_tip_vrf_proof)
+            );
+            commit.new_seed = VRFSeed::from_proof(&parent_tip_vrf_proof);
+        }
 
         Ok(LastCommit::new(
             commit,
