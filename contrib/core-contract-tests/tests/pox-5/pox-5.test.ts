@@ -771,6 +771,36 @@ test('stx-only rewards split across signers by staked ustx', () => {
   );
 });
 
+test('cannot register for bond with more STX than they have unlocked', () => {
+  const signer = testSigner.identifier;
+  registerSigner();
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: 100000n, staker: alice }],
+    }),
+    deployer,
+  );
+
+  const registerErr = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: 100_000_000_000_001n,
+      btcLockup: err(100000n),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(registerErr.value).toBe(pox5Errors.ERR_INSUFFICIENT_STX);
+});
+
 /**
  * Distributes one bond period's rewards across two signer managers by their
  * bonded sats share, with residual rewards flowing through the STX waterfall.

@@ -621,6 +621,8 @@
             (current-total-staked (get-total-shares-staked-for-cycle first-reward-cycle
                 (some bond-index)
             ))
+            (stx-balance (stx-account tx-sender))
+            (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
         (try! (verify-not-prepare-phase))
         ;; Verify that they're sending enough STX
@@ -654,7 +656,15 @@
             ERR_ALREADY_STAKED
         )
 
+        ;; Cannot stake more sats than their allowance
         (asserts! (<= sats-total allowance) ERR_TOO_MUCH_SATS)
+
+        ;; Must have enough unlocked STX
+        ;;  the Staker must have sufficient total funds (locked + unlocked).
+        ;;  On a roll-over the staker's STX is still locked by the ending
+        ;;  bond; the node-side handler extends that lock to the new amount,
+        ;;  so checking only `stx-get-balance` (unlocked) would falsely fail.
+        (asserts! (>= total-balance amount-ustx) ERR_INSUFFICIENT_STX)
 
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
