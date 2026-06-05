@@ -998,7 +998,6 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value_bond0,
         ],
     );
@@ -1185,7 +1184,6 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value_bond6,
         ],
     );
@@ -3358,7 +3356,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     .unwrap();
     assert_eq!(
         announce_result, expected_announce_result,
-        "announce-l1-early-exit should return (ok {{ released bond details }}) when called by the early-unlock admin with the matching signer-manager"
+        "announce-l1-early-exit should return (ok {{ released bond details }}) when called by the staker themselves with the matching signer-manager"
     );
 
     let claim_rewards_tx = make_contract_call(

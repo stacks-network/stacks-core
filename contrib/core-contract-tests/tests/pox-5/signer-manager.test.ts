@@ -282,7 +282,6 @@ test('bond rewards remain claimable from old signer after staker changes signers
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSats, staker: alice }],
     }),
     deployer,
