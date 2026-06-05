@@ -668,8 +668,12 @@
         (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
             amount-ustx sats-total true signer-calldata
         ))
-        ;; The signer must have been registered already
-        (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
+
+        ;; The signer must have been registered already, and its signer key
+        ;; grant must still be active.
+        (try! (verify-signer-key-grant signer
+            (unwrap! (get-signer-info signer) ERR_SIGNER_NOT_FOUND)
+        ))
 
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
@@ -806,8 +810,11 @@
             signer-calldata
         ))
 
-        ;; The signer must have been registered already
-        (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
+        ;; The signer must have been registered already, and its signer key
+        ;; grant must still be active.
+        (try! (verify-signer-key-grant signer
+            (unwrap! (get-signer-info signer) ERR_SIGNER_NOT_FOUND)
+        ))
 
         ;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (check-caller-allowed))
@@ -933,13 +940,18 @@
             (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
         (try! (verify-not-prepare-phase))
+
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles amount-ustx u0 false
             signer-calldata
         ))
-        ;; The signer must have been registered already
-        (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
+
+        ;; The signer must have been registered already, and its signer key
+        ;; grant must still be active.
+        (try! (verify-signer-key-grant signer
+            (unwrap! (get-signer-info signer) ERR_SIGNER_NOT_FOUND)
+        ))
 
         ;; the start-burn-ht must result in the next reward cycle, do not allow stakers
         ;;  to "post-date" their transaction
@@ -1042,17 +1054,23 @@
             (num-cycles (- unlock-cycle current-cycle u1))
         )
         (try! (verify-not-prepare-phase))
+
         ;; Validate that the staker can join this signer
         (try! (contract-call? signer-manager validate-stake! tx-sender
             first-reward-cycle num-cycles new-lock-amount u0 false
             signer-calldata
         ))
+
         ;; Validate that `old-signer-manager` matches their current signer
         (asserts! (is-eq old-signer (get signer current-info))
             ERR_INVALID_OLD_SIGNER_MANAGER
         )
-        ;; The signer must have been registered already
-        (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
+
+        ;; The signer must have been registered already, and its signer key
+        ;; grant must still be active.
+        (try! (verify-signer-key-grant signer
+            (unwrap! (get-signer-info signer) ERR_SIGNER_NOT_FOUND)
+        ))
 
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
@@ -2339,6 +2357,13 @@
 
 ;; Revoke a signer key grant for a staker. Only the Stacks principal
 ;; associated with `signer-key` can call this function.
+;;
+;; Revoking has two effects: it prevents future `register-signer` calls for
+;; this (signer-key, signer-manager) pair, and, because every new-stake
+;; entry point re-checks the grant via `verify-signer-key-grant`, it also
+;; disables an already-registered manager from accepting any new stake. The
+;; manager's `signers` entry is left intact so its outstanding obligations can
+;; still be settled; those positions wind down as their bonds/stakes expire.
 ;;
 ;; Returns a boolean indicating whether the signer key grant existed.
 (define-public (revoke-signer-grant
