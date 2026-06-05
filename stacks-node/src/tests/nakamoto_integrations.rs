@@ -8492,7 +8492,7 @@ fn check_block_info() {
     let last_stacks_block_height = info.stacks_tip_height as u128;
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -8515,7 +8515,7 @@ fn check_block_info() {
     let cur_stacks_block_height = info.stacks_tip_height as u128;
     let cur_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let cur_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &cur_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &cur_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -8623,11 +8623,13 @@ fn check_block_info() {
     let info = get_chain_info(&naka_conf);
     let interim_stacks_block_height = info.stacks_tip_height as u128;
     let interim_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
-    let interim_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &interim_stacks_tip)
-            .unwrap()
-            .unwrap()
-            .into();
+    let interim_tenure_height: u128 = NakamotoChainState::get_coinbase_height_at(
+        &mut chainstate.index_conn(),
+        &interim_stacks_tip,
+    )
+    .unwrap()
+    .unwrap()
+    .into();
     let interim_tenure_start_block_id = NakamotoChainState::get_tenure_start_block_header(
         &mut chainstate.index_conn(),
         &interim_stacks_tip,
@@ -9138,7 +9140,7 @@ fn check_block_info_rewards() {
     let last_nakamoto_block = last_stacks_block_height;
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_nakamoto_block_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -9158,7 +9160,7 @@ fn check_block_info_rewards() {
 
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
