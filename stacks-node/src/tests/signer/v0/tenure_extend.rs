@@ -3550,15 +3550,18 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         "------------------------- Wait for Signers to Mark Incoming Miner as Invalid -------------------------"
     );
 
+    // Drop stale stackerdb chunks BEFORE sleeping so the wait below can only be
+    // satisfied by state machine updates broadcast at or after the switch-back.
+    // The short-timeout signers switch back to miner 1 and broadcast DURING the
+    // sleep (their proposal timeout is shorter than the sleep by design), so
+    // clearing after the sleep would erase those broadcasts; with no new burn
+    // block or proposal to trigger re-broadcasts, the wait could then never
+    // reach the 70% threshold. Clearing here still drops the stale pre-switch
+    // chunks that would otherwise satisfy the wait immediately.
+    test_observer::clear();
+
     // Sleep to let the short-timeout signers mark the incoming miner as invalid
     std::thread::sleep(tenure_extend_wait_timeout.add(Duration::from_secs(1)));
-
-    // Drop stackerdb chunks accumulated before the switch-back so the wait below
-    // can only be satisfied by state machine updates broadcast after the
-    // short-timeout signers switch back to miner 1. Without this, stale chunks
-    // from before the switch-back satisfy the wait immediately and we race
-    // against the new broadcasts propagating to peers' GlobalStateEvaluators.
-    test_observer::clear();
 
     // What we expect the short-timeout signers to broadcast after switching back
     // to miner 1, and which signer set must reach 70% agreement for the wait to
