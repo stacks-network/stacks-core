@@ -230,6 +230,11 @@ impl BurnchainStateTransition {
         })
         .epoch_id;
 
+        // NOTE: deliberately uses the classic prepare-phase predicate, which includes the mod 0
+        // block. Under PoX-5 the mod 0 block is the first reward-paying block of the cycle, so
+        // the cycle-start sortition runs with a 1-block window (as it always has). This is a
+        // known, intentional asymmetry: the mod 0 sortition confers no privileged power, and
+        // widening its window would be a consensus change at every cycle boundary.
         if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
             && !burnchain
                 .pox_constants
