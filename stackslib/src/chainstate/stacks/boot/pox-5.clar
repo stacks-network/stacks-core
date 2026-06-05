@@ -384,8 +384,30 @@
 ))
 
 (define-private (validate-no-reentrancy)
+    (ok (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL))
+)
+
+;; A helper function to call the `validate-stake!` function on a given
+;; signer-manager, wrapping the reentrancy guard logic around it. This should
+;; be the only way that `validate-stake!` is called in the contract, since it
+;; is critical to ensure that reentrancy attacks are prevented.
+(define-private (signer-manager-validate-stake
+        (signer-manager <signer-manager-trait>)
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
     (begin
         (asserts! (not (var-get signer-manager-call-active)) ERR_REENTRANT_CALL)
+        (var-set signer-manager-call-active true)
+        (try! (contract-call? signer-manager validate-stake! staker first-index
+            num-indexes amount-ustx amount-sats is-bond signer-calldata
+        ))
+        (var-set signer-manager-call-active false)
         (ok true)
     )
 )
@@ -398,7 +420,6 @@
         (begin-pox5-reward-cycle uint)
     )
     (begin
-        (try! (validate-no-reentrancy))
         (unwrap-panic (if (var-get configured)
             (err false)
             (ok true)
@@ -683,12 +704,10 @@
         (asserts! (>= total-balance amount-ustx) ERR_INSUFFICIENT_STX)
 
         ;; Validate that the staker can join this signer
-        (try! (validate-no-reentrancy))
-        (var-set signer-manager-call-active true)
-        (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
+        (try! (signer-manager-validate-stake signer-manager tx-sender bond-index u1
             amount-ustx sats-total true signer-calldata
         ))
-        (var-set signer-manager-call-active false)
+
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
@@ -822,13 +841,11 @@
         (asserts! (not (is-eq signer old-signer)) ERR_UPDATE_BOND_SAME_SIGNER)
 
         ;; Validate that the staker can join this signer
-        (try! (validate-no-reentrancy))
-        (var-set signer-manager-call-active true)
-        (try! (contract-call? signer-manager validate-stake! tx-sender bond-index u1
+        (try! (signer-manager-validate-stake signer-manager tx-sender bond-index u1
             (get amount-ustx current-membership) amount-sats true
             signer-calldata
         ))
-        (var-set signer-manager-call-active false)
+
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
@@ -910,7 +927,9 @@
         (signer-key (buff 33))
     )
     (let ((signer (contract-of signer-manager)))
+        ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
+
         ;; Because signers can have members register at any time,
         ;; they must use signer key grants instead of per-tx
         ;; authorizations.
@@ -957,14 +976,13 @@
             (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
         (try! (verify-not-prepare-phase))
+
         ;; Validate that the staker can join this signer
-        (try! (validate-no-reentrancy))
-        (var-set signer-manager-call-active true)
-        (try! (contract-call? signer-manager validate-stake! tx-sender
+        (try! (signer-manager-validate-stake signer-manager tx-sender
             first-reward-cycle num-cycles amount-ustx u0 false
             signer-calldata
         ))
-        (var-set signer-manager-call-active false)
+
         ;; The signer must have been registered already
         (asserts! (is-some (get-signer-info signer)) ERR_SIGNER_NOT_FOUND)
 
@@ -1069,14 +1087,13 @@
             (num-cycles (- unlock-cycle current-cycle u1))
         )
         (try! (verify-not-prepare-phase))
+
         ;; Validate that the staker can join this signer
-        (try! (validate-no-reentrancy))
-        (var-set signer-manager-call-active true)
-        (try! (contract-call? signer-manager validate-stake! tx-sender
+        (try! (signer-manager-validate-stake signer-manager tx-sender
             first-reward-cycle num-cycles new-lock-amount u0 false
             signer-calldata
         ))
-        (var-set signer-manager-call-active false)
+
         ;; Validate that `old-signer-manager` matches their current signer
         (asserts! (is-eq old-signer (get signer current-info))
             ERR_INVALID_OLD_SIGNER_MANAGER
@@ -1143,7 +1160,9 @@
             (current-total-shares (get-total-shares-staked-for-cycle true bond-index))
             (current-shares (get-signer-shares-staked-for-cycle signer true bond-index))
         )
+        ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
+
         ;; Only the early unlock admin for this bond period can call this function.
         ;; Calling via other contracts is not allowed.
         (asserts!
@@ -1825,7 +1844,9 @@
             (cur-reserve (var-get reserve-balance))
             (accrued-rewards (get-new-rewards))
         )
+        ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
+
         ;; verify that we are able to compute here
         (asserts! (> calculation-height last-calc)
             ERR_DISTRIBUTION_ALREADY_COMPUTED
@@ -2058,7 +2079,9 @@
             (total-rewards (+ (get earned stx-rewards) bond-totals))
             (prev-accrued-rewards (var-get last-accounted-rewards-only))
         )
+        ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
+
         (asserts! (> total-rewards u0) ERR_NO_CLAIMABLE_REWARDS)
         (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
@@ -2095,6 +2118,8 @@
         (index uint)
     )
     (let ((rewards-info (settle-staker-rewards contract-caller is-bond index staker)))
+        ;; ensure no reentrancy through signer-manager trait calls
+        (try! (validate-no-reentrancy))
         (map-set staker-unclaimed-rewards-for-cycle {
             is-bond: is-bond,
             index: index,
@@ -2327,7 +2352,9 @@
         (signer-sig (buff 65))
     )
     (begin
+        ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
+
         (asserts!
             (is-none (map-get? used-signer-key-grants {
                 signer-key: signer-key,
@@ -2386,7 +2413,9 @@
         (signer-key (buff 33))
     )
     (begin
+        ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
+
         ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
         (asserts!
             (is-eq
@@ -2912,7 +2941,9 @@
 ;; Revoke contract-caller authorization to call stacking methods
 (define-public (disallow-contract-caller (caller principal))
     (begin
+        ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
+
         (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
         (ok (map-delete allowance-contract-callers {
             sender: tx-sender,
@@ -2930,7 +2961,9 @@
         (until-burn-ht (optional uint))
     )
     (begin
+        ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
+
         (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
         (ok (map-set allowance-contract-callers {
             sender: tx-sender,
