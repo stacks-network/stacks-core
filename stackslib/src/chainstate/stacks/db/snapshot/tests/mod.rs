@@ -27,7 +27,8 @@ use super::common::{unclassified_tables, MARF_INFRA_TABLES};
 use super::index::{copy_index_side_tables, index_copy_specs, COPIED_TABLES};
 use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, CHAINSTATE_VERSION};
-use crate::chainstate::stacks::index::{Error, MARFValue};
+use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue};
 
 /// Create a source `index.sqlite`
 fn create_source_db(path: &std::path::Path) -> Connection {
@@ -36,32 +37,44 @@ fn create_source_db(path: &std::path::Path) -> Connection {
     Connection::open(path).unwrap()
 }
 
-/// Render a short test identifier as the lowercase-hex form of its UTF-8 bytes.
-///
-/// The production squash code stores 32-byte `index_block_hash` values as
-/// BLOB in `marf_squashed_blocks.block_hash` and joins them against the
-/// chainstate `index_block_hash` TEXT columns via `lower(hex(block_hash))`.
-/// Tests use short labels like `"ibh1"` for readability; this helper converts
-/// such a label to the matching lower-hex TEXT so a label-based fixture is
-/// consistent with what production code expects to see in the chainstate
-/// tables.
-fn hex_id(label: &str) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(label.len() * 2);
-    for b in label.as_bytes() {
-        write!(out, "{:02x}", b).unwrap();
-    }
-    out
+/// A deterministic 32-byte [`StacksBlockId`] for a short test label: the
+/// label's UTF-8 bytes, zero-padded. Tests use labels like `"ibh1"` for
+/// readability; the canonical-set fixtures store these ids as BLOBs (as
+/// the squash engine does) and the chainstate fixtures store [`hex_id`]
+/// TEXT, so the two sides join.
+fn label_block_id(label: &str) -> StacksBlockId {
+    let mut bytes = [0u8; 32];
+    let len = label.len().min(32);
+    bytes[..len].copy_from_slice(&label.as_bytes()[..len]);
+    StacksBlockId(bytes)
 }
 
-/// Create a destination DB that simulates a squashed MARF by adding the
-/// `marf_squashed_blocks` table with the given canonical block-hash labels.
-///
-/// Each label is stored as raw UTF-8 bytes in the BLOB column, so
-/// `lower(hex(block_hash))` returns the same TEXT that test chainstate
-/// inserts write via [`hex_id`]. Returns the connection for
+/// The lowercase-hex form of [`label_block_id`], for the chainstate
+/// `index_block_hash` TEXT columns.
+fn hex_id(label: &str) -> String {
+    label_block_id(label).to_hex()
+}
+
+/// The single leaf value committed into every fixture MARF (see
+/// [`create_dest_db_with_canonical_blocks`]): a src `__fork_storage` row
+/// keyed by its hex is canonical and gets copied.
+const FIXTURE_LEAF: MARFValue = MARFValue([0xff; 40]);
+
+/// Create a destination DB that simulates a squashed MARF: a real (tiny)
+/// MARF with one confirmed block and one [`FIXTURE_LEAF`] leaf, plus the
+/// `marf_squashed_blocks` table holding the given canonical block labels
+/// (stored as [`label_block_id`] BLOBs). Returns the connection for
 /// [`append_canonical_block`].
 fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&str]) -> Connection {
+    let mut marf =
+        MARF::<StacksBlockId>::from_path(path.to_str().unwrap(), MARFOpenOpts::default())
+            .expect("MARF init failed");
+    marf.begin(&StacksBlockId::sentinel(), &label_block_id("marf_tip"))
+        .unwrap();
+    marf.insert("test::leaf", FIXTURE_LEAF).unwrap();
+    marf.commit().unwrap();
+    drop(marf);
+
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS marf_squashed_blocks (
@@ -72,10 +85,11 @@ fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&st
     )
     .unwrap();
     for (h, bh) in canonical.iter().enumerate() {
+        let id = label_block_id(bh);
         conn.execute(
             "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
-             VALUES (?1, ?2, X'00')",
-            params![h as i64, bh.as_bytes()],
+             VALUES (?1, ?2, ?3)",
+            params![h as i64, id.0.as_slice(), [0u8; 32].as_slice()],
         )
         .unwrap();
     }
@@ -87,8 +101,8 @@ fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&st
 fn append_canonical_block(conn: &Connection, block_hash: &[u8]) {
     conn.execute(
         "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
-         VALUES ((SELECT COALESCE(MAX(height) + 1, 0) FROM marf_squashed_blocks), ?1, X'00')",
-        params![block_hash],
+         VALUES ((SELECT COALESCE(MAX(height) + 1, 0) FROM marf_squashed_blocks), ?1, ?2)",
+        params![block_hash, [0u8; 32].as_slice()],
     )
     .unwrap();
 }
@@ -224,6 +238,13 @@ fn test_copy_index_side_tables_round_trip() {
         params![hex_id("ibh1")],
     )
     .unwrap();
+    // One canonical __fork_storage row (referenced by the fixture MARF's
+    // leaf) and one fork-only row that must be excluded.
+    conn.execute(
+        "INSERT INTO __fork_storage (value_hash, value) VALUES (?1, 'vleaf'), (?2, 'vfork')",
+        params![FIXTURE_LEAF.to_hex(), MARFValue([0xee; 40]).to_hex()],
+    )
+    .unwrap();
     drop(conn);
 
     // Destination: canonical blocks are ibh1, ibh2 and the Nakamoto tip -
@@ -243,6 +264,10 @@ fn test_copy_index_side_tables_round_trip() {
     assert_eq!(stats.payments_rows, 2, "2 canonical payments");
     assert_eq!(stats.transactions_rows, 2, "2 canonical transactions");
     assert_eq!(
+        stats.fork_storage_rows, 1,
+        "only the leaf-referenced __fork_storage row"
+    );
+    assert_eq!(
         stats.nakamoto_tenure_events_rows, 1,
         "1 tenure event for ibh1"
     );
@@ -256,6 +281,16 @@ fn test_copy_index_side_tables_round_trip() {
     assert_eq!(count("SELECT COUNT(*) FROM payments"), 2);
     assert_eq!(count("SELECT COUNT(*) FROM transactions"), 2);
     assert_eq!(count("SELECT COUNT(*) FROM nakamoto_tenure_events"), 1);
+    // The leaf-referenced __fork_storage row landed; the fork-only one didn't.
+    let fork_storage_keys: i64 = dst
+        .query_row(
+            "SELECT COUNT(*) FROM __fork_storage WHERE value_hash = ?1",
+            params![FIXTURE_LEAF.to_hex()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(fork_storage_keys, 1);
+    assert_eq!(count("SELECT COUNT(*) FROM __fork_storage"), 1);
     // Schema-only compatibility table is present but empty.
     assert_eq!(
         count("SELECT COUNT(*) FROM invalidated_microblocks_data"),
@@ -595,7 +630,7 @@ fn test_epoch2_tip_above_nakamoto_block_is_corruption() {
     let dst_path = dir.path().join("dst.sqlite");
     let dst = create_dest_db_with_canonical_blocks(&dst_path, &[]);
     append_canonical_block(&dst, &nak_id.0);
-    append_canonical_block(&dst, "ibh2".as_bytes());
+    append_canonical_block(&dst, &label_block_id("ibh2").0);
     drop(dst);
 
     let err = copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 5)

@@ -57,36 +57,11 @@ pub fn collect_leaf_value_hashes<T: MarfTrieId>(
 }
 
 /// Walk the squashed MARF at `dst_path` read-only and return its canonical
-/// leaf value hashes (for [`copy_canonical_fork_storage`]).
-///
-/// Returns an empty set when `dst_path` has no `marf_data`. That only happens
-/// under `cfg!(test)`, where dsts are built without a real trie; in production
-/// a missing `marf_data` is treated as corruption.
+/// leaf value hashes (for [`copy_canonical_fork_storage`]). A dst that was
+/// not squashed into a MARF fails at open.
 pub fn collect_canonical_leaf_hashes<T: MarfTrieId>(
     dst_path: &str,
 ) -> Result<HashSet<MARFValue>, Error> {
-    let probe = Connection::open_with_flags(
-        dst_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(Error::SQLError)?;
-    let has_marf_data: bool = probe
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='marf_data'",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(Error::SQLError)?;
-    drop(probe);
-    if !has_marf_data {
-        if cfg!(test) {
-            return Ok(HashSet::new());
-        }
-        return Err(Error::CorruptionError(format!(
-            "squashed dst `{dst_path}` is missing `marf_data`; the MARF was not squashed into it"
-        )));
-    }
-
     let t = Instant::now();
     let (_tip, leaf_hashes) = collect_leaf_value_hashes::<T>(dst_path)?;
     info!(

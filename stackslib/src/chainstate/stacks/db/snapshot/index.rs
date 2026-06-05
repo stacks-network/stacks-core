@@ -16,7 +16,7 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
@@ -24,7 +24,7 @@ use super::common::{
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
-use crate::chainstate::stacks::index::{Error, MARFValue};
+use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
 
 /// Tables copied (with canonical-filtered content) into the squashed index DB.
 pub(crate) const COPIED_TABLES: &[&str] = &[
@@ -79,26 +79,32 @@ pub struct IndexSideTableStats {
     pub fork_storage_rows: u64,
 }
 
-/// Populate a temp table with the canonical block hashes from the squashed MARF's
-/// `marf_squashed_blocks` metadata. The MARF stores `block_hash` as raw BLOB
-/// bytes, but chainstate `index_block_hash` columns are lowercase hex TEXT,
-/// so we convert via `lower(hex(block_hash))` to keep the joins compatible.
-fn populate_canonical_blocks(conn: &Connection) -> Result<(), Error> {
-    conn.execute_batch("CREATE TEMP TABLE canonical_blocks (index_block_hash TEXT PRIMARY KEY)")
-        .map_err(Error::SQLError)?;
-    let inserted = conn
-        .execute(
-            "INSERT OR IGNORE INTO canonical_blocks (index_block_hash) \
-             SELECT lower(hex(block_hash)) FROM marf_squashed_blocks",
-            [],
-        )
-        .map_err(Error::SQLError)?;
-    if inserted == 0 {
+/// Populate a temp table with the canonical block hashes from the squashed
+/// MARF's metadata. Chainstate `index_block_hash` columns are lowercase
+/// hex TEXT, so each id is inserted as its hex form to keep the joins
+/// compatible. Returns the canonical tip (the highest squashed block).
+fn populate_canonical_blocks(conn: &Connection) -> Result<StacksBlockId, Error> {
+    let canonical = trie_sql::bulk_read_squashed_blocks::<StacksBlockId>(conn)?;
+    let Some((_, tip, _)) = canonical.last() else {
         return Err(Error::CorruptionError(
             "marf_squashed_blocks is empty; post-squash dst must have at least one canonical block"
                 .into(),
         ));
+    };
+    let tip = tip.clone();
+
+    conn.execute_batch("CREATE TEMP TABLE canonical_blocks (index_block_hash TEXT PRIMARY KEY)")
+        .map_err(Error::SQLError)?;
+    let mut insert = conn
+        .prepare("INSERT INTO canonical_blocks (index_block_hash) VALUES (?1)")
+        .map_err(Error::SQLError)?;
+    for (_, block_hash, _) in &canonical {
+        insert
+            .execute(params![block_hash])
+            .map_err(Error::SQLError)?;
     }
+    drop(insert);
+
     // Source-completeness: every canonical block must exist in src as an
     // epoch-2 or Nakamoto header. A canonical ID not in src is corruption.
     let orphans: i64 = conn
@@ -116,33 +122,30 @@ fn populate_canonical_blocks(conn: &Connection) -> Result<(), Error> {
              src.block_headers and src.nakamoto_block_headers"
         )));
     }
-    Ok(())
+    Ok(tip)
 }
 
-/// Derive the `signer_stats` cutoff: the reward cycle of the canonical tip
-/// (the highest `marf_squashed_blocks` entry), which must be a Nakamoto block.
+/// Derive the `signer_stats` cutoff: the reward cycle of the canonical tip,
+/// which must be a Nakamoto block.
 ///
 /// Tip-cycle counters are copied as stored in src; `signer_stats` is a
 /// non-consensus RPC counter (`/v3/signer`), so counts that include
 /// post-boundary signatures are acceptable.
 fn derive_max_reward_cycle(
     conn: &Connection,
+    canonical_tip: &StacksBlockId,
     first_burn_height: u64,
     reward_cycle_len: u64,
 ) -> Result<u64, Error> {
     let tip_burn_height: u64 = conn
         .query_row(
-            "SELECT nh.burn_header_height \
-             FROM (SELECT block_hash FROM marf_squashed_blocks \
-                   ORDER BY height DESC LIMIT 1) tip \
-             LEFT JOIN src.nakamoto_block_headers nh \
-               ON nh.index_block_hash = lower(hex(tip.block_hash))",
-            [],
-            |row| row.get::<_, Option<i64>>(0),
+            "SELECT burn_header_height FROM src.nakamoto_block_headers \
+             WHERE index_block_hash = ?1",
+            params![canonical_tip],
+            |row| row.get::<_, i64>(0),
         )
         .optional()
         .map_err(Error::SQLError)?
-        .flatten()
         .map(|h| h as u64)
         .ok_or_else(|| {
             Error::CorruptionError(
@@ -281,13 +284,14 @@ fn copy_tables_inner(
 
     // Build canonical block set from squash metadata.
     let t = Instant::now();
-    populate_canonical_blocks(conn)?;
+    let canonical_tip = populate_canonical_blocks(conn)?;
     info!(
         "[index] canonical_blocks temp table built in {:?}",
         t.elapsed()
     );
 
-    let max_reward_cycle = derive_max_reward_cycle(conn, first_burn_height, reward_cycle_len)?;
+    let max_reward_cycle =
+        derive_max_reward_cycle(conn, &canonical_tip, first_burn_height, reward_cycle_len)?;
 
     let specs = index_copy_specs(max_reward_cycle);
     let results = execute_copy_specs(conn, &specs)?;
