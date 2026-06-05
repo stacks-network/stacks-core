@@ -1628,8 +1628,8 @@ pub enum TxOutcome {
 }
 
 impl ContractTxReport {
-    /// Whether this tx was executed without aborting.
-    /// (independent of whether the returned Response is ok or err)
+    /// Whether this tx was executed successfully (no vm errors).
+    /// Independent of whether the returned Response is ok or err.
     pub fn executed(&self) -> bool {
         matches!(&self.outcome, TxOutcome::BlockAccepted(t) if t.vm_error.is_none())
     }
@@ -1647,8 +1647,8 @@ impl ContractTxReport {
             )
     }
 
-    /// Whether this tx aborted at the VM level in an accepted block.
-    pub fn aborted(&self) -> bool {
+    /// Whether this tx failed at the VM level in an accepted block.
+    pub fn failed(&self) -> bool {
         matches!(&self.outcome, TxOutcome::BlockAccepted(t) if t.vm_error.is_some())
     }
 
