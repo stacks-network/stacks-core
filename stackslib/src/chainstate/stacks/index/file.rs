@@ -36,8 +36,13 @@ use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieI
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::sql_vacuum;
 
-/// Page granularity assumed for prefetch hints.
-const PREFETCH_PAGE_SIZE: u64 = 4096;
+/// Span and alignment of a node prefetch hint, matching the common Linux
+/// 4 KiB page: hinting exactly one aligned page benchmarked faster than any
+/// wider or unaligned window (the kernel rounds unaligned hints outward to
+/// page boundaries, typically doubling the readahead). Kernels with larger
+/// pages round this up to the one page containing the node start, so the
+/// value is a floor, not a page-size assumption.
+const PREFETCH_SPAN: u64 = 4096;
 
 /// Reader-thread count for the bulk header fan-out.
 ///
@@ -238,7 +243,7 @@ impl TrieFile {
         Ok(())
     }
 
-    /// Async-prefetch the single 4 KiB page containing the start offset of
+    /// Async-prefetch the 4 KiB-aligned span containing the start offset of
     /// the node at `(block_id, in_block_ptr)`. The largest node (Node256)
     /// is ~3.7 KiB and could spill into the next page, but nodes that wide
     /// are rare: hinting exactly one aligned page benchmarks faster than
@@ -257,8 +262,8 @@ impl TrieFile {
         let Some(abs) = blob_offset.checked_add(in_block_ptr) else {
             return;
         };
-        let page_aligned = abs & !(PREFETCH_PAGE_SIZE - 1);
-        let _ = prefetch_file_range(&disk.fd, page_aligned, PREFETCH_PAGE_SIZE);
+        let page_aligned = abs & !(PREFETCH_SPAN - 1);
+        let _ = prefetch_file_range(&disk.fd, page_aligned, PREFETCH_SPAN);
     }
 
     /// Get a copy of the path to this TrieFile.
