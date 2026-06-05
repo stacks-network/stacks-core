@@ -276,6 +276,52 @@ test('claiming staker rewards transfers net rewards after fees', () => {
   });
 });
 
+test('admins can withdraw accrued fees', () => {
+  const rewards = 2000n;
+  const grossPerStaker = stxRewards(rewards) / 2n;
+  const fee = grossPerStaker / 10n;
+
+  txOk(signerManager.updateFees(1000n), deployer);
+  setupTwoStakers();
+  calculateAndClaimSignerRewards(
+    rewards,
+    rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
+  );
+  txOk(signerManager.claimStakerRewards(alice, false, 1n), alice);
+  txOk(signerManager.claimStakerRewards(bob, false, 1n), bob);
+
+  expect(rov(signerManager.getEarnedFees())).toBe(fee * 2n);
+  expect(
+    txErr(
+      signerManager.withdrawFees({ amount: 1n, recipient: deployer }),
+      alice,
+    ).value,
+  ).toBe(signerManagerErrors.ERR_UNAUTHORIZED_ADMIN);
+  expect(
+    txErr(
+      signerManager.withdrawFees({ amount: fee * 2n + 1n, recipient: deployer }),
+      deployer,
+    ).value,
+  ).toBe(signerManagerErrors.ERR_INSUFFICIENT_FEES);
+
+  const deployerBalance = sbtcBalance(deployer);
+  const withdraw = txOk(
+    signerManager.withdrawFees({ amount: fee, recipient: deployer }),
+    deployer,
+  );
+  const [transfer] = filterEvents(
+    withdraw.events,
+    CoreNodeEventType.FtTransferEvent,
+  );
+
+  expect(withdraw.value).toBe(fee);
+  expect(transfer.data.sender).toBe(signerManager.identifier);
+  expect(transfer.data.recipient).toBe(deployer);
+  expect(transfer.data.amount).toBe(fee.toString());
+  expect(sbtcBalance(deployer)).toBe(deployerBalance + fee);
+  expect(rov(signerManager.getEarnedFees())).toBe(fee);
+});
+
 test('claiming staker rewards with pox-addr initiates a withdrawal request', () => {
   const rewards = 2000n;
   const grossPerStaker = stxRewards(rewards) / 2n;

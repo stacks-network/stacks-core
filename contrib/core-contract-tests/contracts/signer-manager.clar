@@ -26,6 +26,8 @@
 ;; A pox-5 callback (validate-stake!, checkpoint-staker) was invoked by a
 ;; principal other than the pox-5 contract.
 (define-constant ERR_UNAUTHORIZED_CALLER (err u1006))
+;; Attempted to withdraw more fees than have accrued.
+(define-constant ERR_INSUFFICIENT_FEES (err u1007))
 
 ;; Used to prevent fractional multiplication errors
 ;; during reward calculations
@@ -395,6 +397,27 @@
         })
         (var-set fees-bips new-fees)
         (ok true)
+    )
+)
+
+;; Withdraw accrued admin fees from staker rewards.
+(define-public (withdraw-fees
+        (amount uint)
+        (recipient principal)
+    )
+    (let ((fees (var-get earned-fees)))
+        (try! (authorize-admin))
+        (asserts! (<= amount fees) ERR_INSUFFICIENT_FEES)
+        (var-set earned-fees (- fees amount))
+        (try! (as-contract?
+            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                "sbtc-token" amount
+            ))
+            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                transfer amount tx-sender recipient none
+            ))
+        ))
+        (ok amount)
     )
 )
 
