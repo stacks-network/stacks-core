@@ -92,8 +92,8 @@ fn append_canonical_block(conn: &Connection, block_hash: &[u8]) {
     .unwrap();
 }
 
-/// Insert a block_headers row at the given height.
-fn insert_block_header(conn: &Connection, height: u32, suffix: &str) {
+/// Insert an epoch-2 `block_headers` row at the given height.
+fn insert_epoch2_block_header(conn: &Connection, height: u32, suffix: &str) {
     conn.execute(
             "INSERT INTO block_headers (version, total_burn, total_work, proof, parent_block, \
              parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, \
@@ -203,7 +203,7 @@ fn test_copy_index_side_tables_round_trip() {
 
     // Insert test data at heights 1, 2, 3.
     for (h, s) in [(1, "1"), (2, "2"), (3, "3")] {
-        insert_block_header(&conn, h, s);
+        insert_epoch2_block_header(&conn, h, s);
         insert_payment(&conn, h, s);
         insert_transaction(&conn, h as i64, &format!("ibh{s}"));
     }
@@ -281,10 +281,10 @@ fn test_copy_excludes_fork_rows() {
     let conn = create_source_db(&src_path);
 
     // Insert canonical block at height 1.
-    insert_block_header(&conn, 1, "1_canonical");
+    insert_epoch2_block_header(&conn, 1, "1_canonical");
     insert_transaction(&conn, 1, "ibh1_canonical");
     // Insert fork block at same height 1 (different consensus hash).
-    insert_block_header(&conn, 1, "1_fork");
+    insert_epoch2_block_header(&conn, 1, "1_fork");
     insert_transaction(&conn, 2, "ibh1_fork");
     // Canonical Nakamoto tip (squashing requires an epoch 3.4+ src).
     let tip_id = insert_nakamoto_header(&conn, "tip", 2);
@@ -365,8 +365,9 @@ fn test_copy_canonical_fork_storage_filters_by_leaf_hash() {
         .unwrap();
     assert_eq!(forked, 0, "non-canonical fork row excluded");
 }
-/// Insert a staging_blocks row with the given `processed`/`orphaned` flags.
-fn insert_staging_block(
+/// Insert an epoch-2 `staging_blocks` row with the given
+/// `processed`/`orphaned` flags.
+fn insert_epoch2_staging_block(
     conn: &Connection,
     suffix: &str,
     height: u32,
@@ -408,15 +409,15 @@ fn test_staging_blocks_populated_for_canonical() {
 
     // Insert block headers and staging blocks at heights 1, 2, 3.
     for (h, s) in [(1, "1"), (2, "2"), (3, "3")] {
-        insert_block_header(&conn, h, s);
-        insert_staging_block(&conn, s, h, 1, 0);
+        insert_epoch2_block_header(&conn, h, s);
+        insert_epoch2_staging_block(&conn, s, h, 1, 0);
     }
     // Canonical blocks excluded by the semantic predicate:
     // ibh4 is unprocessed, ibh5 is orphaned.
-    insert_block_header(&conn, 4, "4");
-    insert_staging_block(&conn, "4", 4, 0, 0);
-    insert_block_header(&conn, 5, "5");
-    insert_staging_block(&conn, "5", 5, 1, 1);
+    insert_epoch2_block_header(&conn, 4, "4");
+    insert_epoch2_staging_block(&conn, "4", 4, 0, 0);
+    insert_epoch2_block_header(&conn, 5, "5");
+    insert_epoch2_staging_block(&conn, "5", 5, 1, 1);
     // Canonical Nakamoto tip (squashing requires an epoch 3.4+ src).
     let tip_id = insert_nakamoto_header(&conn, "tip", 6);
     drop(conn);
@@ -471,7 +472,7 @@ fn test_signer_stats_copied_through_tip_reward_cycle() {
     let conn = create_source_db(&src_path);
 
     // Canonical chain: epoch2 block ibh1, Nakamoto tip at burn height 10.
-    insert_block_header(&conn, 1, "1");
+    insert_epoch2_block_header(&conn, 1, "1");
     let tip_id = insert_nakamoto_header(&conn, "tip", 10);
     conn.execute(
         "INSERT INTO signer_stats (public_key, reward_cycle, blocks_signed) \
@@ -513,7 +514,7 @@ fn test_src_without_nakamoto_blocks_is_corruption() {
     let src_path = dir.path().join("src.sqlite");
     let conn = create_source_db(&src_path);
 
-    insert_block_header(&conn, 1, "1");
+    insert_epoch2_block_header(&conn, 1, "1");
     drop(conn);
 
     let dst_path = dir.path().join("dst.sqlite");
@@ -534,7 +535,7 @@ fn test_epoch2_tip_above_nakamoto_block_is_corruption() {
     let conn = create_source_db(&src_path);
 
     let nak_id = insert_nakamoto_header(&conn, "nak", 10);
-    insert_block_header(&conn, 2, "2");
+    insert_epoch2_block_header(&conn, 2, "2");
     drop(conn);
 
     // ibh2 (epoch-2) sits above the Nakamoto block in the canonical set.
@@ -556,7 +557,7 @@ fn test_empty_canonical_set_is_corruption() {
     let dir = tempdir().unwrap();
     let src_path = dir.path().join("src.sqlite");
     let conn = create_source_db(&src_path);
-    insert_block_header(&conn, 1, "1");
+    insert_epoch2_block_header(&conn, 1, "1");
     drop(conn);
 
     let dst_path = dir.path().join("dst.sqlite");
@@ -574,7 +575,7 @@ fn test_canonical_block_missing_from_src_is_corruption() {
     let dir = tempdir().unwrap();
     let src_path = dir.path().join("src.sqlite");
     let conn = create_source_db(&src_path);
-    insert_block_header(&conn, 1, "1");
+    insert_epoch2_block_header(&conn, 1, "1");
     drop(conn);
 
     let dst_path = dir.path().join("dst.sqlite");
