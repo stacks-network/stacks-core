@@ -2395,6 +2395,10 @@ fn sbtc_balance(conf: &Config, deployer: &StacksAddress, who: &StacksAddress) ->
 ///   - Lock 1_000_000 sats into the canonical timelock P2WSH and
 ///     `register-for-bond` with the lockup tuple.
 ///
+/// The test also accrues rewards, announces the early exit, claims signer
+/// rewards, then asserts that `announce-l1-early-exit` did not erase the
+/// staker's already accrued rewards.
+///
 /// All four sweep attempts run *before* `unlock-burn-height`, so the
 /// OP_IF branch is unavailable (its CLTV would fail) and the only path
 /// the BTC can move is the OP_ELSE branch:
@@ -2430,7 +2434,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let call_fee = 400;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + call_fee * 10,
+        deploy_fee + call_fee * 20 + 10_000,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -2642,6 +2646,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     // 1) `setup-bond` from the configured bond admin, with the
     // CHECKSIGVERIFY-terminated early-unlock subscript.
     const BTC_LOCKUP_SATS: u128 = 1_000_000;
+    const BOND_TARGET_RATE: u128 = 1_000;
     let allowlist_entry = clarity::vm::Value::Tuple(
         clarity::vm::types::TupleData::from_data(vec![
             (
@@ -2666,7 +2671,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "setup-bond",
         &[
             Value::UInt(0),
-            Value::UInt(1000),
+            Value::UInt(BOND_TARGET_RATE),
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(early_unlock_bytes.clone()).unwrap(),
@@ -2890,6 +2895,104 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
             && get_tx_result_by_id(&register_txid).is_some())
     })
     .expect("Timed out waiting for register-for-bond (L1 early-unlock test)");
+
+    // Accrue one bond reward distribution before the early-exit announcement.
+    // `announce-l1-early-exit` settles staker rewards before zeroing L1 bond
+    // shares; after that, claim signer rewards and check the staker's already
+    // accrued rewards survived that state transition.
+    let reward_mint = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sbtc_deployer_addr,
+        "sbtc-token",
+        "mint",
+        &[
+            Value::UInt(2_000),
+            Value::Principal(PrincipalData::Contract(pox_5_id.clone())),
+        ],
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &reward_mint);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for reward mint");
+
+    let bond_start_cycle = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "bond-period-to-reward-cycle",
+        vec![&Value::UInt(bond_index)],
+    )
+    .result()
+    .expect("bond-period-to-reward-cycle failed")
+    .expect_u128()
+    .expect("bond-period-to-reward-cycle should return a uint");
+    let reward_cycle = bond_start_cycle + 1;
+    let reward_cycle_start = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "reward-cycle-to-burn-height",
+        vec![&Value::UInt(reward_cycle)],
+    )
+    .result()
+    .expect("reward-cycle-to-burn-height failed")
+    .expect_u128()
+    .expect("reward-cycle-to-burn-height should return a uint");
+    let next_reward_cycle_start = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "reward-cycle-to-burn-height",
+        vec![&Value::UInt(reward_cycle + 1)],
+    )
+    .result()
+    .expect("reward-cycle-to-burn-height failed")
+    .expect_u128()
+    .expect("reward-cycle-to-burn-height should return a uint");
+    let reward_calculation_burn_height =
+        reward_cycle_start + ((next_reward_cycle_start - reward_cycle_start) / 2);
+    while u128::from(get_chain_info_result(&naka_conf).unwrap().burn_block_height)
+        < reward_calculation_burn_height
+    {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+            .unwrap();
+    }
+
+    test_observer::clear();
+    let calculate_rewards_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        2_000,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "calculate-rewards",
+        &[Value::cons_list_unsanitized(vec![Value::UInt(bond_index)]).unwrap()],
+    );
+    sender_nonce += 1;
+    let calculate_rewards_txid = submit_tx(&http_origin, &calculate_rewards_tx);
+    wait_for(60, || {
+        Ok(
+            get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce
+                && get_tx_result_by_id(&calculate_rewards_txid).is_some(),
+        )
+    })
+    .expect("Timed out waiting for calculate-rewards");
+    assert!(
+        get_tx_result_by_id(&calculate_rewards_txid)
+            .expect("missing calculate-rewards result")
+            .expect_result()
+            .expect("calculate-rewards should return a response")
+            .is_ok(),
+        "calculate-rewards should succeed"
+    );
+
+    let expected_staker_rewards = ((BTC_LOCKUP_SATS * BOND_TARGET_RATE) / 10_000) / 50;
 
     // 4) Sweep the lockup via the OP_ELSE (early-exit) branch *before*
     //    `unlock-burn-height`. OP_IF's CLTV will reject any spend
@@ -3182,6 +3285,57 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     assert_eq!(
         announce_result, expected_announce_result,
         "announce-l1-early-exit should return (ok {{ released bond details }}) when called by the early-unlock admin with the matching signer-manager"
+    );
+
+    let claim_rewards_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        "test-signer",
+        "claim-rewards",
+        &[
+            Value::cons_list_unsanitized(vec![Value::UInt(bond_index)]).unwrap(),
+            Value::UInt(reward_cycle),
+        ],
+    );
+    sender_nonce += 1;
+    let claim_rewards_txid = submit_tx(&http_origin, &claim_rewards_tx);
+    wait_for(60, || {
+        Ok(
+            get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce
+                && get_tx_result_by_id(&claim_rewards_txid).is_some(),
+        )
+    })
+    .expect("Timed out waiting for claim-rewards");
+    assert!(
+        get_tx_result_by_id(&claim_rewards_txid)
+            .expect("missing claim-rewards result")
+            .expect_result()
+            .expect("claim-rewards should return a response")
+            .is_ok(),
+        "claim-rewards should succeed"
+    );
+
+    let staker_rewards_after_announce = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        "test-signer",
+        "get-earned-staker-rewards",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::Bool(true),
+            &Value::UInt(bond_index),
+        ],
+    )
+    .result()
+    .expect("get-earned-staker-rewards failed")
+    .expect_u128()
+    .expect("get-earned-staker-rewards should return a uint");
+    assert_eq!(
+        staker_rewards_after_announce, expected_staker_rewards,
+        "announce-l1-early-exit must not erase already accrued staker rewards"
     );
 
     let post_announce_shares = call_read_only(

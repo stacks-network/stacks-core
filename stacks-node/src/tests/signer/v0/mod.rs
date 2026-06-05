@@ -600,9 +600,8 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
 
 /// Source for the per-signer signer-manager contract published by
 /// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`] and by the pox-5
-/// regtest lifecycle tests in `nakamoto_integrations`. `validate-stake!` and
-/// `checkpoint-staker` are no-ops (always ok); `register-self` forwards a
-/// signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
+/// regtest lifecycle tests in `nakamoto_integrations`. `validate-stake!` is a no-op;
+/// `register-self` forwards a signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
 pub(crate) fn pox5_signer_manager_source() -> &'static str {
     r#"
 (impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
@@ -620,15 +619,6 @@ pub(crate) fn pox5_signer_manager_source() -> &'static str {
     (ok true)
 )
 
-(define-public (checkpoint-staker
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (is-bond bool)
-    )
-    (ok true)
-)
-
 (define-public (register-self
     (signer-manager <signer-manager-trait>)
     (signer-key (buff 33))
@@ -642,6 +632,25 @@ pub(crate) fn pox5_signer_manager_source() -> &'static str {
     (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
       signer-manager signer-key
     ))
+  )
+)
+
+(define-public (claim-rewards
+    (bond-periods (list 6 uint))
+    (reward-cycle uint)
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
+    bond-periods reward-cycle
+  )
+)
+
+(define-read-only (get-earned-staker-rewards
+    (staker principal)
+    (is-bond bool)
+    (index uint)
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
+    current-contract is-bond index staker
   )
 )
 "#
