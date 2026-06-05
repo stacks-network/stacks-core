@@ -4197,6 +4197,21 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      transferFromReserve: {
+        name: 'transfer-from-reserve',
+        access: 'private',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+        ],
+        Response<boolean, bigint>
+      >,
       updateClaimableBondRewards: {
         name: 'update-claimable-bond-rewards',
         access: 'private',
@@ -6934,6 +6949,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INSUFFICIENT_RESERVE_BALANCE: {
+        name: 'ERR_INSUFFICIENT_RESERVE_BALANCE',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INSUFFICIENT_STX: {
         name: 'ERR_INSUFFICIENT_STX',
         type: {
@@ -7428,6 +7453,10 @@ export const contracts = {
       ERR_DUPLICATE_LOCKUP_OUTPOINT: {
         isOk: false,
         value: 46n,
+      },
+      ERR_INSUFFICIENT_RESERVE_BALANCE: {
+        isOk: false,
+        value: 50n,
       },
       ERR_INSUFFICIENT_STX: {
         isOk: false,
