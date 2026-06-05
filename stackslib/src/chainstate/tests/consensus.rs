@@ -1792,18 +1792,23 @@ impl ConsensusMacroUnitReport {
             .all(|r| matches!(r, ExpectedResult::Success(_)))
     }
 
-    /// Collects reports for all smart-contract deployment transactions.
-    pub fn contract_deploys(&self) -> Vec<ContractTxReport> {
+    /// Collects reports for all transactions whose payload yields a
+    /// [`ContractName`] via `get_contract_name`. The contract name is parsed to derive the
+    /// target epoch and clarity version of the report.
+    fn collect_tx_reports<F>(&self, get_contract_name: F) -> Vec<ContractTxReport>
+    where
+        F: Fn(&TransactionPayload) -> Option<&ContractName>,
+    {
         let mut tx_reports = Vec::new();
         for result in &self.expected_results {
             match result {
                 ExpectedResult::Success(block) => {
                     for tx in &block.transactions {
-                        let Some(TransactionPayload::SmartContract(cc, _)) = &tx.tx else {
+                        let Some(name) = tx.tx.as_ref().and_then(&get_contract_name) else {
                             continue;
                         };
                         let (target_epoch, target_clarity) =
-                            parse_epoch_clarity_or_panic(&cc.name.to_string());
+                            parse_epoch_clarity_or_panic(&name.to_string());
                         tx_reports.push(ContractTxReport {
                             block_epoch: block.evaluated_epoch,
                             contract_epoch: target_epoch,
@@ -1814,11 +1819,11 @@ impl ConsensusMacroUnitReport {
                 }
                 ExpectedResult::Failure(failure) => {
                     for payload in &failure.attempted_txs {
-                        let TransactionPayload::SmartContract(cc, _) = payload else {
+                        let Some(name) = get_contract_name(payload) else {
                             continue;
                         };
                         let (target_epoch, target_clarity) =
-                            parse_epoch_clarity_or_panic(&cc.name.to_string());
+                            parse_epoch_clarity_or_panic(&name.to_string());
                         tx_reports.push(ContractTxReport {
                             block_epoch: failure.evaluated_epoch,
                             contract_epoch: target_epoch,
@@ -1833,45 +1838,20 @@ impl ConsensusMacroUnitReport {
         tx_reports
     }
 
+    /// Collects reports for all smart-contract deployment transactions.
+    pub fn contract_deploys(&self) -> Vec<ContractTxReport> {
+        self.collect_tx_reports(|p| match p {
+            TransactionPayload::SmartContract(sc, _) => Some(&sc.name),
+            _ => None,
+        })
+    }
+
     /// Collects reports for all smart-contract call transactions.
     pub fn contract_calls(&self) -> Vec<ContractTxReport> {
-        let mut tx_reports = Vec::new();
-        for result in &self.expected_results {
-            match result {
-                ExpectedResult::Success(block) => {
-                    for tx in &block.transactions {
-                        let Some(TransactionPayload::ContractCall(cc)) = &tx.tx else {
-                            continue;
-                        };
-                        let (target_epoch, target_clarity) =
-                            parse_epoch_clarity_or_panic(&cc.contract_name.to_string());
-                        tx_reports.push(ContractTxReport {
-                            block_epoch: block.evaluated_epoch,
-                            contract_epoch: target_epoch,
-                            contract_clarity: target_clarity,
-                            outcome: TxOutcome::BlockAccepted(tx.clone()),
-                        });
-                    }
-                }
-                ExpectedResult::Failure(failure) => {
-                    for payload in &failure.attempted_txs {
-                        let TransactionPayload::ContractCall(cc) = payload else {
-                            continue;
-                        };
-                        let (target_epoch, target_clarity) =
-                            parse_epoch_clarity_or_panic(&cc.contract_name.to_string());
-                        tx_reports.push(ContractTxReport {
-                            block_epoch: failure.evaluated_epoch,
-                            contract_epoch: target_epoch,
-                            contract_clarity: target_clarity,
-                            outcome: TxOutcome::BlockRejected(failure.error.clone()),
-                        });
-                    }
-                }
-            }
-        }
-        assert!(!tx_reports.is_empty(), "tx reports cannot be empty!");
-        tx_reports
+        self.collect_tx_reports(|p| match p {
+            TransactionPayload::ContractCall(cc) => Some(&cc.contract_name),
+            _ => None,
+        })
     }
 
     /// Writes a snapshot file to the system temp directory with `file_name`,
