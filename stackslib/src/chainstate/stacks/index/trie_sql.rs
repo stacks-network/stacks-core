@@ -27,7 +27,7 @@ use crate::chainstate::stacks::index::bits::{
 use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
 use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::types::sqlite::NO_PARAMS;
 use crate::util_lib::db::{query_count, query_row, table_exists, tx_begin_immediate, u64_to_sql};
@@ -358,12 +358,12 @@ pub fn bulk_read_squashed_blocks<T: MarfTrieId>(
 
 /// Bulk-read all confirmed block entries from `marf_data`.
 ///
-/// Returns `(block_id, block_hash, external_offset)` for every confirmed row,
-/// ordered by `block_id`.  Used by the squash pipeline to avoid per-row SQL
+/// Returns one [`MarfDataEntry`] for every confirmed row, ordered by
+/// `block_id`.  Used by the squash pipeline to avoid per-row SQL
 /// lookups for block IDs and blob offsets.
-pub fn bulk_read_block_entries<T: MarfTrieId>(
+pub(super) fn bulk_read_block_entries<T: MarfTrieId>(
     conn: &Connection,
-) -> Result<Vec<(u32, T, u64)>, Error> {
+) -> Result<Vec<MarfDataEntry<T>>, Error> {
     let mut stmt = conn.prepare(
         "SELECT block_id, block_hash, external_offset FROM marf_data \
          WHERE unconfirmed = 0 ORDER BY block_id",
@@ -377,8 +377,12 @@ pub fn bulk_read_block_entries<T: MarfTrieId>(
     let mut result = Vec::new();
     for row in rows {
         let (block_id, block_hash, offset_i64) = row?;
-        let offset = u64::try_from(offset_i64).map_err(|_| Error::OverflowError)?;
-        result.push((block_id, block_hash, offset));
+        let external_offset = u64::try_from(offset_i64).map_err(|_| Error::OverflowError)?;
+        result.push(MarfDataEntry {
+            block_id,
+            block_hash,
+            external_offset,
+        });
     }
     Ok(result)
 }

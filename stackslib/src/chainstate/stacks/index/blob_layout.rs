@@ -24,7 +24,11 @@
 //!
 //! The root node's first bytes are its hash.
 
-use stacks_common::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::{
+    TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
+};
+
+use crate::chainstate::stacks::index::MarfTrieId;
 
 /// Offset of the reserved 4-byte field.
 pub const RESERVED_FIELD_OFFSET: usize = BLOCK_HEADER_HASH_ENCODED_SIZE;
@@ -39,8 +43,8 @@ pub const ROOT_NODE_OFFSET: usize = RESERVED_FIELD_OFFSET + RESERVED_FIELD_LEN;
 pub const READER_PREFIX_LEN: usize = ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE;
 
 // If these values change, update the blob writers in `storage.rs`
-// (`TrieRAM::dump_consume`, `TrieRAM::dump_compressed_consume`) and the
-// header reader in `file.rs` (`TrieFile::read_parent_and_root_hash`).
+// (`TrieRAM::dump_consume`, `TrieRAM::dump_compressed_consume`) and
+// [`BlobHeader::parse`] below.
 const _: () = {
     assert!(BLOCK_HEADER_HASH_ENCODED_SIZE == 32);
     assert!(TRIEHASH_ENCODED_SIZE == 32);
@@ -48,3 +52,26 @@ const _: () = {
     assert!(ROOT_NODE_OFFSET == 36);
     assert!(READER_PREFIX_LEN == 68);
 };
+
+/// The parsed fixed-layout prefix of a trie blob (see the module doc):
+/// the parent block hash and the trie root hash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct BlobHeader<T> {
+    pub parent_hash: T,
+    pub root_hash: TrieHash,
+}
+
+impl<T: MarfTrieId> BlobHeader<T> {
+    /// Parse the first [`READER_PREFIX_LEN`] bytes of a trie blob.
+    pub(super) fn parse(buf: &[u8; READER_PREFIX_LEN]) -> BlobHeader<T> {
+        let mut parent_bytes = [0u8; BLOCK_HEADER_HASH_ENCODED_SIZE];
+        parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
+        let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
+        root_bytes
+            .copy_from_slice(&buf[ROOT_NODE_OFFSET..ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE]);
+        BlobHeader {
+            parent_hash: T::from_bytes(parent_bytes),
+            root_hash: TrieHash(root_bytes),
+        }
+    }
+}

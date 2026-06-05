@@ -288,17 +288,18 @@ fn test_bulk_read_blob_headers_sorted_matches_sequential() {
         let mut entries =
             trie_sql::bulk_read_block_entries::<StacksBlockId>(conn.sqlite_conn()).unwrap();
         conn.warm_trie_offsets_from_entries(&entries);
-        entries.sort_unstable_by_key(|(block_id, _, off)| (*off, *block_id));
+        entries.sort_unstable_by_key(|e| (e.external_offset, e.block_id));
         assert!(entries.len() >= 67);
 
         let bulk = conn.bulk_read_blob_headers_sorted(&entries).unwrap();
         assert_eq!(bulk.len(), entries.len());
-        for (block_id, block_hash, _) in &entries {
-            let expected = conn.read_parent_and_root_hash(*block_id).unwrap();
+        for entry in &entries {
+            let expected = conn.read_blob_header(entry.block_id).unwrap();
             assert_eq!(
-                bulk.get(block_hash),
+                bulk.get(&entry.block_hash),
                 Some(&expected),
-                "bulk header mismatch for block {block_hash}"
+                "bulk header mismatch for block {}",
+                entry.block_hash
             );
         }
     });

@@ -23,16 +23,16 @@ use std::{env, fs, io};
 #[cfg(test)]
 use rusqlite::params;
 use rusqlite::Connection;
-use stacks_common::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
 
 use crate::chainstate::stacks::index::bits::{
     read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
 };
+use crate::chainstate::stacks::index::blob_layout::{self, BlobHeader};
 use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 use crate::chainstate::stacks::index::storage::NodeHashReader;
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{blob_layout, trie_sql, Error, MarfTrieId};
+use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::sql_vacuum;
 
@@ -138,7 +138,7 @@ fn prefetch_file_range(file: &File, offset: u64, len: u64) -> io::Result<()> {
     Ok(())
 }
 
-/// Read the `(parent_hash, root_hash)` blob header of every entry in `chunk`.
+/// Read the [`BlobHeader`] of every entry in `chunk`.
 /// Worker body for [`TrieFile::bulk_read_blob_headers_sorted`].
 ///
 /// Opens its own handle: positioned reads share no cursor state across
@@ -146,25 +146,14 @@ fn prefetch_file_range(file: &File, offset: u64, len: u64) -> io::Result<()> {
 /// restores the handle's cursor non-atomically).
 fn read_blob_header_chunk<T: MarfTrieId + Send + Sync>(
     path: &str,
-    chunk: &[(u32, T, u64)],
-) -> Result<Vec<(T, (T, TrieHash))>, Error> {
+    chunk: &[MarfDataEntry<T>],
+) -> Result<Vec<(T, BlobHeader<T>)>, Error> {
     let file = File::open(path).map_err(Error::IOError)?;
     let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
     let mut headers = Vec::with_capacity(chunk.len());
-    for (_block_id, block_hash, offset) in chunk {
-        read_exact_at(&file, &mut buf, *offset).map_err(Error::IOError)?;
-
-        let mut parent_bytes = [0u8; BLOCK_HEADER_HASH_ENCODED_SIZE];
-        parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
-        let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
-        root_bytes.copy_from_slice(
-            &buf[blob_layout::ROOT_NODE_OFFSET
-                ..blob_layout::ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE],
-        );
-        headers.push((
-            block_hash.clone(),
-            (T::from_bytes(parent_bytes), TrieHash(root_bytes)),
-        ));
+    for entry in chunk {
+        read_exact_at(&file, &mut buf, entry.external_offset).map_err(Error::IOError)?;
+        headers.push((entry.block_hash.clone(), BlobHeader::parse(&buf)));
     }
     Ok(headers)
 }
@@ -619,27 +608,19 @@ impl TrieFile {
         Ok(offset)
     }
 
-    /// Read `(parent_hash, root_hash)` from a block's blob header.
-    pub fn read_parent_and_root_hash<T: MarfTrieId>(
+    /// Read a block's [`BlobHeader`].
+    pub(super) fn read_blob_header<T: MarfTrieId>(
         &mut self,
         db: &Connection,
         block_id: u32,
-    ) -> Result<(T, TrieHash), Error> {
+    ) -> Result<BlobHeader<T>, Error> {
         let blob_offset = self.get_trie_offset(db, block_id)?;
         let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
         self.read_blob_bytes_at(blob_offset, &mut buf)?;
-
-        let mut parent_bytes = [0u8; BLOCK_HEADER_HASH_ENCODED_SIZE];
-        parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
-        let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
-        root_bytes.copy_from_slice(
-            &buf[blob_layout::ROOT_NODE_OFFSET
-                ..blob_layout::ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE],
-        );
-        Ok((T::from_bytes(parent_bytes), TrieHash(root_bytes)))
+        Ok(BlobHeader::parse(&buf))
     }
 
-    /// Bulk-read `(parent_hash, root_hash)` for every entry in offset order.
+    /// Bulk-read the [`BlobHeader`] of every entry in offset order.
     /// Returns a map keyed by block hash.
     ///
     /// Fans the entries out to oversubscribed reader threads in contiguous
@@ -648,11 +629,11 @@ impl TrieFile {
     /// header-sized read, so only the pages backing headers are touched.
     ///
     /// Requires a `Disk`-backed `TrieFile`; callers should fall back to
-    /// [`Self::read_parent_and_root_hash`] otherwise.
-    pub(crate) fn bulk_read_blob_headers_sorted<T: MarfTrieId + Send + Sync>(
+    /// [`Self::read_blob_header`] otherwise.
+    pub(super) fn bulk_read_blob_headers_sorted<T: MarfTrieId + Send + Sync>(
         &self,
-        sorted_entries: &[(u32, T, u64)],
-    ) -> Result<HashMap<T, (T, TrieHash)>, Error> {
+        sorted_entries: &[MarfDataEntry<T>],
+    ) -> Result<HashMap<T, BlobHeader<T>>, Error> {
         let TrieFile::Disk(disk) = self else {
             return Err(Error::CorruptionError(
                 "bulk_read_blob_headers_sorted requires a disk-backed TrieFile".into(),
