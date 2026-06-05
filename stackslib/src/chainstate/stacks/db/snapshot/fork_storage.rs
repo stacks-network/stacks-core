@@ -147,6 +147,17 @@ pub fn copy_canonical_fork_storage(
                 "src.__fork_storage.value_hash `{key_str}` is not a hex MARFValue: {e:?}"
             ))
         })?;
+        // `store_indexed` writes lowercase hex and the runtime reads it
+        // back the same way; any other encoding is a foreign writer and
+        // the copied row would be unreachable in dst.
+        if !key_str
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err(Error::CorruptionError(format!(
+                "src.__fork_storage.value_hash `{key_str}` is not canonical lowercase hex"
+            )));
+        }
         if leaf_hashes.contains(&key) {
             let value: String = row.get(1).map_err(Error::SQLError)?;
             insert

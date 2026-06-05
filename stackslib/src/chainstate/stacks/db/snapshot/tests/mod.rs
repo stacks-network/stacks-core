@@ -16,6 +16,7 @@
 use std::collections::HashSet;
 
 use clarity::vm::costs::ExecutionCost;
+use rstest::rstest;
 use rusqlite::{params, Connection};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
@@ -374,6 +375,48 @@ fn test_copy_canonical_fork_storage_filters_by_leaf_hash() {
         )
         .unwrap();
     assert_eq!(forked, 0, "non-canonical fork row excluded");
+}
+
+/// Invalid `value_hash` encodings are corruption: `store_indexed` is the
+/// only writer and always stores the full hash as lowercase hex, and the
+/// runtime reads it back the same way (so a copied row with any other
+/// encoding would be unreachable in dst).
+#[rstest]
+#[case::not_a_marf_value("aa".into(), "is not a hex MARFValue")]
+#[case::uppercase(
+    MARFValue([0xaa; 40]).to_hex().to_uppercase(),
+    "is not canonical lowercase hex"
+)]
+fn test_fork_storage_invalid_value_hash_is_corruption(
+    #[case] value_hash: String,
+    #[case] needle: &str,
+) {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let dst_path = dir.path().join("dst.sqlite");
+
+    let src = Connection::open(&src_path).unwrap();
+    src.execute_batch(
+        "CREATE TABLE __fork_storage (\
+             value_hash TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL);",
+    )
+    .unwrap();
+    src.execute(
+        "INSERT INTO __fork_storage VALUES (?1, 'va')",
+        params![value_hash],
+    )
+    .unwrap();
+    drop(src);
+
+    let dst = Connection::open(&dst_path).unwrap();
+    dst.execute(
+        "ATTACH DATABASE ?1 AS src",
+        params![src_path.to_str().unwrap()],
+    )
+    .unwrap();
+
+    let err = super::fork_storage::copy_canonical_fork_storage(&dst, &HashSet::new()).unwrap_err();
+    assert_corruption_containing(err, needle);
 }
 /// Insert an epoch-2 `staging_blocks` row with the given
 /// `processed`/`orphaned` flags.
