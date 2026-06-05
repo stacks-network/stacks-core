@@ -1881,7 +1881,7 @@ macro_rules! contract_call_consensus_unit_test {
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {{
         // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-        let deploy_epochs = &clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
+        let deploy_epochs = clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
         $(let deploy_epochs = $deploy_epochs;)?
 
         // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
