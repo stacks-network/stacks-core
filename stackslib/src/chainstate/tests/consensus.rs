@@ -1734,7 +1734,7 @@ impl std::fmt::Debug for ContractTxReport {
                             address, contract_name, function_name, function_args
                         )?
                     }
-                    _ => write!(f, "Tx format not managed for {:?}", t.tx)?,
+                    _ => panic!("Tx format not managed for {:?}", t.tx),
                 }
             }
             TxOutcome::BlockRejected(err) => write!(f, "BlockRejected({})", err)?,
