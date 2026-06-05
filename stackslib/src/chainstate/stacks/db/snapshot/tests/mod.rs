@@ -163,6 +163,8 @@ fn insert_nakamoto_header(conn: &Connection, label: &str, burn_height: u32) -> S
 
     let mut header = NakamotoBlockHeader::empty();
     header.consensus_hash = ConsensusHash(ch);
+    // chain_length is irrelevant to the copy logic; reuse burn_height
+    // for fixture simplicity.
     header.chain_length = burn_height.into();
 
     let tip_info = StacksHeaderInfo {
