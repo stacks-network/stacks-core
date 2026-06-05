@@ -26,7 +26,7 @@ use super::common::{unclassified_tables, MARF_INFRA_TABLES};
 use super::index::{copy_index_side_tables, index_copy_specs, COPIED_TABLES};
 use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, CHAINSTATE_VERSION};
-use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::{Error, MARFValue};
 
 /// Create a source `index.sqlite`
 fn create_source_db(path: &std::path::Path) -> Connection {
@@ -328,13 +328,22 @@ fn test_copy_canonical_fork_storage_filters_by_leaf_hash() {
 
     // src.__fork_storage: two canonical entries (aa, cc) and one
     // non-canonical fork entry (bb) that must be excluded.
+    let aa = MARFValue([0xaa; 40]);
+    let bb = MARFValue([0xbb; 40]);
+    let cc = MARFValue([0xcc; 40]);
     let src = Connection::open(&src_path).unwrap();
     src.execute_batch(
         "CREATE TABLE __fork_storage (\
-             value_hash TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL);\
-         INSERT INTO __fork_storage VALUES ('aa','va'),('bb','vb'),('cc','vc');",
+             value_hash TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL);",
     )
     .unwrap();
+    for (key, value) in [(&aa, "va"), (&bb, "vb"), (&cc, "vc")] {
+        src.execute(
+            "INSERT INTO __fork_storage VALUES (?1, ?2)",
+            params![key.to_hex(), value],
+        )
+        .unwrap();
+    }
     drop(src);
 
     // Empty dst with src attached; the copy filters by the canonical leaf set.
@@ -344,24 +353,23 @@ fn test_copy_canonical_fork_storage_filters_by_leaf_hash() {
         params![src_path.to_str().unwrap()],
     )
     .unwrap();
-    let leaf_hashes: std::collections::HashSet<String> =
-        ["aa".to_string(), "cc".to_string()].into_iter().collect();
+    let leaf_hashes: HashSet<MARFValue> = [aa.clone(), cc.clone()].into_iter().collect();
 
     let copied = super::fork_storage::copy_canonical_fork_storage(&dst, &leaf_hashes).unwrap();
     assert_eq!(copied, 2, "only canonical value_hashes are copied");
 
     let present: i64 = dst
         .query_row(
-            "SELECT COUNT(*) FROM __fork_storage WHERE value_hash IN ('aa','cc')",
-            [],
+            "SELECT COUNT(*) FROM __fork_storage WHERE value_hash IN (?1, ?2)",
+            params![aa.to_hex(), cc.to_hex()],
             |row| row.get(0),
         )
         .unwrap();
     assert_eq!(present, 2);
     let forked: i64 = dst
         .query_row(
-            "SELECT COUNT(*) FROM __fork_storage WHERE value_hash = 'bb'",
-            [],
+            "SELECT COUNT(*) FROM __fork_storage WHERE value_hash = ?1",
+            params![bb.to_hex()],
             |row| row.get(0),
         )
         .unwrap();

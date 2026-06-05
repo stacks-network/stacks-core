@@ -24,14 +24,13 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use rusqlite::{params, Connection};
-use stacks_common::util::hash::to_hex;
 
 use super::common::clone_schemas_from_source;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
-use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue, MarfTrieId};
 
-/// Collect the hex-encoded `MARFValue` of every leaf in the squashed trie.
+/// Collect the `MARFValue` of every leaf in the squashed trie.
 ///
 /// Opens the MARF at `db_path` read-only, resolves the tip, and walks the
 /// trie via `for_each_leaf`.  Auto-detects external blobs.
@@ -39,17 +38,17 @@ use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
 /// Returns `(tip_block_hash, leaf_value_hashes)`.
 pub fn collect_leaf_value_hashes<T: MarfTrieId>(
     db_path: &str,
-) -> Result<(T, HashSet<String>), Error> {
+) -> Result<(T, HashSet<MARFValue>), Error> {
     let external_blobs = std::path::Path::new(&format!("{db_path}.blobs")).exists();
     let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", external_blobs);
     let storage = TrieFileStorage::open_readonly(db_path, open_opts)?;
     let mut marf = MARF::<T>::from_storage(storage);
     let tip = trie_sql::get_latest_confirmed_block_hash::<T>(marf.sqlite_conn())?;
 
-    let mut hashes: HashSet<String> = HashSet::new();
+    let mut hashes = HashSet::new();
     marf.with_conn(|conn| {
         MARF::for_each_leaf(conn, &tip, |_hash, value| {
-            hashes.insert(to_hex(&value.0));
+            hashes.insert(value);
             Ok(())
         })
     })?;
@@ -65,7 +64,7 @@ pub fn collect_leaf_value_hashes<T: MarfTrieId>(
 /// a missing `marf_data` is treated as corruption.
 pub fn collect_canonical_leaf_hashes<T: MarfTrieId>(
     dst_path: &str,
-) -> Result<HashSet<String>, Error> {
+) -> Result<HashSet<MARFValue>, Error> {
     let probe = Connection::open_with_flags(
         dst_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -106,7 +105,7 @@ pub fn collect_canonical_leaf_hashes<T: MarfTrieId>(
 /// `clone_schemas_from_source` ensures the schema is still cloned.
 pub fn copy_canonical_fork_storage(
     conn: &Connection,
-    leaf_hashes: &HashSet<String>,
+    leaf_hashes: &HashSet<MARFValue>,
 ) -> Result<u64, Error> {
     let src_has_table: bool = conn
         .query_row(
@@ -143,7 +142,12 @@ pub fn copy_canonical_fork_storage(
         let key_str = key_ref.as_str().map_err(|e| {
             Error::CorruptionError(format!("src.__fork_storage.value_hash is not TEXT: {e:?}"))
         })?;
-        if leaf_hashes.contains(key_str) {
+        let key = MARFValue::from_hex(key_str).map_err(|e| {
+            Error::CorruptionError(format!(
+                "src.__fork_storage.value_hash `{key_str}` is not a hex MARFValue: {e:?}"
+            ))
+        })?;
+        if leaf_hashes.contains(&key) {
             let value: String = row.get(1).map_err(Error::SQLError)?;
             insert
                 .execute(params![key_str, &value])

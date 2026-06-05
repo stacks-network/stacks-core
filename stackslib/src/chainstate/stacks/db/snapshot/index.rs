@@ -24,7 +24,7 @@ use super::common::{
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
-use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::{Error, MARFValue};
 
 /// Tables copied (with canonical-filtered content) into the squashed index DB.
 pub(crate) const COPIED_TABLES: &[&str] = &[
@@ -268,7 +268,7 @@ pub fn copy_index_side_tables(
 
 fn copy_tables_inner(
     conn: &Connection,
-    leaf_hashes: &HashSet<String>,
+    leaf_hashes: &HashSet<MARFValue>,
     first_burn_height: u64,
     reward_cycle_len: u64,
 ) -> Result<IndexSideTableStats, Error> {
