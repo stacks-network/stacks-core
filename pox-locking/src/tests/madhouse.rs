@@ -35,8 +35,9 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::clarity_db::StacksEpoch;
 use clarity::vm::database::{BurnStateDB, ClarityDatabase, MemoryBackingStore, NULL_HEADER_DB};
 use clarity::vm::types::{PrincipalData, StandardPrincipalData, TupleData};
-use madhouse::{execute_commands, prop_allof, Command, CommandWrapper, State, TestContext};
-use pinny::tag;
+use madhouse::{
+    execute_commands, prop_allof, scenario, Command, CommandWrapper, State, TestContext,
+};
 use proptest::prelude::{Just, Strategy};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, SortitionId};
 
@@ -322,20 +323,6 @@ impl Pox5Context {
             total_ustx: TOTAL_USTX,
             coverage: Arc::new(Mutex::new(CoverageCounters::default())),
         }
-    }
-
-    /// Reset the SUT to a fresh, funded state between proptest iterations.
-    /// `proptest!` reruns the body for shrinking even at `cases = 1`, and the
-    /// SUT is shared via `Arc<Mutex<_>>`, so without this state would leak.
-    fn reset_sut(&self) {
-        let staker: PrincipalData = StandardPrincipalData::transient().into();
-        let mut fresh = Pox5SystemUnderTest::new(staker);
-        fresh.fund(self.total_ustx);
-        *self.sut.lock().unwrap() = fresh;
-    }
-
-    fn coverage_snapshot(&self) -> CoverageCounters {
-        *self.coverage.lock().unwrap()
     }
 }
 
@@ -858,106 +845,17 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
 ///
 /// `MADHOUSE=1` switches from declaration order to random permutation.
 #[test]
-#[cfg_attr(test, tag(t_prop))]
-fn pox5_staker_lifecycle_madhouse() {
+fn madhouse_pox5_staker_lifecycle() {
     let ctx = Arc::new(Pox5Context::new());
-    let config = proptest::test_runner::Config {
-        cases: 1,
-        max_shrink_iters: 0,
-        ..proptest::test_runner::Config::default()
-    };
-
-    let use_madhouse = std::env::var("MADHOUSE") == Ok("1".into());
-
-    if use_madhouse {
-        proptest::proptest!(config.clone(), |(commands in proptest::collection::vec(
-            proptest::prop_oneof![
-                Stake::build(ctx.clone()),
-                StakeUpdate::build(ctx.clone()),
-                Unstake::build(ctx.clone()),
-                AdvanceBurnHeight::build(ctx.clone()),
-                IllegalStakeWhileLocked::build(ctx.clone()),
-                IllegalStakeUpdateOnUnlocked::build(ctx.clone()),
-                IllegalUnstakeOnUnlocked::build(ctx.clone()),
-                IllegalDecreaseInUpdate::build(ctx.clone()),
-            ],
-            1..16,
-        ))| {
-            ctx.reset_sut();
-            let mut state = Pox5StakerState::default();
-            execute_commands(&commands, &mut state);
-        });
-    } else {
-        proptest::proptest!(config, |(commands in prop_allof![
-            Stake::build(ctx.clone()),
-            StakeUpdate::build(ctx.clone()),
-            Unstake::build(ctx.clone()),
-            AdvanceBurnHeight::build(ctx.clone()),
-            IllegalStakeWhileLocked::build(ctx.clone()),
-            IllegalStakeUpdateOnUnlocked::build(ctx.clone()),
-            IllegalUnstakeOnUnlocked::build(ctx.clone()),
-            IllegalDecreaseInUpdate::build(ctx.clone()),
-        ])| {
-            ctx.reset_sut();
-            let mut state = Pox5StakerState::default();
-            execute_commands(&commands, &mut state);
-        });
-    }
-}
-
-/// Coverage smoke: random walks must reach every `AccountState` variant. Uses
-/// the same command alphabet (legal + IllegalX) as `pox5_staker_lifecycle_madhouse`
-/// so coverage tracks the test that actually runs in CI.
-///
-/// Fails if generator drift (e.g. `Unstake.check` getting stricter) silently
-/// stops sampling a state, separating "generator never reaches X" from
-/// "invariant on X is broken".
-#[test]
-#[cfg_attr(test, tag(t_prop))]
-fn pox5_coverage_smoke() {
-    let ctx = Arc::new(Pox5Context::new());
-    let config = proptest::test_runner::Config {
-        cases: 50,
-        max_shrink_iters: 0,
-        ..proptest::test_runner::Config::default()
-    };
-
-    proptest::proptest!(config, |(commands in proptest::collection::vec(
-        proptest::prop_oneof![
-            Stake::build(ctx.clone()),
-            StakeUpdate::build(ctx.clone()),
-            Unstake::build(ctx.clone()),
-            AdvanceBurnHeight::build(ctx.clone()),
-            IllegalStakeWhileLocked::build(ctx.clone()),
-            IllegalStakeUpdateOnUnlocked::build(ctx.clone()),
-            IllegalUnstakeOnUnlocked::build(ctx.clone()),
-            IllegalDecreaseInUpdate::build(ctx.clone()),
-        ],
-        4..=24,
-    ))| {
-        ctx.reset_sut();
-        let mut state = Pox5StakerState::default();
-        execute_commands(&commands, &mut state);
-    });
-
-    let c = ctx.coverage_snapshot();
-
-    assert!(
-        c.unlocked > 0,
-        "Unlocked never sampled across 50 walks (generator drift?)"
-    );
-    assert!(
-        c.locked_nosched > 0,
-        "Locked-no-unstake never sampled across 50 walks (Stake.check too strict?)"
-    );
-    assert!(
-        c.locked_sched > 0,
-        "Locked+unstake_scheduled never sampled across 50 walks (Unstake.check too strict?)"
-    );
-
-    // Print distribution to make a degraded run debuggable.
-    eprintln!(
-        "pox5_coverage_smoke: unlocked={} locked_nosched={} locked_sched={}",
-        c.unlocked, c.locked_nosched, c.locked_sched,
-    );
+    scenario![
+        ctx,
+        Stake,
+        StakeUpdate,
+        Unstake,
+        AdvanceBurnHeight,
+        IllegalStakeWhileLocked,
+        IllegalStakeUpdateOnUnlocked,
+        IllegalUnstakeOnUnlocked,
+        IllegalDecreaseInUpdate,
+    ]
 }

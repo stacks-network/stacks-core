@@ -26,12 +26,18 @@
 //! 2. Prune correctness: after `PruneAtHeight(H)`, no entry with
 //!    `block_height < H.saturating_sub(3 * RCL / 2)` survives on either side.
 //!
+//! Both the shadow model and the real SUT live in [`WatchedOutputsState`], which
+//! `scenario!` rebuilds fresh per proptest case via `Default` — so MADHOUSE walks
+//! stay independent without a manual SUT reset.
+//!
 //! See [`tests::db`](super::db) for the example-based counterpart.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use madhouse::{execute_commands, prop_allof, Command, CommandWrapper, State, TestContext};
+use madhouse::{
+    execute_commands, prop_allof, scenario, Command, CommandWrapper, State, TestContext,
+};
 use pinny::tag;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -94,12 +100,25 @@ struct BlockEntry {
     outputs: Vec<WatchedP2WSHOutput>,
 }
 
-/// Shadow model. `current_height` is model state (not SUT-driven):
+/// Model + real SUT for the watched-outputs scenario. Created fresh per proptest
+/// case via `Default` (so `scenario!`/MADHOUSE walks stay independent without a
+/// manual reset). `current_height` is model state (not SUT-driven):
 /// `BurnchainDB::prune_watched_outputs` takes the tip as a parameter each call.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 struct WatchedOutputsState {
     current_height: u64,
     blocks: BTreeMap<BurnchainHeaderHash, BlockEntry>,
+    sut: WatchedOutputsSut,
+}
+
+impl Default for WatchedOutputsState {
+    fn default() -> Self {
+        Self {
+            current_height: 0,
+            blocks: BTreeMap::new(),
+            sut: WatchedOutputsSut::fresh(),
+        }
+    }
 }
 
 impl State for WatchedOutputsState {}
@@ -156,45 +175,19 @@ impl std::fmt::Debug for WatchedOutputsSut {
     }
 }
 
-#[derive(Clone)]
-pub struct WatchedOutputsContext {
-    sut: Arc<Mutex<WatchedOutputsSut>>,
-    reward_cycle_length: u32,
-}
-
-impl std::fmt::Debug for WatchedOutputsContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WatchedOutputsContext")
-            .field("reward_cycle_length", &self.reward_cycle_length)
-            .finish_non_exhaustive()
-    }
-}
+/// Empty context: all mutable state (shadow model + the real DB) lives in
+/// [`WatchedOutputsState`], so `scenario!` rebuilds it fresh per case.
+#[derive(Clone, Debug, Default)]
+pub struct WatchedOutputsContext;
 
 impl TestContext for WatchedOutputsContext {}
 
-impl WatchedOutputsContext {
-    pub fn new() -> Self {
-        Self {
-            sut: Arc::new(Mutex::new(WatchedOutputsSut::fresh())),
-            reward_cycle_length: REWARD_CYCLE_LENGTH,
-        }
-    }
-
-    /// `proptest!` re-runs the body during shrinking even at `cases = 1`,
-    /// so SUT state would leak. Reset between iterations.
-    fn reset_sut(&self) {
-        *self.sut.lock().unwrap() = WatchedOutputsSut::fresh();
-    }
-}
-
 /// Cross-check model against SUT block-by-block. Divergence panics with the
 /// offending block hash.
-fn check_invariants(model: &WatchedOutputsState, ctx: &WatchedOutputsContext) {
-    let sut = ctx.sut.lock().unwrap();
-
+fn check_invariants(state: &WatchedOutputsState) {
     // Direction 1: every block in the model has matching outputs in the DB.
-    for (block_hash, entry) in &model.blocks {
-        let db_outputs = sut.outputs_at(block_hash);
+    for (block_hash, entry) in &state.blocks {
+        let db_outputs = state.sut.outputs_at(block_hash);
         // DB returns rows ordered by `(txid, vout)`. Shadow entries are
         // inserted in `vout` order with deterministic txids, so they share
         // the canonical ordering after sort.
@@ -211,10 +204,10 @@ fn check_invariants(model: &WatchedOutputsState, ctx: &WatchedOutputsContext) {
     // Direction 2: every block_hash the model says is gone has no rows in the
     // DB. Only block_hashes the SUT has seen can be enumerated (model.blocks
     // tracks what's still there; sut.seen_heights tracks what was ever inserted).
-    for &height in &sut.seen_heights {
+    for &height in &state.sut.seen_heights {
         let bh = BurnchainHeaderHash(height_hash(height));
-        if !model.blocks.contains_key(&bh) {
-            let db_rows = sut.outputs_at(&bh);
+        if !state.blocks.contains_key(&bh) {
+            let db_rows = state.sut.outputs_at(&bh);
             assert!(
                 db_rows.is_empty(),
                 "DB has orphan rows at block_hash={bh} (height={height}), model has none"
@@ -226,7 +219,6 @@ fn check_invariants(model: &WatchedOutputsState, ctx: &WatchedOutputsContext) {
 /// Store a block of P2WSH outputs at `height`. `check` asserts the block_hash
 /// is fresh; re-inserts would violate the `burnchain_db_block_headers` PK.
 struct StoreBlock {
-    ctx: Arc<WatchedOutputsContext>,
     height: u64,
     num_outputs: usize,
 }
@@ -240,15 +232,9 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for StoreBlock {
     fn apply(&self, state: &mut WatchedOutputsState) {
         let bh = BurnchainHeaderHash(height_hash(self.height));
         let outputs = outputs_for_block(self.height, self.num_outputs);
-        let parent = {
-            let sut = self.ctx.sut.lock().unwrap();
-            sut.last_block_hash.clone()
-        };
+        let parent = state.sut.last_block_hash.clone();
         let header = header_at_height(self.height, parent);
-        {
-            let mut sut = self.ctx.sut.lock().unwrap();
-            sut.store_block(&header, &outputs);
-        }
+        state.sut.store_block(&header, &outputs);
         state.blocks.insert(
             bh,
             BlockEntry {
@@ -260,7 +246,7 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for StoreBlock {
         if self.height > state.current_height {
             state.current_height = self.height;
         }
-        check_invariants(state, &self.ctx);
+        check_invariants(state);
     }
 
     fn label(&self) -> String {
@@ -268,24 +254,20 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for StoreBlock {
     }
 
     fn build(
-        ctx: Arc<WatchedOutputsContext>,
+        _ctx: Arc<WatchedOutputsContext>,
     ) -> impl Strategy<Value = CommandWrapper<WatchedOutputsState, WatchedOutputsContext>> {
-        (1u64..=MAX_HEIGHT, 1usize..=MAX_OUTPUTS_PER_BLOCK).prop_map(
-            move |(height, num_outputs)| {
-                CommandWrapper::new(StoreBlock {
-                    ctx: ctx.clone(),
-                    height,
-                    num_outputs,
-                })
-            },
-        )
+        (1u64..=MAX_HEIGHT, 1usize..=MAX_OUTPUTS_PER_BLOCK).prop_map(|(height, num_outputs)| {
+            CommandWrapper::new(StoreBlock {
+                height,
+                num_outputs,
+            })
+        })
     }
 }
 
 /// Prune at `current_height`: both sides drop entries with
 /// `block_height < current.saturating_sub(3 * RCL / 2)`.
 struct PruneAtHeight {
-    ctx: Arc<WatchedOutputsContext>,
     current_height: u64,
 }
 
@@ -295,14 +277,11 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for PruneAtHeight {
     }
 
     fn apply(&self, state: &mut WatchedOutputsState) {
-        let rcl = self.ctx.reward_cycle_length;
+        let rcl = REWARD_CYCLE_LENGTH;
         let window = (3u64 * u64::from(rcl)) / 2;
         let threshold = self.current_height.saturating_sub(window);
 
-        {
-            let mut sut = self.ctx.sut.lock().unwrap();
-            sut.prune(rcl, self.current_height);
-        }
+        state.sut.prune(rcl, self.current_height);
 
         // Shadow prune: remove blocks at `block_height < threshold`.
         state
@@ -313,21 +292,18 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for PruneAtHeight {
         // Independent of the shadow: enumerate every inserted height and assert
         // the SUT has no rows below `threshold`. Catches a correctly-pruning SUT
         // even if the shadow itself has a retention bug.
-        {
-            let sut = self.ctx.sut.lock().unwrap();
-            for &height in &sut.seen_heights {
-                if height < threshold {
-                    let bh = BurnchainHeaderHash(height_hash(height));
-                    let rows = sut.outputs_at(&bh);
-                    assert!(
-                        rows.is_empty(),
-                        "post-prune SUT row at height {height} (threshold={threshold}): {rows:?}"
-                    );
-                }
+        for &height in &state.sut.seen_heights {
+            if height < threshold {
+                let bh = BurnchainHeaderHash(height_hash(height));
+                let rows = state.sut.outputs_at(&bh);
+                assert!(
+                    rows.is_empty(),
+                    "post-prune SUT row at height {height} (threshold={threshold}): {rows:?}"
+                );
             }
         }
 
-        check_invariants(state, &self.ctx);
+        check_invariants(state);
     }
 
     fn label(&self) -> String {
@@ -335,14 +311,10 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for PruneAtHeight {
     }
 
     fn build(
-        ctx: Arc<WatchedOutputsContext>,
+        _ctx: Arc<WatchedOutputsContext>,
     ) -> impl Strategy<Value = CommandWrapper<WatchedOutputsState, WatchedOutputsContext>> {
-        (0u64..=MAX_HEIGHT).prop_map(move |current_height| {
-            CommandWrapper::new(PruneAtHeight {
-                ctx: ctx.clone(),
-                current_height,
-            })
-        })
+        (0u64..=MAX_HEIGHT)
+            .prop_map(|current_height| CommandWrapper::new(PruneAtHeight { current_height }))
     }
 }
 
@@ -352,35 +324,6 @@ impl Command<WatchedOutputsState, WatchedOutputsContext> for PruneAtHeight {
 #[test]
 #[cfg_attr(test, tag(t_prop))]
 fn p2wsh_store_lifecycle_madhouse() {
-    let ctx = Arc::new(WatchedOutputsContext::new());
-    let config = proptest::test_runner::Config {
-        cases: 1,
-        max_shrink_iters: 0,
-        ..proptest::test_runner::Config::default()
-    };
-
-    let use_madhouse = std::env::var("MADHOUSE") == Ok("1".into());
-
-    if use_madhouse {
-        proptest::proptest!(config.clone(), |(commands in proptest::collection::vec(
-            proptest::prop_oneof![
-                StoreBlock::build(ctx.clone()),
-                PruneAtHeight::build(ctx.clone()),
-            ],
-            1..16,
-        ))| {
-            ctx.reset_sut();
-            let mut state = WatchedOutputsState::default();
-            execute_commands(&commands, &mut state);
-        });
-    } else {
-        proptest::proptest!(config, |(commands in prop_allof![
-            StoreBlock::build(ctx.clone()),
-            PruneAtHeight::build(ctx.clone()),
-        ])| {
-            ctx.reset_sut();
-            let mut state = WatchedOutputsState::default();
-            execute_commands(&commands, &mut state);
-        });
-    }
+    let ctx = Arc::new(WatchedOutputsContext);
+    scenario![ctx, StoreBlock, PruneAtHeight]
 }

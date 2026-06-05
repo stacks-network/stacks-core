@@ -30,8 +30,9 @@
 
 use std::sync::Arc;
 
-use madhouse::{Command, CommandWrapper, State, TestContext, execute_commands, prop_allof};
-use pinny::tag;
+use madhouse::{
+    Command, CommandWrapper, State, TestContext, execute_commands, prop_allof, scenario,
+};
 use proptest::prelude::*;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
@@ -427,55 +428,15 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyOutOfRangeIndex {
 /// Drive the adversary through random command sequences. Default:
 /// deterministic order. `MADHOUSE=1`: random walks of 1..=16 commands.
 #[test]
-#[cfg_attr(test, tag(t_prop))]
-fn merkle_cve_adversarial_madhouse() {
+fn madhouse_merkle_cve_adversarial() {
     let ctx = Arc::new(AdversaryContext);
-    let config = proptest::test_runner::Config {
-        cases: 1,
-        max_shrink_iters: 0,
-        ..proptest::test_runner::Config::default()
-    };
-
-    let use_madhouse = std::env::var("MADHOUSE") == Ok("1".into());
-
-    if use_madhouse {
-        // Always lead with a BuildTree so the pool is populated before any
-        // Verify* command. A purely random draw can contain no BuildTree, in
-        // which case every command's `check` is false and `execute_commands`
-        // runs nothing — a vacuous pass. Seeding one BuildTree avoids that
-        // while leaving the tail fully random.
-        proptest::proptest!(config.clone(), |(
-            seed_tree in BuildTree::build(ctx.clone()),
-            tail in proptest::collection::vec(
-                proptest::prop_oneof![
-                    BuildTree::build(ctx.clone()),
-                    VerifyHonestProof::build(ctx.clone()),
-                    VerifyForge3::build(ctx.clone()),
-                    VerifyTamperedLeaf::build(ctx.clone()),
-                    VerifyWrongDepth::build(ctx.clone()),
-                    VerifyOutOfRangeIndex::build(ctx.clone()),
-                ],
-                0..15,
-            ),
-        )| {
-            // No SUT to reset; state is just the tree pool, freshened via Default.
-            let mut commands = Vec::with_capacity(1 + tail.len());
-            commands.push(seed_tree);
-            commands.extend(tail);
-            let mut state = MerkleAdversaryState::default();
-            execute_commands(&commands, &mut state);
-        });
-    } else {
-        proptest::proptest!(config, |(commands in prop_allof![
-            BuildTree::build(ctx.clone()),
-            VerifyHonestProof::build(ctx.clone()),
-            VerifyForge3::build(ctx.clone()),
-            VerifyTamperedLeaf::build(ctx.clone()),
-            VerifyWrongDepth::build(ctx.clone()),
-            VerifyOutOfRangeIndex::build(ctx.clone()),
-        ])| {
-            let mut state = MerkleAdversaryState::default();
-            execute_commands(&commands, &mut state);
-        });
-    }
+    scenario![
+        ctx,
+        BuildTree,
+        VerifyHonestProof,
+        VerifyForge3,
+        VerifyTamperedLeaf,
+        VerifyWrongDepth,
+        VerifyOutOfRangeIndex
+    ]
 }
