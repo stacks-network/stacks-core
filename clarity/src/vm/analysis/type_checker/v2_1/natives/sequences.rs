@@ -283,14 +283,17 @@ pub fn check_special_concat(
     let mut acc_type = combine_concat_types(&lhs_type, &rhs_type)?;
 
     // Any additional args (Clarity 6+ only — the arity check above rejects
-    // them otherwise) are folded into the accumulator. We deliberately do NOT
-    // call `analysis_typecheck_cost` per pair here: doing so would re-introduce
-    // the quadratic-in-N cost that the variadic runtime explicitly avoids.
-    // `combine_concat_types` does bounded work per call (depth-of-type-nesting,
-    // not list-length), and the per-arg `checker.type_check` cost already
-    // accounts for the new arg's complexity.
+    // them otherwise) are folded into the accumulator. We charge
+    // `analysis_typecheck_cost` per pair to cover the `least_supertype` work
+    // that `combine_concat_types` performs on each fold step. This is NOT
+    // quadratic in N: `analysis_typecheck_cost` is charged on `type_size`,
+    // which measures element-type complexity (K) and is independent of the
+    // accumulator's `max_len` — so even though the accumulated list length
+    // grows with each arg, the per-pair charge stays ~K, for K * N total
+    // (linear in N).
     for arg in &args[2..] {
         let rhs_type = checker.type_check(arg, context)?;
+        analysis_typecheck_cost(checker, &acc_type, &rhs_type)?;
         acc_type = combine_concat_types(&acc_type, &rhs_type)?;
     }
 
