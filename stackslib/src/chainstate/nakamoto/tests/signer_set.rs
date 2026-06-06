@@ -115,8 +115,32 @@ fn check_make_signer_set(
         "total weight {total_weight} exceeds reward_slots {reward_slots}"
     );
 
-    // (c) For each output entry: stacked_amt matches the aggregated input,
-    //     weight matches stacked_amt / threshold, and weight >= 1.
+    // (b') Conservation: the base weights (floor(stacked/threshold)) sum to `base`, leaving
+    //      `leftover = reward_slots - base` slots. The Hare round hands one slot to each of
+    //      `min(leftover, N)` signers (largest remainder first), so the total weight assigned
+    //      is exactly `base + min(leftover, N)`. `base <= reward_slots` is guaranteed by the
+    //      ceil quota, so `leftover` does not underflow.
+    let base: u128 = aggregated.values().map(|amt| amt / threshold).sum();
+    prop_assert!(
+        base <= reward_slots,
+        "base weight {base} exceeds reward_slots {reward_slots} (ceil-quota invariant broken)"
+    );
+    let leftover = reward_slots - base;
+    let n_signers = aggregated.len() as u128;
+    let expected_total_weight = base + std::cmp::min(leftover, n_signers);
+    prop_assert_eq!(
+        total_weight,
+        expected_total_weight,
+        "total weight {} != base {} + min(leftover {}, signers {})",
+        total_weight,
+        base,
+        leftover,
+        n_signers
+    );
+
+    // (c) For each output entry: stacked_amt matches the aggregated input, weight is in
+    //     {floor(stacked/threshold), floor(stacked/threshold) + 1} (the Hare round adds at
+    //     most one slot), and weight >= 1.
     let mut seen: HashMap<[u8; SIGNERS_PK_LEN], ()> = HashMap::new();
     for entry in &signer_set {
         seen.insert(entry.signing_key, ());
@@ -124,42 +148,27 @@ fn check_make_signer_set(
             TestCaseError::fail("output entry signing_key not present in input aggregation")
         })?;
         prop_assert_eq!(entry.stacked_amt, aggregated_amt);
-        prop_assert_eq!(u128::from(entry.weight), aggregated_amt / threshold);
+        let base_weight = aggregated_amt / threshold;
+        prop_assert!(
+            u128::from(entry.weight) == base_weight || u128::from(entry.weight) == base_weight + 1,
+            "weight {} not in {{{base_weight}, {}}}",
+            entry.weight,
+            base_weight + 1
+        );
         prop_assert!(entry.weight >= 1, "filtered weight==0 entry leaked through");
-
-        // The user-intuition bound, stated without intermediate rounding:
-        //   weight <= reward_slots * stacked_amt / total_ustx
-        // is equivalent to:
-        //   weight * total_ustx <= stacked_amt * reward_slots
-        // (when total_ustx > 0).
-        if total_ustx > 0 {
-            let lhs = u128::from(entry.weight)
-                .checked_mul(total_ustx)
-                .expect("weight * total overflow");
-            let rhs = aggregated_amt
-                .checked_mul(reward_slots)
-                .expect("stacked * slots overflow");
-            prop_assert!(
-                lhs <= rhs,
-                "weight {} violates slots*stacked/total bound (lhs={lhs}, rhs={rhs})",
-                entry.weight
-            );
-        }
     }
 
-    // (d) Filtering: every aggregated key with amount >= threshold is in the
-    //     output; every key with amount < threshold is absent.
+    // (d) Filtering: every aggregated key whose base weight is >= 1 must be present (the
+    //     Hare round only adds weight, never removes). Every absent key must have had base
+    //     weight 0 (it floored to zero and did not win a leftover slot).
     for (key, amount) in &aggregated {
-        if *amount >= threshold {
+        if *amount / threshold >= 1 {
             prop_assert!(
                 seen.contains_key(key),
-                "input key with amount >= threshold missing from output"
+                "input key with base weight >= 1 missing from output"
             );
-        } else {
-            prop_assert!(
-                !seen.contains_key(key),
-                "input key with amount < threshold leaked into output"
-            );
+        } else if !seen.contains_key(key) {
+            prop_assert_eq!(*amount / threshold, 0, "absent key had nonzero base weight");
         }
     }
 
@@ -168,14 +177,17 @@ fn check_make_signer_set(
 
 proptest! {
     #[tag(t_prop)]
-    /// Property tests for `pox_5_make_signer_set`:
+    /// Property tests for `pox_5_make_signer_set` (Hare / largest-remainder):
     ///
     /// * Output is strictly sorted by signing_key (so: sorted + unique).
     /// * Total weight is bounded above by `pox_constants.reward_slots()`.
-    /// * Per-entry `weight == aggregated_stacked / threshold` and `weight >= 1`,
-    ///   where `threshold = max(1, total.div_ceil(reward_slots))`.
-    /// * The filtering rule (`weight == 0` entries dropped) is correct in both
-    ///   directions.
+    /// * Conservation: total weight == `base + min(leftover, N)`, where
+    ///   `base = sum(floor(stacked/threshold))`, `leftover = reward_slots - base`,
+    ///   and `threshold = max(1, total.div_ceil(reward_slots))`.
+    /// * Per-entry `weight in {floor(stacked/threshold), floor(stacked/threshold)+1}`
+    ///   and `weight >= 1`.
+    /// * Filtering: every signer with base weight >= 1 is present; every absent
+    ///   signer had base weight 0.
     ///
     /// `to_duplicate` forces the per-signer aggregation path by re-using
     /// existing `signer_key`s with new amounts.
@@ -250,26 +262,76 @@ fn duplicate_signer_keys_are_aggregated() {
 
 #[test]
 fn weight_zero_entries_are_filtered() {
-    // Two signers: one with the bulk of the stake, one with a dust amount
-    // that rounds down to weight zero. The dust signer must not appear.
-    let pox_constants = test_pox_constants(1_000);
-    let big = signer_key(0x01);
-    let dust = signer_key(0x02);
-    let entries = vec![
-        RawPox5Entry {
-            signer_key: big,
+    // reward_slots == 4. Four big signers with equal stake consume all four
+    // leftover slots (their remainders are larger than the dust signer's), so
+    // the dust signer wins no slot and is filtered out.
+    let pox_constants = test_pox_constants(1); // reward_slots() == 4
+    assert_eq!(pox_constants.reward_slots(), 4);
+    let dust = signer_key(0xFF);
+    let mut entries: Vec<_> = (0..4u8)
+        .map(|i| RawPox5Entry {
+            signer_key: signer_key(i),
             amount_ustx: 10_000_000,
-        },
-        RawPox5Entry {
-            signer_key: dust,
-            amount_ustx: 1,
-        },
-    ];
+        })
+        .collect();
+    entries.push(RawPox5Entry {
+        signer_key: dust,
+        amount_ustx: 1,
+    });
     let mut iter = entries.into_iter().map(Ok);
     let Pox5SignerSetOutput { signer_set, .. } =
         NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
-    assert_eq!(signer_set.len(), 1);
-    assert_eq!(signer_set[0].signing_key, big);
+    assert_eq!(signer_set.len(), 4);
+    assert!(
+        !signer_set.iter().any(|e| e.signing_key == dust),
+        "dust signer should have been filtered out"
+    );
+    // The four big signers split the four slots evenly.
+    let total_weight: u128 = signer_set.iter().map(|e| u128::from(e.weight)).sum();
+    assert_eq!(total_weight, 4);
+}
+
+#[test]
+fn equal_stakes_exceeding_reward_slots_are_not_all_zeroed() {
+    // Regression: more distinct signers than reward_slots, all with equal stake.
+    //
+    // The old floor-and-drop scheme set threshold = ceil(N*S / R) > S, so every
+    // signer's weight floored to 0 and the entire set was dropped -- stalling the
+    // chain. The Hare round must instead award one slot each to the top `R` signers
+    // (by remainder, then signing_key), dropping only the surplus signers.
+    let pox_constants = test_pox_constants(1); // reward_slots() == 4
+    let reward_slots = pox_constants.reward_slots();
+    assert_eq!(reward_slots, 4);
+    let stake = 1_000_000u128;
+    // 5 signers, only 4 slots.
+    let entries: Vec<_> = (0..5u8)
+        .map(|i| RawPox5Entry {
+            signer_key: signer_key(i),
+            amount_ustx: stake,
+        })
+        .collect();
+    let mut iter = entries.into_iter().map(Ok);
+    let Pox5SignerSetOutput { signer_set, .. } =
+        NakamotoSigners::pox_5_make_signer_set(&mut iter, &pox_constants).expect("ok");
+
+    assert_eq!(
+        signer_set.len(),
+        reward_slots as usize,
+        "expected exactly reward_slots signers, not an empty/zeroed set"
+    );
+    for entry in &signer_set {
+        assert_eq!(
+            entry.weight, 1,
+            "each surviving signer should hold one slot"
+        );
+    }
+    let total_weight: u128 = signer_set.iter().map(|e| u128::from(e.weight)).sum();
+    assert_eq!(total_weight, u128::from(reward_slots));
+    // Ties broken by signing_key ascending: keys 0x00..0x03 win, 0x04 is dropped.
+    assert!(
+        !signer_set.iter().any(|e| e.signing_key == signer_key(0x04)),
+        "highest-key signer should be the one dropped on tie-break"
+    );
 }
 
 #[test]

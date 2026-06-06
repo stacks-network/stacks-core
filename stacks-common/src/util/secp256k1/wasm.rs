@@ -223,6 +223,12 @@ pub fn secp256k1_verify(
     }
 }
 
+#[cfg(not(feature = "wasm-deterministic"))]
+pub fn secp256k1_decompress(compressed_pubkey_arr: &[u8]) -> Result<[u8; 65], LibSecp256k1Error> {
+    let pubkey = LibSecp256k1PublicKey::parse_slice(compressed_pubkey_arr, None)?;
+    Ok(pubkey.serialize())
+}
+
 fn secp256k1_pubkey_serialize<S: serde::Serializer>(
     pubk: &LibSecp256k1PublicKey,
     s: S,
@@ -378,5 +384,28 @@ impl PrivateKey for Secp256k1PrivateKey {
         let (sig, recid) = (LibSecp256k1Signature { r: sigr, s: sigs }, recid);
         let rec_sig = MessageSignature::from_secp256k1_recoverable(&sig, recid);
         Ok(rec_sig)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::PublicKey;
+
+    #[test]
+    fn test_decompress() {
+        let mut sk = Secp256k1PrivateKey::random();
+        sk.set_compress_public(true);
+        let pk = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk.to_bytes().len(), 33);
+
+        let decompressed_pk = secp256k1_decompress(pk.to_bytes().as_slice()).unwrap();
+        assert_eq!(decompressed_pk.len(), 65);
+
+        sk.set_compress_public(false);
+        let pk_uncompressed = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk_uncompressed.to_bytes(), decompressed_pk);
     }
 }

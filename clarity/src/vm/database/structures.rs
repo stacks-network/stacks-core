@@ -20,7 +20,7 @@ use serde::Deserialize;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::analysis::ContractAnalysis;
-use crate::vm::contracts::Contract;
+use crate::vm::contexts::ContractContext;
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::types::{PrincipalData, TypeSignature};
@@ -45,6 +45,29 @@ impl ClarityDeserializable<String> for String {
     }
 }
 
+/// JSON deserialization helper for non-WASM targets.
+#[cfg(not(target_family = "wasm"))]
+fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmExecutionError> {
+    let mut deserializer = serde_json::Deserializer::from_str(json);
+
+    // serde's default 128 depth limit can be exhausted by a 64-stack-depth AST, so
+    // disable the recursion limit and let stacker spill the deserializer to the heap
+    // instead of overflowing.
+    deserializer.disable_recursion_limit();
+    let deserializer = serde_stacker::Deserializer::new(&mut deserializer);
+
+    T::deserialize(deserializer)
+        .map_err(|_| VmInternalError::Expect("Failed to deserialize vm.Value".into()).into())
+}
+
+/// JSON deserialization helper for WASM targets, which don't have access to
+/// `serde_stacker` and thus can't disable the recursion limit.
+#[cfg(target_family = "wasm")]
+fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmExecutionError> {
+    serde_json::from_str(json)
+        .map_err(|_| VmInternalError::Expect("Failed to deserialize vm.Value".into()).into())
+}
+
 macro_rules! clarity_serializable {
     ($Name:ident) => {
         impl ClaritySerializable for $Name {
@@ -53,24 +76,8 @@ macro_rules! clarity_serializable {
             }
         }
         impl ClarityDeserializable<$Name> for $Name {
-            #[cfg(not(target_family = "wasm"))]
             fn deserialize(json: &str) -> Result<Self, VmExecutionError> {
-                let mut deserializer = serde_json::Deserializer::from_str(&json);
-                // serde's default 128 depth limit can be exhausted
-                //  by a 64-stack-depth AST, so disable the recursion limit
-                deserializer.disable_recursion_limit();
-                // use stacker to prevent the deserializer from overflowing.
-                //  this will instead spill to the heap
-                let deserializer = serde_stacker::Deserializer::new(&mut deserializer);
-                Deserialize::deserialize(deserializer).map_err(|_| {
-                    VmInternalError::Expect("Failed to deserialize vm.Value".into()).into()
-                })
-            }
-            #[cfg(target_family = "wasm")]
-            fn deserialize(json: &str) -> Result<Self, VmExecutionError> {
-                serde_json::from_str(json).map_err(|_| {
-                    VmInternalError::Expect("Failed to deserialize vm.Value".into()).into()
-                })
+                deserialize_json(json)
             }
         }
     };
@@ -106,13 +113,6 @@ pub struct DataVariableMetadata {
 clarity_serializable!(DataVariableMetadata);
 
 #[derive(Serialize, Deserialize)]
-pub struct ContractMetadata {
-    pub contract: Contract,
-}
-
-clarity_serializable!(ContractMetadata);
-
-#[derive(Serialize, Deserialize)]
 pub struct SimmedBlock {
     pub block_height: u64,
     pub block_time: u64,
@@ -127,7 +127,36 @@ clarity_serializable!(PrincipalData);
 clarity_serializable!(i128);
 clarity_serializable!(u128);
 clarity_serializable!(u64);
-clarity_serializable!(Contract);
+
+/// Handle serialization of [`ContractContext`] behind a wrapper struct with a single
+/// `contract_context` field.
+///
+/// This is for compatibility with the current on-disk format, where the `ContractContext` was
+/// previously serialized via the `Contract` type. This removes/isolates that dependency and
+/// allows us to work directly with `ContractContext`s.
+mod contract_context {
+    use super::*;
+
+    #[derive(Serialize, Deserialize)]
+    pub struct Wrapper<T> {
+        pub contract_context: T,
+    }
+
+    impl ClaritySerializable for ContractContext {
+        fn serialize(&self) -> String {
+            serde_json::to_string(&Wrapper {
+                contract_context: self,
+            })
+            .expect("Failed to serialize vm.Value")
+        }
+    }
+    impl ClarityDeserializable<ContractContext> for ContractContext {
+        fn deserialize(json: &str) -> Result<Self, VmExecutionError> {
+            deserialize_json::<Wrapper<ContractContext>>(json).map(|w| w.contract_context)
+        }
+    }
+}
+
 clarity_serializable!(ContractAnalysis);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1043,7 +1072,11 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .balance
             .get_total_balance()?
             .checked_sub(amount_to_lock)
-            .expect("FATAL: account locks more STX than balance possessed");
+            .ok_or_else(|| {
+                VmInternalError::Expect(
+                    "FATAL: account locks more STX than balance possessed".into(),
+                )
+            })?;
 
         self.balance = STXBalance::LockedPoxFive {
             amount_unlocked: new_amount_unlocked,
@@ -1120,15 +1153,80 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .balance
             .amount_unlocked()
             .checked_add(self.balance.amount_locked())
-            .expect("STX balance overflowed u128");
-        let amount_unlocked = total_amount
-            .checked_sub(new_total_locked)
-            .expect("STX underflow: more is locked than total balance");
+            .ok_or_else(|| VmInternalError::Expect("STX balance overflowed u128".into()))?;
+        let amount_unlocked = total_amount.checked_sub(new_total_locked).ok_or_else(|| {
+            VmInternalError::Expect("STX underflow: more is locked than total balance".into())
+        })?;
 
         self.balance = STXBalance::LockedPoxFive {
             amount_unlocked,
             amount_locked: new_total_locked,
             unlock_height: self.balance.unlock_height(),
+        };
+        Ok(())
+    }
+
+    /// Reset an existing pox-5 lock to `new_total_locked` and reschedule it to
+    /// unlock at `unlock_burn_height`, in a single step. Unlike
+    /// [`Self::increase_lock_v5`], the new amount may be lower than the
+    /// current locked amount (the difference is returned to the unlocked
+    /// balance); unlike [`Self::update_unlock_v5`], the amount may also change.
+    ///
+    /// Backs every pox-5 cross-mode roll-over the contract permits:
+    /// bond → bond (`register-for-bond` from a previous bond), stake → bond
+    /// (`register-for-bond` from an STX-only stake), and bond → stake (`stake`
+    /// from a previous bond). In every case the lock is carried over (never
+    /// released) to the new position's amount and unlock height.
+    ///
+    /// Errors if `self` was not already locked by pox-5, if the requested
+    /// unlock height is not in the future, or if the account cannot cover
+    /// `new_total_locked`.
+    pub fn set_lock_v5(
+        &mut self,
+        new_total_locked: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), VmExecutionError> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
+        if unlocked > 0 {
+            debug!("Consolidated after set-token-lock");
+        }
+
+        if !self.has_locked_tokens()? {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
+        }
+
+        if !self.is_v5_locked()? {
+            // caller needs to have checked this
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-5".into()).into(),
+            );
+        }
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
+        }
+
+        let total_amount = self
+            .balance
+            .amount_unlocked()
+            .checked_add(self.balance.amount_locked())
+            .ok_or_else(|| VmInternalError::Expect("STX balance overflowed u128".into()))?;
+        let amount_unlocked = total_amount.checked_sub(new_total_locked).ok_or_else(|| {
+            VmInternalError::Expect("STX underflow: more is locked than total balance".into())
+        })?;
+
+        self.balance = STXBalance::LockedPoxFive {
+            amount_unlocked,
+            amount_locked: new_total_locked,
+            unlock_height: unlock_burn_height,
         };
         Ok(())
     }

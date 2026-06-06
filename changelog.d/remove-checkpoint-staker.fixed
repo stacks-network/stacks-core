@@ -1,0 +1,3 @@
+The `checkpoint-staker` function was removed from the PoX-5 signer manager trait,
+along with its associated usage in pox-5. Instead, per-staker
+rewards tracking is stored in pox-5 directly.
