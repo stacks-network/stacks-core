@@ -1681,9 +1681,9 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     .expect("Timed out waiting for setup-bond");
 
     // 2) Build a real L1 lockup proof for `register-for-bond`'s
-    // `(ok { outputs, unlock-bytes })` branch.
+    // `(ok { outputs, staker-unlock-bytes })` branch.
     //
-    // `unlock-bytes` is the Bitcoin Script subscript the OP_IF
+    // `staker-unlock-bytes` is the Bitcoin Script subscript the OP_IF
     // (timelock-matured) branch of `construct-lockup-script` executes
     // after CLTV. We make it a `<pubkey> OP_CHECKSIG` fragment so the
     // spend is gated on a real signature from `staker_unlock_sk`. The
@@ -1899,7 +1899,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
                 Value::cons_list_unsanitized(vec![lockup_output.clone()]).unwrap(),
             ),
             (
-                ClarityName::try_from("unlock-bytes").unwrap(),
+                ClarityName::try_from("staker-unlock-bytes").unwrap(),
                 Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
             ),
         ])
@@ -1934,7 +1934,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
                 .unwrap(),
             ),
             (
-                ClarityName::try_from("unlock-bytes").unwrap(),
+                ClarityName::try_from("staker-unlock-bytes").unwrap(),
                 Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
             ),
         ])
@@ -2152,9 +2152,10 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     //     `OP_CHECKLOCKTIMEVERIFY` in the OP_IF branch passes),
     //   - the spending block's height is also `>= nLockTime` (mempool's
     //     non-final-tx check), AND
-    //   - the OP_IF branch's `<staker_unlock_pk> OP_CHECKSIG` (the
-    //     inlined `unlock_bytes`) accepts a witness signature for the
-    //     spend's BIP-143 sighash.
+    //   - the shared-tail `<staker_unlock_pk> OP_CHECKSIG` (the
+    //     `staker-unlock-bytes` subscript that runs after the OP_IF branch's
+    //     CLTV leaves its value for the shared OP_VERIFY) accepts a
+    //     witness signature for the spend's BIP-143 sighash.
     //
     // We test both halves of that owner check:
     //   (a) an *interloper* signs the spend with a fresh, random key
@@ -2382,16 +2383,20 @@ fn sbtc_balance(conf: &Config, deployer: &StacksAddress, who: &StacksAddress) ->
 #[test]
 #[ignore]
 /// Verify the OP_ELSE (early-exit) branch of pox-5's L1 lockup script is
-/// only spendable when the caller supplies a properly shaped
-/// `unlock-bytes` and `early-unlock-bytes` subscripts.
+/// only spendable when the caller reveals the staker-principal preimage and
+/// supplies valid early-unlock and staker signatures.
 ///
-/// `construct-lockup-script`'s OP_ELSE branch concatenates
-/// `<early-unlock-bytes> <unlock-bytes>` and ends with OP_ENDIF.
+/// `construct-lockup-script`'s OP_ELSE branch is
+/// `OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <H> OP_EQUALVERIFY <early-unlock-bytes>`,
+/// followed (after OP_ENDIF) by the shared `OP_VERIFY <staker-unlock-bytes>` tail.
+/// `<H>` is `sha256(sha256(to-consensus-buff? staker))`, so spending the
+/// early-exit branch requires revealing the 32-byte
+/// `sha256(to-consensus-buff? staker)` preimage.
 ///
 /// This test demonstrates the realistic script shapes:
 ///
-///   - `unlock-bytes  = <unlock_pk>  OP_CHECKSIG` (35 bytes, ends 0xac)
-///   - `early-unlock-bytes = <early_pk> OP_CHECKSIGVERIFY` (35 bytes, ends 0xad)
+///   - `staker-unlock-bytes = <unlock_pk> OP_CHECKSIG` (35 bytes, ends 0xac)
+///   - `early-unlock-bytes  = <early_pk>  OP_CHECKSIG` (35 bytes, ends 0xac)
 ///   - Lock 1_000_000 sats into the canonical timelock P2WSH and
 ///     `register-for-bond` with the lockup tuple.
 ///
@@ -2399,19 +2404,24 @@ fn sbtc_balance(conf: &Config, deployer: &StacksAddress, who: &StacksAddress) ->
 /// rewards, then asserts that `announce-l1-early-exit` did not erase the
 /// staker's already accrued rewards.
 ///
-/// All four sweep attempts run *before* `unlock-burn-height`, so the
+/// All five sweep attempts run *before* `unlock-burn-height`, so the
 /// OP_IF branch is unavailable (its CLTV would fail) and the only path
 /// the BTC can move is the OP_ELSE branch:
 ///
-///   1. Both sigs from random keys → mempool rejects (one of the
-///      CHECKSIG/CHECKSIGVERIFY opcodes returns false).
-///   2. Only the owner sig (early sig from a random key) → rejects:
-///      OP_CHECKSIGVERIFY fails the script outright.
-///   3. Only the early sig (owner sig from a random key) → rejects:
-///      the closing OP_CHECKSIG returns false.
-///   4. Both sigs from the correct keys, branch flag empty (selects
-///      OP_ELSE) → confirms; the BTC moves to a bondholder-controlled
-///      address before the timelock matures.
+///   1. Both sigs from random keys (correct preimage) → mempool rejects
+///      (the early-unlock CHECKSIG's OP_VERIFY or the closing CHECKSIG
+///      returns false).
+///   2. Only the owner sig (early sig from a random key, correct preimage)
+///      → rejects: the early-unlock CHECKSIG result fails the shared
+///      OP_VERIFY.
+///   3. Only the early sig (owner sig from a random key, correct preimage)
+///      → rejects: the closing OP_CHECKSIG returns false.
+///   4. Both sigs correct, but a wrong (still 32-byte) principal preimage
+///      → rejects: `OP_SHA256 <H> OP_EQUALVERIFY` fails before the
+///      CHECKSIGs run.
+///   5. Both sigs from the correct keys, correct preimage, branch flag
+///      empty (selects OP_ELSE) → confirms; the BTC moves to a
+///      bondholder-controlled address before the timelock matures.
 fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2608,11 +2618,12 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let pox_5_addr: StacksAddress = pox_5_id.issuer.clone().into();
 
     // Two keypairs gate the lockup:
-    //   - `staker_unlock_sk` (owner) closes both branches of the witness
-    //     script via `<unlock_pk> OP_CHECKSIG`.
+    //   - `staker_unlock_sk` (owner) closes the shared tail of the witness
+    //     script via `<unlock_pk> OP_CHECKSIG`; it is required on both
+    //     branches.
     //   - `early_unlock_sk` is the early-exit signer; its sig is
-    //     consumed by OP_CHECKSIGVERIFY at the head of the OP_ELSE
-    //     branch (subscript ending `0xad`).
+    //     consumed by `<early_pk> OP_CHECKSIG` inside the OP_ELSE
+    //     branch.
     let staker_unlock_sk = Secp256k1PrivateKey::random();
     let staker_unlock_pk = Secp256k1PublicKey::from_private(&staker_unlock_sk);
     let staker_unlock_pk_bytes = staker_unlock_pk.to_bytes_compressed();
@@ -2630,21 +2641,35 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "compressed secp pubkey should be 33 bytes"
     );
 
-    // `unlock-bytes` = `<unlock_pk> OP_CHECKSIG`
+    // `staker-unlock-bytes` = `<unlock_pk> OP_CHECKSIG` (shared tail).
     let mut lockup_unlock_bytes = Vec::with_capacity(1 + 33 + 1);
     lockup_unlock_bytes.push(0x21); // OP_PUSHBYTES_33
     lockup_unlock_bytes.extend_from_slice(&staker_unlock_pk_bytes);
     lockup_unlock_bytes.push(0xac); // OP_CHECKSIG
 
-    // `early-unlock-bytes` = `<early_pk> OP_CHECKSIGVERIFY`
-    // The OP_ELSE branch is `<early-unlock-bytes> <unlock-bytes>`
+    // `early-unlock-bytes` = `<early_pk> OP_CHECKSIG`. It guards the OP_ELSE
+    // branch and MUST leave a boolean (it is consumed by the shared
+    // OP_VERIFY), so it ends in OP_CHECKSIG (0xac), not OP_CHECKSIGVERIFY.
     let mut early_unlock_bytes = Vec::with_capacity(1 + 33 + 1);
     early_unlock_bytes.push(0x21); // OP_PUSHBYTES_33
     early_unlock_bytes.extend_from_slice(&early_unlock_pk_bytes);
-    early_unlock_bytes.push(0xad); // OP_CHECKSIGVERIFY
+    early_unlock_bytes.push(0xac); // OP_CHECKSIG
+
+    // The OP_ELSE branch requires revealing the 32-byte
+    // `sha256(to-consensus-buff? staker)` preimage of the committed hash
+    // `<H> = sha256(sha256(to-consensus-buff? staker))`. Compute it here so
+    // the early-exit witness can present it. `serialize_to_vec` produces the
+    // exact bytes `to-consensus-buff?` does.
+    let staker_principal_consensus_buff = Value::Principal(staker_addr.clone().into())
+        .serialize_to_vec()
+        .expect("serialize staker principal to consensus buff");
+    let staker_principal_preimage =
+        stacks_common::util::hash::Sha256Sum::from_data(&staker_principal_consensus_buff)
+            .0
+            .to_vec();
 
     // 1) `setup-bond` from the configured bond admin, with the
-    // CHECKSIGVERIFY-terminated early-unlock subscript.
+    // CHECKSIG-terminated early-unlock subscript.
     const BTC_LOCKUP_SATS: u128 = 1_000_000;
     const BOND_TARGET_RATE: u128 = 1_000;
     let allowlist_entry = clarity::vm::Value::Tuple(
@@ -2858,7 +2883,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
                 Value::cons_list_unsanitized(vec![lockup_output]).unwrap(),
             ),
             (
-                ClarityName::try_from("unlock-bytes").unwrap(),
+                ClarityName::try_from("staker-unlock-bytes").unwrap(),
                 Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
             ),
         ])
@@ -3056,20 +3081,27 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let sweep_value = lockup_output_amount - SWEEP_FEE_SATS;
 
     // Build a sweep tx signed by two arbitrary keys, configured for the
-    // OP_ELSE branch. The witness stack is laid out so OP_ELSE's
-    // `<early_pk> OP_CHECKSIGVERIFY  <unlock_pk> OP_CHECKSIG` sees
-    // `sig_early` on top of `sig_owner`:
+    // OP_ELSE branch. The witness stack is laid out (bottom-to-top) as
+    // `[sig_owner, sig_early, principal_preimage, <empty branch flag>]`
+    // so the OP_ELSE body
+    // `OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <H> OP_EQUALVERIFY
+    //  <early_pk> OP_CHECKSIG` (then `OP_ENDIF OP_VERIFY
+    //  <unlock_pk> OP_CHECKSIG`) sees what it needs:
     //   - witness items are pushed left-to-right; the first item ends
     //     up at the *bottom* of the stack;
     //   - after OP_IF pops the (empty) branch flag, the stack is
+    //     [sig_owner, sig_early, principal_preimage];
+    //   - OP_SIZE/OP_EQUALVERIFY checks the preimage is 32 bytes;
+    //   - OP_SHA256/<H>/OP_EQUALVERIFY checks sha256(preimage) == H, leaving
     //     [sig_owner, sig_early];
-    //   - CHECKSIGVERIFY pops `<early_pk>` and `sig_early`, fails the
-    //     script if invalid, leaves [sig_owner];
-    //   - CHECKSIG pops `<unlock_pk>` and `sig_owner`, pushes 1;
-    //   - final stack: [1] — one item, OP_ENDIF, script succeeds.
+    //   - `<early_pk> OP_CHECKSIG` pops `sig_early`, pushes a bool;
+    //   - OP_ENDIF, then OP_VERIFY consumes that bool, leaving [sig_owner];
+    //   - `<unlock_pk> OP_CHECKSIG` pops `sig_owner`, pushes 1 — the final
+    //     result.
     let build_joint_sweep =
         |owner_sk: &Secp256k1PrivateKey,
-         early_sk: &Secp256k1PrivateKey|
+         early_sk: &Secp256k1PrivateKey,
+         preimage: &[u8]|
          -> stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction {
             let mut tx = stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction {
                 version: 2,
@@ -3125,10 +3157,15 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
 
             tx.input[0].witness = vec![
                 // First witness item -> bottom of stack: the sig the closing
-                // OP_CHECKSIG will consume.
+                // `<unlock_pk> OP_CHECKSIG` (shared tail) will consume.
                 sig_owner,
-                // Above it: the sig that OP_CHECKSIGVERIFY consumes first.
+                // Above it: the sig that the OP_ELSE `<early_pk>
+                // OP_CHECKSIG` consumes.
                 sig_early,
+                // Above that: the 32-byte sha256(to-consensus-buff? staker)
+                // preimage that OP_SIZE/OP_SHA256 in the OP_ELSE branch
+                // consume.
+                preimage.to_vec(),
                 // Empty buffer = false (MINIMALIF-compliant): OP_IF takes
                 // the OP_ELSE branch.
                 vec![],
@@ -3140,10 +3177,11 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
             tx
         };
 
-    // (a) Both sigs from random keys.
+    // (a) Both sigs from random keys (correct preimage).
     let tx_both_wrong = build_joint_sweep(
         &Secp256k1PrivateKey::random(),
         &Secp256k1PrivateKey::random(),
+        &staker_principal_preimage,
     );
     let res_both_wrong =
         bondholder_rpc.send_raw_transaction(&tx_both_wrong, Some(0.0), Some(1_000_000));
@@ -3152,20 +3190,28 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         .expect("both-wrong-sigs early-exit sweep must be rejected by the script's CHECKSIGs");
     info!("Both-wrong-sigs early-exit sweep rejected as expected: {err_both_wrong:?}");
 
-    // (b) Owner sig correct, early sig from a random key.
-    let tx_no_early = build_joint_sweep(&staker_unlock_sk, &Secp256k1PrivateKey::random());
+    // (b) Owner sig correct, early sig from a random key (correct preimage).
+    let tx_no_early = build_joint_sweep(
+        &staker_unlock_sk,
+        &Secp256k1PrivateKey::random(),
+        &staker_principal_preimage,
+    );
     let res_no_early =
         bondholder_rpc.send_raw_transaction(&tx_no_early, Some(0.0), Some(1_000_000));
     let err_no_early = res_no_early
         .err()
-        .expect("missing-early-sig sweep must be rejected by OP_CHECKSIGVERIFY");
+        .expect("missing-early-sig sweep must be rejected: early-unlock CHECKSIG fails OP_VERIFY");
     info!(
-        "Owner-only early-exit sweep rejected (CHECKSIGVERIFY on the early sig fails): \
+        "Owner-only early-exit sweep rejected (early-unlock CHECKSIG fails the shared OP_VERIFY): \
          {err_no_early:?}"
     );
 
-    // (c) Early sig correct, owner sig from a random key.
-    let tx_no_owner = build_joint_sweep(&Secp256k1PrivateKey::random(), &early_unlock_sk);
+    // (c) Early sig correct, owner sig from a random key (correct preimage).
+    let tx_no_owner = build_joint_sweep(
+        &Secp256k1PrivateKey::random(),
+        &early_unlock_sk,
+        &staker_principal_preimage,
+    );
     let res_no_owner =
         bondholder_rpc.send_raw_transaction(&tx_no_owner, Some(0.0), Some(1_000_000));
     let err_no_owner = res_no_owner
@@ -3176,8 +3222,29 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
          {err_no_owner:?}"
     );
 
-    // (d) Both sigs from the correct keys -> confirms.
-    let joint_sweep_tx = build_joint_sweep(&staker_unlock_sk, &early_unlock_sk);
+    // (d) Both sigs correct, but a wrong (still 32-byte) principal preimage.
+    // OP_SIZE passes, but `OP_SHA256 <H> OP_EQUALVERIFY` fails because
+    // sha256(wrong_preimage) != H, so the OP_ELSE branch aborts before the
+    // CHECKSIGs ever run.
+    let mut wrong_preimage = staker_principal_preimage.clone();
+    wrong_preimage[0] ^= 0xff;
+    let tx_wrong_preimage = build_joint_sweep(&staker_unlock_sk, &early_unlock_sk, &wrong_preimage);
+    let res_wrong_preimage =
+        bondholder_rpc.send_raw_transaction(&tx_wrong_preimage, Some(0.0), Some(1_000_000));
+    let err_wrong_preimage = res_wrong_preimage
+        .err()
+        .expect("wrong-preimage sweep must be rejected by OP_SHA256 <H> OP_EQUALVERIFY");
+    info!(
+        "Wrong-preimage early-exit sweep rejected (sha256(preimage) != H fails OP_EQUALVERIFY): \
+         {err_wrong_preimage:?}"
+    );
+
+    // (e) Both sigs from the correct keys, correct preimage -> confirms.
+    let joint_sweep_tx = build_joint_sweep(
+        &staker_unlock_sk,
+        &early_unlock_sk,
+        &staker_principal_preimage,
+    );
     let sweep_txid = bondholder_rpc
         .send_raw_transaction(&joint_sweep_tx, Some(0.0), Some(1_000_000))
         .expect("send_raw_transaction(joint early-exit sweep)");

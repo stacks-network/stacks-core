@@ -112,8 +112,8 @@
         ;; relative to BTC for this term.
         ;; Represented in basis points.
         min-ustx-ratio: uint,
-        ;; The OP_ELSE (early-exit) subscript of the L1 lockup witness
-        ;; script for this bond period.
+        ;; The early-unlock subscript of the L1 lockup witness script for this
+        ;; bond period.
         early-unlock-bytes: (buff 683),
         ;; The Stacks principal that can announce early L1 unlocks
         early-unlock-admin: principal,
@@ -456,9 +456,10 @@
 ;; @param stx-value-ratio; representation of STX:BTC price
 ;; @param min-ustx-ratio; minimum amount of STX that must be locked
 ;; relative to BTC for this term. Represented in basis points.
-;; @param early-unlock-bytes: Bitcoin script that will be used to validate
-;; early exit from the bond. It should be of the form
-;; `<pubkey> OP_CHECKSIGVERIFY` or an M-of-N `CHECKMULTISIGVERIFY` template.
+;; @param early-unlock-bytes: Bitcoin script subscript that guards the
+;; early-exit (OP_ELSE) branch of the L1 lockup. It should be of the form
+;; `<pubkey> OP_CHECKSIG` or an M-of-N `CHECKMULTISIG` template, and MUST
+;; leave a valid result on the stack (it is consumed by the shared OP_VERIFY).
 ;; @param early-unlock-admin: The principal that will be allowed to announce
 ;; early exits from the bond.
 ;; @param allowlist: A list of allowed stakers and their maximum sats that can
@@ -616,7 +617,7 @@
                     amount: uint,
                 }
             ),
-            unlock-bytes: (buff 683),
+            staker-unlock-bytes: (buff 683),
         }
             uint
         ))
@@ -1727,14 +1728,14 @@
                     amount: uint,
                 }
             ),
-            unlock-bytes: (buff 683),
+            staker-unlock-bytes: (buff 683),
         })
     )
     (let (
             (bond (unwrap! (get-protocol-bond bond-index) ERR_BOND_NOT_FOUND))
             (expected-timelock-output (construct-lockup-output-script staker
                 (get-bond-l1-unlock-height bond-index)
-                (get unlock-bytes lockups) (get early-unlock-bytes bond)
+                (get staker-unlock-bytes lockups) (get early-unlock-bytes bond)
             ))
             (accumulation (try! (fold validate-l1-lockup (get outputs lockups)
                 (ok {
@@ -3323,55 +3324,69 @@
 
 ;; Contruct an L1 lockup script.
 ;;
-;; `unlock-bytes` and `early-unlock-bytes` are caller-supplied Bitcoin
-;; Script *subscripts*. `unlock-bytes` should be a subscript that validates the
-;; signature of the staker (e.g., `<pubkey> OP_CHECKSIG` or an M-of-N
-;; `CHECKMULTISIG` template). It MUST leave a valid result on the stack.
+;; `staker-unlock-bytes` and `early-unlock-bytes` are caller-supplied Bitcoin Script
+;; *subscripts*. Both MUST leave a valid (boolean) result on the stack.
+;; `staker-unlock-bytes` should be a subscript that validates the signature of the
+;; staker (e.g., `<pubkey> OP_CHECKSIG` or an M-of-N `CHECKMULTISIG` template);
+;; it always runs and its result is the final result of the script.
 ;; `early-unlock-bytes` should be a subscript that validates the signature of
-;; the early unlock admin and MUST NOT leave anything on the stack (e.g.
-;; `<pubkey> OP_CHECKSIGVERIFY`, or an M-of-N `CHECKMULTISIGVERIFY` template).
+;; the early-unlock key for the early-exit branch (e.g., `<pubkey> OP_CHECKSIG`,
+;; or an M-of-N `CHECKMULTISIG` template); its result is consumed by the shared
+;; OP_VERIFY.
+;;
+;; The staker is bound to the script via a hashed commitment rather than a
+;; cleartext push: the OP_ELSE branch requires revealing the 32-byte
+;; `sha256(to-consensus-buff? staker)` preimage of the committed hash
+;; `<H> = sha256(sha256(to-consensus-buff? staker))`.
 ;;
 ;; The constructed script has this structure:
 ;; ```
-;; <staker> OP_DROP
 ;; OP_IF
-;;     <unlock-burn-height> OP_CHECKLOCKTIMEVERIFY OP_DROP
-;;     <unlock-bytes>
+;;     <unlock-burn-height> OP_CHECKLOCKTIMEVERIFY
 ;; OP_ELSE
+;;     OP_SIZE <32> OP_EQUALVERIFY
+;;     OP_SHA256 <H> OP_EQUALVERIFY
 ;;     <early-unlock-bytes>
-;;     <unlock-bytes>
 ;; OP_ENDIF
+;; OP_VERIFY
+;; <staker-unlock-bytes>
 ;; ```
 (define-read-only (construct-lockup-script
         (staker principal)
         (unlock-burn-height uint)
-        (unlock-bytes (buff 683))
+        (staker-unlock-bytes (buff 683))
         (early-unlock-bytes (buff 683))
     )
-    (concat (push-script-bytes (unwrap-panic (to-consensus-buff? staker)))
-        (concat 0x7563 ;; OP_DROP, OP_IF
+    (let ((principal-hash (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))))
+        (concat 0x63 ;; OP_IF
             (concat (push-c-script-num unlock-burn-height)
-                (concat 0xb175 ;; OP_CHECKLOCKTIMEVERIFY, OP_DROP
-                    (concat unlock-bytes
-                        (concat 0x67 ;; OP_ELSE
-                            (concat early-unlock-bytes
-                                (concat unlock-bytes 0x68
-                                    ;; OP_ENDIF
-                                ))
-                        ))
-                ))
-        ))
+                (concat 0xb167 ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
+                    (concat 0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
+                        (concat principal-hash
+                            (concat 0x88 ;; OP_EQUALVERIFY
+                                (concat early-unlock-bytes
+                                    (concat 0x6869 ;; OP_ENDIF, OP_VERIFY
+                                        staker-unlock-bytes
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    )
 )
 
 ;; Construct the p2wsh output script for a L1 lockup address
 (define-read-only (construct-lockup-output-script
         (staker principal)
         (unlock-burn-height uint)
-        (unlock-bytes (buff 683))
+        (staker-unlock-bytes (buff 683))
         (early-unlock-bytes (buff 683))
     )
     (concat 0x0020
-        (sha256 (construct-lockup-script staker unlock-burn-height unlock-bytes
+        (sha256 (construct-lockup-script staker unlock-burn-height staker-unlock-bytes
             early-unlock-bytes
         ))
     )
