@@ -17,7 +17,6 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
-use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::{
     StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_argument_count,
     check_arguments_at_least,
@@ -265,7 +264,7 @@ pub fn check_special_concat(
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
     // Clarity 6 makes `concat` variadic. Earlier versions require exactly 2 args.
-    if context.clarity_version >= ClarityVersion::Clarity6 {
+    if context.clarity_version.supports_variadic_concat() {
         check_arguments_at_least(2, args)?;
     } else {
         check_argument_count(2, args)?;
