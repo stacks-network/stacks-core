@@ -1143,6 +1143,7 @@
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
             (next-cycle (+ current-cycle u1))
+            (current-total-staked (get-total-sbtc-staked-for-bond bond-index))
             (first-changed-reward-cycle (if (> next-cycle bond-end-cycle)
                 bond-end-cycle
                 (if (< next-cycle bond-start-cycle)
@@ -1175,6 +1176,9 @@
 
         (map-set protocol-bond-memberships staker
             (merge membership { amount-sats: u0 })
+        )
+        (map-set protocol-bonds-total-staked bond-index
+            (- current-total-staked amount-sats)
         )
         (let ((result {
                 staker: staker,
@@ -1250,6 +1254,9 @@
 
         (map-set protocol-bond-memberships staker
             (merge membership { amount-sats: new-amount-sats })
+        )
+        (map-set protocol-bonds-total-staked bond-index
+            (- (get-total-sbtc-staked-for-bond bond-index) amount-to-withdrawal-sats)
         )
 
         ;; Mutate the total sBTC staked

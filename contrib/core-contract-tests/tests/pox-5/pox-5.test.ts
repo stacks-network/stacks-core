@@ -2116,6 +2116,51 @@ test('sbtc unstake returns withdrawn sats to the staker', () => {
   expect(sbtcBalance(signer)).toBe(signerBalance);
 });
 
+test('sbtc unstake reduces the per-bond total staked', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+  const unstakedSbtc = 25000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(rov(pox5.getTotalSbtcStakedForBond(0n))).toBe(aliceSbtc);
+
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: unstakedSbtc,
+    }),
+    alice,
+  );
+
+  expect(rov(pox5.getTotalSbtcStakedForBond(0n))).toBe(
+    aliceSbtc - unstakedSbtc,
+  );
+});
+
 /**
  * `unstake-sbtc` must work for a bond that has not started yet. This
  * test checks that all appropriate cycles are updated after unstaking.
