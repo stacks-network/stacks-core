@@ -26,6 +26,7 @@ import {
   registerSigner,
   sbtc,
   sbtcBalance,
+  signerAddress,
   testSignerErrors,
   testSigner,
   sbtcTransfer,
@@ -356,6 +357,61 @@ test('scenario - setting up and starting a bond', () => {
 
   expect(getAllStakers().length).toBe(1);
   expectAllSignersHaveKeys();
+});
+
+/**
+ * Revoking a signer key grant disables an already-registered manager from
+ * accepting any *new* stake, even though its `signers` entry (and thus
+ * `get-signer-info`) is intentionally left intact so outstanding obligations
+ * can still settle. This is what gives `revoke-signer-grant` teeth against a
+ * manager that is later found buggy or deprecated: it can no longer accumulate
+ * delegated STX, so it cannot (re-)enter the signer set off new stake.
+ */
+test('revoking a grant blocks new stake to a registered signer', () => {
+  const signer = testSigner.identifier;
+  const { signerKey } = registerSigner();
+  const amount = pox5.constants.SIGNER_SET_MIN_USTX;
+
+  // Alice stakes enough to put the signer in the set for cycle 1.
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: amount,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(isSignerInCycle({ signer, cycle: 1n })).toBe(true);
+
+  // The signer-key principal revokes the grant.
+  const revoke = txOk(
+    pox5.revokeSignerGrant({ signerManager: signer, signerKey }),
+    signerAddress(signerKey),
+  );
+  expect(revoke.value.existed).toBe(true);
+
+  // The `signers` entry is left intact so existing obligations can settle...
+  expect(rov(pox5.getSignerInfo(signer))).toEqual(signerKey);
+  // ...and Alice's already-recorded stake is untouched (winds down naturally).
+  expect(isSignerInCycle({ signer, cycle: 1n })).toBe(true);
+  expect(rov(pox5.getAmountDelegatedForSigner({ signer, cycle: 1n }))).toBe(
+    amount,
+  );
+
+  // But no new stake can flow to the now-revoked manager.
+  const bobStakeErr = txErr(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: amount,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    bob,
+  );
+  expect(bobStakeErr.value).toEqual(pox5Errors.ERR_SIGNER_KEY_GRANT_NOT_FOUND);
 });
 
 /**

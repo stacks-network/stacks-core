@@ -4399,6 +4399,36 @@ export const contracts = {
           rewardsPerToken: bigint;
         }
       >,
+      signerManagerValidateStake: {
+        name: 'signer-manager-validate-stake',
+        access: 'private',
+        args: [
+          { name: 'signer-manager', type: 'trait_reference' },
+          { name: 'staker', type: 'principal' },
+          { name: 'first-index', type: 'uint128' },
+          { name: 'num-indexes', type: 'uint128' },
+          { name: 'amount-ustx', type: 'uint128' },
+          { name: 'amount-sats', type: 'uint128' },
+          { name: 'is-bond', type: 'bool' },
+          {
+            name: 'signer-calldata',
+            type: { optional: { buffer: { length: 500 } } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          signerManager: TypedAbiArg<string, 'signerManager'>,
+          staker: TypedAbiArg<string, 'staker'>,
+          firstIndex: TypedAbiArg<number | bigint, 'firstIndex'>,
+          numIndexes: TypedAbiArg<number | bigint, 'numIndexes'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          amountSats: TypedAbiArg<number | bigint, 'amountSats'>,
+          isBond: TypedAbiArg<boolean, 'isBond'>,
+          signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
+        ],
+        Response<boolean, bigint>
+      >,
       updateClaimableBondRewards: {
         name: 'update-claimable-bond-rewards',
         access: 'private',
@@ -4640,6 +4670,12 @@ export const contracts = {
           bigint
         >
       >,
+      validateNoReentrancy: {
+        name: 'validate-no-reentrancy',
+        access: 'private',
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
       verifyBondRolloverWindow: {
         name: 'verify-bond-rollover-window',
         access: 'private',
@@ -4935,7 +4971,7 @@ export const contracts = {
                   { name: 'rewards-per-token', type: 'uint128' },
                 ],
               },
-              error: 'none',
+              error: 'uint128',
             },
           },
         },
@@ -4950,7 +4986,7 @@ export const contracts = {
             earned: bigint;
             rewardsPerToken: bigint;
           },
-          null
+          bigint
         >
       >,
       disallowContractCaller: {
@@ -7312,6 +7348,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_REENTRANT_CALL: {
+        name: 'ERR_REENTRANT_CALL',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_ROLLOVER_TOO_EARLY: {
         name: 'ERR_ROLLOVER_TOO_EARLY',
         type: {
@@ -7561,6 +7607,11 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      signerManagerCallActive: {
+        name: 'signer-manager-call-active',
+        type: 'bool',
+        access: 'variable',
+      } as TypedAbiVariable<boolean>,
       totalSbtcStaked: {
         name: 'total-sbtc-staked',
         type: 'uint128',
@@ -7690,6 +7741,10 @@ export const contracts = {
         isOk: false,
         value: 39n,
       },
+      ERR_REENTRANT_CALL: {
+        isOk: false,
+        value: 49n,
+      },
       ERR_ROLLOVER_TOO_EARLY: {
         isOk: false,
         value: 48n,
@@ -7760,6 +7815,7 @@ export const contracts = {
       poxPrepareCycleLength: 50n,
       poxRewardCycleLength: 1_050n,
       reserveBalance: 0n,
+      signerManagerCallActive: false,
       totalSbtcStaked: 0n,
     },
     non_fungible_tokens: [],
