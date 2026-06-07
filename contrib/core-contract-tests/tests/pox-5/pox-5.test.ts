@@ -1539,6 +1539,50 @@ test('cannot announce l1 early exit for sbtc bond participant', () => {
   );
 });
 
+test('update-bond-registration in the final bond cycle leaves no future shares', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('bond-update-final-cycle-signer-2').identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1200n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(12n)));
+
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      oldSignerManager: signer1,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer2, 13n, 0n))).toBe(0n);
+});
+
 // Skipped: Simnet's burn header hashes aren't real, so most of the L1 paths
 // can't be covered in unit tests. These will be tested in integration tests.
 test.skip('l1 early exit prevents future bond rewards but leaves stx delegated', () => {

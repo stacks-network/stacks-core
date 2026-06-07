@@ -810,9 +810,12 @@
             ;; If the bond hasn't started yet, then the first cycle where
             ;; this new signer is active is the start cycle. Otherwise, it's the next reward
             ;; cycle. In other words, `max(bond-start-cycle, current-cycle + 1)`
-            (first-reward-cycle (if (> bond-start-cycle next-cycle)
-                bond-start-cycle
-                next-cycle
+            (first-reward-cycle (if (> next-cycle bond-end-cycle)
+                bond-end-cycle
+                (if (> bond-start-cycle next-cycle)
+                    bond-start-cycle
+                    next-cycle
+                )
             ))
             (amount-sats (get amount-sats current-membership))
             (num-cycles (- bond-end-cycle first-reward-cycle))
