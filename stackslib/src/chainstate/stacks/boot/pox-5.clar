@@ -907,7 +907,9 @@
         (try! (verify-signer-key-grant signer signer-key))
 
         ;; Only the signer contract itself can register itself
-        (asserts! (is-eq contract-caller signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
+        (asserts! (is-eq contract-caller signer)
+            ERR_UNAUTHORIZED_SIGNER_REGISTRATION
+        )
 
         (map-set signers signer signer-key)
         (let ((result {
@@ -2505,7 +2507,9 @@
         (try! (validate-no-reentrancy))
 
         ;; Only the signer contract itself can call this function to grant a signer key
-        (asserts! (is-eq contract-caller signer-manager) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
+        (asserts! (is-eq contract-caller signer-manager)
+            ERR_UNAUTHORIZED_SIGNER_REGISTRATION
+        )
         (asserts!
             (is-none (map-get? used-signer-key-grants {
                 signer-key: signer-key,
