@@ -797,7 +797,6 @@
         (try! (check-caller-allowed))
 
         ;; Settle rewards before mutating related state
-        ;; TODO: settle rewards for the current cycle
         (settle-rewards current-signer current-cycle (some bond-index))
         (settle-rewards signer current-cycle (some bond-index))
         (settle-staker-rewards current-signer current-cycle (some bond-index)
@@ -2050,8 +2049,6 @@
         )
 
         (map-set rewards-per-token-for-cycle {
-            ;; is-bond: true,
-            ;; index: bond-index,
             reward-cycle: reward-cycle,
             bond-index: (some bond-index),
         }
