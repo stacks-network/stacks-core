@@ -2,9 +2,11 @@ import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
   getWalletNameByAddress,
+  grantKey,
   logCommand,
   refreshModel,
   trackCommandRun,
+  usedGrantKey,
 } from './utils';
 import { rov } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -53,8 +55,11 @@ export const RegisterSigner = (accounts: Real['accounts']) =>
           // Assert
           expect(rov(pox5.getSignerInfo(signerId))).toEqual(signerKey);
 
-          // Update model
-          model.signers.add(signerId);
+          // Update model. register-self consumed the (key, manager, auth-id)
+          // grant and left it live in signer-key-grants.
+          model.signers.set(signerId, { signerKey });
+          model.usedGrants.add(usedGrantKey(signerKey, signerId, r.authId));
+          model.activeGrants.add(grantKey(signerKey, signerId));
 
           logCommand({
             sender: getWalletNameByAddress(r.caller),

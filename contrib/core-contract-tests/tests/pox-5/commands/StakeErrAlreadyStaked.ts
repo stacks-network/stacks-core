@@ -31,7 +31,7 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake_err_already_staked');
 
           // Arrange
-          const registered = Array.from(model.signers);
+          const registered = Array.from(model.signers.keys());
           const signer = registered[r.signerIndex % registered.length];
           pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;

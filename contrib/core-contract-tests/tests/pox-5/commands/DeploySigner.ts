@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import { logCommand, refreshModel, trackCommandRun } from './utils';
-import { deployTestSignerContract } from '../pox-5-helpers';
+import { MAX_SIGNERS, deployTestSignerContract } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
 import { expect } from 'vitest';
 
@@ -9,8 +9,8 @@ export const DeploySigner = () =>
   fc.constant(null).map(() => {
     let name: string | undefined;
     return {
-      // Allow max 10 signer manager contracts to be deployed.
-      check: (model: Readonly<Model>) => model.deployedSigners.size < 10,
+      // Allow max MAX_SIGNERS signer-manager contracts to be deployed.
+      check: (model: Readonly<Model>) => model.deployedSigners.size < MAX_SIGNERS,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
         trackCommandRun(model, 'deploy-signer');

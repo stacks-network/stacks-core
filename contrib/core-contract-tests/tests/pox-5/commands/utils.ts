@@ -1,6 +1,7 @@
 import type { Model, Real, StakerState } from './types';
 import { accounts } from '../../clarigen-types';
 import { rov } from '@clarigen/test';
+import { hex } from '@scure/base';
 import { expect } from 'vitest';
 
 export function currentRewardCycle(model: Readonly<Model>): bigint {
@@ -143,81 +144,166 @@ function logAsTree(statistics: [string, number][]) {
 export const getWalletNameByAddress = (address: string): string | undefined =>
   Object.entries(accounts).find(([, v]) => v.address === address)?.[0];
 
-// Per-cycle model derivations. Each takes a snapshot of `stakers` (which the
-// caller can construct as the "post-Act" view by copying model.stakers and
-// applying the in-flight change) so assertions can compare contract state to
-// what the model predicts without committing the change first.
+// Signer-key-grant (de)serialisation. The model stores grants as flat strings
+// so they live in plain `Set`s; these are the only places that know the wire
+// format. `|` is a safe delimiter: hex, principals, and decimal auth-ids never
+// contain it.
 
-function stakerActiveAtCycle(st: StakerState, cycle: bigint): boolean {
-  return (
-    st.firstRewardCycle <= cycle && cycle < st.firstRewardCycle + st.numCycles
-  );
+/** `model.activeGrants` key: one entry per live `signer-key-grants` row. */
+export function grantKey(signerKey: Uint8Array, signerManager: string): string {
+  return `${hex.encode(signerKey)}|${signerManager}`;
 }
 
-export function modelDelegatedForSigner(
-  stakers: Map<string, StakerState>,
+/** `model.usedGrants` key: one entry per consumed `used-signer-key-grants` row. */
+export function usedGrantKey(
+  signerKey: Uint8Array,
+  signerManager: string,
+  authId: bigint,
+): string {
+  return `${hex.encode(signerKey)}|${signerManager}|${authId}`;
+}
+
+/** Inverse of `grantKey`. */
+export function parseGrantKey(key: string): {
+  signerKey: Uint8Array;
+  signerManager: string;
+} {
+  const [signerKeyHex, signerManager] = key.split('|');
+  return { signerKey: hex.decode(signerKeyHex), signerManager };
+}
+
+/** Inverse of `usedGrantKey`. */
+export function parseUsedGrantKey(key: string): {
+  signerKey: Uint8Array;
+  signerManager: string;
+  authId: bigint;
+} {
+  const [signerKeyHex, signerManager, authId] = key.split('|');
+  return {
+    signerKey: hex.decode(signerKeyHex),
+    signerManager,
+    authId: BigInt(authId),
+  };
+}
+
+// Per-cycle key encoders for the model's mirror maps. The contract keys these
+// maps by composite tuples; we flatten to `|`-joined strings so they live in
+// plain `Map`s. `|` is safe: principals and decimal cycles never contain it.
+
+function signerCycleKey(signer: string, cycle: bigint): string {
+  return `${signer}|${cycle}`;
+}
+
+function stakerCycleKey(staker: string, cycle: bigint): string {
+  return `${staker}|${cycle}`;
+}
+
+function stakerSignerCycleKey(
+  staker: string,
   signer: string,
   cycle: bigint,
-): bigint {
-  let sum = 0n;
-  for (const st of stakers.values()) {
-    if (st.signer === signer && stakerActiveAtCycle(st, cycle)) {
-      sum += st.amountUstx;
-    }
-  }
-  return sum;
+): string {
+  return `${staker}|${signer}|${cycle}`;
 }
 
-export function modelTotalDelegated(
-  stakers: Map<string, StakerState>,
-  cycle: bigint,
-): bigint {
-  let sum = 0n;
-  for (const st of stakers.values()) {
-    if (stakerActiveAtCycle(st, cycle)) sum += st.amountUstx;
-  }
-  return sum;
-}
+// Per-cycle model writes. These mirror the contract's `add-staker-to-signer-
+// for-cycle` / `remove-staker-from-signer-for-cycle` folds, but only for the
+// four unconditional-write maps (the threshold-gated `signer-shares` /
+// `total-shares` maps are not modelled — SKILL §5.3). Call them in the Act's
+// "Update model" step so every cycle the Act touched ends up holding exactly
+// what the contract committed there.
 
-export function modelSignerMembership(
-  stakers: Map<string, StakerState>,
-  staker: string,
-  cycle: bigint,
-): { amountUstx: bigint; signer: string } | null {
-  const st = stakers.get(staker);
-  if (!st || !stakerActiveAtCycle(st, cycle)) return null;
-  return { amountUstx: st.amountUstx, signer: st.signer };
-}
-
-export function modelStakerShares(
-  stakers: Map<string, StakerState>,
+/**
+ * Mirror of `add-staker-to-signer-cycles`: add `staker`/`signer`/`amountUstx`
+ * across `[firstCycle, firstCycle + numCycles)`.
+ */
+export function modelAddStakerToCycles(
+  model: Model,
   staker: string,
   signer: string,
-  cycle: bigint,
-): bigint {
-  const m = modelSignerMembership(stakers, staker, cycle);
-  if (m && m.signer === signer) return m.amountUstx;
-  return 0n;
+  firstCycle: bigint,
+  numCycles: bigint,
+  amountUstx: bigint,
+): void {
+  for (let i = 0n; i < numCycles; i++) {
+    const cycle = firstCycle + i;
+    model.stakerSignerCycleMemberships.set(stakerCycleKey(staker, cycle), {
+      amountUstx,
+      signer,
+    });
+    const sdKey = signerCycleKey(signer, cycle);
+    model.signerDelegatedPerCycle.set(
+      sdKey,
+      (model.signerDelegatedPerCycle.get(sdKey) ?? 0n) + amountUstx,
+    );
+    model.stakerSharesStakedForCycle.set(
+      stakerSignerCycleKey(staker, signer, cycle),
+      amountUstx,
+    );
+    model.ustxDelegatedPerCycle.set(
+      cycle,
+      (model.ustxDelegatedPerCycle.get(cycle) ?? 0n) + amountUstx,
+    );
+  }
+}
+
+/**
+ * Mirror of `remove-staker-from-cycles`: remove `staker` across
+ * `[firstCycle, firstCycle + numCycles)`. Like the contract, the amount and
+ * signer subtracted come from the stored per-cycle membership (what was live
+ * when that cycle was written), not from the staker's current record. That's
+ * why a StakeUpdate that changes the amount still decrements each cycle by
+ * what was actually added there.
+ */
+export function modelRemoveStakerFromCycles(
+  model: Model,
+  staker: string,
+  firstCycle: bigint,
+  numCycles: bigint,
+): void {
+  for (let i = 0n; i < numCycles; i++) {
+    const cycle = firstCycle + i;
+    const memKey = stakerCycleKey(staker, cycle);
+    // Contract does `(unwrap! ... ERR_NOT_STAKING)`: a membership must exist
+    // for every cycle in a removed range. A miss is a model bug, so let the
+    // destructure throw rather than silently skipping.
+    const membership = model.stakerSignerCycleMemberships.get(memKey)!;
+    const { amountUstx, signer } = membership;
+    model.stakerSignerCycleMemberships.delete(memKey);
+    const sdKey = signerCycleKey(signer, cycle);
+    model.signerDelegatedPerCycle.set(
+      sdKey,
+      (model.signerDelegatedPerCycle.get(sdKey) ?? 0n) - amountUstx,
+    );
+    model.stakerSharesStakedForCycle.delete(
+      stakerSignerCycleKey(staker, signer, cycle),
+    );
+    model.ustxDelegatedPerCycle.set(
+      cycle,
+      (model.ustxDelegatedPerCycle.get(cycle) ?? 0n) - amountUstx,
+    );
+  }
 }
 
 // Per-cycle invariant checks. Each asserts one unconditional-write contract
-// read against its model derivation. Intended for in-command "first locked"
-// and "last locked" boundary assertions; broader sweeps live in
-// AssertModelInvariants (Phase 2).
+// read against the model's mirror map for that exact cycle (default 0/null
+// when absent, matching the contract getters' `default-to`).
 
 export function assertSignerDelegationForCycle(
-  stakers: Map<string, StakerState>,
+  model: Readonly<Model>,
   real: Real,
   cycle: bigint,
   signer: string,
 ): void {
   expect(
     rov(real.contracts.pox5.getAmountDelegatedForSigner(signer, cycle)),
-  ).toBe(modelDelegatedForSigner(stakers, signer, cycle));
+  ).toBe(
+    model.signerDelegatedPerCycle.get(signerCycleKey(signer, cycle)) ?? 0n,
+  );
 }
 
 export function assertStakerSharesForCycle(
-  stakers: Map<string, StakerState>,
+  model: Readonly<Model>,
   real: Real,
   cycle: bigint,
   staker: string,
@@ -232,26 +318,78 @@ export function assertStakerSharesForCycle(
         signer,
       ),
     ),
-  ).toBe(modelStakerShares(stakers, staker, signer, cycle));
+  ).toBe(
+    model.stakerSharesStakedForCycle.get(
+      stakerSignerCycleKey(staker, signer, cycle),
+    ) ?? 0n,
+  );
 }
 
 export function assertSignerCycleMembership(
-  stakers: Map<string, StakerState>,
+  model: Readonly<Model>,
   real: Real,
   cycle: bigint,
   staker: string,
 ): void {
   expect(
     rov(real.contracts.pox5.getSignerCycleMembership(staker, cycle)),
-  ).toEqual(modelSignerMembership(stakers, staker, cycle));
+  ).toEqual(
+    model.stakerSignerCycleMemberships.get(stakerCycleKey(staker, cycle)) ??
+      null,
+  );
 }
 
 export function assertTotalDelegatedForCycle(
-  stakers: Map<string, StakerState>,
+  model: Readonly<Model>,
   real: Real,
   cycle: bigint,
 ): void {
   expect(rov(real.contracts.pox5.getUstxDelegatedForCycle(cycle))).toBe(
-    modelTotalDelegated(stakers, cycle),
+    model.ustxDelegatedPerCycle.get(cycle) ?? 0n,
+  );
+}
+
+// Per-principal identity invariants (not cycle-scoped): the contract's staker
+// and signer records must match the model for any principal. The null-or-value
+// branch lives inside the pure derivation, so the assertion stays a single
+// flat `toEqual`, never a conditional choosing the expected value inline.
+
+/** Contract-shaped `get-staker-info` value the model predicts for `staker`. */
+export function modelStakerInfo(
+  stakers: Map<string, StakerState>,
+  staker: string,
+): {
+  amountUstx: bigint;
+  firstRewardCycle: bigint;
+  numCycles: bigint;
+  signer: string;
+} | null {
+  const st = stakers.get(staker);
+  if (!st) return null;
+  return {
+    amountUstx: st.amountUstx,
+    firstRewardCycle: st.firstRewardCycle,
+    numCycles: st.numCycles,
+    signer: st.signer,
+  };
+}
+
+export function assertStakerInfo(
+  stakers: Map<string, StakerState>,
+  real: Real,
+  staker: string,
+): void {
+  expect(rov(real.contracts.pox5.getStakerInfo(staker))).toEqual(
+    modelStakerInfo(stakers, staker),
+  );
+}
+
+export function assertSignerInfo(
+  signers: Map<string, { signerKey: Uint8Array }>,
+  real: Real,
+  signer: string,
+): void {
+  expect(rov(real.contracts.pox5.getSignerInfo(signer))).toEqual(
+    signers.get(signer)?.signerKey ?? null,
   );
 }

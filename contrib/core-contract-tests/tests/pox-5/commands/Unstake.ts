@@ -10,6 +10,7 @@ import {
   isInPreparePhase,
   isStakerActive,
   logCommand,
+  modelRemoveStakerFromCycles,
   refreshModel,
   rewardCycleToBurnHeight,
   trackCommandRun,
@@ -56,8 +57,6 @@ export const Unstake = (accounts: Real['accounts']) =>
           unlockCycle: expectedUnlockCycle,
           signer: prev.signer,
         };
-        const after = new Map(model.stakers);
-        after.set(r.sender, newStakerState);
         // The contract removes the staker from cycles [current+1, prev-unlock).
         // First/last cycle of that removed range; skip the quartet if empty
         // (staker was already at its last locked cycle and there's nothing to
@@ -71,6 +70,20 @@ export const Unstake = (accounts: Real['accounts']) =>
           real.contracts.pox5.unstake({ oldSignerManager: prev.signer }),
           r.sender,
         );
+
+        // Update model
+
+        // Replay the contract's removal across [current+1, prevUnlock), then
+        // commit the shortened staker record. Done before the per-cycle
+        // asserts so they compare against the committed mirror. An empty range
+        // is a no-op.
+        modelRemoveStakerFromCycles(
+          model,
+          r.sender,
+          firstRemovedCycle,
+          prevUnlockCycle - currentCycle - 1n,
+        );
+        model.stakers.set(r.sender, newStakerState);
 
         // Assert
 
@@ -98,21 +111,21 @@ export const Unstake = (accounts: Real['accounts']) =>
           numCycles: expectedNumCycles,
           signer: prev.signer,
         });
-        // Per-cycle invariants at the first and last removed cycles. After
-        // the Act the staker should no longer contribute to any of the
-        // unconditional-write maps for those cycles. Skipped when the
-        // removed range is empty (staker was at the last locked cycle).
+        // Per-cycle invariants at the first and last removed cycles. After the
+        // Act the staker no longer contributes to any unconditional-write map
+        // for those cycles. Skipped when the removed range is empty (staker
+        // was at its last locked cycle).
         if (firstRemovedCycle <= lastRemovedCycle) {
           assertSignerDelegationForCycle(
-            after,
+            model,
             real,
             firstRemovedCycle,
             prev.signer,
           );
-          assertSignerCycleMembership(after, real, firstRemovedCycle, r.sender);
-          assertTotalDelegatedForCycle(after, real, firstRemovedCycle);
+          assertSignerCycleMembership(model, real, firstRemovedCycle, r.sender);
+          assertTotalDelegatedForCycle(model, real, firstRemovedCycle);
           assertStakerSharesForCycle(
-            after,
+            model,
             real,
             firstRemovedCycle,
             r.sender,
@@ -120,24 +133,21 @@ export const Unstake = (accounts: Real['accounts']) =>
           );
 
           assertSignerDelegationForCycle(
-            after,
+            model,
             real,
             lastRemovedCycle,
             prev.signer,
           );
-          assertSignerCycleMembership(after, real, lastRemovedCycle, r.sender);
-          assertTotalDelegatedForCycle(after, real, lastRemovedCycle);
+          assertSignerCycleMembership(model, real, lastRemovedCycle, r.sender);
+          assertTotalDelegatedForCycle(model, real, lastRemovedCycle);
           assertStakerSharesForCycle(
-            after,
+            model,
             real,
             lastRemovedCycle,
             r.sender,
             prev.signer,
           );
         }
-
-        // Update model
-        model.stakers.set(r.sender, newStakerState);
 
         logCommand({
           sender: getWalletNameByAddress(r.sender),

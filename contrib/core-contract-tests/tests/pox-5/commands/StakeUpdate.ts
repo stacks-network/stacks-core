@@ -9,6 +9,8 @@ import {
   getWalletNameByAddress,
   isStakerActive,
   logCommand,
+  modelAddStakerToCycles,
+  modelRemoveStakerFromCycles,
   refreshModel,
   rewardCycleToBurnHeight,
   trackCommandRun,
@@ -46,7 +48,7 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake-update');
 
           // Arrange
-          const registered = Array.from(model.signers);
+          const registered = Array.from(model.signers.keys());
           const newSigner = registered[r.signerIndex % registered.length];
           pickedSigner = newSigner;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
@@ -73,8 +75,6 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
             unlockCycle: expectedUnlockCycle,
             signer: newSigner,
           };
-          const after = new Map(model.stakers);
-          after.set(r.sender, newStakerState);
           // Boundary cycles of the Act's affected range. The contract removes
           // the staker from [current+1, prev-unlock) and re-adds across
           // [current+1, new-unlock); with `cyclesToExtend >= 1` the new range
@@ -94,6 +94,29 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
             }),
             r.sender,
           );
+
+          // Update model
+
+          // Replay the contract's remove-then-add across the affected cycles,
+          // then commit the staker record. The remove reads the stored
+          // (pre-update) memberships, so amount/signer changes net out per
+          // cycle exactly as the contract computes them. Done before the
+          // per-cycle asserts so they compare against the committed mirror.
+          modelRemoveStakerFromCycles(
+            model,
+            r.sender,
+            firstAffectedCycle,
+            prevUnlockCycle - currentCycle - 1n,
+          );
+          modelAddStakerToCycles(
+            model,
+            r.sender,
+            newSigner,
+            firstAffectedCycle,
+            expectedUnlockCycle - currentCycle - 1n,
+            expectedAmountUstx,
+          );
+          model.stakers.set(r.sender, newStakerState);
 
           // Assert
 
@@ -119,30 +142,42 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
             signer: newSigner,
           });
           // Per-cycle invariants at the first and last affected cycles.
-          assertSignerDelegationForCycle(after, real, firstAffectedCycle, newSigner);
-          assertSignerCycleMembership(after, real, firstAffectedCycle, r.sender);
-          assertTotalDelegatedForCycle(after, real, firstAffectedCycle);
+          assertSignerDelegationForCycle(
+            model,
+            real,
+            firstAffectedCycle,
+            newSigner,
+          );
+          assertSignerCycleMembership(
+            model,
+            real,
+            firstAffectedCycle,
+            r.sender,
+          );
+          assertTotalDelegatedForCycle(model, real, firstAffectedCycle);
           assertStakerSharesForCycle(
-            after,
+            model,
             real,
             firstAffectedCycle,
             r.sender,
             newSigner,
           );
 
-          assertSignerDelegationForCycle(after, real, lastAffectedCycle, newSigner);
-          assertSignerCycleMembership(after, real, lastAffectedCycle, r.sender);
-          assertTotalDelegatedForCycle(after, real, lastAffectedCycle);
+          assertSignerDelegationForCycle(
+            model,
+            real,
+            lastAffectedCycle,
+            newSigner,
+          );
+          assertSignerCycleMembership(model, real, lastAffectedCycle, r.sender);
+          assertTotalDelegatedForCycle(model, real, lastAffectedCycle);
           assertStakerSharesForCycle(
-            after,
+            model,
             real,
             lastAffectedCycle,
             r.sender,
             newSigner,
           );
-
-          // Update model
-          model.stakers.set(r.sender, newStakerState);
 
           logCommand({
             sender: getWalletNameByAddress(r.sender),

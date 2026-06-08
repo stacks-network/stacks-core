@@ -46,7 +46,7 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake_err_invalid_num_cycles');
 
           // Arrange
-          const registered = Array.from(model.signers);
+          const registered = Array.from(model.signers.keys());
           const signer = registered[r.signerIndex % registered.length];
           pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;

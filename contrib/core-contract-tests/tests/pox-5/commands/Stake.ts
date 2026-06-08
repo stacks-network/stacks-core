@@ -9,6 +9,7 @@ import {
   getWalletNameByAddress,
   isStakerActive,
   logCommand,
+  modelAddStakerToCycles,
   refreshModel,
   rewardCycleToBurnHeight,
   trackCommandRun,
@@ -37,7 +38,7 @@ export const Stake = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake');
 
           // Arrange
-          const registered = Array.from(model.signers);
+          const registered = Array.from(model.signers.keys());
           const signer = registered[r.signerIndex % registered.length];
           pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
@@ -59,8 +60,6 @@ export const Stake = (accounts: Real['accounts']) =>
             unlockCycle: expectedUnlockCycle,
             signer,
           };
-          const after = new Map(model.stakers);
-          after.set(r.sender, newStakerState);
           const firstLockedCycle = expectedFirstStakedRewardCycle;
           const lastLockedCycle =
             expectedFirstStakedRewardCycle + r.numCycles - 1n;
@@ -75,6 +74,22 @@ export const Stake = (accounts: Real['accounts']) =>
               signerCalldata: null,
             }),
             r.sender,
+          );
+
+          // Update model
+
+          // Commit the staker record, then replay the contract's per-cycle
+          // writes across [firstLockedCycle, +numCycles). Done before the
+          // per-cycle asserts so they compare against the committed mirror,
+          // and so model and contract stay in lockstep if an assert throws.
+          model.stakers.set(r.sender, newStakerState);
+          modelAddStakerToCycles(
+            model,
+            r.sender,
+            signer,
+            firstLockedCycle,
+            r.numCycles,
+            r.amountUstx,
           );
 
           // Assert
@@ -93,32 +108,28 @@ export const Stake = (accounts: Real['accounts']) =>
             numCycles: r.numCycles,
             signer,
           });
-          // Per-cycle invariants at the staker's first and last locked
-          // cycles.
-          assertSignerDelegationForCycle(after, real, firstLockedCycle, signer);
-          assertSignerCycleMembership(after, real, firstLockedCycle, r.sender);
-          assertTotalDelegatedForCycle(after, real, firstLockedCycle);
+          // Per-cycle invariants at the staker's first and last locked cycles.
+          assertSignerDelegationForCycle(model, real, firstLockedCycle, signer);
+          assertSignerCycleMembership(model, real, firstLockedCycle, r.sender);
+          assertTotalDelegatedForCycle(model, real, firstLockedCycle);
           assertStakerSharesForCycle(
-            after,
+            model,
             real,
             firstLockedCycle,
             r.sender,
             signer,
           );
 
-          assertSignerDelegationForCycle(after, real, lastLockedCycle, signer);
-          assertSignerCycleMembership(after, real, lastLockedCycle, r.sender);
-          assertTotalDelegatedForCycle(after, real, lastLockedCycle);
+          assertSignerDelegationForCycle(model, real, lastLockedCycle, signer);
+          assertSignerCycleMembership(model, real, lastLockedCycle, r.sender);
+          assertTotalDelegatedForCycle(model, real, lastLockedCycle);
           assertStakerSharesForCycle(
-            after,
+            model,
             real,
             lastLockedCycle,
             r.sender,
             signer,
           );
-
-          // Update model
-          model.stakers.set(r.sender, newStakerState);
 
           logCommand({
             sender: getWalletNameByAddress(r.sender),
