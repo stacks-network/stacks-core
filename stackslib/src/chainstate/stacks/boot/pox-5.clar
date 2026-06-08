@@ -436,16 +436,20 @@
 )
 
 (define-public (set-bond-admin (new-admin principal))
-    (let ((old-admin (var-get bond-admin)))
+    (let (
+            (old-admin (var-get bond-admin))
+            (result {
+                old-admin: old-admin,
+                new-admin: new-admin,
+            })
+        )
         ;; only bond admin can call this.
         (asserts! (is-eq contract-caller old-admin) ERR_UNAUTHORIZED)
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
         (var-set bond-admin new-admin)
-        (ok {
-            old-admin: old-admin,
-            new-admin: new-admin,
-        })
+        (print (merge { topic: "set-bond-admin" } result))
+        (ok result)
     )
 )
 
@@ -2230,6 +2234,7 @@
             (print (merge {
                 topic: "claim-rewards",
                 reward-cycle: reward-cycle,
+                signer-manager: contract-caller,
             }
                 result
             ))
@@ -2258,6 +2263,14 @@
         }
             u0
         )
+        (print {
+            topic: "claim-staker-rewards-for-signer",
+            signer-manager: contract-caller,
+            staker: staker,
+            reward-cycle: reward-cycle,
+            bond-index: bond-index,
+            rewards-claimed: (get earned rewards-info),
+        })
         (ok rewards-info)
     )
 )
@@ -2541,6 +2554,13 @@
             true
         )
 
+        (print {
+            topic: "grant-signer-key",
+            signer-key: signer-key,
+            signer-manager: signer-manager,
+            auth-id: auth-id,
+        })
+
         (ok {
             signer-key: signer-key,
             signer-manager: signer-manager,
@@ -2582,6 +2602,11 @@
             )
             ERR_UNAUTHORIZED
         )
+        (print {
+            topic: "revoke-signer-grant",
+            signer-key: signer-key,
+            signer-manager: signer-manager,
+        })
         (ok {
             signer-key: signer-key,
             signer-manager: signer-manager,
@@ -3112,6 +3137,11 @@
         (try! (validate-no-reentrancy))
 
         (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
+        (print {
+            topic: "disallow-contract-caller",
+            sender: tx-sender,
+            contract-caller: caller,
+        })
         (ok (map-delete allowance-contract-callers {
             sender: tx-sender,
             contract-caller: caller,
@@ -3132,6 +3162,12 @@
         (try! (validate-no-reentrancy))
 
         (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
+        (print {
+            topic: "allow-contract-caller",
+            sender: tx-sender,
+            contract-caller: caller,
+            until-burn-ht: until-burn-ht,
+        })
         (ok (map-set allowance-contract-callers {
             sender: tx-sender,
             contract-caller: caller,
