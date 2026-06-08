@@ -646,11 +646,11 @@ pub(crate) fn pox5_signer_manager_source() -> &'static str {
 
 (define-read-only (get-earned-staker-rewards
     (staker principal)
-    (is-bond bool)
-    (index uint)
+    (reward-cycle uint)
+    (bond-index (optional uint))
   )
   (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
-    current-contract is-bond index staker
+    current-contract reward-cycle bond-index staker
   )
 )
 "#

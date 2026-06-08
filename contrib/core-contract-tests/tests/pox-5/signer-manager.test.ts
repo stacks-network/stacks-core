@@ -208,11 +208,11 @@ test('fees are deducted from newly earned staker rewards', () => {
     rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
   );
 
-  expect(rov(signerManager.getEarnedStakerRewards(alice, false, 1n))).toEqual({
+  expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, null))).toEqual({
     earned: grossPerStaker - fee,
     fees: fee,
   });
-  expect(rov(signerManager.getEarnedStakerRewards(bob, false, 1n))).toEqual({
+  expect(rov(signerManager.getEarnedStakerRewards(bob, 1n, null))).toEqual({
     earned: grossPerStaker - fee,
     fees: fee,
   });
@@ -231,7 +231,7 @@ test('claiming staker rewards transfers net rewards after fees', () => {
   );
 
   const aliceBalance = sbtcBalance(alice);
-  const claim = txOk(signerManager.claimStakerRewards(alice, false, 1n), alice);
+  const claim = txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
   const [transfer] = filterEvents(
     claim.events,
     CoreNodeEventType.FtTransferEvent,
@@ -245,8 +245,8 @@ test('claiming staker rewards transfers net rewards after fees', () => {
     amountSats: bigint;
     l1Withdrawal: null;
     staker: string;
-    index: bigint;
-    isBond: boolean;
+    rewardCycle: bigint;
+    bondIndex: null;
   }>(printEvent.data.value);
 
   expect(transfer.data.sender).toBe(signerManager.identifier);
@@ -257,11 +257,11 @@ test('claiming staker rewards transfers net rewards after fees', () => {
     amountSats: netRewards,
     l1Withdrawal: null,
     staker: alice,
-    index: 1n,
-    isBond: false,
+    rewardCycle: 1n,
+    bondIndex: null,
   });
   expect(sbtcBalance(alice)).toBe(aliceBalance + netRewards);
-  expect(rov(signerManager.getEarnedStakerRewards(alice, false, 1n))).toEqual({
+  expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, null))).toEqual({
     earned: 0n,
     fees: 0n,
   });
@@ -322,7 +322,20 @@ test('bond rewards remain claimable from old signer after staker changes signers
     rov(
       pox5.getStakerSharesStakedForCycle(
         alice,
-        true,
+        1n,
+        bondIndex,
+        signerManager.identifier,
+      ),
+    ),
+  ).toBe(aliceSats);
+  expect(
+    rov(pox5.getStakerSharesStakedForCycle(alice, 1n, bondIndex, signer2)),
+  ).toBe(0n);
+  expect(
+    rov(
+      pox5.getStakerSharesStakedForCycle(
+        alice,
+        2n,
         bondIndex,
         signerManager.identifier,
       ),
@@ -332,7 +345,7 @@ test('bond rewards remain claimable from old signer after staker changes signers
     rov(
       pox5.getStakerUnclaimedRewardsForCycle(
         signerManager.identifier,
-        true,
+        1n,
         bondIndex,
         alice,
       ),
@@ -342,10 +355,10 @@ test('bond rewards remain claimable from old signer after staker changes signers
   txOk(signerManager.claimRewards([bondIndex], 1n), deployer);
 
   const aliceBalance = sbtcBalance(alice);
-  txOk(signerManager.claimStakerRewards(alice, true, bondIndex), alice);
+  txOk(signerManager.claimStakerRewards(alice, 1n, bondIndex), alice);
   expect(sbtcBalance(alice)).toBe(aliceBalance + rewards);
   expect(
-    rov(signerManager.getEarnedStakerRewards(alice, true, bondIndex)),
+    rov(signerManager.getEarnedStakerRewards(alice, 1n, bondIndex)),
   ).toEqual({
     earned: 0n,
     fees: 0n,
@@ -366,7 +379,7 @@ test('claiming staker rewards with pox-addr initiates a withdrawal request', () 
   );
 
   const aliceBalance = sbtcBalance(alice);
-  const claim = txOk(signerManager.claimStakerRewards(alice, false, 1n), bob);
+  const claim = txOk(signerManager.claimStakerRewards(alice, 1n, null), bob);
   const transfers = filterEvents(
     claim.events,
     CoreNodeEventType.FtTransferEvent,
@@ -385,8 +398,8 @@ test('claiming staker rewards with pox-addr initiates a withdrawal request', () 
       withdrawalRequest: bigint;
     };
     staker: string;
-    index: bigint;
-    isBond: boolean;
+    rewardCycle: bigint;
+    bondIndex: null;
   }>(printEvent.data.value);
 
   expect(transfers).toHaveLength(0);
@@ -401,8 +414,8 @@ test('claiming staker rewards with pox-addr initiates a withdrawal request', () 
       withdrawalRequest: 1n,
     },
     staker: alice,
-    index: 1n,
-    isBond: false,
+    rewardCycle: 1n,
+    bondIndex: null,
   });
   const withdrawalRequest = rov(sbtcRegistry.getWithdrawalRequest(1n))!;
   expect(withdrawalRequest.amount).toBe(grossPerStaker - maxFee);
@@ -411,7 +424,7 @@ test('claiming staker rewards with pox-addr initiates a withdrawal request', () 
   expect(withdrawalRequest.sender).toBe(signerManager.identifier);
   expect(withdrawalRequest.status).toBe(null);
   expect(rov(signerManager.getWithdrawalRequestStaker(1n))).toBe(alice);
-  expect(rov(signerManager.getEarnedStakerRewards(alice, false, 1n))).toEqual({
+  expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, null))).toEqual({
     earned: 0n,
     fees: 0n,
   });
@@ -429,7 +442,7 @@ test('claiming all rewards with pox-addr leaves room for withdrawal max-fee', ()
     rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
   );
 
-  const claim = txOk(signerManager.claimStakerRewards(alice, false, 1n), bob);
+  const claim = txOk(signerManager.claimStakerRewards(alice, 1n, null), bob);
 
   expect(claim.value).toBe(earned);
 });
@@ -447,7 +460,7 @@ test('claiming staker rewards with pox-addr errors when earned is less than max-
   );
 
   expect(
-    txErr(signerManager.claimStakerRewards(alice, false, 1n), bob).value,
+    txErr(signerManager.claimStakerRewards(alice, 1n, null), bob).value,
   ).toBe(signerManagerErrors.ERR_NO_CLAIMABLE_REWARDS);
 });
 
@@ -461,7 +474,7 @@ test('fee changes apply to all uncrystallized rewards', () => {
     rewards,
     rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
   );
-  expect(rov(signerManager.getEarnedStakerRewards(alice, false, 1n))).toEqual({
+  expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, null))).toEqual({
     earned: 765n,
     fees: 85n,
   });
@@ -472,7 +485,7 @@ test('fee changes apply to all uncrystallized rewards', () => {
     rov(pox5.rewardCycleToBurnHeight(2n)),
   );
 
-  expect(rov(signerManager.getEarnedStakerRewards(alice, false, 1n))).toEqual({
+  expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, null))).toEqual({
     earned: grossAfterTwoCalculations / 2n,
     fees: grossAfterTwoCalculations / 2n,
   });
@@ -489,7 +502,7 @@ test('already claimed rewards are not affected by later fee changes', () => {
   );
 
   const aliceBalance = sbtcBalance(alice);
-  txOk(signerManager.claimStakerRewards(alice, false, 1n), alice);
+  txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
 
   txOk(signerManager.updateFees(5000n), deployer);
   calculateAndClaimSignerRewards(
@@ -497,10 +510,10 @@ test('already claimed rewards are not affected by later fee changes', () => {
     rov(pox5.rewardCycleToBurnHeight(2n)),
   );
 
-  expect(rov(signerManager.getEarnedStakerRewards(alice, false, 1n))).toEqual({
+  expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, null))).toEqual({
     earned: 425n,
     fees: 425n,
   });
-  txOk(signerManager.claimStakerRewards(alice, false, 1n), alice);
+  txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
   expect(sbtcBalance(alice)).toBe(aliceBalance + 765n + 425n);
 });
