@@ -5290,7 +5290,6 @@ export const contracts = {
           { name: 'stx-value-ratio', type: 'uint128' },
           { name: 'min-ustx-ratio', type: 'uint128' },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
-          { name: 'early-unlock-admin', type: 'principal' },
           {
             name: 'allowlist',
             type: {
@@ -5333,7 +5332,6 @@ export const contracts = {
           stxValueRatio: TypedAbiArg<number | bigint, 'stxValueRatio'>,
           minUstxRatio: TypedAbiArg<number | bigint, 'minUstxRatio'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
-          earlyUnlockAdmin: TypedAbiArg<string, 'earlyUnlockAdmin'>,
           allowlist: TypedAbiArg<
             {
               maxSats: number | bigint;
@@ -5975,7 +5973,6 @@ export const contracts = {
           type: {
             optional: {
               tuple: [
-                { name: 'early-unlock-admin', type: 'principal' },
                 {
                   name: 'early-unlock-bytes',
                   type: { buffer: { length: 683 } },
@@ -5990,7 +5987,6 @@ export const contracts = {
       } as TypedAbiFunction<
         [bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>],
         {
-          earlyUnlockAdmin: string;
           earlyUnlockBytes: Uint8Array;
           minUstxRatio: bigint;
           stxValueRatio: bigint;
@@ -6375,6 +6371,21 @@ export const contracts = {
         [rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>],
         bigint
       >,
+      hasAnnouncedL1EarlyExit: {
+        name: 'has-announced-l1-early-exit',
+        access: 'read_only',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'staker', type: 'principal' },
+        ],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          staker: TypedAbiArg<string, 'staker'>,
+        ],
+        boolean
+      >,
       isBondActiveAtHeight: {
         name: 'is-bond-active-at-height',
         access: 'read_only',
@@ -6690,6 +6701,22 @@ export const contracts = {
         },
         bigint
       >,
+      protocolBondL1EarlyExitAnnounced: {
+        name: 'protocol-bond-l1-early-exit-announced',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: 'uint128' },
+            { name: 'staker', type: 'principal' },
+          ],
+        },
+        value: 'bool',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint;
+          staker: string;
+        },
+        boolean
+      >,
       protocolBondMemberships: {
         name: 'protocol-bond-memberships',
         key: 'principal',
@@ -6717,7 +6744,6 @@ export const contracts = {
         key: 'uint128',
         value: {
           tuple: [
-            { name: 'early-unlock-admin', type: 'principal' },
             { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
             { name: 'min-ustx-ratio', type: 'uint128' },
             { name: 'stx-value-ratio', type: 'uint128' },
@@ -6727,7 +6753,6 @@ export const contracts = {
       } as TypedAbiMap<
         number | bigint,
         {
-          earlyUnlockAdmin: string;
           earlyUnlockBytes: Uint8Array;
           minUstxRatio: bigint;
           stxValueRatio: bigint;
@@ -7319,6 +7344,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      eRR_L1_EARLY_EXIT_ALREADY_ANNOUNCED: {
+        name: 'ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NOT_ALLOWLISTED: {
         name: 'ERR_NOT_ALLOWLISTED',
         type: {
@@ -7741,6 +7776,10 @@ export const contracts = {
       ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
         isOk: false,
         value: 37n,
+      },
+      eRR_L1_EARLY_EXIT_ALREADY_ANNOUNCED: {
+        isOk: false,
+        value: 50n,
       },
       ERR_NOT_ALLOWLISTED: {
         isOk: false,

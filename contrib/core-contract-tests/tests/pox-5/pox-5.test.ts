@@ -192,7 +192,6 @@ test('scenario - setting up and starting a bond', () => {
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [
         {
           maxSats: 100000000n,
@@ -837,7 +836,6 @@ test('cannot register for bond with more STX than they have unlocked', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: 100000n, staker: alice }],
     }),
     deployer,
@@ -877,7 +875,6 @@ test('bond rewards split across signers by staked sats', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [
         { maxSats: aliceSbtc, staker: alice },
         { maxSats: bobSbtc, staker: bob },
@@ -962,7 +959,6 @@ test('bond shortfall leaves no rewards for reserve or stx-only stakers', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1026,7 +1022,6 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
       stxValueRatio: 20n,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1051,7 +1046,6 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
       stxValueRatio: 10n,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bobSbtc, staker: bob }],
     }),
     deployer,
@@ -1123,7 +1117,6 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
       stxValueRatio: 20n,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1148,7 +1141,6 @@ test('concurrent bonds and stx-only rewards can be claimed together', () => {
       stxValueRatio: 10n,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bobSbtc, staker: bob }],
     }),
     deployer,
@@ -1325,7 +1317,6 @@ test('bond participants claim rewards after signer claims', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [
         { maxSats: aliceSbtc, staker: alice },
         { maxSats: bobSbtc, staker: bob },
@@ -1414,7 +1405,6 @@ test('bond participant keeps already claimed-to-signer rewards after changing si
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1465,12 +1455,23 @@ test('bond participant keeps already claimed-to-signer rewards after changing si
   );
 });
 
-test('only early unlock admin can call announce-l1-early-exit', () => {
-  const signer = testSigner.identifier;
-  const aliceSbtc = 100000n;
+// `announce-l1-early-exit` has two assertions that determine the outcome —
+// the caller-identity check (auth, fires first) and the `is-l1-lock` check
+// (bond type, fires second). The full (caller × bond-type) matrix is:
+//
+//   caller     │ sBTC bond                          │ L1 bond
+//   ───────────┼────────────────────────────────────┼─────────────────────
+//   non-staker │ ERR_UNAUTHORIZED                   │ ERR_UNAUTHORIZED
+//   the staker │ ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK│ (ok ...) — success
+//
+// Only the sBTC-bond rows are reachable in unit tests: simnet's fake burn
+// header hashes fail `register-for-bond`'s ERR_INVALID_BTC_HEADER check, so
+// `is-l1-lock: true` is never observable here. The L1-bond rows are covered
+// in the `stacks-node` integration test (`pox_5_integrations.rs`).
 
-  registerSigner();
-
+function setupBondForAllowlist(
+  allowlist: { staker: string; maxSats: bigint }[],
+) {
   txOk(
     pox5.setupBond({
       bondIndex: 0n,
@@ -1478,11 +1479,18 @@ test('only early unlock admin can call announce-l1-early-exit', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
-      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+      allowlist,
     }),
     deployer,
   );
+}
+
+test('sbtc bond: announce-l1-early-exit rejects a non-staker caller', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSbtc, staker: alice }]);
   txOk(
     pox5.registerForBond({
       bondIndex: 0n,
@@ -1494,31 +1502,19 @@ test('only early unlock admin can call announce-l1-early-exit', () => {
     alice,
   );
 
-  // The admin assertion fires before the `is-l1-lock` check in pox-5.clar,
-  // so the unauthorized path is reachable with an sBTC bond. The happy-path
-  // assertions for L1 early exit live in the integration test.
-  const unauthorized = txErr(pox5.announceL1EarlyExit(alice, signer), bob);
-  expect(unauthorized.value).toBe(errorCodes.ERR_UNAUTHORIZED);
+  const result = txErr(pox5.announceL1EarlyExit(alice, signer), bob);
+  expect(result.value).toBe(errorCodes.ERR_UNAUTHORIZED);
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 1n, 0n, signer))).toBe(
+    aliceSbtc,
+  );
 });
 
-test('cannot announce l1 early exit for sbtc bond participant', () => {
+test('sbtc bond: announce-l1-early-exit rejects the staker', () => {
   const signer = testSigner.identifier;
   const aliceSbtc = 100000n;
 
   registerSigner();
-
-  txOk(
-    pox5.setupBond({
-      bondIndex: 0n,
-      targetRate: 1200n,
-      stxValueRatio: 10n,
-      minUstxRatio: 100n,
-      earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
-      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
-    }),
-    deployer,
-  );
+  setupBondForAllowlist([{ maxSats: aliceSbtc, staker: alice }]);
   txOk(
     pox5.registerForBond({
       bondIndex: 0n,
@@ -1530,13 +1526,24 @@ test('cannot announce l1 early exit for sbtc bond participant', () => {
     alice,
   );
 
-  const earlyExit = txErr(pox5.announceL1EarlyExit(alice, signer), deployer);
+  const earlyExit = txErr(pox5.announceL1EarlyExit(alice, signer), alice);
   expect(earlyExit.value).toBe(
     pox5.constants.eRR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK.value,
   );
   expect(rov(pox5.getStakerSharesStakedForCycle(alice, 1n, 0n, signer))).toBe(
     aliceSbtc,
   );
+});
+
+test('has-announced-l1-early-exit defaults to false', () => {
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: 100000n, staker: alice }]);
+
+  // No announcement has ever happened — the read-only must return false for
+  // any (bond-index, staker) pair, including ones that don't exist.
+  expect(rov(pox5.hasAnnouncedL1EarlyExit(0n, alice))).toBe(false);
+  expect(rov(pox5.hasAnnouncedL1EarlyExit(0n, bob))).toBe(false);
+  expect(rov(pox5.hasAnnouncedL1EarlyExit(999n, alice))).toBe(false);
 });
 
 test('update-bond-registration in the final bond cycle leaves no future shares', () => {
@@ -1553,7 +1560,6 @@ test('update-bond-registration in the final bond cycle leaves no future shares',
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1599,7 +1605,6 @@ test.skip('l1 early exit prevents future bond rewards but leaves stx delegated',
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSats, staker: alice }],
     }),
     deployer,
@@ -1620,7 +1625,7 @@ test.skip('l1 early exit prevents future bond rewards but leaves stx delegated',
     alice,
   );
 
-  txOk(pox5.announceL1EarlyExit(alice, signer), deployer);
+  txOk(pox5.announceL1EarlyExit(alice, signer), alice);
   txOk(
     sbtc.transfer({
       recipient: pox5.identifier,
@@ -1658,7 +1663,6 @@ test.skip('l1 early exit does not erase already accrued bond rewards', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSats, staker: alice }],
     }),
     deployer,
@@ -1696,7 +1700,7 @@ test.skip('l1 early exit does not erase already accrued bond rewards', () => {
     targetRate,
   });
   expect(rov(pox5.getEarned(signer, 1n, 0n))).toBe(expectedRewards);
-  txOk(pox5.announceL1EarlyExit(alice, signer), deployer);
+  txOk(pox5.announceL1EarlyExit(alice, signer), alice);
 
   expect(rov(pox5.getEarned(signer, 1n, 0n))).toBe(expectedRewards);
 });
@@ -1716,7 +1720,6 @@ test.skip('l1 early exit does not erase already accrued staker rewards', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSats, staker: alice }],
     }),
     deployer,
@@ -1777,7 +1780,6 @@ test('sbtc bond participant can partially unstake and only earns on remaining sa
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1849,7 +1851,6 @@ test('sbtc unstake preserves already accrued rewards', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1915,7 +1916,6 @@ test('sbtc full unstake preserves already accrued staker rewards', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -1968,7 +1968,6 @@ test('sbtc bond participant can fully unstake and stops earning bond rewards', (
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2029,7 +2028,6 @@ test('sbtc unstake rejects invalid signer and excess withdrawal', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2079,7 +2077,6 @@ test('sbtc unstake returns withdrawn sats to the staker', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2130,7 +2127,6 @@ test('sbtc unstake reduces the per-bond total staked', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2196,7 +2192,6 @@ test('sbtc bond participant can unstake before a later bond starts', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2248,7 +2243,6 @@ test('bond participant can update signer before bond starts', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2319,7 +2313,6 @@ test('bond participant signer update changes signer set starting next cycle', ()
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2406,7 +2399,6 @@ test('bond participant rewards follow updated signer', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2460,7 +2452,6 @@ test('bond signer update preserves old signer rewards and sends future rewards t
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2532,7 +2523,6 @@ test('bond signer update keeps current-cycle uncrystallized rewards with old sig
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2606,7 +2596,6 @@ test('bond signer update does not duplicate staker rewards on new signer', () =>
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -2666,7 +2655,6 @@ test('destination signer baseline is initialized when bond staker switches signe
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [
         { maxSats: attackerSats, staker: alice },
         { maxSats: honestSats, staker: bob },
@@ -2876,7 +2864,6 @@ test('scenario - waterfall distributions', () => {
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [
         {
           maxSats: 100000000n,
@@ -3173,7 +3160,6 @@ test('validating that all active bonds are included in a list at a given height'
         stxValueRatio: 10n,
         minUstxRatio: 100n,
         earlyUnlockBytes: new Uint8Array(),
-        earlyUnlockAdmin: deployer,
         allowlist: [{ maxSats: 100000n, staker: alice }],
       }),
       deployer,
@@ -3236,7 +3222,6 @@ test('update-bond-registration is a no-op when old and new signer are the same',
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -3295,7 +3280,6 @@ test('register-for-bond rejects registration after bond starts', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -3343,7 +3327,6 @@ test('register-for-bond rejects existing stx-only stakers', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -3400,7 +3383,6 @@ test('STX-only staker can unstake and roll into a bond on the same cycle', () =>
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bondSbtc, staker: alice }],
     }),
     deployer,
@@ -3475,7 +3457,6 @@ test('concurrent bonds with the same stx-value-ratio accept ascending bond-index
       stxValueRatio: 10n,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -3500,7 +3481,6 @@ test('concurrent bonds with the same stx-value-ratio accept ascending bond-index
       stxValueRatio: 10n,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bobSbtc, staker: bob }],
     }),
     deployer,
@@ -3587,7 +3567,6 @@ test('register-for-bond rolls a staker forward into bond N+6 with equal sBTC (no
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -3617,7 +3596,6 @@ test('register-for-bond rolls a staker forward into bond N+6 with equal sBTC (no
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -3683,7 +3661,6 @@ test('register-for-bond rolls forward and nets a larger sBTC amount from the sta
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bond0Sbtc, staker: alice }],
     }),
     deployer,
@@ -3706,7 +3683,6 @@ test('register-for-bond rolls forward and nets a larger sBTC amount from the sta
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bond6Sbtc, staker: alice }],
     }),
     deployer,
@@ -3768,7 +3744,6 @@ test('register-for-bond rolls forward and refunds when the new sBTC amount is sm
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bond0Sbtc, staker: alice }],
     }),
     deployer,
@@ -3791,7 +3766,6 @@ test('register-for-bond rolls forward and refunds when the new sBTC amount is sm
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bond6Sbtc, staker: alice }],
     }),
     deployer,
@@ -3850,7 +3824,6 @@ test('register-for-bond after old bond expires nets sBTC forward (no stuck colla
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -3883,7 +3856,6 @@ test('register-for-bond after old bond expires nets sBTC forward (no stuck colla
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -3958,7 +3930,6 @@ test("register-for-bond rejects a rollover attempt before the old bond's L1 unlo
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -3986,7 +3957,6 @@ test("register-for-bond rejects a rollover attempt before the old bond's L1 unlo
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4041,7 +4011,6 @@ test('stake rolls a bond participant forward into STX-only with sBTC refunded', 
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4126,7 +4095,6 @@ test("stake rejects a bond rollover attempt before the bond's L1 unlock window",
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4194,7 +4162,6 @@ test('stake after bond expires refunds the sBTC and clears bond membership', () 
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4283,7 +4250,6 @@ test('register-for-bond after stx-only stake expires registers fresh on the new 
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4336,7 +4302,6 @@ test("register-for-bond is rejected with ERR_STAKE_IN_PREPARE_PHASE inside the b
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4361,7 +4326,6 @@ test("register-for-bond is rejected with ERR_STAKE_IN_PREPARE_PHASE inside the b
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4408,7 +4372,6 @@ test('register-for-bond still rejects a duplicate registration for the same or o
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4448,7 +4411,6 @@ test('register-for-bond still rejects a duplicate registration for the same or o
       stxValueRatio,
       minUstxRatio,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: sbtcAmount, staker: alice }],
     }),
     deployer,
@@ -4512,7 +4474,6 @@ test('sbtc bond participant can recover sbtc after bond ends', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
@@ -4564,7 +4525,6 @@ test('below-threshold signer leaks phantom stx-only rewards via bond co-claim', 
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: bobSbtc, staker: bob }],
     }),
     deployer,
@@ -4780,7 +4740,6 @@ test('orphaned staker does not gain stx rewards when below-min signer claims bon
       stxValueRatio: 1n,
       minUstxRatio: 1n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: charlieSbtc, staker: charlie }],
     }),
     deployer,
@@ -4866,7 +4825,6 @@ test('below-min signer can later distribute legitimate stx rewards after crossin
       stxValueRatio: 1n,
       minUstxRatio: 1n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: charlieSbtc, staker: charlie }],
     }),
     deployer,
@@ -4981,7 +4939,6 @@ test('stake/register/update reject during the prepare phase', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [
         { maxSats: 100000n, staker: bob },
         { maxSats: 100000n, staker: dave },
@@ -5085,7 +5042,6 @@ test('stake/register/update reject during the prepare phase', () => {
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: 100000n, staker: dave }],
     }),
     deployer,
