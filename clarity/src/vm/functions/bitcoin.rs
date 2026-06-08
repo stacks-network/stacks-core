@@ -903,42 +903,7 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::{OutPoint, TxIn, TxOut};
     use stacks_common::deps_common::bitcoin::network::serialize::serialize as btc_serialize;
 
-    use crate::vm::tests::proptest_strategies::arb_simple_tx;
-
-    /// Walk a Bitcoin-style merkle proof bottom-up using the canonical tree
-    /// shape implied by `tx_count`, forcing the duplicated-padding sibling
-    /// at every odd-row edge to equal the running hash. Returns the synthesized
-    /// `(siblings, root)` pair. Used by the prop-test strategies to produce
-    /// proofs that are valid by construction for `verify_merkle`, without
-    /// materializing 2^24-leaf trees in memory. Independent canonical-tree
-    /// coverage comes from the real-mainnet merkle proof unit tests above.
-    fn synth_canonical_proof(
-        leaf: [u8; 32],
-        tx_index: u128,
-        tx_count: u128,
-        raw_siblings: &[[u8; 32]],
-    ) -> (Vec<[u8; 32]>, [u8; 32]) {
-        let mut siblings = Vec::with_capacity(raw_siblings.len());
-        let mut cur = leaf;
-        let mut idx = tx_index;
-        let mut row_count = tx_count;
-        let mut buf = [0u8; 64];
-        for raw in raw_siblings {
-            let sibling = if (idx | 1) >= row_count { cur } else { *raw };
-            siblings.push(sibling);
-            if idx & 1 == 1 {
-                buf[..32].copy_from_slice(&sibling);
-                buf[32..].copy_from_slice(&cur);
-            } else {
-                buf[..32].copy_from_slice(&cur);
-                buf[32..].copy_from_slice(&sibling);
-            }
-            cur = Sha256dHash::from_data(&buf).0;
-            idx >>= 1;
-            row_count = (row_count + 1) >> 1;
-        }
-        (siblings, cur)
-    }
+    use crate::vm::tests::proptest_strategies::{arb_simple_tx, synth_canonical_proof};
 
     prop_compose! {
         /// Synthesize a valid merkle proof spanning the full supported range:
