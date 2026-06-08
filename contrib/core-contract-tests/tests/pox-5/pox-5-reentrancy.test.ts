@@ -88,7 +88,6 @@ test('reentrancy via validate-stake! is blocked with ERR_REENTRANT_CALL', () => 
       stxValueRatio: 10n,
       minUstxRatio: 100n,
       earlyUnlockBytes: new Uint8Array(),
-      earlyUnlockAdmin: deployer,
       allowlist: [{ maxSats: aliceSbtc, staker: alice }],
     }),
     deployer,
