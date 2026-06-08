@@ -9685,6 +9685,37 @@ export const contracts = {
         args: [],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<[], Response<boolean, bigint>>,
+      snapshotBondFee: {
+        name: 'snapshot-bond-fee',
+        access: 'private',
+        args: [
+          {
+            name: 'bond-info',
+            type: {
+              tuple: [
+                { name: 'bond-index', type: 'uint128' },
+                { name: 'earned', type: 'uint128' },
+                { name: 'rewards-per-token', type: 'uint128' },
+              ],
+            },
+          },
+          { name: 'reward-cycle', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          bondInfo: TypedAbiArg<
+            {
+              bondIndex: number | bigint;
+              earned: number | bigint;
+              rewardsPerToken: number | bigint;
+            },
+            'bondInfo'
+          >,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+        ],
+        bigint
+      >,
       claimRewards: {
         name: 'claim-rewards',
         access: 'public',
@@ -9860,6 +9891,21 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      withdrawFees: {
+        name: 'withdraw-fees',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+        ],
+        Response<bigint, bigint>
+      >,
       checkPoxAddr: {
         name: 'check-pox-addr',
         access: 'read_only',
@@ -9920,6 +9966,21 @@ export const contracts = {
           fees: bigint;
         }
       >,
+      getFeeBipsForCycle: {
+        name: 'get-fee-bips-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        bigint
+      >,
       getPoxAddr: {
         name: 'get-pox-addr',
         access: 'read_only',
@@ -9974,6 +10035,22 @@ export const contracts = {
         key: 'principal',
         value: 'bool',
       } as TypedAbiMap<string, boolean>,
+      feeBipsForCycle: {
+        name: 'fee-bips-for-cycle',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
+        },
+        bigint
+      >,
       poxAddrs: {
         name: 'pox-addrs',
         key: 'principal',
@@ -10008,6 +10085,16 @@ export const contracts = {
       } as TypedAbiMap<number | bigint, string>,
     },
     variables: {
+      ERR_INSUFFICIENT_FEES: {
+        name: 'ERR_INSUFFICIENT_FEES',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_CALLDATA: {
         name: 'ERR_INVALID_CALLDATA',
         type: {
@@ -10095,6 +10182,10 @@ export const contracts = {
       } as TypedAbiVariable<bigint>,
     },
     constants: {
+      ERR_INSUFFICIENT_FEES: {
+        isOk: false,
+        value: 1_007n,
+      },
       ERR_INVALID_CALLDATA: {
         isOk: false,
         value: 1_003n,

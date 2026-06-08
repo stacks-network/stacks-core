@@ -267,6 +267,52 @@ test('claiming staker rewards transfers net rewards after fees', () => {
   });
 });
 
+test('admins can withdraw accrued fees', () => {
+  const rewards = 2000n;
+  const grossPerStaker = stxRewards(rewards) / 2n;
+  const fee = grossPerStaker / 10n;
+
+  txOk(signerManager.updateFees(1000n), deployer);
+  setupTwoStakers();
+  calculateAndClaimSignerRewards(
+    rewards,
+    rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
+  );
+  txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
+  txOk(signerManager.claimStakerRewards(bob, 1n, null), bob);
+
+  expect(rov(signerManager.getEarnedFees())).toBe(fee * 2n);
+  expect(
+    txErr(
+      signerManager.withdrawFees({ amount: 1n, recipient: deployer }),
+      alice,
+    ).value,
+  ).toBe(signerManagerErrors.ERR_UNAUTHORIZED_ADMIN);
+  expect(
+    txErr(
+      signerManager.withdrawFees({ amount: fee * 2n + 1n, recipient: deployer }),
+      deployer,
+    ).value,
+  ).toBe(signerManagerErrors.ERR_INSUFFICIENT_FEES);
+
+  const deployerBalance = sbtcBalance(deployer);
+  const withdraw = txOk(
+    signerManager.withdrawFees({ amount: fee, recipient: deployer }),
+    deployer,
+  );
+  const [transfer] = filterEvents(
+    withdraw.events,
+    CoreNodeEventType.FtTransferEvent,
+  );
+
+  expect(withdraw.value).toBe(fee);
+  expect(transfer.data.sender).toBe(signerManager.identifier);
+  expect(transfer.data.recipient).toBe(deployer);
+  expect(transfer.data.amount).toBe(fee.toString());
+  expect(sbtcBalance(deployer)).toBe(deployerBalance + fee);
+  expect(rov(signerManager.getEarnedFees())).toBe(fee);
+});
+
 test('bond rewards remain claimable from old signer after staker changes signers', () => {
   const bondIndex = 0n;
   const aliceSats = 480000n;
@@ -463,9 +509,10 @@ test('claiming staker rewards with pox-addr errors when earned is less than max-
   ).toBe(signerManagerErrors.ERR_NO_CLAIMABLE_REWARDS);
 });
 
-test('fee changes apply to all uncrystallized rewards', () => {
+test('fee changes do not apply retroactively to an already recorded cycle', () => {
   const rewards = 2000n;
   const grossAfterTwoCalculations = stxRewards(rewards * 2n) / 2n;
+  const fee = grossAfterTwoCalculations / 10n;
 
   txOk(signerManager.updateFees(1000n), deployer);
   setupTwoStakers();
@@ -485,8 +532,8 @@ test('fee changes apply to all uncrystallized rewards', () => {
   );
 
   expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, null))).toEqual({
-    earned: grossAfterTwoCalculations / 2n,
-    fees: grossAfterTwoCalculations / 2n,
+    earned: grossAfterTwoCalculations - fee,
+    fees: fee,
   });
 });
 
@@ -510,9 +557,9 @@ test('already claimed rewards are not affected by later fee changes', () => {
   );
 
   expect(rov(signerManager.getEarnedStakerRewards(alice, 1n, null))).toEqual({
-    earned: 425n,
-    fees: 425n,
+    earned: 765n,
+    fees: 85n,
   });
   txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
-  expect(sbtcBalance(alice)).toBe(aliceBalance + 765n + 425n);
+  expect(sbtcBalance(alice)).toBe(aliceBalance + 765n + 765n);
 });
