@@ -1606,6 +1606,33 @@ mod tests {
         assert!(matches!(err, LockingError::PoxInvalidIncrease));
     }
 
+    /// `pox_lock_update_v5` after `pox_unstake_v5` must succeed and re-commit
+    /// the lock: there is no node-level unstake gate, and the lock is still
+    /// active (its rescheduled unlock is in the future), so the update raises
+    /// or extends it as usual, overriding the pending unstake.
+    #[test]
+    fn pox_lock_update_v5_after_unstake_succeeds() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 10_000_000u128;
+        let initial_lock = 1_000_000u128;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(&mut global_context.database, &staker, initial_lock, 5_000)
+            .expect("initial lock should succeed");
+        // Unstake reschedules the unlock; the lock stays active.
+        pox_unstake_v5(&mut global_context.database, &staker, 8_000)
+            .expect("unstake should reschedule the unlock");
+
+        // Update after the unstake must succeed, raising the lock and
+        // rescheduling the unlock (the pending unstake is overridden).
+        let balance = pox_lock_update_v5(&mut global_context.database, &staker, 9_000, 2_000_000)
+            .expect("update after unstake should succeed");
+        assert_eq!(balance.amount_locked(), 2_000_000);
+        assert_eq!(balance.unlock_height(), 9_000);
+    }
+
     // ── Direct tests for pox_rollover_v5 ──
     //
     // `pox_rollover_v5` is the lock-state primitive backing every cross-mode
