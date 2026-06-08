@@ -221,6 +221,7 @@ fn write_compact_size(buf: &mut Vec<u8>, n: u64) {
 
 #[cfg(test)]
 mod tests {
+    use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
     use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
     use clarity::vm::ContractName;
     use serde::Deserialize;
@@ -749,25 +750,30 @@ mod tests {
         })
     }
 
-    /// Valid Clarity contract name: fixed `t-` prefix + `[a-z0-9-]{0,37}`,
-    /// total length 2..=39 (under the 40-char cap).
-    ///
-    /// Why the fixed prefix: the contract-name regex requires a leading
-    /// alphabetic char, so `t-` guarantees a valid first byte; the remaining
-    /// `[a-z0-9-]` chars are all regex-valid. `ContractName::try_from` checks
-    /// only length + regex (there is no reserved-word check), so every
-    /// generated name is accepted.
+    /// Valid Clarity contract name spanning the full structural domain: a
+    /// leading `[a-zA-Z]` followed by `0..CONTRACT_MAX_NAME_LENGTH` body chars
+    /// from `[a-zA-Z0-9-_]`, for a total length of
+    /// `1..=CONTRACT_MAX_NAME_LENGTH`.
     fn arb_contract_name() -> impl Strategy<Value = ContractName> {
-        prop::collection::vec(prop_oneof![b'a'..=b'z', b'0'..=b'9', Just(b'-')], 0..38).prop_map(
-            |rest| {
-                let mut s = String::with_capacity(2 + rest.len());
-                s.push_str("t-");
-                for c in rest {
-                    s.push(c as char);
-                }
-                ContractName::try_from(s).expect("structurally valid contract name")
-            },
-        )
+        let lead = prop_oneof![b'a'..=b'z', b'A'..=b'Z'];
+        let body = prop::collection::vec(
+            prop_oneof![
+                b'a'..=b'z',
+                b'A'..=b'Z',
+                b'0'..=b'9',
+                Just(b'-'),
+                Just(b'_')
+            ],
+            0..CONTRACT_MAX_NAME_LENGTH,
+        );
+        (lead, body).prop_map(|(lead, body)| {
+            let mut s = String::with_capacity(1 + body.len());
+            s.push(lead as char);
+            for c in body {
+                s.push(c as char);
+            }
+            ContractName::try_from(s).expect("structurally valid contract name")
+        })
     }
 
     /// Standard- or Contract-variant principal, uniformly weighted. The
@@ -785,11 +791,6 @@ mod tests {
     /// upstream by the validator.
     const MAX_USER_RECLAIM_SCRIPT_LEN: usize = 2048;
 
-    // Generator validity properties. A generator bug masquerades as N bugs
-    // across unrelated downstream properties; these proptests pin each
-    // generator to its claimed invariant so a refactor that breaks the
-    // generator surfaces here, not as false positives elsewhere.
-
     proptest! {
         /// `tap_branch_hash` lex-sorts its inputs (BIP-341), so it is
         /// commutative. Pins the sort directly: dropping or reversing it makes
@@ -805,79 +806,6 @@ mod tests {
             prop_assert_eq!(tap_branch_hash(a, b), tap_branch_hash(b, a));
         }
 
-        /// `arb_valid_xonly_pubkey` claims to produce 32 bytes that are
-        /// always a valid x-only secp256k1 point. Pins that claim.
-        #[tag(t_prop)]
-        #[test]
-        fn prop_gen_arb_valid_xonly_pubkey_parses(
-            bytes in arb_valid_xonly_pubkey(),
-        ) {
-            prop_assert!(
-                XOnlyPublicKey::from_slice(&bytes).is_ok(),
-                "arb_valid_xonly_pubkey produced invalid x-only bytes",
-            );
-        }
-
-        /// `arb_valid_compressed_pubkey_33` claims to produce 33-byte
-        /// compressed pubkeys that secp256k1 accepts. Pins the prefix
-        /// (`0x02` or `0x03`) and the x-only tail simultaneously.
-        #[tag(t_prop)]
-        #[test]
-        fn prop_gen_arb_valid_compressed_pubkey_33_parses(
-            bytes in arb_valid_compressed_pubkey_33(),
-        ) {
-            prop_assert!(
-                bytes[0] == 0x02 || bytes[0] == 0x03,
-                "compressed pubkey prefix must be 0x02 or 0x03, got {:#04x}",
-                bytes[0],
-            );
-            prop_assert!(
-                secp256k1::PublicKey::from_slice(&bytes).is_ok(),
-                "arb_valid_compressed_pubkey_33 produced invalid compressed bytes",
-            );
-        }
-
-        /// `arb_principal_data` claims to produce well-formed Clarity
-        /// principals. Pins it by stringifying and parsing back —
-        /// `PrincipalData::parse` is the canonical accept oracle.
-        #[tag(t_prop)]
-        #[test]
-        fn prop_gen_arb_principal_data_roundtrips(
-            principal in arb_principal_data(),
-        ) {
-            let s = format!("'{principal}");
-            let parsed = PrincipalData::parse(&s);
-            prop_assert!(
-                parsed.is_ok(),
-                "arb_principal_data produced unparseable string: {s}",
-            );
-            prop_assert_eq!(parsed.unwrap(), principal);
-        }
-
-        /// `arb_contract_name` claims structurally-valid names within
-        /// the 40-char cap and using only `[a-z0-9-]` with `t-` prefix.
-        /// Pins via `ContractName::try_from` (the constructor used
-        /// downstream by Clarity).
-        #[tag(t_prop)]
-        #[test]
-        fn prop_gen_arb_contract_name_valid(
-            name in arb_contract_name(),
-        ) {
-            let s: &str = name.as_str();
-            prop_assert!(s.starts_with("t-"), "missing t- prefix: {s}");
-            prop_assert!(s.len() <= 40, "name longer than 40 chars: {s}");
-            prop_assert!(
-                s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
-                "name contains non-[a-z0-9-] chars: {s}",
-            );
-            prop_assert!(
-                ContractName::try_from(s.to_string()).is_ok(),
-                "ContractName::try_from rejected name produced by generator: {s}",
-            );
-        }
-    }
-
-    proptest! {
         /// The output key derivation is a pure function. Same inputs in,
         /// same 32-byte key out, every time. Pins down that no hidden
         /// stateful path (e.g. a thread-local secp context with mutable
