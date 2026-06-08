@@ -274,7 +274,7 @@ fn test_migrate_schema_3_creates_squash_tables_on_v2_db() {
 }
 
 /// The parallel chunked reader must return exactly what per-block
-/// `read_parent_and_root_hash` reads, regardless of how the entries split
+/// `read_blob_header` reads, regardless of how the entries split
 /// across worker threads.
 #[test]
 fn test_bulk_read_blob_headers_sorted_matches_sequential() {
