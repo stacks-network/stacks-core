@@ -942,7 +942,9 @@
         (try! (verify-signer-key-grant signer signer-key))
 
         ;; Only the signer contract itself can register itself
-        (asserts! (is-eq contract-caller signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
+        (asserts! (is-eq contract-caller signer)
+            ERR_UNAUTHORIZED_SIGNER_REGISTRATION
+        )
 
         (map-set signers signer signer-key)
         (let ((result {
@@ -1855,7 +1857,7 @@
                 u1
             ))
             (cur-reserve (var-get reserve-balance))
-            (accrued-rewards (get-new-rewards))
+            (gross-accrued-rewards (get-new-rewards))
         )
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
@@ -1872,66 +1874,56 @@
                 (bond-distributions (try! (fold calculate-bond-rewards bond-periods
                     (ok {
                         last-bond-stx-value-ratio: none,
-                        available-rewards: accrued-rewards,
+                        available-rewards: gross-accrued-rewards,
                         last-bond-index: none,
                         calculation-height: calculation-height,
                     })
                 )))
                 (remaining-rewards (get available-rewards bond-distributions))
-                (new-reserve (/ (* remaining-rewards RESERVE_RATIO) u10000))
-                (stx-staker-rewards (- remaining-rewards new-reserve))
+                (reserve-cut (/ (* remaining-rewards RESERVE_RATIO) u10000))
+                (stx-staker-rewards (- remaining-rewards reserve-cut))
                 (stx-cycle (burn-height-to-reward-cycle calculation-height))
                 (cycle-staked-ustx (get-total-shares-staked-for-cycle false stx-cycle))
                 (current-rewards-per-ustx (get-rewards-per-token-for-cycle false stx-cycle))
                 (prev-accounted-rewards (var-get last-accounted-rewards-only))
                 ;; If no STX is staked this cycle, the staker cut will be applied to the reserve.
                 (no-stx-stakers (is-eq cycle-staked-ustx u0))
-                (new-rewards-per-ustx (if no-stx-stakers
+                (accrued-rewards-per-ustx (if no-stx-stakers
                     u0
                     (/ (* stx-staker-rewards PRECISION) cycle-staked-ustx)
                 ))
-                (next-rewards-per-ustx (+ current-rewards-per-ustx new-rewards-per-ustx))
+                (cumulative-rewards-per-ustx (+ current-rewards-per-ustx accrued-rewards-per-ustx))
                 ;; When no STX is staked, fold the staker cut into the reserve, otherwise zero.
-                (stranded-staker-cut (if no-stx-stakers
+                (unallocated-staker-cut (if no-stx-stakers
                     stx-staker-rewards
                     u0
                 ))
+                (reserve-deposit (+ reserve-cut unallocated-staker-cut))
+                (new-reserve-balance (+ cur-reserve reserve-deposit))
             )
-            (print {
-                topic: "calculate-rewards",
-                bond-periods: bond-periods,
-                calculation-height: calculation-height,
-                remaining-rewards: remaining-rewards,
-                accrued-rewards: accrued-rewards,
-                stx-staker-rewards: stx-staker-rewards,
-                stx-cycle: stx-cycle,
-                cycle-staked-ustx: cycle-staked-ustx,
-                next-rewards-per-ustx: next-rewards-per-ustx,
-                stranded-staker-cut: stranded-staker-cut,
-            })
-            (var-set reserve-balance
-                (+ cur-reserve new-reserve stranded-staker-cut)
-            )
+            (var-set reserve-balance new-reserve-balance)
             (var-set last-reward-compute-height calculation-height)
             (var-set last-accounted-rewards-only
-                (+ prev-accounted-rewards (- accrued-rewards new-reserve))
+                (+ prev-accounted-rewards (- gross-accrued-rewards reserve-deposit))
             )
             (map-set rewards-per-token-for-cycle {
                 index: stx-cycle,
                 is-bond: false,
             }
-                next-rewards-per-ustx
+                cumulative-rewards-per-ustx
             )
             (let ((result {
                     bond-periods: bond-periods,
                     calculation-height: calculation-height,
-                    remaining-rewards: remaining-rewards,
-                    accrued-rewards: accrued-rewards,
-                    new-reserve: new-reserve,
-                    stx-staker-rewards: stx-staker-rewards,
+                    gross-accrued-rewards: gross-accrued-rewards,
+                    total-bond-rewards: (- gross-accrued-rewards remaining-rewards),
+                    reserve-deposit: reserve-deposit,
+                    reserve-balance: new-reserve-balance,
                     stx-cycle: stx-cycle,
+                    total-stx-staker-rewards: stx-staker-rewards,
                     cycle-staked-ustx: cycle-staked-ustx,
-                    next-rewards-per-ustx: next-rewards-per-ustx,
+                    accrued-rewards-per-ustx: accrued-rewards-per-ustx,
+                    cumulative-rewards-per-ustx: cumulative-rewards-per-ustx,
                 }))
                 (print (merge { topic: "calculate-rewards" } result))
                 (ok result)
@@ -1972,7 +1964,7 @@
             (stx-value-ratio (get stx-value-ratio bond))
             (current-rewards-per-token (get-rewards-per-token-for-cycle true bond-index))
             ;; Prevent divide-by-zero
-            (new-rewards-per-token (if (is-eq total-sats u0)
+            (accrued-rewards-per-sat (if (is-eq total-sats u0)
                 u0
                 (/ (* earned PRECISION) total-sats)
             ))
@@ -2004,7 +1996,7 @@
             is-bond: true,
             index: bond-index,
         }
-            (+ current-rewards-per-token new-rewards-per-token)
+            (+ current-rewards-per-token accrued-rewards-per-sat)
         )
 
         (asserts!
@@ -2019,7 +2011,10 @@
             topic: "bond-distribution",
             bond-index: bond-index,
             target-yield: target-yield,
-            earned: earned,
+            bond-rewards: earned,
+            bond-staked-sats: total-sats,
+            accrued-rewards-per-sat: accrued-rewards-per-sat,
+            cumulative-rewards-per-sat: (+ current-rewards-per-token accrued-rewards-per-sat),
         })
 
         (ok {
@@ -2115,7 +2110,12 @@
                 bond-totals: bond-totals,
                 total-rewards: total-rewards,
             }))
-            (print (merge { topic: "claim-rewards" } result))
+            (print (merge {
+                topic: "claim-rewards",
+                reward-cycle: reward-cycle,
+            }
+                result
+            ))
             (ok result)
         )
     )
@@ -2369,7 +2369,9 @@
         (try! (validate-no-reentrancy))
 
         ;; Only the signer contract itself can call this function to grant a signer key
-        (asserts! (is-eq contract-caller signer-manager) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
+        (asserts! (is-eq contract-caller signer-manager)
+            ERR_UNAUTHORIZED_SIGNER_REGISTRATION
+        )
         (asserts!
             (is-none (map-get? used-signer-key-grants {
                 signer-key: signer-key,
