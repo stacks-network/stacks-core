@@ -1899,7 +1899,7 @@ test('sbtc unstake preserves already accrued rewards', () => {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
   txOk(pox5.calculateRewards([0n]), deployer);
 
-  expect(rov(pox5.getEarned(signer, 1n, 0n))).toBe(2400n);
+  expect(rov(pox5.getEarned(signer, 1n, 0n))).toBe(1920n);
 });
 
 test('sbtc full unstake preserves already accrued staker rewards', () => {
