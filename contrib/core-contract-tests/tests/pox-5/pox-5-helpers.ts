@@ -400,3 +400,19 @@ export function initPox5() {
   );
   txOk(pox5.setBondAdmin(deployer), INITIAL_BOND_ADMIN);
 }
+
+export function sbtcTransfer(
+  amount: bigint,
+  sender: string,
+  recipient: string,
+) {
+  txOk(
+    sbtc.transfer({
+      recipient,
+      amount,
+      sender,
+      memo: null,
+    }),
+    sender,
+  );
+}

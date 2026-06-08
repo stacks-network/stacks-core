@@ -5,6 +5,7 @@ import {
   pox5,
   initPox5,
   registerSignerManager,
+  deployTestSigner,
   sbtc,
   sbtcBalance,
 } from './pox-5-helpers';
@@ -13,7 +14,12 @@ import { hex } from '@scure/base';
 import { accounts, project } from '../clarigen-types';
 import { mineUntil, randomPoxAddress, stxToUStx } from '../test-helpers';
 import { Cl, serializeCV } from '@stacks/transactions';
-import { CoreNodeEventType, cvToValue, projectFactory } from '@clarigen/core';
+import {
+  CoreNodeEventType,
+  cvToValue,
+  err,
+  projectFactory,
+} from '@clarigen/core';
 
 const contracts = projectFactory(project, 'simnet');
 const sbtcRegistry = contracts.sbtcRegistry;
@@ -164,21 +170,6 @@ test('a third party cannot hijack a staker pox-addr via a direct validate-stake!
   expect(rov(signerManager.getPoxAddr(alice))).toBeNull();
 });
 
-test('checkpoint-staker reverts when not called by the pox-5 contract', () => {
-  setupTwoStakers();
-  expect(
-    txErr(
-      signerManager.checkpointStaker({
-        staker: alice,
-        firstIndex: 1n,
-        numIndexes: 1n,
-        isBond: false,
-      }),
-      alice,
-    ).value,
-  ).toBe(signerManagerErrors.ERR_UNAUTHORIZED_CALLER);
-});
-
 test('signers have pox-addr saved from calldata when provided', () => {
   const { poxAddr, calldata, maxFee } = makePoxAddrCalldata();
   txOk(
@@ -320,6 +311,91 @@ test('admins can withdraw accrued fees', () => {
   expect(transfer.data.amount).toBe(fee.toString());
   expect(sbtcBalance(deployer)).toBe(deployerBalance + fee);
   expect(rov(signerManager.getEarnedFees())).toBe(fee);
+});
+
+test('bond rewards remain claimable from old signer after staker changes signers', () => {
+  const bondIndex = 0n;
+  const aliceSats = 480000n;
+  const rewards = 1200n;
+  const signer2 = deployTestSigner(
+    'bond-update-manager-claim-signer-2',
+  ).identifier;
+
+  txOk(
+    pox5.setupBond({
+      bondIndex,
+      targetRate: 1500n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      earlyUnlockAdmin: deployer,
+      allowlist: [{ maxSats: aliceSats, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex,
+      signerManager: signerManager.identifier,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSats),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: rewards,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([bondIndex]), deployer);
+
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      oldSignerManager: signerManager.identifier,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(
+    rov(
+      pox5.getStakerSharesStakedForCycle(
+        alice,
+        true,
+        bondIndex,
+        signerManager.identifier,
+      ),
+    ),
+  ).toBe(0n);
+  expect(
+    rov(
+      pox5.getStakerUnclaimedRewardsForCycle(
+        signerManager.identifier,
+        true,
+        bondIndex,
+        alice,
+      ),
+    ),
+  ).toBe(rewards);
+
+  txOk(signerManager.claimRewards([bondIndex], 1n), deployer);
+
+  const aliceBalance = sbtcBalance(alice);
+  txOk(signerManager.claimStakerRewards(alice, true, bondIndex), alice);
+  expect(sbtcBalance(alice)).toBe(aliceBalance + rewards);
+  expect(
+    rov(signerManager.getEarnedStakerRewards(alice, true, bondIndex)),
+  ).toEqual({
+    earned: 0n,
+    fees: 0n,
+  });
 });
 
 test('claiming staker rewards with pox-addr initiates a withdrawal request', () => {
