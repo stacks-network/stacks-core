@@ -209,6 +209,25 @@ proptest! {
         prop_assert_eq!(expected, execute(&snippet));
     }
 
+    /// `vout > u64::MAX` must surface as `(err u2)` (the VoutOutOfRange
+    /// code) — the `u64::try_from` overflow guard, a path distinct from the
+    /// in-range `vout >= n_outputs` rejection above.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_vout_exceeds_u64_returns_err_u2(
+        (tx, _outputs) in arb_simple_tx(),
+        vout in (u64::MAX as u128 + 1)..=u128::MAX,
+    ) {
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u{vout})",
+            tx_bytes = buff_literal(&bytes),
+            vout = vout,
+        );
+        let expected = Value::err_uint(2);
+        prop_assert_eq!(expected, execute(&snippet));
+    }
+
     /// Feeding arbitrary bytes as `tx-bytes` must never panic or surface a
     /// runtime error. The builtin must always produce a Clarity Response —
     /// `(ok ...)` if the bytes happen to parse as a tx (vanishingly rare on
