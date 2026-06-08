@@ -943,7 +943,9 @@
         (try! (verify-signer-key-grant signer signer-key))
 
         ;; Only the signer contract itself can register itself
-        (asserts! (is-eq contract-caller signer) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
+        (asserts! (is-eq contract-caller signer)
+            ERR_UNAUTHORIZED_SIGNER_REGISTRATION
+        )
 
         (map-set signers signer signer-key)
         (let ((result {
@@ -1735,7 +1737,8 @@
             (bond (unwrap! (get-protocol-bond bond-index) ERR_BOND_NOT_FOUND))
             (expected-timelock-output (construct-lockup-output-script staker
                 (get-bond-l1-unlock-height bond-index)
-                (get staker-unlock-bytes lockups) (get early-unlock-bytes bond)
+                (get staker-unlock-bytes lockups)
+                (get early-unlock-bytes bond)
             ))
             (accumulation (try! (fold validate-l1-lockup (get outputs lockups)
                 (ok {
@@ -2370,7 +2373,9 @@
         (try! (validate-no-reentrancy))
 
         ;; Only the signer contract itself can call this function to grant a signer key
-        (asserts! (is-eq contract-caller signer-manager) ERR_UNAUTHORIZED_SIGNER_REGISTRATION)
+        (asserts! (is-eq contract-caller signer-manager)
+            ERR_UNAUTHORIZED_SIGNER_REGISTRATION
+        )
         (asserts!
             (is-none (map-get? used-signer-key-grants {
                 signer-key: signer-key,
@@ -3357,25 +3362,21 @@
         (staker-unlock-bytes (buff 683))
         (early-unlock-bytes (buff 683))
     )
-    (let ((principal-hash (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))))
-        (concat 0x63 ;; OP_IF
-            (concat (push-c-script-num unlock-burn-height)
-                (concat 0xb167 ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
-                    (concat 0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
-                        (concat principal-hash
-                            (concat 0x88 ;; OP_EQUALVERIFY
-                                (concat early-unlock-bytes
-                                    (concat 0x6869 ;; OP_ENDIF, OP_VERIFY
-                                        staker-unlock-bytes
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
+    (concat 0x63 ;; OP_IF
+        (concat (push-c-script-num unlock-burn-height)
+            (concat 0xb167 ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
+                (concat 0x82012088a820
+                    ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
+                    (concat
+                        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
+                        (concat 0x88 ;; OP_EQUALVERIFY
+                            (concat early-unlock-bytes
+                                (concat 0x6869 ;; OP_ENDIF, OP_VERIFY
+                                    staker-unlock-bytes
+                                ))
+                        ))
+                ))
+        ))
 )
 
 ;; Construct the p2wsh output script for a L1 lockup address
