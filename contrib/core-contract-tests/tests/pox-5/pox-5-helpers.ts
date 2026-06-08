@@ -20,6 +20,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { concatBytes } from '@noble/hashes/utils.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { expect } from 'vitest';
+import { randomPoxAddress } from '../test-helpers';
 
 const contracts = projectFactory(project, 'simnet');
 export const pox5 = contracts.pox5;
@@ -415,4 +416,25 @@ export function sbtcTransfer(
     }),
     sender,
   );
+}
+
+export function makePoxAddrCalldata(
+  { maxFee }: { maxFee: bigint } = { maxFee: 100n },
+) {
+  const poxAddr = randomPoxAddress();
+  return {
+    poxAddr,
+    maxFee,
+    calldata: hex.decode(
+      serializeCV(
+        Cl.tuple({
+          'pox-addr': Cl.tuple({
+            version: Cl.buffer(poxAddr.version),
+            hashbytes: Cl.buffer(poxAddr.hashbytes),
+          }),
+          'max-fee': Cl.uint(maxFee),
+        }),
+      ),
+    ),
+  };
 }
