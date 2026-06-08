@@ -261,7 +261,7 @@ fn verify_blob_root_matches_marf<T: MarfTrieId>(
 
 /// Read blob headers in storage order for the later in-memory chain walk.
 ///
-/// Caller must pre-sort `block_entries` by `(external_offset, block_id)`;
+/// Caller must pre-sort `block_entries` by `external_offset`;
 /// `bulk_read_blob_headers_sorted` splits that order into contiguous chunks
 /// so each parallel reader stays in one file region. Falls back to per-row
 /// reads through SQLite `blob_open` when the source MARF stores blobs

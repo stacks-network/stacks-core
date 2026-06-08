@@ -36,14 +36,6 @@ use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieI
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::sql_vacuum;
 
-/// Span and alignment of a node prefetch hint, matching the common Linux
-/// 4 KiB page: hinting exactly one aligned page benchmarked faster than any
-/// wider or unaligned window (the kernel rounds unaligned hints outward to
-/// page boundaries, typically doubling the readahead). Kernels with larger
-/// pages round this up to the one page containing the node start, so the
-/// value is a floor, not a page-size assumption.
-const PREFETCH_SPAN: u64 = 4096;
-
 /// Reader-thread count for the bulk header fan-out.
 ///
 /// The workers spend nearly all their time blocked on small positioned
@@ -243,12 +235,9 @@ impl TrieFile {
         Ok(())
     }
 
-    /// Async-prefetch the 4 KiB-aligned span containing the start offset of
-    /// the node at `(block_id, in_block_ptr)`. The largest node (Node256)
-    /// is ~3.7 KiB and could spill into the next page, but nodes that wide
-    /// are rare: hinting exactly one aligned page benchmarks faster than
-    /// any wider or unaligned window, whose extra readahead outweighs the
-    /// saved faults.
+    /// Async-prefetch the node at `(block_id, in_block_ptr)`: hint the one
+    /// page holding the node's start. The node's tail spilling past the
+    /// page is rare, and prefetching 2-pages benchmarked slower;
     ///
     /// Best-effort: requires the blob offset already in `trie_offsets`,
     /// else no-op. No-op for RAM-backed `TrieFile`s and non-Linux targets.
@@ -262,8 +251,9 @@ impl TrieFile {
         let Some(abs) = blob_offset.checked_add(in_block_ptr) else {
             return;
         };
-        let page_aligned = abs & !(PREFETCH_SPAN - 1);
-        let _ = prefetch_file_range(&disk.fd, page_aligned, PREFETCH_SPAN);
+        // Length 1 makes the kernel round to its own page size and warm
+        // exactly the page containing `abs`
+        let _ = prefetch_file_range(&disk.fd, abs, 1);
     }
 
     /// Get a copy of the path to this TrieFile.
