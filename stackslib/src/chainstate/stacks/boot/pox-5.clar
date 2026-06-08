@@ -1238,7 +1238,7 @@
         (try! (validate-no-reentrancy))
 
         ;; Take a snapshot of the staker's and signer's current rewards
-        (settle-rewards signer (current-pox-reward-cycle) (some bond-index))
+        (settle-rewards signer current-cycle (some bond-index))
         (settle-staker-rewards signer current-cycle (some bond-index) tx-sender)
 
         ;; We need to update each affected cycle with this staker's new amount. Instead of
@@ -1254,8 +1254,9 @@
             (merge membership { amount-sats: new-amount-sats })
         )
         (map-set protocol-bonds-total-staked bond-index
-            (- (get-total-sbtc-staked-for-bond bond-index) amount-to-withdrawal-sats)
-        )
+            (- (get-total-sbtc-staked-for-bond bond-index)
+                amount-to-withdrawal-sats
+            ))
 
         ;; Mutate the total sBTC staked
         (var-set total-sbtc-staked
