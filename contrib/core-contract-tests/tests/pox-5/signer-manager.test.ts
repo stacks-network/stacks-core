@@ -236,10 +236,10 @@ test('claiming staker rewards transfers net rewards after fees', () => {
     claim.events,
     CoreNodeEventType.FtTransferEvent,
   );
-  const [printEvent] = filterEvents(
+  const printEvent = filterEvents(
     claim.events,
     CoreNodeEventType.ContractEvent,
-  );
+  ).find((e) => e.data.contract_identifier === signerManager.identifier)!;
   const printData = cvToValue<{
     topic: string;
     amountSats: bigint;
@@ -386,7 +386,7 @@ test('claiming staker rewards with pox-addr initiates a withdrawal request', () 
   const printEvent = filterEvents(
     claim.events,
     CoreNodeEventType.ContractEvent,
-  ).at(1)!;
+  ).find((e) => e.data.contract_identifier === signerManager.identifier)!;
   const printData = cvToValue<{
     topic: string;
     amountSats: bigint;
