@@ -1,1 +1,0 @@
-Introduced caching for contracts loaded/parsed within the context of a single Clarity transaction, reducing resource usage for many calls to the same contract.
