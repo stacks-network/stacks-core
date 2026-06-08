@@ -205,3 +205,49 @@ test('sweep-fee-refunds caps the amount at the non-fee sBTC balance', () => {
     txErr(signerManager.sweepFeeRefunds(1n, deployer), deployer).value,
   ).toBe(signerManagerErrors.ERR_INVALID_SWEEP_AMOUNT);
 });
+
+test('sweep-fee-refunds cannot sweep unclaimed staker rewards', () => {
+  // `claim-rewards` pulls the sBTC for ALL of the signer's stakers into this
+  // contract at once; each staker is paid out later via `claim-staker-rewards`.
+  // Between those steps a plain (no pox-addr) staker's rewards sit in the
+  // balance with no offsetting `earned-fees` or `withdrawal-liability` entry, so
+  // they must NOT be sweepable -- otherwise an admin can drain staker principal.
+  const rewards = 2000n;
+  const earned =
+    rewards - (rewards * pox5.constants.RESERVE_RATIO) / BASIS_POINTS;
+
+  // Alice stakes WITHOUT a pox-addr, so she is owed sBTC directly.
+  txOk(
+    pox5.stake({
+      signerManager: signerManager.identifier,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: rewards,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([]), deployer);
+  txOk(signerManager.claimRewards([], 1n), deployer);
+
+  // Alice's full reward is now in the contract, unclaimed. The admin must not be
+  // able to sweep any of it to a recipient of their choosing.
+  expect(
+    txErr(signerManager.sweepFeeRefunds(earned, bob), deployer).value,
+  ).toBe(signerManagerErrors.ERR_INVALID_SWEEP_AMOUNT);
+
+  // Alice can still claim her rewards in full.
+  const aliceBalance = sbtcBalance(alice);
+  txOk(signerManager.claimStakerRewards(alice, false, 1n), alice);
+  expect(sbtcBalance(alice)).toBe(aliceBalance + earned);
+});
