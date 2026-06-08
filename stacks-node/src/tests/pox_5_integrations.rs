@@ -3282,8 +3282,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-staker-shares-staked-for-cycle",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
             &Value::Principal(test_signer_principal.clone()),
         ],
     )
