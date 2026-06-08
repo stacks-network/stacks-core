@@ -99,8 +99,8 @@ pub fn copy_canonical_fork_storage(
 
     clone_schemas_from_source(conn, &["__fork_storage"])?;
 
-    // `get_ref` borrows the key bytes from SQLite's row buffer; we only
-    // allocate `value` when the row passes the canonical-leaf check.
+    // `value_hash` is borrowed via `get_ref` and validated for every row;
+    // only rows matching a canonical leaf allocate and copy `value`.
     let t = Instant::now();
     let mut select = conn
         .prepare("SELECT value_hash, value FROM src.__fork_storage")
