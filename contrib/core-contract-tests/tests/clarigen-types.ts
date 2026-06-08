@@ -7514,7 +7514,7 @@ export const contracts = {
       },
       eRR_L1_EARLY_EXIT_ALREADY_ANNOUNCED: {
         isOk: false,
-        value: 47n,
+        value: 50n,
       },
       ERR_NOT_ALLOWLISTED: {
         isOk: false,

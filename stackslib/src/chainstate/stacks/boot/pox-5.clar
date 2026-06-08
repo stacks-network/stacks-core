@@ -55,8 +55,6 @@
 ;; The same Bitcoin outpoint (txid + output-index) appeared twice in
 ;; the L1 lockup proof list submitted to `register-for-bond`.
 (define-constant ERR_DUPLICATE_LOCKUP_OUTPOINT (err u46))
-;; The staker already announced an L1 early exit for this bond period
-(define-constant ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED (err u47))
 ;; A staker tried to modify the next reward cycle's state during the prepare
 ;; phase.
 (define-constant ERR_STAKE_IN_PREPARE_PHASE (err u47))
@@ -64,6 +62,8 @@
 (define-constant ERR_ROLLOVER_TOO_EARLY (err u48))
 ;; A reentrant call into pox-5 was detected while a signer-manager call was in flight
 (define-constant ERR_REENTRANT_CALL (err u49))
+;; The staker already announced an L1 early exit for this bond period
+(define-constant ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED (err u50))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
