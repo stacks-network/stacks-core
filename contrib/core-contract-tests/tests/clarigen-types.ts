@@ -4850,18 +4850,20 @@ export const contracts = {
             response: {
               ok: {
                 tuple: [
-                  { name: 'accrued-rewards', type: 'uint128' },
+                  { name: 'accrued-rewards-per-ustx', type: 'uint128' },
                   {
                     name: 'bond-periods',
                     type: { list: { type: 'uint128', length: 6 } },
                   },
                   { name: 'calculation-height', type: 'uint128' },
+                  { name: 'cumulative-rewards-per-ustx', type: 'uint128' },
                   { name: 'cycle-staked-ustx', type: 'uint128' },
-                  { name: 'new-reserve', type: 'uint128' },
-                  { name: 'next-rewards-per-ustx', type: 'uint128' },
-                  { name: 'remaining-rewards', type: 'uint128' },
+                  { name: 'gross-accrued-rewards', type: 'uint128' },
+                  { name: 'reserve-balance', type: 'uint128' },
+                  { name: 'reserve-deposit', type: 'uint128' },
                   { name: 'stx-cycle', type: 'uint128' },
-                  { name: 'stx-staker-rewards', type: 'uint128' },
+                  { name: 'total-bond-rewards', type: 'uint128' },
+                  { name: 'total-stx-staker-rewards', type: 'uint128' },
                 ],
               },
               error: 'uint128',
@@ -4872,15 +4874,17 @@ export const contracts = {
         [bondPeriods: TypedAbiArg<number | bigint[], 'bondPeriods'>],
         Response<
           {
-            accruedRewards: bigint;
+            accruedRewardsPerUstx: bigint;
             bondPeriods: bigint[];
             calculationHeight: bigint;
+            cumulativeRewardsPerUstx: bigint;
             cycleStakedUstx: bigint;
-            newReserve: bigint;
-            nextRewardsPerUstx: bigint;
-            remainingRewards: bigint;
+            grossAccruedRewards: bigint;
+            reserveBalance: bigint;
+            reserveDeposit: bigint;
             stxCycle: bigint;
-            stxStakerRewards: bigint;
+            totalBondRewards: bigint;
+            totalStxStakerRewards: bigint;
           },
           bigint
         >
