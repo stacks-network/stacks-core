@@ -847,10 +847,13 @@ fn idle_tenure_extend_active_mining() {
             );
             // Tenure-change blocks (BlockFound/Extended) roll the timestamp over to
             // `now + idle_timeout`, while regular blocks derive it from tenure start plus
-            // accumulated processing time. With second-level granularity these two formulas
-            // can produce equal timestamps, so only assert strict advancement between
-            // consecutive regular blocks (where the injected validation delay guarantees
-            // it advances). Skip the first block of each tenure and any tenure-change block.
+            // accumulated processing time (see `SignerDb::calculate_full_extend_timestamp`).
+            // With second-level granularity these two formulas can produce equal timestamps,
+            // so only assert strict advancement between consecutive regular blocks (where the
+            // injected validation delay guarantees it advances). Skip the first block of each
+            // tenure and any tenure-change block. In this scenario tenures advance via idle
+            // timeout, so only `Extended` blocks are expected here; the `BlockFound` check is
+            // defensive against unexpected tenure-change blocks (e.g. from CI timing).
             let latest_block_is_tenure_change =
                 last_block_contains_tenure_change_tx(TenureChangeCause::Extended)
                     || last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
