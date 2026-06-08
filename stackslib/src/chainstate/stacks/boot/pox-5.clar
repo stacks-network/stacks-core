@@ -1169,7 +1169,11 @@
 ;; This contract call notifies PoX-5 to stop counting the staker for this
 ;; bond period. It zeroes the staker's shares, debits the share totals by
 ;; that amount, settles outstanding rewards, and flips
-;; `has-announced-l1-early-exit` to true for the callers active bond.
+;; `has-announced-l1-early-exit` to true for the caller's active bond.
+;;
+;; The staker's locked STX is intentionally untouched and remains locked
+;; through the bond period's normal unlock cycle. Only the staker's BTC
+;; shares are wound down here.
 ;;
 ;; Only the staker who is currently registered for a bond can successfully
 ;; call this function; other contracts cannot forward this call.
