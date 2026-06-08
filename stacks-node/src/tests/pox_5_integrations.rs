@@ -1148,14 +1148,7 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
             mid_account.locked, bond_amount,
             "STX lock must remain in place through bond 0's full term (no unlock before rollover)"
         );
-        let last_block = test_observer::get_blocks();
-        let burn_height = last_block
-            .last()
-            .unwrap()
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap();
+        let burn_height = get_chain_info_result(&naka_conf).unwrap().burn_block_height;
         if burn_height >= target_register_height {
             assert!(
                 burn_height < bond6_start,
@@ -1325,29 +1318,6 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
         "post-rollover membership should point at bond 6"
     );
 
-    // Bond 0's reward shares are preserved (the staker still earns through
-    // bond 0's term).
-    let bond0_shares = call_read_only(
-        &naka_conf,
-        &pox_5_addr,
-        "pox-5",
-        "get-staker-shares-staked-for-cycle",
-        vec![
-            &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(0),
-            &Value::Principal(test_signer_principal.clone()),
-        ],
-    )
-    .result()
-    .expect("get-staker-shares-staked-for-cycle failed")
-    .expect_u128()
-    .expect("shares uint");
-    assert_eq!(
-        bond0_shares, SBTC_AMT,
-        "bond 0's reward shares must be preserved through the roll-over"
-    );
-
     // Continuous signer participation across the bond boundary: the staker is
     // in the signer set for cycles C+11 (last of bond 0) and C+12 (first of
     // bond 6).
@@ -1363,6 +1333,30 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
     .expect_u128()
     .expect("cycle uint");
     let last_bond0_cycle = bond6_first_cycle - 1;
+
+    // Bond 0's reward shares are preserved (the staker still earns through
+    // bond 0's term).
+    let bond0_shares = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-staker-shares-staked-for-cycle",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::UInt(last_bond0_cycle),
+            &Value::some(Value::UInt(0)).unwrap(),
+            &Value::Principal(test_signer_principal.clone()),
+        ],
+    )
+    .result()
+    .expect("get-staker-shares-staked-for-cycle failed")
+    .expect_u128()
+    .expect("shares uint");
+    assert_eq!(
+        bond0_shares, SBTC_AMT,
+        "bond 0's reward shares must be preserved through the roll-over"
+    );
+
     for cycle in [last_bond0_cycle, bond6_first_cycle] {
         let cycle_member = call_read_only(
             &naka_conf,
@@ -3216,8 +3210,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-staker-shares-staked-for-cycle",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
             &Value::Principal(test_signer_principal.clone()),
         ],
     )
@@ -3397,8 +3391,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-earned-staker-rewards",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
         ],
     )
     .result()
@@ -3417,8 +3411,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-staker-shares-staked-for-cycle",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
             &Value::Principal(test_signer_principal.clone()),
         ],
     )

@@ -1,0 +1,1 @@
+Updates to pox-5 to prevent a scenario where a bond participant could switch signers, but that switch would cause the new signer to immediately start getting rewards, even though their signing power isn't updated yet.
