@@ -14,14 +14,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 //! Stateful PBT for the pox-5 locking primitives. A random sequence of
-//! `Stake`, `StakeUpdate`, `Unstake`, `AdvanceBurnHeight` commands runs
-//! against `MemoryBackingStore` plus a settable burn-height oracle, with a
-//! shadow model kept in lockstep.
+//! `Stake`, `StakeUpdateExtend`, `StakeUpdateIncrease`, `Unstake`,
+//! `AdvanceBurnHeight` commands runs against `MemoryBackingStore` plus a
+//! settable burn-height oracle, with a shadow model kept in lockstep.
 //!
 //! Invariants checked after every command:
 //! 1. conservation: available + locked == TOTAL_USTX
-//! 2. auto-unlock: burn_height >= unlock_height implies locked_ustx == 0 on the SUT
-//! 3. monotonic locking: StakeUpdate never reduces locked_ustx
+//! 2. auto-unlock: burn_height >= unlock_height implies locked_ustx == 0 on
+//! the SUT
+//! 3. monotonic locking: StakeUpdateExtend keeps and StakeUpdateIncrease only
+//! raises locked_ustx
 //!
 //! Generators emit structurally valid args (amount > 0, unlock > 0); legality
 //! against the current state is decided by `Command::check`, never by
@@ -44,7 +46,8 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, Sorti
 use crate::pox_5::{pox_lock_update_v5, pox_lock_v5, pox_unstake_v5};
 use crate::LockingError;
 
-/// Starting STX balance. Large enough to absorb any sequence the generators emit.
+/// Starting STX balance. Large enough to absorb any sequence the generators
+/// emit.
 const TOTAL_USTX: u128 = 100_000_000_000;
 
 /// Cap on random unlock_height deltas.
@@ -157,11 +160,10 @@ impl BurnStateDB for ConfigurableBurnStateDB {
 }
 
 /// Account model. `Unstake` is not a separate state: it only reschedules
-/// `unlock_height`. The `unstake_scheduled` flag is model-only — production
-/// has no such gate (it gates on `unlock_height != 0` + `has_locked_tokens`).
-/// It exists so `StakeUpdate` is not *attempted* once an unstake is pending,
-/// making the model intentionally stricter than production: update-after-unstake
-/// transitions are simply not explored here, not asserted illegal.
+/// `unlock_height` and sets the model-only `unstake_scheduled` flag (production
+/// has no such flag — it gates on `unlock_height != 0` + `has_locked_tokens`).
+/// The flag only prevents a second `Unstake` (Unstake's `check`) and gates
+/// `IllegalDecreaseInUpdate`.
 #[derive(Debug, Clone, PartialEq)]
 enum AccountState {
     Unlocked,
@@ -401,16 +403,12 @@ impl Command<Pox5StakerState, Pox5Context> for Stake {
             let mut sut = self.ctx.sut.lock().unwrap();
             sut.run(|db| pox_lock_v5(db, &staker, self.amount, self.unlock_height))
         };
-        match result {
-            Ok(()) => {
-                state.account = AccountState::Locked {
-                    locked_ustx: self.amount,
-                    unlock_height: self.unlock_height,
-                    unstake_scheduled: false,
-                };
-            }
-            Err(e) => panic!("Stake expected to succeed (model says legal) but SUT returned {e:?}"),
-        }
+        result.expect("Stake must succeed on a state check() deemed legal");
+        state.account = AccountState::Locked {
+            locked_ustx: self.amount,
+            unlock_height: self.unlock_height,
+            unstake_scheduled: false,
+        };
         check_invariants(state, &self.ctx);
     }
 
@@ -435,25 +433,81 @@ impl Command<Pox5StakerState, Pox5Context> for Stake {
     }
 }
 
-/// Extend or increase the lock. Legal only when locked, not unstaking, and
-/// `new_total >= locked_ustx` (invariant 3).
-struct StakeUpdate {
+/// Extend the lock: reschedule `unlock_height` further out, leaving the locked
+/// amount unchanged. Legal whenever locked (including after an unstake).
+struct StakeUpdateExtend {
+    ctx: Arc<Pox5Context>,
+    new_unlock_height: u64,
+}
+
+impl Command<Pox5StakerState, Pox5Context> for StakeUpdateExtend {
+    fn check(&self, state: &Pox5StakerState) -> bool {
+        matches!(state.account, AccountState::Locked { .. })
+            && self.new_unlock_height > state.current_burn_height
+    }
+
+    fn apply(&self, state: &mut Pox5StakerState) {
+        // Extend re-locks the same amount at a new unlock height. `check()`
+        // guarantees the account is locked, so this reads the current amount.
+        let locked = state.account.locked_amount();
+        let staker = {
+            let sut = self.ctx.sut.lock().unwrap();
+            sut.staker.clone()
+        };
+        let result = {
+            let mut sut = self.ctx.sut.lock().unwrap();
+            sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, locked))
+        };
+        let balance = result.expect("StakeExtend must succeed on a state check() deemed legal");
+        // The single expected output: amount unchanged, unlock rescheduled.
+        assert_eq!(
+            balance.amount_locked(),
+            locked,
+            "StakeExtend must leave the locked amount unchanged"
+        );
+        assert_eq!(
+            balance.unlock_height(),
+            self.new_unlock_height,
+            "StakeExtend must reschedule to the new unlock height"
+        );
+        state.account = AccountState::Locked {
+            locked_ustx: locked,
+            unlock_height: self.new_unlock_height,
+            unstake_scheduled: false,
+        };
+        check_invariants(state, &self.ctx);
+    }
+
+    fn label(&self) -> String {
+        format!("STAKE_EXTEND(new_unlock={})", self.new_unlock_height)
+    }
+
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+        (1u64..=UNLOCK_WINDOW).prop_map(move |new_unlock| {
+            CommandWrapper::new(StakeUpdateExtend {
+                ctx: ctx.clone(),
+                new_unlock_height: new_unlock,
+            })
+        })
+    }
+}
+
+/// Increase the lock: raise the locked amount to `new_total` (strictly above
+/// the current amount) and reschedule the unlock. Legal whenever locked
+/// (including after an unstake) and `new_total > locked_ustx`.
+struct StakeUpdateIncrease {
     ctx: Arc<Pox5Context>,
     new_total: u128,
     new_unlock_height: u64,
 }
 
-impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
+impl Command<Pox5StakerState, Pox5Context> for StakeUpdateIncrease {
     fn check(&self, state: &Pox5StakerState) -> bool {
         match state.account {
-            AccountState::Locked {
-                locked_ustx,
-                unstake_scheduled,
-                ..
-            } => {
-                !unstake_scheduled
-                    && self.new_total >= locked_ustx
-                    && self.new_unlock_height > state.current_burn_height
+            AccountState::Locked { locked_ustx, .. } => {
+                self.new_total > locked_ustx && self.new_unlock_height > state.current_burn_height
             }
             _ => false,
         }
@@ -468,33 +522,28 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
             let mut sut = self.ctx.sut.lock().unwrap();
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total))
         };
-        match result {
-            Ok(_balance) => {
-                if let AccountState::Locked {
-                    locked_ustx,
-                    unlock_height,
-                    ..
-                } = &mut state.account
-                {
-                    // Monotonic locking pre/post check.
-                    assert!(
-                        self.new_total >= *locked_ustx,
-                        "monotonic locking violated by model: prev={}, new={}",
-                        *locked_ustx,
-                        self.new_total,
-                    );
-                    *locked_ustx = self.new_total;
-                    *unlock_height = self.new_unlock_height;
-                }
-            }
-            Err(e) => panic!("StakeUpdate expected to succeed but SUT returned {e:?}"),
-        }
+        let balance = result.expect("StakeIncrease must succeed on a state check() deemed legal");
+        assert_eq!(
+            balance.amount_locked(),
+            self.new_total,
+            "StakeIncrease must raise the locked amount to new_total"
+        );
+        assert_eq!(
+            balance.unlock_height(),
+            self.new_unlock_height,
+            "StakeIncrease must reschedule to the new unlock height"
+        );
+        state.account = AccountState::Locked {
+            locked_ustx: self.new_total,
+            unlock_height: self.new_unlock_height,
+            unstake_scheduled: false,
+        };
         check_invariants(state, &self.ctx);
     }
 
     fn label(&self) -> String {
         format!(
-            "STAKE_UPDATE(new_total={}, new_unlock={})",
+            "STAKE_INCREASE(new_total={}, new_unlock={})",
             self.new_total, self.new_unlock_height
         )
     }
@@ -503,10 +552,8 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdate {
         ctx: Arc<Pox5Context>,
     ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
         let total = ctx.total_ustx;
-        let new_total_strategy = 1u128..=total;
-        let new_unlock_strategy = 1u64..=UNLOCK_WINDOW;
-        (new_total_strategy, new_unlock_strategy).prop_map(move |(new_total, new_unlock)| {
-            CommandWrapper::new(StakeUpdate {
+        (1u128..=total, 1u64..=UNLOCK_WINDOW).prop_map(move |(new_total, new_unlock)| {
+            CommandWrapper::new(StakeUpdateIncrease {
                 ctx: ctx.clone(),
                 new_total,
                 new_unlock_height: new_unlock,
@@ -544,20 +591,15 @@ impl Command<Pox5StakerState, Pox5Context> for Unstake {
             let mut sut = self.ctx.sut.lock().unwrap();
             sut.run(|db| pox_unstake_v5(db, &staker, new_unlock))
         };
-        match result {
-            Ok(()) => {
-                if let AccountState::Locked {
-                    unlock_height,
-                    unstake_scheduled,
-                    ..
-                } = &mut state.account
-                {
-                    *unlock_height = new_unlock;
-                    *unstake_scheduled = true;
-                }
-            }
-            Err(e) => panic!("Unstake expected to succeed but SUT returned {e:?}"),
-        }
+        result.expect("Unstake must succeed on a state check() deemed legal");
+        // `check()` guarantees the account is locked; keep the amount,
+        // reschedule the unlock, and mark the unstake pending.
+        let locked = state.account.locked_amount();
+        state.account = AccountState::Locked {
+            locked_ustx: locked,
+            unlock_height: new_unlock,
+            unstake_scheduled: true,
+        };
         check_invariants(state, &self.ctx);
     }
 
@@ -643,10 +685,11 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeWhileLocked {
             let mut sut = self.ctx.sut.lock().unwrap();
             sut.run(|db| pox_lock_v5(db, &staker, self.amount, self.unlock_height))
         };
-        match result {
-            Err(LockingError::PoxAlreadyLocked) => {}
-            other => panic!("IllegalStakeWhileLocked expected PoxAlreadyLocked, got {other:?}"),
-        }
+        let err = result.expect_err("staking while already locked must be rejected");
+        assert!(
+            matches!(err, LockingError::PoxAlreadyLocked),
+            "IllegalStakeWhileLocked expected PoxAlreadyLocked, got {err:?}",
+        );
         // Failed call must not mutate the SUT; model is unchanged.
         check_invariants(state, &self.ctx);
     }
@@ -693,12 +736,11 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeUpdateOnUnlocked {
             let mut sut = self.ctx.sut.lock().unwrap();
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total))
         };
-        match result {
-            Err(LockingError::PoxExtendNotLocked) => {}
-            other => {
-                panic!("IllegalStakeUpdateOnUnlocked expected PoxExtendNotLocked, got {other:?}")
-            }
-        }
+        let err = result.expect_err("stake-update while unlocked must be rejected");
+        assert!(
+            matches!(err, LockingError::PoxExtendNotLocked),
+            "IllegalStakeUpdateOnUnlocked expected PoxExtendNotLocked, got {err:?}",
+        );
         check_invariants(state, &self.ctx);
     }
 
@@ -741,10 +783,11 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalUnstakeOnUnlocked {
             let mut sut = self.ctx.sut.lock().unwrap();
             sut.run(|db| pox_unstake_v5(db, &staker, self.new_unlock_height))
         };
-        match result {
-            Err(LockingError::PoxUnstakeNotLocked) => {}
-            other => panic!("IllegalUnstakeOnUnlocked expected PoxUnstakeNotLocked, got {other:?}"),
-        }
+        let err = result.expect_err("unstake while unlocked must be rejected");
+        assert!(
+            matches!(err, LockingError::PoxUnstakeNotLocked),
+            "IllegalUnstakeOnUnlocked expected PoxUnstakeNotLocked, got {err:?}",
+        );
         check_invariants(state, &self.ctx);
     }
 
@@ -804,12 +847,11 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
             let mut sut = self.ctx.sut.lock().unwrap();
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, new_total))
         };
-        match result {
-            Err(LockingError::PoxInvalidIncrease) => {}
-            other => panic!(
-                "IllegalDecreaseInUpdate expected PoxInvalidIncrease (locked={locked}, new_total={new_total}), got {other:?}"
-            ),
-        }
+        let err = result.expect_err("decreasing the lock via stake-update must be rejected");
+        assert!(
+            matches!(err, LockingError::PoxInvalidIncrease),
+            "IllegalDecreaseInUpdate expected PoxInvalidIncrease (locked={locked}, new_total={new_total}), got {err:?}",
+        );
         check_invariants(state, &self.ctx);
     }
 
@@ -850,7 +892,8 @@ fn madhouse_pox5_staker_lifecycle() {
     scenario![
         ctx,
         Stake,
-        StakeUpdate,
+        StakeUpdateExtend,
+        StakeUpdateIncrease,
         Unstake,
         AdvanceBurnHeight,
         IllegalStakeWhileLocked,
