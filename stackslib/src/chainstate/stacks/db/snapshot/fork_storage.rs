@@ -123,12 +123,9 @@ pub fn copy_canonical_fork_storage(
             ))
         })?;
         // `store_indexed` writes lowercase hex and the runtime reads it
-        // back the same way; any other encoding is a foreign writer and
-        // the copied row would be unreachable in dst.
-        if !key_str
-            .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        {
+        // back the same way; any other encoding (e.g. uppercase) is a
+        // foreign writer and the copied row would be unreachable in dst.
+        if key.to_hex() != key_str {
             return Err(Error::CorruptionError(format!(
                 "src.__fork_storage.value_hash `{key_str}` is not canonical lowercase hex"
             )));
