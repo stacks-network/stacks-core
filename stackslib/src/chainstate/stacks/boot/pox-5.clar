@@ -809,14 +809,8 @@
             (next-cycle (+ current-cycle u1))
             ;; If the bond hasn't started yet, then the first cycle where
             ;; this new signer is active is the start cycle. Otherwise, it's the next reward
-            ;; cycle. In other words, `max(bond-start-cycle, current-cycle + 1)`
-            (first-reward-cycle (if (> next-cycle bond-end-cycle)
-                bond-end-cycle
-                (if (> bond-start-cycle next-cycle)
-                    bond-start-cycle
-                    next-cycle
-                )
-            ))
+            ;; cycle, unless the bond will be over at that point.
+            (first-reward-cycle (clamp next-cycle bond-start-cycle bond-end-cycle))
             (amount-sats (get amount-sats current-membership))
             (num-cycles (- bond-end-cycle first-reward-cycle))
         )
@@ -1143,13 +1137,7 @@
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
             (current-total-staked (get-total-sbtc-staked-for-bond bond-index))
-            (first-changed-reward-cycle (if (> current-cycle bond-end-cycle)
-                bond-end-cycle
-                (if (< current-cycle bond-start-cycle)
-                    bond-start-cycle
-                    current-cycle
-                )
-            ))
+            (first-changed-reward-cycle (clamp current-cycle bond-start-cycle bond-end-cycle))
             (amount-sats (get amount-sats membership))
         )
         ;; ensure no reentrancy through signer-manager trait calls
@@ -1207,13 +1195,7 @@
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
-            (first-changed-reward-cycle (if (> current-cycle bond-end-cycle)
-                bond-end-cycle
-                (if (< current-cycle bond-start-cycle)
-                    bond-start-cycle
-                    current-cycle
-                )
-            ))
+            (first-changed-reward-cycle (clamp current-cycle bond-start-cycle bond-end-cycle))
             (num-cycles (- bond-end-cycle first-changed-reward-cycle))
             (current-amount-sats (get amount-sats membership))
             (current-total-sbtc-staked (get-total-sbtc-staked))
@@ -3086,6 +3068,21 @@
 
 (define-read-only (get-first-pox-5-reward-cycle)
     (var-get first-pox-5-reward-cycle)
+)
+
+;; Clamp a value between a min and max.
+(define-read-only (clamp
+        (value uint)
+        (min uint)
+        (max uint)
+    )
+    (if (> value max)
+        max
+        (if (< value min)
+            min
+            value
+        )
+    )
 )
 
 ;;; Contract caller allowances

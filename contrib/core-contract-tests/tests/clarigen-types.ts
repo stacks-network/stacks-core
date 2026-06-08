@@ -5698,6 +5698,23 @@ export const contracts = {
         [lockPeriod: TypedAbiArg<number | bigint, 'lockPeriod'>],
         boolean
       >,
+      clamp: {
+        name: 'clamp',
+        access: 'read_only',
+        args: [
+          { name: 'value', type: 'uint128' },
+          { name: 'min', type: 'uint128' },
+          { name: 'max', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          value: TypedAbiArg<number | bigint, 'value'>,
+          min: TypedAbiArg<number | bigint, 'min'>,
+          max: TypedAbiArg<number | bigint, 'max'>,
+        ],
+        bigint
+      >,
       computeEarnedRewards: {
         name: 'compute-earned-rewards',
         access: 'read_only',
