@@ -2516,9 +2516,10 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
     /// Forwards to [`TrieFile::prefetch_node`].
     /// No-op for SQLite-internal storage.
-    pub(super) fn prefetch_node(&self, block_id: u32, in_block_ptr: u64) {
+    pub(super) fn prefetch_node(&self, block_id: u32, in_block_ptr: u64, node_id: u8) {
+        let u64_ptr_offsets = self.squash_info().is_some();
         if let Some(trie_file) = self.blobs.as_deref() {
-            trie_file.prefetch_node(block_id, in_block_ptr);
+            trie_file.prefetch_node(block_id, in_block_ptr, node_id, u64_ptr_offsets);
         }
     }
 

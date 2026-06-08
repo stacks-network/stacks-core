@@ -25,7 +25,7 @@ use rusqlite::params;
 use rusqlite::Connection;
 
 use crate::chainstate::stacks::index::bits::{
-    read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
+    get_node_max_byte_len, read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
 };
 use crate::chainstate::stacks::index::blob_layout::{self, BlobHeader};
 use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
@@ -235,13 +235,20 @@ impl TrieFile {
         Ok(())
     }
 
-    /// Async-prefetch the node at `(block_id, in_block_ptr)`: hint the one
-    /// page holding the node's start. The node's tail spilling past the
-    /// page is rare, and prefetching 2-pages benchmarked slower;
+    /// Async-prefetch the node at `(block_id, in_block_ptr)`: hint the
+    /// node's max on-disk size for its type (`node_id`) from its start. The
+    /// kernel rounds to its own page size, so a node inside one page warms
+    /// just that page, while one straddling a boundary warms both.
     ///
     /// Best-effort: requires the blob offset already in `trie_offsets`,
     /// else no-op. No-op for RAM-backed `TrieFile`s and non-Linux targets.
-    pub(super) fn prefetch_node(&self, block_id: u32, in_block_ptr: u64) {
+    pub(super) fn prefetch_node(
+        &self,
+        block_id: u32,
+        in_block_ptr: u64,
+        node_id: u8,
+        u64_ptr_offsets: bool,
+    ) {
         let TrieFile::Disk(disk) = self else {
             return;
         };
@@ -251,9 +258,10 @@ impl TrieFile {
         let Some(abs) = blob_offset.checked_add(in_block_ptr) else {
             return;
         };
-        // Length 1 makes the kernel round to its own page size and warm
-        // exactly the page containing `abs`
-        let _ = prefetch_file_range(&disk.fd, abs, 1);
+        let Ok(len) = get_node_max_byte_len(node_id, u64_ptr_offsets) else {
+            return;
+        };
+        let _ = prefetch_file_range(&disk.fd, abs, len as u64);
     }
 
     /// Get a copy of the path to this TrieFile.

@@ -307,9 +307,10 @@ fn collect_per_height_metadata<T: MarfTrieId + Send + Sync>(
     let walk_floor = src_squash_height.map(|sh| sh + 1).unwrap_or(0);
     debug_assert!(walk_floor <= height);
 
-    // Pre-read in offset order. Offsets are not unique on a re-squash
-    // source (every pre-boundary row shares the squash blob's offset), so
-    // `block_id` breaks ties to keep the order deterministic.
+    // Pre-read in offset order. Each parallel reader sweeps a
+    // contiguous file region. `block_id` is only helpful for squashed
+    // marfs (where every row shares the squash blob's offset);
+    // no downstream logic depends on `block_id. ordering.
     block_entries.sort_unstable_by_key(|e| (e.external_offset, e.block_id));
     let headers = pre_read_blob_headers(conn, block_entries, label)?;
 
@@ -1055,7 +1056,7 @@ impl<T: MarfTrieId> MARF<T> {
                         if source_to_idx.contains_key(&(target_block_id, target_in_block_ptr)) {
                             continue;
                         }
-                        source.prefetch_node(target_block_id, target_in_block_ptr);
+                        source.prefetch_node(target_block_id, target_in_block_ptr, ptr.id());
                     }
                     descend_frame = Some(DfsFrame {
                         origin_block_id: child_block_id,
