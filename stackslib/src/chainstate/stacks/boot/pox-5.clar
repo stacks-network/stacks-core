@@ -1142,13 +1142,12 @@
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
-            (next-cycle (+ current-cycle u1))
             (current-total-staked (get-total-sbtc-staked-for-bond bond-index))
-            (first-changed-reward-cycle (if (> next-cycle bond-end-cycle)
+            (first-changed-reward-cycle (if (> current-cycle bond-end-cycle)
                 bond-end-cycle
-                (if (< next-cycle bond-start-cycle)
+                (if (< current-cycle bond-start-cycle)
                     bond-start-cycle
-                    next-cycle
+                    current-cycle
                 )
             ))
             (amount-sats (get amount-sats membership))
@@ -1208,12 +1207,11 @@
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
-            (next-cycle (+ current-cycle u1))
-            (first-changed-reward-cycle (if (> next-cycle bond-end-cycle)
+            (first-changed-reward-cycle (if (> current-cycle bond-end-cycle)
                 bond-end-cycle
-                (if (< next-cycle bond-start-cycle)
+                (if (< current-cycle bond-start-cycle)
                     bond-start-cycle
-                    next-cycle
+                    current-cycle
                 )
             ))
             (num-cycles (- bond-end-cycle first-changed-reward-cycle))
@@ -1243,7 +1241,7 @@
         (settle-rewards signer (current-pox-reward-cycle) (some bond-index))
         (settle-staker-rewards signer current-cycle (some bond-index) tx-sender)
 
-        ;; We need to update each future cycle with this staker's new amount. Instead of
+        ;; We need to update each affected cycle with this staker's new amount. Instead of
         ;; mutating each cycle, we instead re-use existing "remove" and "add" helpers.
         (try! (remove-staker-from-bond-cycles staker signer bond-index
             first-changed-reward-cycle num-cycles current-amount-sats

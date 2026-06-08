@@ -2146,6 +2146,11 @@ test('sbtc unstake reduces the per-bond total staked', () => {
     alice,
   );
 
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(2n)));
+
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 2n, 0n, signer))).toBe(
+    aliceSbtc,
+  );
   expect(rov(pox5.getTotalSbtcStakedForBond(0n))).toBe(aliceSbtc);
 
   txOk(
@@ -2157,6 +2162,9 @@ test('sbtc unstake reduces the per-bond total staked', () => {
   );
 
   expect(rov(pox5.getTotalSbtcStakedForBond(0n))).toBe(
+    aliceSbtc - unstakedSbtc,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 2n, 0n, signer))).toBe(
     aliceSbtc - unstakedSbtc,
   );
 });
