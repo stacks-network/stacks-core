@@ -9685,6 +9685,37 @@ export const contracts = {
         args: [],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<[], Response<boolean, bigint>>,
+      snapshotBondFee: {
+        name: 'snapshot-bond-fee',
+        access: 'private',
+        args: [
+          {
+            name: 'bond-info',
+            type: {
+              tuple: [
+                { name: 'bond-index', type: 'uint128' },
+                { name: 'earned', type: 'uint128' },
+                { name: 'rewards-per-token', type: 'uint128' },
+              ],
+            },
+          },
+          { name: 'reward-cycle', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          bondInfo: TypedAbiArg<
+            {
+              bondIndex: number | bigint;
+              earned: number | bigint;
+              rewardsPerToken: number | bigint;
+            },
+            'bondInfo'
+          >,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+        ],
+        bigint
+      >,
       claimRewards: {
         name: 'claim-rewards',
         access: 'public',
@@ -9939,14 +9970,14 @@ export const contracts = {
         name: 'get-fee-bips-for-cycle',
         access: 'read_only',
         args: [
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         bigint
       >,
@@ -10008,15 +10039,15 @@ export const contracts = {
         name: 'fee-bips-for-cycle',
         key: {
           tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
           ],
         },
         value: 'uint128',
       } as TypedAbiMap<
         {
-          index: number | bigint;
-          isBond: boolean;
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
         },
         bigint
       >,

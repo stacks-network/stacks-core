@@ -54,8 +54,8 @@
 
 (define-map fee-bips-for-cycle
     {
-        index: uint,
-        is-bond: bool,
+        reward-cycle: uint,
+        bond-index: (optional uint),
     }
     uint
 )
@@ -136,12 +136,12 @@
     )
     (let ((result (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))))
         (map-insert fee-bips-for-cycle {
-            index: reward-cycle,
-            is-bond: false,
+            reward-cycle: reward-cycle,
+            bond-index: none,
         }
             (var-get fees-bips)
         )
-        (fold snapshot-bond-fee (get bond-rewards result) true)
+        (fold snapshot-bond-fee (get bond-rewards result) reward-cycle)
         (ok result)
     )
 )
@@ -161,7 +161,12 @@
             (earned-before-fees (contract-call? .pox-5 get-earned-staker-rewards current-contract
                 reward-cycle bond-index staker
             ))
-            (fees (/ (* earned-before-fees (get-fee-bips-for-cycle is-bond index)) MAX_BIPS))
+            (fees (/
+                (* earned-before-fees
+                    (get-fee-bips-for-cycle reward-cycle bond-index)
+                )
+                MAX_BIPS
+            ))
         )
         {
             earned: (- earned-before-fees fees),
@@ -189,7 +194,9 @@
             )))
             (prev-fees (var-get earned-fees))
             (gross (get earned rewards-info))
-            (fees (/ (* gross (get-fee-bips-for-cycle is-bond index)) MAX_BIPS))
+            (fees (/ (* gross (get-fee-bips-for-cycle reward-cycle bond-index))
+                MAX_BIPS
+            ))
             (earned (- gross fees))
         )
         (asserts! (> earned u0) ERR_NO_CLAIMABLE_REWARDS)
@@ -351,27 +358,27 @@
             rewards-per-token: uint,
         })
         ;; #[allow(unused_binding)]
-        (acc bool)
+        (reward-cycle uint)
     )
     (begin
         (map-insert fee-bips-for-cycle {
-            is-bond: true,
-            index: (get bond-index bond-info),
+            reward-cycle: reward-cycle,
+            bond-index: (some (get bond-index bond-info)),
         }
             (var-get fees-bips)
         )
-        true
+        reward-cycle
     )
 )
 
 (define-read-only (get-fee-bips-for-cycle
-        (is-bond bool)
-        (index uint)
+        (reward-cycle uint)
+        (bond-index (optional uint))
     )
     (default-to u0
         (map-get? fee-bips-for-cycle {
-            index: index,
-            is-bond: is-bond,
+            reward-cycle: reward-cycle,
+            bond-index: bond-index,
         })
     )
 )
