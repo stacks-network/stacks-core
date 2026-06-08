@@ -9685,6 +9685,12 @@ export const contracts = {
           };
         } | null
       >,
+      getUnclaimedStakerRewards: {
+        name: 'get-unclaimed-staker-rewards',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       getWithdrawalLiability: {
         name: 'get-withdrawal-liability',
         access: 'read_only',
@@ -9872,6 +9878,11 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      unclaimedStakerRewards: {
+        name: 'unclaimed-staker-rewards',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
       withdrawalLiability: {
         name: 'withdrawal-liability',
         type: 'uint128',
@@ -9924,6 +9935,7 @@ export const contracts = {
       MAX_BIPS: 10_000n,
       earnedFees: 0n,
       feesBips: 0n,
+      unclaimedStakerRewards: 0n,
       withdrawalLiability: 0n,
     },
     non_fungible_tokens: [],

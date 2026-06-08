@@ -90,6 +90,15 @@
 ;; never sweep funds owed to a staker -- see the note on that function.
 (define-data-var withdrawal-liability uint u0)
 
+;; sBTC pulled into this contract by `claim-rewards` that has not yet been paid
+;; out to an individual staker via `claim-staker-rewards`. `claim-rewards` adds
+;; the gross `total-rewards` it received; each `claim-staker-rewards` subtracts
+;; that staker's `gross` as it is distributed (whether paid as sBTC, sent for
+;; an L1 withdrawal, or retained as a signer-manager fee). Like
+;; `withdrawal-liability`, this is subtracted in `sweep-fee-refunds` so an
+;; admin can never sweep staker rewards.
+(define-data-var unclaimed-staker-rewards uint u0)
+
 ;; Callback function from a `stake` transaction.
 ;;
 ;; If `signer-calldata` is provided, then it must be in the form
@@ -145,7 +154,14 @@
         (bond-periods (list 6 uint))
         (reward-cycle uint)
     )
-    (contract-call? .pox-5 claim-rewards bond-periods reward-cycle)
+    (let ((result (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))))
+        ;; The sBTC just pulled in is owed to this signer's stakers until each
+        ;; claims via `claim-staker-rewards`; reserve it so it is not sweepable.
+        (var-set unclaimed-staker-rewards
+            (+ (var-get unclaimed-staker-rewards) (get total-rewards result))
+        )
+        (ok result)
+    )
 )
 
 ;;; Staker rewards
@@ -206,6 +222,11 @@
             ERR_NO_CLAIMABLE_REWARDS
         )
         (var-set earned-fees (+ prev-fees fees))
+        ;; This staker's share is being distributed now so release it from
+        ;; the unclaimed count recorded when `claim-rewards` pulled it in.
+        (var-set unclaimed-staker-rewards
+            (- (var-get unclaimed-staker-rewards) gross)
+        )
         (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 "sbtc-token" earned
@@ -408,9 +429,11 @@
 ;; attributed to a specific staker on-chain (the sBTC registry does not expose
 ;; the actual fee paid), so it pools here; this admin-gated function sweeps it.
 ;;
-;; The cap subtracts both the fee accumulator (`earned-fees`) and the
-;; outstanding `withdrawal-liability`, so it can NEVER sweep funds owed to a
-;; staker. A rejected-but-unreclaimed withdrawal's `amount + max-fee` is present
+;; The cap subtracts the fee accumulator (`earned-fees`), the outstanding
+;; `withdrawal-liability`, and the pooled `unclaimed-staker-rewards` that
+;; `claim-rewards` pulled in but no staker has claimed yet, so it can NEVER
+;; sweep funds owed to a staker. A rejected-but-unreclaimed withdrawal's
+;; `amount + max-fee` is present
 ;; in BOTH the sBTC balance (the protocol returned it here) and in
 ;; `withdrawal-liability` (the entry is still live), so the two cancel and the
 ;; refund stays untouchable -- whether or not anyone has called
@@ -429,7 +452,10 @@
             (balance (unwrap-panic (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 get-balance current-contract
             )))
-            (reserved (+ (var-get earned-fees) (var-get withdrawal-liability)))
+            (reserved (+ (var-get earned-fees)
+                (+ (var-get withdrawal-liability)
+                    (var-get unclaimed-staker-rewards)
+                )))
             (sweepable (if (>= balance reserved)
                 (- balance reserved)
                 u0
@@ -494,6 +520,10 @@
 
 (define-read-only (get-withdrawal-liability)
     (var-get withdrawal-liability)
+)
+
+(define-read-only (get-unclaimed-staker-rewards)
+    (var-get unclaimed-staker-rewards)
 )
 
 (define-read-only (get-pox-addr (staker principal))
