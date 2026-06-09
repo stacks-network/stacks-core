@@ -95,8 +95,7 @@ jobs:
             --each-feature \
             --no-dev-deps \
             --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic,testing \
-            --features=wasm-web \
-            --target wasm32-unknown-unknown
+            --features=wasm-web
 
       # Run cargo-hack for WASM Deterministic
       - name: Run cargo hack check (WASM Deterministic)
