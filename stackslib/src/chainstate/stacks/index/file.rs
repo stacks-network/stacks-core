@@ -119,7 +119,7 @@ pub(super) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io:
 
 /// Async `posix_fadvise(WILLNEED)` hint over `[offset, offset + len)`.
 /// Returns immediately; no-op on non-Linux targets (Windows, macOS).
-#[allow(unused_variables)]
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
 fn prefetch_file_range(file: &File, offset: u64, len: u64) -> io::Result<()> {
     #[cfg(target_os = "linux")]
     {
@@ -645,9 +645,7 @@ impl TrieFile {
             ));
         };
         if sorted_entries.is_empty() {
-            // Callers resolve the tip block before reaching this point, so a
-            // confirmed-block-free entry list means a corrupt source.
-            return Err(Error::CorruptionError("bulk_read_blob_headers_sorted: no block entries; source MARF has no confirmed blocks".into()));
+            return Ok(HashMap::new());
         }
 
         let num_threads = header_read_parallelism().min(sorted_entries.len());

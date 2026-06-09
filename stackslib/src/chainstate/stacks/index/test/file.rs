@@ -304,3 +304,21 @@ fn test_bulk_read_blob_headers_sorted_matches_sequential() {
         }
     });
 }
+
+/// An empty entry list is a valid request: zero entries yield an
+/// empty map.
+#[test]
+fn test_bulk_read_blob_headers_sorted_empty_returns_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let marf_path = dir.path().join("bulk_headers_empty.sqlite");
+    let (mut marf, _, _) = super::marf::setup_marf(marf_path.to_str().unwrap(), 1, 4);
+
+    marf.with_conn(|conn| {
+        let entries =
+            trie_sql::bulk_read_block_entries::<StacksBlockId>(conn.sqlite_conn()).unwrap();
+        // Empty slice of the right element type, without naming the private entry struct.
+        let empty = entries.get(..0).unwrap();
+        let headers = conn.bulk_read_blob_headers_sorted(empty).unwrap();
+        assert!(headers.is_empty());
+    });
+}

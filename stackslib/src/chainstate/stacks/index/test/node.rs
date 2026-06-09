@@ -17,6 +17,7 @@
 use std::io::Cursor;
 
 use super::*;
+use crate::chainstate::stacks::index::bits::{get_node_byte_len, get_node_max_byte_len};
 use crate::chainstate::stacks::index::*;
 
 #[test]
@@ -5390,8 +5391,6 @@ fn test_node_copy_update_ptrs_preserves_nonzero_back_block() {
 /// freshly built node exactly; squashed (u64) sizing widens each pointer.
 #[test]
 fn test_get_node_max_byte_len() {
-    use crate::chainstate::stacks::index::bits::{get_node_byte_len, get_node_max_byte_len};
-
     let path = [0u8; 32]; // longest a MARF path can be
     let cases: Vec<(u8, usize, TrieNodeType)> = vec![
         (
