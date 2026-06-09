@@ -52,41 +52,34 @@ lazy_static! {
         "({})|({})",
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
     );
-    // `ClarityName` (legacy, pre-Clarity-6) — identifier must begin with a
-    // letter or be an operator name. The PR-7243 transitional state widens
-    // this to also accept a leading `_`; a follow-up commit will narrow it
-    // back once the AST/analyzer have been migrated to `ClarityNameV6` for
-    // their source-level identifier representation. After that narrowing,
-    // `ClarityName` is the type used in wire-narrow positions where a
-    // leading `_` must be statically forbidden (e.g.
-    // `TransactionContractCall.function_name`, post-condition `asset_name`,
-    // and legacy `TupleData` keys).
+    // `ClarityName` — the type used in the language AST, analyzer, runtime,
+    // and (for now) all wire positions. Permits identifiers to begin with
+    // `_` — including the bare `_` discard binding — per Clarity 6. This
+    // is the *wide* type in the two-type design.
     //
     // Three alternation arms:
     //   1) `[a-zA-Z_]...` — identifier starting with a letter or `_`
-    //                      (transitional; will narrow to `[a-zA-Z]`).
+    //                      (Clarity 6 admits leading `_`).
     //   2) `[-+=/*]`      — single-char operator name.
     //   3) `[<>]=?`       — comparison operator name.
     pub static ref CLARITY_NAME_REGEX_STRING: String =
         "^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
-    // `ClarityNameV6` — Clarity-6 relaxation. Permits identifiers to begin
-    // with `_`, including the bare `_` discard binding. Used by Clarity-6
-    // wire variants (e.g. `TransactionContractCallV6`, `Value::TupleV6`)
-    // and by source-level AST representations where leading-`_` names
-    // must be admitted.
-    //
-    // The arm shape mirrors `CLARITY_NAME_REGEX_STRING` but allows `_` in
-    // the leading position. The bare `_` is accepted because the `*`
-    // quantifier admits zero trailing chars.
-    pub static ref CLARITY_NAME_V6_REGEX_STRING: String =
-        "^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
+    // `LegacyClarityName` — the pre-Clarity-6 (narrow) rules. Identifiers
+    // must begin with a letter or be an operator name; leading `_` is
+    // forbidden. This type is used at wire positions that must statically
+    // reject `_`-prefixed names so that legacy variants in
+    // `TransactionPayload`, post-conditions, and tuple keys can't carry a
+    // value that would deserialize on updated nodes but not on
+    // un-updated ones (the consensus risk that motivated this refactor).
+    pub static ref LEGACY_CLARITY_NAME_REGEX_STRING: String =
+        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
     {
         Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
     };
-    pub static ref CLARITY_NAME_V6_REGEX: Regex =
+    pub static ref LEGACY_CLARITY_NAME_REGEX: Regex =
     {
-        Regex::new(CLARITY_NAME_V6_REGEX_STRING.as_str()).unwrap()
+        Regex::new(LEGACY_CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
     };
     pub static ref CONTRACT_NAME_REGEX: Regex =
     {
@@ -104,8 +97,8 @@ guarded_string!(
 );
 
 guarded_string!(
-    ClarityNameV6,
-    CLARITY_NAME_V6_REGEX,
+    LegacyClarityName,
+    LEGACY_CLARITY_NAME_REGEX,
     MAX_STRING_LEN,
     ClarityTypeError,
     ClarityTypeError::InvalidClarityName
@@ -119,31 +112,31 @@ guarded_string!(
     ClarityTypeError::InvalidContractName
 );
 
-/// Widening from the narrow legacy `ClarityName` to the Clarity-6
-/// `ClarityNameV6`. Infallible: every string accepted by the legacy
-/// regex is also accepted by the V6 regex, so the inner `String` is
-/// guaranteed valid in the target type.
-impl From<ClarityName> for ClarityNameV6 {
-    fn from(name: ClarityName) -> Self {
+/// Widening from the narrow `LegacyClarityName` to the wide `ClarityName`.
+/// Infallible: every string accepted by the legacy regex is also accepted
+/// by the wide `ClarityName` regex.
+impl From<LegacyClarityName> for ClarityName {
+    fn from(name: LegacyClarityName) -> Self {
         // SAFETY: `name.0` already passed the narrow regex, which is a
-        // subset of the V6 regex. We reconstruct via `try_from` rather
-        // than touching the private field, which keeps the V6 invariant
-        // enforced by its own constructor.
+        // subset of the wide regex. Reconstructed via `try_from` so the
+        // wide invariant is enforced by its own constructor (defensive
+        // against any future tightening of the narrow regex relative to
+        // the wide one).
         let raw: String = name.into();
-        ClarityNameV6::try_from(raw)
-            .expect("BUG: every ClarityName must be a valid ClarityNameV6")
+        ClarityName::try_from(raw)
+            .expect("BUG: every LegacyClarityName must be a valid ClarityName")
     }
 }
 
-/// Narrowing from `ClarityNameV6` to `ClarityName`. Fallible: a V6 name
-/// beginning with `_` (or the bare `_`) is not a legal legacy
-/// `ClarityName`. Use this at boundaries where a Clarity-6 value flows
-/// into a legacy wire-narrow position.
-impl TryFrom<ClarityNameV6> for ClarityName {
+/// Narrowing from the wide `ClarityName` to the narrow `LegacyClarityName`.
+/// Fallible: a name beginning with `_` (or the bare `_`) is admitted by
+/// the wide regex but not by the legacy one. Use this at boundaries where
+/// an AST/runtime value flows into a wire-narrow position.
+impl TryFrom<ClarityName> for LegacyClarityName {
     type Error = ClarityTypeError;
-    fn try_from(name: ClarityNameV6) -> Result<Self, Self::Error> {
+    fn try_from(name: ClarityName) -> Result<Self, Self::Error> {
         let raw: String = name.into();
-        ClarityName::try_from(raw)
+        LegacyClarityName::try_from(raw)
     }
 }
 
@@ -188,12 +181,12 @@ impl StacksMessageCodec for ClarityName {
     }
 }
 
-impl StacksMessageCodec for ClarityNameV6 {
+impl StacksMessageCodec for LegacyClarityName {
     #[allow(clippy::needless_as_bytes)]
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         if self.as_bytes().len() > MAX_STRING_LEN as usize {
             return Err(codec_error::SerializeError(
-                "Failed to serialize clarity name (v6): too long".to_string(),
+                "Failed to serialize legacy clarity name: too long".to_string(),
             ));
         }
         write_next(fd, &(self.as_bytes().len() as u8))?;
@@ -202,11 +195,11 @@ impl StacksMessageCodec for ClarityNameV6 {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ClarityNameV6, codec_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<LegacyClarityName, codec_error> {
         let len_byte: u8 = read_next(fd)?;
         if len_byte > MAX_STRING_LEN {
             return Err(codec_error::DeserializeError(
-                "Failed to deserialize clarity name (v6): too long".to_string(),
+                "Failed to deserialize legacy clarity name: too long".to_string(),
             ));
         }
         let mut bytes = vec![0u8; len_byte as usize];
@@ -214,12 +207,15 @@ impl StacksMessageCodec for ClarityNameV6 {
 
         let s = String::from_utf8(bytes).map_err(|_e| {
             codec_error::DeserializeError(
-                "Failed to parse Clarity name (v6): could not construct from utf8".to_string(),
+                "Failed to parse legacy Clarity name: could not construct from utf8".to_string(),
             )
         })?;
 
-        let name = ClarityNameV6::try_from(s).map_err(|e| {
-            codec_error::DeserializeError(format!("Failed to parse Clarity name (v6): {e:?}"))
+        // Narrow regex enforced here — bytes that decode to a `_`-prefixed
+        // name produce a `DeserializeError`, which is the exact behavior
+        // unmodified (pre-PR) nodes exhibit. Consensus preserved.
+        let name = LegacyClarityName::try_from(s).map_err(|e| {
+            codec_error::DeserializeError(format!("Failed to parse legacy Clarity name: {e:?}"))
         })?;
         Ok(name)
     }
