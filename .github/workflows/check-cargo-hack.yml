@@ -119,16 +119,18 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           persist-credentials: false
 
-      # Setup the rust toolchain for specified target
+      # Setup the rust toolchain for specified target.
+      # Pin to a specific nightly: an unpinned `nightly` tracks the latest build
+      # and breaks the job whenever rustc tightens lints (e.g. unused imports).
       - name: Setup Rust Toolchain
         uses: ./.github/actions/setup-rust-toolchain
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-06-07
 
       # Fuzz check clarity targets
       - name: Check fuzz targets (clarity)
         run: |
-          cargo +nightly check \
+          cargo +nightly-2026-06-07 check \
             --manifest-path clarity/fuzz/Cargo.toml \
             --bins \
             --locked
@@ -136,7 +138,7 @@ jobs:
       # Fuzz check stackslib targets
       - name: Check fuzz targets (stackslib)
         run: |
-          cargo +nightly check \
+          cargo +nightly-2026-06-07 check \
             --manifest-path stackslib/fuzz/Cargo.toml \
             --bins \
             --locked
