@@ -3200,13 +3200,19 @@ impl NakamotoChainState {
     /// in the single Bitcoin-anchored Stacks block they produce, as
     /// well as the microblock stream they append to it.  But in Nakamoto,
     /// the coinbase height and block height are decoupled.
-    pub fn get_coinbase_height<SDBI: StacksDBIndexed>(
+    ///
+    /// `tip` is the block at which the MARF lookup will be done; it must be `block` itself or a
+    /// descendant of it on the same fork. The coinbase-height mapping is written once per tenure
+    /// and never changes, so any such tip yields the same value. Pass the canonical tip to keep
+    /// the read off blocks a squashed snapshot may have pruned.
+    pub fn get_coinbase_height_at_tip<SDBI: StacksDBIndexed>(
         chainstate_conn: &mut SDBI,
         block: &StacksBlockId,
+        tip: &StacksBlockId,
     ) -> Result<Option<u64>, ChainstateError> {
         // nakamoto header?
         if let Some(hdr) = Self::get_block_header_nakamoto(chainstate_conn.sqlite(), block)? {
-            return Ok(chainstate_conn.get_coinbase_height(block, &hdr.consensus_hash)?);
+            return Ok(chainstate_conn.get_coinbase_height(tip, &hdr.consensus_hash)?);
         }
 
         // epoch2 header
@@ -3219,6 +3225,17 @@ impl NakamotoChainState {
             .map(u64::try_from)
             .transpose()
             .map_err(|_| ChainstateError::DBError(DBError::ParseError))
+    }
+
+    /// Shorthand for [`Self::get_coinbase_height_at_tip`] anchoring the MARF lookup at `block`
+    /// itself, so `block` must still be usable as a MARF read tip. For historical blocks a
+    /// squashed snapshot may have pruned, use [`Self::get_coinbase_height_at_tip`] with a
+    /// descendant canonical tip instead.
+    pub fn get_coinbase_height_at<SDBI: StacksDBIndexed>(
+        chainstate_conn: &mut SDBI,
+        block: &StacksBlockId,
+    ) -> Result<Option<u64>, ChainstateError> {
+        Self::get_coinbase_height_at_tip(chainstate_conn, block, block)
     }
 
     /// Verify that a nakamoto block's block-commit's VRF seed is consistent with the VRF proof.
@@ -4681,7 +4698,7 @@ impl NakamotoChainState {
         let parent_coinbase_height = if block.is_first_mined() {
             0
         } else {
-            Self::get_coinbase_height(chainstate_tx.as_tx(), &parent_block_id)?.ok_or_else(
+            Self::get_coinbase_height_at(chainstate_tx.as_tx(), &parent_block_id)?.ok_or_else(
                 || {
                     warn!(
                         "Parent of Nakamoto block is not in block headers DB yet";

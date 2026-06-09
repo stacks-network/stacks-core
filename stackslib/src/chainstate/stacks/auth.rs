@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[rustfmt::skip]
 #[cfg(test)]
 mod test {
 use stacks_common::codec::StacksMessageCodec;
@@ -44,6 +43,7 @@ use stacks_common::codec::StacksMessageCodec;
             signature: MessageSignature::from_raw(&[0xff; 65]),
         };
 
+        #[rustfmt::skip]
         let spending_condition_p2pkh_uncompressed_bytes = vec![
             // hash mode
             SinglesigHashMode::P2PKH as u8,
@@ -68,6 +68,7 @@ use stacks_common::codec::StacksMessageCodec;
             signature: MessageSignature::from_raw(&[0xfe; 65]),
         };
 
+        #[rustfmt::skip]
         let spending_condition_p2pkh_compressed_bytes = vec![
             // hash mode
             SinglesigHashMode::P2PKH as u8,
@@ -116,6 +117,7 @@ use stacks_common::codec::StacksMessageCodec;
             signatures_required: 2
         };
 
+        #[rustfmt::skip]
         let spending_condition_p2sh_uncompressed_bytes = vec![
             // hash mode
             MultisigHashMode::P2SH as u8,
@@ -167,6 +169,7 @@ use stacks_common::codec::StacksMessageCodec;
             signatures_required: 2,
         };
 
+        #[rustfmt::skip]
         let spending_condition_p2sh_compressed_bytes = vec![
             // hash mode
             MultisigHashMode::P2SH as u8,
@@ -227,6 +230,7 @@ use stacks_common::codec::StacksMessageCodec;
             signatures_required: 2
         };
 
+        #[rustfmt::skip]
         let spending_condition_order_independent_p2sh_uncompressed_bytes = vec![
             // hash mode
             OrderIndependentMultisigHashMode::P2SH as u8,
@@ -254,30 +258,32 @@ use stacks_common::codec::StacksMessageCodec;
             0x00, 0x02,
         ];
 
-        let spending_condition_order_independent_p2sh_compressed = OrderIndependentMultisigSpendingCondition {
-            signer: Hash160([0x11; 20]),
-            hash_mode: OrderIndependentMultisigHashMode::P2SH,
-            nonce: 456,
-            tx_fee: 567,
-            fields: vec![
-                TransactionAuthField::Signature(
-                    TransactionPublicKeyEncoding::Compressed,
-                    MessageSignature::from_raw(&[0xff; 65]),
-                ),
-                TransactionAuthField::Signature(
-                    TransactionPublicKeyEncoding::Compressed,
-                    MessageSignature::from_raw(&[0xfe; 65]),
-                ),
-                TransactionAuthField::PublicKey(
-                    PubKey::from_hex(
-                        "03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77",
-                    )
+        let spending_condition_order_independent_p2sh_compressed =
+            OrderIndependentMultisigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: OrderIndependentMultisigHashMode::P2SH,
+                nonce: 456,
+                tx_fee: 567,
+                fields: vec![
+                    TransactionAuthField::Signature(
+                        TransactionPublicKeyEncoding::Compressed,
+                        MessageSignature::from_raw(&[0xff; 65]),
+                    ),
+                    TransactionAuthField::Signature(
+                        TransactionPublicKeyEncoding::Compressed,
+                        MessageSignature::from_raw(&[0xfe; 65]),
+                    ),
+                    TransactionAuthField::PublicKey(
+                        PubKey::from_hex(
+                            "03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77",
+                        )
                         .unwrap(),
-                ),
-            ],
-            signatures_required: 2,
-        };
+                    ),
+                ],
+                signatures_required: 2,
+            };
 
+        #[rustfmt::skip]
         let spending_condition_order_independent_p2sh_compressed_bytes = vec![
             // hash mode
             OrderIndependentMultisigHashMode::P2SH as u8,
@@ -333,6 +339,7 @@ use stacks_common::codec::StacksMessageCodec;
             signature: MessageSignature::from_raw(&[0xfe; 65]),
         };
 
+        #[rustfmt::skip]
         let spending_condition_p2wpkh_compressed_bytes = vec![
             // hash mode
             SinglesigHashMode::P2WPKH as u8,
@@ -380,6 +387,7 @@ use stacks_common::codec::StacksMessageCodec;
             signatures_required: 2,
         };
 
+        #[rustfmt::skip]
         let spending_condition_p2wsh_bytes = vec![
             // hash mode
             MultisigHashMode::P2WSH as u8,
@@ -581,6 +589,7 @@ use stacks_common::codec::StacksMessageCodec;
 
     #[test]
     fn tx_stacks_invalid_spending_conditions() {
+        #[rustfmt::skip]
         let bad_hash_mode_bytes = [
             // singlesig
             // hash mode
@@ -597,6 +606,7 @@ use stacks_common::codec::StacksMessageCodec;
             0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd,
         ];
 
+        #[rustfmt::skip]
         let bad_hash_mode_multisig_bytes = [
             // hash mode
             MultisigHashMode::P2SH as u8,
@@ -612,6 +622,7 @@ use stacks_common::codec::StacksMessageCodec;
             0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd,
         ];
 
+        #[rustfmt::skip]
         let bad_hash_mode_order_independent_multisig_bytes = [
             // hash mode
             OrderIndependentMultisigHashMode::P2SH as u8,
@@ -630,6 +641,7 @@ use stacks_common::codec::StacksMessageCodec;
         // this will parse into a singlesig spending condition, but data will still remain.
         // the reason it parses is because the public keys length field encodes a valid 2-byte
         // prefix of a public key, and the parser will lump it into a public key
+        #[rustfmt::skip]
         let bad_hash_mode_singlesig_bytes_parseable = [
             // hash mode
             SinglesigHashMode::P2PKH as u8,
@@ -650,6 +662,7 @@ use stacks_common::codec::StacksMessageCodec;
         ];
 
         // wrong number of public keys (too many signatures)
+        #[rustfmt::skip]
         let bad_public_key_count_bytes = vec![
             // hash mode
             MultisigHashMode::P2SH as u8,
@@ -678,6 +691,7 @@ use stacks_common::codec::StacksMessageCodec;
         ];
 
         // wrong number of public keys (not enough signatures)
+        #[rustfmt::skip]
         let bad_public_key_count_bytes_2 = vec![
             // hash mode
             MultisigHashMode::P2SH as u8,
@@ -706,6 +720,7 @@ use stacks_common::codec::StacksMessageCodec;
         ];
 
         // wrong number of public keys (not enough signatures)
+        #[rustfmt::skip]
         let bad_public_key_count_bytes_3 = vec![
             // hash mode
             OrderIndependentMultisigHashMode::P2SH as u8,
@@ -744,6 +759,7 @@ use stacks_common::codec::StacksMessageCodec;
                 signature: MessageSignature::from_raw(&[0xff; 65]),
             });
 
+        #[rustfmt::skip]
         let bad_p2wpkh_uncompressed_bytes = vec![
             // hash mode
             SinglesigHashMode::P2WPKH as u8,
@@ -773,6 +789,7 @@ use stacks_common::codec::StacksMessageCodec;
             signatures_required: 2
         });
 
+        #[rustfmt::skip]
         let bad_p2wsh_uncompressed_bytes = vec![
             // hash mode
             MultisigHashMode::P2WSH as u8,
@@ -811,6 +828,7 @@ use stacks_common::codec::StacksMessageCodec;
             signatures_required: 2
         });
 
+        #[rustfmt::skip]
         let bad_order_independent_p2wsh_uncompressed_bytes = vec![
             // hash mode
             OrderIndependentMultisigHashMode::P2WSH as u8,
@@ -987,10 +1005,7 @@ use stacks_common::codec::StacksMessageCodec;
         }
     }
 
-    fn tx_auth_check_all_epochs(
-        auth: TransactionAuth,
-        activation_epoch_id: Option<StacksEpochId>,
-    ) {
+    fn tx_auth_check_all_epochs(auth: TransactionAuth, activation_epoch_id: Option<StacksEpochId>) {
         let epoch_list = [
             StacksEpochId::Epoch10,
             StacksEpochId::Epoch20,
@@ -1018,59 +1033,75 @@ use stacks_common::codec::StacksMessageCodec;
     fn tx_auth_is_supported_in_epoch() {
         let privk_1 = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        ).unwrap();
+        )
+        .unwrap();
 
         let privk_2 = StacksPrivateKey::from_hex(
             "7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01",
-        ).unwrap();
+        )
+        .unwrap();
 
         let auth_p2pkh = TransactionAuth::from_p2pkh(&privk_1).unwrap();
-        let auth_sponsored_p2pkh = auth_p2pkh.clone().into_sponsored(
-            TransactionAuth::from_p2pkh(&privk_2).unwrap()
-        ).unwrap();
+        let auth_sponsored_p2pkh = auth_p2pkh
+            .clone()
+            .into_sponsored(TransactionAuth::from_p2pkh(&privk_2).unwrap())
+            .unwrap();
 
         tx_auth_check_all_epochs(auth_p2pkh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2pkh, None);
 
         let auth_p2wpkh = TransactionAuth::from_p2wpkh(&privk_1).unwrap();
-        let auth_sponsored_p2wpkh = auth_p2wpkh.clone().into_sponsored(
-            TransactionAuth::from_p2wpkh(&privk_2).unwrap()
-        ).unwrap();
+        let auth_sponsored_p2wpkh = auth_p2wpkh
+            .clone()
+            .into_sponsored(TransactionAuth::from_p2wpkh(&privk_2).unwrap())
+            .unwrap();
 
         tx_auth_check_all_epochs(auth_p2wpkh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2wpkh, None);
 
         let privks = [privk_1.clone(), privk_2.clone()];
         let auth_p2sh = TransactionAuth::from_p2sh(&privks, 2).unwrap();
-        let auth_sponsored_p2sh = auth_p2sh.clone().into_sponsored(
-            TransactionAuth::from_p2sh(&privks, 2).unwrap()
-        ).unwrap();
+        let auth_sponsored_p2sh = auth_p2sh
+            .clone()
+            .into_sponsored(TransactionAuth::from_p2sh(&privks, 2).unwrap())
+            .unwrap();
 
         tx_auth_check_all_epochs(auth_p2sh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2sh, None);
 
         let auth_p2wsh = TransactionAuth::from_p2wsh(&privks, 2).unwrap();
-        let auth_sponsored_p2wsh = auth_p2wsh.clone().into_sponsored(
-            TransactionAuth::from_p2wsh(&privks, 2).unwrap()
-        ).unwrap();
+        let auth_sponsored_p2wsh = auth_p2wsh
+            .clone()
+            .into_sponsored(TransactionAuth::from_p2wsh(&privks, 2).unwrap())
+            .unwrap();
 
         tx_auth_check_all_epochs(auth_p2wsh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2wsh, None);
 
-        let auth_order_independent_p2sh = TransactionAuth::from_order_independent_p2sh(&privks, 2).unwrap();
-        let auth_sponsored_order_independent_p2sh = auth_order_independent_p2sh.clone().into_sponsored(
-            TransactionAuth::from_order_independent_p2sh(&privks, 2).unwrap()
-        ).unwrap();
+        let auth_order_independent_p2sh =
+            TransactionAuth::from_order_independent_p2sh(&privks, 2).unwrap();
+        let auth_sponsored_order_independent_p2sh = auth_order_independent_p2sh
+            .clone()
+            .into_sponsored(TransactionAuth::from_order_independent_p2sh(&privks, 2).unwrap())
+            .unwrap();
 
         tx_auth_check_all_epochs(auth_order_independent_p2sh, Some(StacksEpochId::Epoch30));
-        tx_auth_check_all_epochs(auth_sponsored_order_independent_p2sh, Some(StacksEpochId::Epoch30));
+        tx_auth_check_all_epochs(
+            auth_sponsored_order_independent_p2sh,
+            Some(StacksEpochId::Epoch30),
+        );
 
-        let auth_order_independent_p2wsh = TransactionAuth::from_order_independent_p2wsh(&privks, 2).unwrap();
-        let auth_sponsored_order_independent_p2wsh = auth_order_independent_p2wsh.clone().into_sponsored(
-            TransactionAuth::from_order_independent_p2wsh(&privks, 2).unwrap()
-        ).unwrap();
+        let auth_order_independent_p2wsh =
+            TransactionAuth::from_order_independent_p2wsh(&privks, 2).unwrap();
+        let auth_sponsored_order_independent_p2wsh = auth_order_independent_p2wsh
+            .clone()
+            .into_sponsored(TransactionAuth::from_order_independent_p2wsh(&privks, 2).unwrap())
+            .unwrap();
 
         tx_auth_check_all_epochs(auth_order_independent_p2wsh, Some(StacksEpochId::Epoch30));
-        tx_auth_check_all_epochs(auth_sponsored_order_independent_p2wsh, Some(StacksEpochId::Epoch30));
+        tx_auth_check_all_epochs(
+            auth_sponsored_order_independent_p2wsh,
+            Some(StacksEpochId::Epoch30),
+        );
     }
 }
