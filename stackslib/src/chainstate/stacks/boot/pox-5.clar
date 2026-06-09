@@ -2710,13 +2710,13 @@
         (auth-id uint)
     )
     (sha256 (concat SIP018_MSG_PREFIX
-        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
-            (sha256 (unwrap-panic (to-consensus-buff? {
-                topic: "grant-authorization",
-                signer-manager: signer-manager,
-                auth-id: auth-id,
-            })))
-        )))
+        (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+        (sha256 (unwrap-panic (to-consensus-buff? {
+            topic: "grant-authorization",
+            signer-manager: signer-manager,
+            auth-id: auth-id,
+        })))
+    ))
 )
 
 (define-read-only (verify-signer-key-grant
@@ -3625,21 +3625,18 @@
         (staker-unlock-bytes (buff 683))
         (early-unlock-bytes (buff 683))
     )
-    (concat 0x63 ;; OP_IF
-        (concat (push-c-script-num unlock-burn-height)
-            (concat 0xb167 ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
-                (concat 0x82012088a820
-                    ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
-                    (concat
-                        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
-                        (concat 0x88 ;; OP_EQUALVERIFY
-                            (concat early-unlock-bytes
-                                (concat 0x6869 ;; OP_ENDIF, OP_VERIFY
-                                    staker-unlock-bytes
-                                ))
-                        ))
-                ))
-        ))
+    ;; @format-ignore
+    (concat
+        0x63           ;; OP_IF
+        (push-c-script-num unlock-burn-height)
+        0xb167         ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
+        0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
+        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
+        0x88           ;; OP_EQUALVERIFY
+        early-unlock-bytes
+        0x6869         ;; OP_ENDIF, OP_VERIFY
+        staker-unlock-bytes
+    )
 )
 
 ;; Construct the p2wsh output script for a L1 lockup address
@@ -3714,8 +3711,8 @@
                         (if (< n u32768)
                             (concat b0 b1)
                             (if (< n u65536)
-                                (concat b0 (concat b1 0x00))
-                                (concat b0 (concat b1 b2))
+                                (concat b0 b1 0x00)
+                                (concat b0 b1 b2)
                             )
                         )
                     )
