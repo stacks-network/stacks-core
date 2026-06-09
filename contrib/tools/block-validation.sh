@@ -205,6 +205,7 @@ Options:
           $(cyan "full")            - pre-nakamoto + nakamoto blocks
           $(cyan "<start>:<end>")   - inclusive range; auto-splits at the epoch2/3 boundary
           $(cyan "<start>+<count>") - <count> blocks starting at <start>
+          $(cyan "<start>")         - from <start> to the last nakamoto block available in the chainstate; auto-splits at the epoch2/3 boundary
         Default: $(cyan "full")
 
 Example: full block validation, auto-downloading the chainstate using stacks-core public repo at develop
@@ -596,11 +597,19 @@ is_range_nakamoto_only() {
         *)
             local start end
             if [[ "${RANGE}" =~ ^([0-9]+):([0-9]+)$ ]]; then
+                # <start>:<end>
                 start=${BASH_REMATCH[1]}
                 end=${BASH_REMATCH[2]}
             elif [[ "${RANGE}" =~ ^([0-9]+)[+]([0-9]+)$ ]]; then
+                # <start>+<count> 
                 start=${BASH_REMATCH[1]}
                 end=$((start + BASH_REMATCH[2] - 1))
+            elif [[ "${RANGE}" =~ ^([0-9]+)$ ]]; then
+                # <start> 
+                start=${BASH_REMATCH[1]}
+                local naka_total
+                naka_total=$(get_total_blocks nakamoto)
+                end=$(($(get_total_blocks pre-nakamoto) + naka_total - 1))
             else
                 return 1
             fi
@@ -808,11 +817,22 @@ run_validation() {
                     exit 1
                 fi
                 end=$((start + count - 1))
+            elif [[ "${RANGE}" =~ ^([0-9]+)$ ]]; then
+                # <start>  -- from start to the last nakamoto block
+                start=${BASH_REMATCH[1]}
+                local pre_total_for_end naka_total_for_end
+                pre_total_for_end=$(get_total_blocks pre-nakamoto)
+                naka_total_for_end=$(get_total_blocks nakamoto)
+                end=$((pre_total_for_end + naka_total_for_end - 1))
+                if [ "${start}" -gt "${end}" ]; then
+                    error "Invalid range: start (${start}) > last block (${end})"
+                    exit 1
+                fi
             else
                 error "Invalid --range value: '${RANGE}'"
                 exit 1
             fi
-            
+
             local pre_total
             pre_total=$(get_total_blocks pre-nakamoto)
             if [ "${end}" -lt "${pre_total}" ]; then
@@ -1087,8 +1107,9 @@ parse_input() {
                 case "${RANGE}" in
                     test|pre-nakamoto|nakamoto|full) ;;
                     *)
-                        if ! [[ "${RANGE}" =~ ^[0-9]+[:+][0-9]+$ ]]; then
-                            error "Invalid argument: ${1}"
+                        # <start>:<end>, <start>+<count>, or a bare <start>
+                        if ! [[ "${RANGE}" =~ ^[0-9]+([:+][0-9]+)?$ ]]; then
+                            error "Invalid value for: ${1}"
                             usage
                             exit 1
                         fi
