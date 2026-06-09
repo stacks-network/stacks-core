@@ -9860,17 +9860,11 @@ export const contracts = {
       sweepFeeRefunds: {
         name: 'sweep-fee-refunds',
         access: 'public',
-        args: [
-          { name: 'amount', type: 'uint128' },
-          { name: 'recipient', type: 'principal' },
-        ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        args: [{ name: 'recipient', type: 'principal' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
       } as TypedAbiFunction<
-        [
-          amount: TypedAbiArg<number | bigint, 'amount'>,
-          recipient: TypedAbiArg<string, 'recipient'>,
-        ],
-        Response<boolean, bigint>
+        [recipient: TypedAbiArg<string, 'recipient'>],
+        Response<bigint, bigint>
       >,
       updateAdmin: {
         name: 'update-admin',
@@ -10170,8 +10164,8 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_INVALID_SWEEP_AMOUNT: {
-        name: 'ERR_INVALID_SWEEP_AMOUNT',
+      ERR_NO_CLAIMABLE_REWARDS: {
+        name: 'ERR_NO_CLAIMABLE_REWARDS',
         type: {
           response: {
             ok: 'none',
@@ -10180,8 +10174,8 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_NO_CLAIMABLE_REWARDS: {
-        name: 'ERR_NO_CLAIMABLE_REWARDS',
+      ERR_NO_REFUNDS: {
+        name: 'ERR_NO_REFUNDS',
         type: {
           response: {
             ok: 'none',
@@ -10293,13 +10287,13 @@ export const contracts = {
         isOk: false,
         value: 1_004n,
       },
-      ERR_INVALID_SWEEP_AMOUNT: {
-        isOk: false,
-        value: 1_012n,
-      },
       ERR_NO_CLAIMABLE_REWARDS: {
         isOk: false,
         value: 1_001n,
+      },
+      ERR_NO_REFUNDS: {
+        isOk: false,
+        value: 1_010n,
       },
       ERR_UNAUTHORIZED_ADMIN: {
         isOk: false,
@@ -10311,15 +10305,15 @@ export const contracts = {
       },
       ERR_UNKNOWN_WITHDRAWAL_REQUEST: {
         isOk: false,
-        value: 1_010n,
+        value: 1_008n,
       },
       ERR_WITHDRAWAL_NOT_ACCEPTED: {
         isOk: false,
-        value: 1_013n,
+        value: 1_011n,
       },
       ERR_WITHDRAWAL_NOT_REJECTED: {
         isOk: false,
-        value: 1_011n,
+        value: 1_009n,
       },
       MAX_ADDRESS_VERSION: 6n,
       mAX_ADDRESS_VERSION_BUFF_20: 4n,

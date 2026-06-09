@@ -78,7 +78,7 @@ function stakeAndClaimWithPoxAddr(maxFee: bigint): bigint {
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([]), deployer);
   txOk(signerManager.claimRewards([], 1n), deployer);
-  txOk(signerManager.claimStakerRewards(alice, false, 1n), bob);
+  txOk(signerManager.claimStakerRewards(alice, 1n, null), bob);
 
   return earned;
 }
@@ -147,20 +147,19 @@ test('settle-accepted-withdrawal frees the dust for sweeping', () => {
 
   // Until the request is settled its liability suppresses the sweepable amount,
   // so even the dust cannot be swept.
-  expect(
-    txErr(signerManager.sweepFeeRefunds(1n, deployer), deployer).value,
-  ).toBe(signerManagerErrors.ERR_INVALID_SWEEP_AMOUNT);
+  expect(txErr(signerManager.sweepFeeRefunds(deployer), deployer).value).toBe(
+    signerManagerErrors.ERR_NO_REFUNDS,
+  );
 
   // Settling releases the liability; nothing is owed to the staker.
   txOk(signerManager.settleAcceptedWithdrawal(1n), bob);
   expect(rov(signerManager.getWithdrawalLiability())).toBe(0n);
 
-  // Now an admin can sweep exactly the dust, but not a satoshi more.
-  expect(
-    txErr(signerManager.sweepFeeRefunds(dust + 1n, deployer), deployer).value,
-  ).toBe(signerManagerErrors.ERR_INVALID_SWEEP_AMOUNT);
+  // Now an admin can sweep the dust; the full sweepable amount is taken.
   const deployerBalance = sbtcBalance(deployer);
-  txOk(signerManager.sweepFeeRefunds(dust, deployer), deployer);
+  expect(txOk(signerManager.sweepFeeRefunds(deployer), deployer).value).toBe(
+    dust,
+  );
   expect(sbtcBalance(deployer)).toBe(deployerBalance + dust);
   expect(sbtcBalance(signerManager.identifier)).toBe(0n);
 
@@ -193,17 +192,17 @@ test('settle-accepted-withdrawal rejects an unknown request id', () => {
 
 test('sweep-fee-refunds is admin-gated', () => {
   // alice is not an admin (only the deployer is, by default).
-  expect(txErr(signerManager.sweepFeeRefunds(0n, alice), alice).value).toBe(
+  expect(txErr(signerManager.sweepFeeRefunds(alice), alice).value).toBe(
     signerManagerErrors.ERR_UNAUTHORIZED_ADMIN,
   );
 });
 
-test('sweep-fee-refunds caps the amount at the non-fee sBTC balance', () => {
+test('sweep-fee-refunds rejects when there is nothing to sweep', () => {
   // With a fresh contract the sBTC balance is 0 and no fees are accrued, so the
-  // sweepable amount is 0; any positive sweep must be rejected.
-  expect(
-    txErr(signerManager.sweepFeeRefunds(1n, deployer), deployer).value,
-  ).toBe(signerManagerErrors.ERR_INVALID_SWEEP_AMOUNT);
+  // sweepable amount is 0 and the sweep must be rejected.
+  expect(txErr(signerManager.sweepFeeRefunds(deployer), deployer).value).toBe(
+    signerManagerErrors.ERR_NO_REFUNDS,
+  );
 });
 
 test('sweep-fee-refunds cannot sweep unclaimed staker rewards', () => {
@@ -242,12 +241,12 @@ test('sweep-fee-refunds cannot sweep unclaimed staker rewards', () => {
 
   // Alice's full reward is now in the contract, unclaimed. The admin must not be
   // able to sweep any of it to a recipient of their choosing.
-  expect(
-    txErr(signerManager.sweepFeeRefunds(earned, bob), deployer).value,
-  ).toBe(signerManagerErrors.ERR_INVALID_SWEEP_AMOUNT);
+  expect(txErr(signerManager.sweepFeeRefunds(bob), deployer).value).toBe(
+    signerManagerErrors.ERR_NO_REFUNDS,
+  );
 
   // Alice can still claim her rewards in full.
   const aliceBalance = sbtcBalance(alice);
-  txOk(signerManager.claimStakerRewards(alice, false, 1n), alice);
+  txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
   expect(sbtcBalance(alice)).toBe(aliceBalance + earned);
 });

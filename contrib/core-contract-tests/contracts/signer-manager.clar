@@ -33,8 +33,8 @@
 ;; The withdrawal request has not been rejected, so its full
 ;; `amount + max-fee` is not reclaimable for the staker.
 (define-constant ERR_WITHDRAWAL_NOT_REJECTED (err u1009))
-;; Tried to sweep more sBTC than is safely sweepable.
-(define-constant ERR_INVALID_SWEEP_AMOUNT (err u1010))
+;; No refunds available to sweep.
+(define-constant ERR_NO_REFUNDS (err u1010))
 ;; The withdrawal request has not been accepted, so it cannot be
 ;; settled via `settle-accepted-withdrawal`.
 (define-constant ERR_WITHDRAWAL_NOT_ACCEPTED (err u1011))
@@ -473,14 +473,14 @@
 ;; attributed to a specific staker on-chain (the sBTC registry does not expose
 ;; the actual fee paid), so it pools here; this admin-gated function sweeps it.
 ;;
-;; The cap subtracts the fee accumulator (`earned-fees`), the outstanding
-;; `withdrawal-liability`, and the pooled `unclaimed-staker-rewards` that
-;; `claim-rewards` pulled in but no staker has claimed yet, so it can NEVER
-;; sweep funds owed to a staker. A rejected-but-unreclaimed withdrawal's
-;; `amount + max-fee` is present
-;; in BOTH the sBTC balance (the protocol returned it here) and in
+;; The full sweepable amount is taken: the sBTC balance minus the fee
+;; accumulator (`earned-fees`), the outstanding `withdrawal-liability`, and the
+;; pooled `unclaimed-staker-rewards` that `claim-rewards` pulled in but no staker
+;; has claimed yet, so it can NEVER sweep funds owed to a staker. A
+;; rejected-but-unreclaimed withdrawal's `amount + max-fee` is present in BOTH
+;; the sBTC balance (the protocol returned it here) and in
 ;; `withdrawal-liability` (the entry is still live), so the two cancel and the
-;; refund stays untouchable -- whether or not anyone has called
+;; refund stays untouchable, whether or not anyone has called
 ;; `reclaim-failed-withdrawal` yet.
 ;;
 ;; The flip side: while a withdrawal is pending, or accepted but not yet retired
@@ -488,10 +488,7 @@
 ;; sweepable amount. To recover the accept-case fee dust an admin must first
 ;; `settle-accepted-withdrawal` the accepted requests (and wait for any pending
 ;; ones to finalize).
-(define-public (sweep-fee-refunds
-        (amount uint)
-        (recipient principal)
-    )
+(define-public (sweep-fee-refunds (recipient principal))
     (let (
             (balance (unwrap-panic (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 get-balance current-contract
@@ -506,20 +503,21 @@
             ))
         )
         (try! (authorize-admin))
-        (asserts! (<= amount sweepable) ERR_INVALID_SWEEP_AMOUNT)
+        (asserts! (> sweepable u0) ERR_NO_REFUNDS)
         (print {
             topic: "sweep-fee-refunds",
-            amount-sats: amount,
+            amount-sats: sweepable,
             recipient: recipient,
         })
-        (as-contract?
+        (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                "sbtc-token" amount
+                "sbtc-token" sweepable
             ))
             (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                transfer amount tx-sender recipient none
+                transfer sweepable tx-sender recipient none
             ))
-        )
+        ))
+        (ok sweepable)
     )
 )
 
