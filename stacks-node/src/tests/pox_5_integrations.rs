@@ -598,7 +598,6 @@ fn check_pox_5_register_for_bond_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -999,7 +998,6 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value_bond0,
         ],
     );
@@ -1150,14 +1148,7 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
             mid_account.locked, bond_amount,
             "STX lock must remain in place through bond 0's full term (no unlock before rollover)"
         );
-        let last_block = test_observer::get_blocks();
-        let burn_height = last_block
-            .last()
-            .unwrap()
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap();
+        let burn_height = get_chain_info_result(&naka_conf).unwrap().burn_block_height;
         if burn_height >= target_register_height {
             assert!(
                 burn_height < bond6_start,
@@ -1186,7 +1177,6 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value_bond6,
         ],
     );
@@ -1328,29 +1318,6 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
         "post-rollover membership should point at bond 6"
     );
 
-    // Bond 0's reward shares are preserved (the staker still earns through
-    // bond 0's term).
-    let bond0_shares = call_read_only(
-        &naka_conf,
-        &pox_5_addr,
-        "pox-5",
-        "get-staker-shares-staked-for-cycle",
-        vec![
-            &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(0),
-            &Value::Principal(test_signer_principal.clone()),
-        ],
-    )
-    .result()
-    .expect("get-staker-shares-staked-for-cycle failed")
-    .expect_u128()
-    .expect("shares uint");
-    assert_eq!(
-        bond0_shares, SBTC_AMT,
-        "bond 0's reward shares must be preserved through the roll-over"
-    );
-
     // Continuous signer participation across the bond boundary: the staker is
     // in the signer set for cycles C+11 (last of bond 0) and C+12 (first of
     // bond 6).
@@ -1366,6 +1333,30 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
     .expect_u128()
     .expect("cycle uint");
     let last_bond0_cycle = bond6_first_cycle - 1;
+
+    // Bond 0's reward shares are preserved (the staker still earns through
+    // bond 0's term).
+    let bond0_shares = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-staker-shares-staked-for-cycle",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::UInt(last_bond0_cycle),
+            &Value::some(Value::UInt(0)).unwrap(),
+            &Value::Principal(test_signer_principal.clone()),
+        ],
+    )
+    .result()
+    .expect("get-staker-shares-staked-for-cycle failed")
+    .expect_u128()
+    .expect("shares uint");
+    assert_eq!(
+        bond0_shares, SBTC_AMT,
+        "bond 0's reward shares must be preserved through the roll-over"
+    );
+
     for cycle in [last_bond0_cycle, bond6_first_cycle] {
         let cycle_member = call_read_only(
             &naka_conf,
@@ -1669,7 +1660,6 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(early_unlock_bytes.clone()).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -2675,7 +2665,6 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(early_unlock_bytes.clone()).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -3221,8 +3210,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-staker-shares-staked-for-cycle",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
             &Value::Principal(test_signer_principal.clone()),
         ],
     )
@@ -3235,9 +3224,81 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "staker should have {BTC_LOCKUP_SATS} bond shares from the L1 lockup before announce-l1-early-exit"
     );
 
+    let pre_announce_flag = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "has-announced-l1-early-exit",
+        vec![
+            &Value::UInt(bond_index),
+            &Value::Principal(staker_addr.clone().into()),
+        ],
+    )
+    .result()
+    .expect("has-announced-l1-early-exit failed")
+    .expect_bool()
+    .expect("has-announced-l1-early-exit should return a bool");
+    assert!(
+        !pre_announce_flag,
+        "has-announced-l1-early-exit must be false before the staker announces"
+    );
+
+    // No one, including the bond admin, can announce an early exit for a
+    // bondholder. So the call below to `announce-l1-early-exit` should
+    // fail.
+    test_observer::clear();
+    let unauthorized_announce_tx = make_contract_call(
+        &bond_admin_sk,
+        1,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "announce-l1-early-exit",
+        &[
+            Value::Principal(staker_addr.clone().into()),
+            Value::Principal(test_signer_principal.clone()),
+        ],
+    );
+    let unauthorized_announce_txid = submit_tx(&http_origin, &unauthorized_announce_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 2
+            && get_tx_result_by_id(&unauthorized_announce_txid).is_some())
+    })
+    .expect("Timed out waiting for unauthorized announce-l1-early-exit");
+    let unauthorized_result = get_tx_result_by_id(&unauthorized_announce_txid)
+        .expect("did not observe unauthorized announce-l1-early-exit txid");
+    assert_eq!(
+        unauthorized_result,
+        Value::err_uint(1),
+        "non-staker callers must hit ERR_UNAUTHORIZED (u1); got {unauthorized_result:?}"
+    );
+    // The staker's shares must still match the pre-announce snapshot — the
+    // unauthorized attempt should not have mutated any of the share maps.
+    let shares_after_unauthorized = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-staker-shares-staked-for-cycle",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
+            &Value::Principal(test_signer_principal.clone()),
+        ],
+    )
+    .result()
+    .expect("get-staker-shares-staked-for-cycle failed")
+    .expect_u128()
+    .expect("get-staker-shares-staked-for-cycle should return a uint");
+    assert_eq!(
+        shares_after_unauthorized, BTC_LOCKUP_SATS,
+        "unauthorized announce-l1-early-exit must not zero the staker's shares"
+    );
+
     test_observer::clear();
     let announce_tx = make_contract_call(
-        &bond_admin_sk,
+        &staker_sk,
         1,
         call_fee,
         naka_conf.burnchain.chain_id,
@@ -3253,13 +3314,18 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     info!("Submitted pox-5 announce-l1-early-exit txid: {announce_txid}");
 
     wait_for(60, || {
-        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 2
+        Ok(get_account(&http_origin, &staker_addr).nonce == 2
             && get_tx_result_by_id(&announce_txid).is_some())
     })
     .expect("Timed out waiting for announce-l1-early-exit");
 
     let announce_result = get_tx_result_by_id(&announce_txid)
         .expect("did not observe announce-l1-early-exit txid in test_observer");
+    assert!(
+        matches!(&announce_result, Value::Response(r) if r.committed),
+        "announce-l1-early-exit should return (ok ...) when called by the staker themselves; got {announce_result:?}"
+    );
+
     let expected_announce_result = Value::okay(Value::Tuple(
         clarity::vm::types::TupleData::from_data(vec![
             (
@@ -3284,7 +3350,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     .unwrap();
     assert_eq!(
         announce_result, expected_announce_result,
-        "announce-l1-early-exit should return (ok {{ released bond details }}) when called by the early-unlock admin with the matching signer-manager"
+        "announce-l1-early-exit should return (ok {{ released bond details }}) when called by the staker themselves with the matching signer-manager"
     );
 
     let claim_rewards_tx = make_contract_call(
@@ -3325,8 +3391,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-earned-staker-rewards",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
         ],
     )
     .result()
@@ -3345,8 +3411,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-staker-shares-staked-for-cycle",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
             &Value::Principal(test_signer_principal.clone()),
         ],
     )
@@ -3357,6 +3423,52 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     assert_eq!(
         post_announce_shares, 0,
         "announce-l1-early-exit should zero out the staker's bond shares"
+    );
+
+    let post_announce_flag = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "has-announced-l1-early-exit",
+        vec![
+            &Value::UInt(bond_index),
+            &Value::Principal(staker_addr.clone().into()),
+        ],
+    )
+    .result()
+    .expect("has-announced-l1-early-exit failed")
+    .expect_bool()
+    .expect("has-announced-l1-early-exit should return a bool");
+    assert!(
+        post_announce_flag,
+        "has-announced-l1-early-exit must be true after the staker announces"
+    );
+
+    // The second announcement attempt must hit the idempotency guard.
+    let second_announce_tx = make_contract_call(
+        &staker_sk,
+        2,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "announce-l1-early-exit",
+        &[
+            Value::Principal(staker_addr.clone().into()),
+            Value::Principal(test_signer_principal.clone()),
+        ],
+    );
+    let second_announce_txid = submit_tx(&http_origin, &second_announce_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &staker_addr).nonce == 3
+            && get_tx_result_by_id(&second_announce_txid).is_some())
+    })
+    .expect("Timed out waiting for second announce-l1-early-exit");
+    let second_announce_result = get_tx_result_by_id(&second_announce_txid)
+        .expect("did not observe second announce-l1-early-exit txid");
+    assert!(
+        matches!(&second_announce_result, Value::Response(r) if !r.committed),
+        "a second announce-l1-early-exit from the same staker must return an error; got {second_announce_result:?}"
     );
 
     coord_channel
@@ -4197,7 +4309,6 @@ fn check_with_stacking_allowances_register_for_bond() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );

@@ -26,16 +26,18 @@
 ;; A pox-5 callback (validate-stake!) was invoked by a
 ;; principal other than the pox-5 contract.
 (define-constant ERR_UNAUTHORIZED_CALLER (err u1006))
+;; Attempted to withdraw more fees than have accrued.
+(define-constant ERR_INSUFFICIENT_FEES (err u1007))
 ;; The given withdrawal-request id is not tracked by this contract.
-(define-constant ERR_UNKNOWN_WITHDRAWAL_REQUEST (err u1010))
+(define-constant ERR_UNKNOWN_WITHDRAWAL_REQUEST (err u1008))
 ;; The withdrawal request has not been rejected, so its full
 ;; `amount + max-fee` is not reclaimable for the staker.
-(define-constant ERR_WITHDRAWAL_NOT_REJECTED (err u1011))
+(define-constant ERR_WITHDRAWAL_NOT_REJECTED (err u1009))
 ;; Tried to sweep more sBTC than is safely sweepable.
-(define-constant ERR_INVALID_SWEEP_AMOUNT (err u1012))
+(define-constant ERR_INVALID_SWEEP_AMOUNT (err u1010))
 ;; The withdrawal request has not been accepted, so it cannot be
 ;; settled via `settle-accepted-withdrawal`.
-(define-constant ERR_WITHDRAWAL_NOT_ACCEPTED (err u1013))
+(define-constant ERR_WITHDRAWAL_NOT_ACCEPTED (err u1011))
 
 (define-constant MAX_BIPS u10000)
 
@@ -60,6 +62,13 @@
 ;; must be deducted.
 (define-data-var earned-fees uint u0)
 
+(define-map fee-bips-for-cycle
+    {
+        reward-cycle: uint,
+        bond-index: (optional uint),
+    }
+    uint
+)
 ;; When stakers provide L1 withdrawal info as calldata,
 ;; that is stored here.
 (define-map pox-addrs
@@ -160,6 +169,13 @@
         (var-set unclaimed-staker-rewards
             (+ (var-get unclaimed-staker-rewards) (get total-rewards result))
         )
+        (map-insert fee-bips-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: none,
+        }
+            (var-get fees-bips)
+        )
+        (fold snapshot-bond-fee (get bond-rewards result) reward-cycle)
         (ok result)
     )
 )
@@ -172,14 +188,19 @@
 ;; is `earned + fees`.
 (define-read-only (get-earned-staker-rewards
         (staker principal)
-        (is-bond bool)
-        (index uint)
+        (reward-cycle uint)
+        (bond-index (optional uint))
     )
     (let (
             (earned-before-fees (contract-call? .pox-5 get-earned-staker-rewards current-contract
-                is-bond index staker
+                reward-cycle bond-index staker
             ))
-            (fees (/ (* earned-before-fees (var-get fees-bips)) MAX_BIPS))
+            (fees (/
+                (* earned-before-fees
+                    (get-fee-bips-for-cycle reward-cycle bond-index)
+                )
+                MAX_BIPS
+            ))
         )
         {
             earned: (- earned-before-fees fees),
@@ -197,17 +218,19 @@
 ;; the staker receives sBTC.
 (define-public (claim-staker-rewards
         (staker principal)
-        (is-bond bool)
-        (index uint)
+        (reward-cycle uint)
+        (bond-index (optional uint))
     )
     (let (
             ;; `unwrap-panic` is ok here: there is no `err` type returnable
-            (rewards-info (unwrap-panic (contract-call? .pox-5 claim-staker-rewards-for-signer staker is-bond
-                index
+            (rewards-info (unwrap-panic (contract-call? .pox-5 claim-staker-rewards-for-signer staker
+                reward-cycle bond-index
             )))
             (prev-fees (var-get earned-fees))
             (gross (get earned rewards-info))
-            (fees (/ (* gross (var-get fees-bips)) MAX_BIPS))
+            (fees (/ (* gross (get-fee-bips-for-cycle reward-cycle bond-index))
+                MAX_BIPS
+            ))
             (earned (- gross fees))
         )
         (asserts! (> earned u0) ERR_NO_CLAIMABLE_REWARDS)
@@ -251,8 +274,8 @@
                             amount: amount,
                         })),
                         staker: staker,
-                        index: index,
-                        is-bond: is-bond,
+                        reward-cycle: reward-cycle,
+                        bond-index: bond-index,
                     })
                     (map-set withdrawal-requests withdrawal-request staker)
                     ;; `amount + max-fee` == `earned` left the balance into the
@@ -269,8 +292,8 @@
                         amount-sats: earned,
                         l1-withdrawal: none,
                         staker: staker,
-                        index: index,
-                        is-bond: is-bond,
+                        reward-cycle: reward-cycle,
+                        bond-index: bond-index,
                     })
                     (try! (contract-call?
                         'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
@@ -422,6 +445,27 @@
     )
 )
 
+;; Withdraw accrued admin fees from staker rewards.
+(define-public (withdraw-fees
+        (amount uint)
+        (recipient principal)
+    )
+    (let ((fees (var-get earned-fees)))
+        (try! (authorize-admin))
+        (asserts! (<= amount fees) ERR_INSUFFICIENT_FEES)
+        (var-set earned-fees (- fees amount))
+        (try! (as-contract?
+            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                "sbtc-token" amount
+            ))
+            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                transfer amount tx-sender recipient none
+            ))
+        ))
+        (ok amount)
+    )
+)
+
 ;; Sweep orphaned sBTC fee-refund dust to a recipient.
 ;;
 ;; On an ACCEPTED withdrawal the sBTC protocol mints the unused fee budget
@@ -512,6 +556,38 @@
 
 (define-read-only (is-admin (caller principal))
     (default-to false (map-get? admins caller))
+)
+
+(define-private (snapshot-bond-fee
+        (bond-info {
+            bond-index: uint,
+            earned: uint,
+            rewards-per-token: uint,
+        })
+        ;; #[allow(unused_binding)]
+        (reward-cycle uint)
+    )
+    (begin
+        (map-insert fee-bips-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: (some (get bond-index bond-info)),
+        }
+            (var-get fees-bips)
+        )
+        reward-cycle
+    )
+)
+
+(define-read-only (get-fee-bips-for-cycle
+        (reward-cycle uint)
+        (bond-index (optional uint))
+    )
+    (default-to u0
+        (map-get? fee-bips-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: bond-index,
+        })
+    )
 )
 
 (define-read-only (get-earned-fees)
