@@ -17,7 +17,7 @@
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 
-use clarity::vm::representations::{ClarityName, ContractName, LegacyClarityName};
+use clarity::vm::representations::{ContractName, LegacyClarityName};
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityVersion, Value};
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
@@ -433,7 +433,7 @@ impl StacksMessageCodec for AssetInfo {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<AssetInfo, codec_error> {
         let contract_address: StacksAddress = read_next(fd)?;
         let contract_name: ContractName = read_next(fd)?;
-        let asset_name: ClarityName = read_next(fd)?;
+        let asset_name: LegacyClarityName = read_next(fd)?;
         Ok(AssetInfo {
             contract_address,
             contract_name,
@@ -1224,7 +1224,7 @@ impl StacksTransactionSigner {
 #[cfg(test)]
 mod test {
     use clarity::types::StacksEpochId;
-    use clarity::vm::representations::{ClarityName, ContractName, LegacyClarityName};
+    use clarity::vm::representations::{ContractName, LegacyClarityName};
     use clarity::vm::tests::test_clarity_versions;
     use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
     use rstest::rstest;
@@ -3460,7 +3460,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         ];
 
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let asset_name = LegacyClarityName::try_from("hello-asset").unwrap();
         let mut asset_name_bytes = vec![
             // length
             asset_name.len(),
@@ -3510,7 +3510,7 @@ mod test {
 
         for tx_pcp in tx_post_condition_principals {
             let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-            let asset_name = ClarityName::try_from("hello-asset").unwrap();
+            let asset_name = LegacyClarityName::try_from("hello-asset").unwrap();
             let contract_name = ContractName::try_from("contract-name").unwrap();
 
             let stx_pc =
@@ -3620,7 +3620,7 @@ mod test {
             AssetInfo {
                 contract_address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
                 contract_name: ContractName::try_from("contract-name").unwrap(),
-                asset_name: ClarityName::try_from("hello-asset").unwrap(),
+                asset_name: LegacyClarityName::try_from("hello-asset").unwrap(),
             },
             Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
             NonfungibleConditionCode::MaybeSent,
@@ -3680,7 +3680,7 @@ mod test {
                 AssetInfo {
                     contract_address: StacksAddress::new(1, Hash160([0x33; 20])).unwrap(),
                     contract_name: ContractName::try_from("contract-name").unwrap(),
-                    asset_name: ClarityName::try_from("hello-asset").unwrap(),
+                    asset_name: LegacyClarityName::try_from("hello-asset").unwrap(),
                 },
                 Value::buff_from(vec![4, 5, 6, 7]).unwrap(),
                 NonfungibleConditionCode::MaybeSent,
@@ -3726,7 +3726,7 @@ mod test {
     #[test]
     fn tx_stacks_postcondition_invalid() {
         let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let asset_name = LegacyClarityName::try_from("hello-asset").unwrap();
         let contract_name = ContractName::try_from("hello-world").unwrap();
 
         // can't parse a postcondition with an invalid condition code
@@ -3950,7 +3950,7 @@ mod test {
         let hello_token_name = "hello-token";
 
         let contract_name = ContractName::try_from(hello_contract_name).unwrap();
-        let asset_name = ClarityName::try_from(hello_asset_name).unwrap();
+        let asset_name = LegacyClarityName::try_from(hello_asset_name).unwrap();
         let token_name = StacksString::from_str(hello_token_name).unwrap();
 
         let asset_value = StacksString::from_str("asset-value").unwrap();

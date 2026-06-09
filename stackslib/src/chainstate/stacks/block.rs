@@ -2207,7 +2207,7 @@ mod test {
                 AssetInfo {
                     contract_address: StacksAddress::new(1, Hash160([0x22; 20])).unwrap(),
                     contract_name: ContractName::try_from("hello-world").unwrap(),
-                    asset_name: ClarityName::try_from("asset").unwrap(),
+                    asset_name: LegacyClarityName::try_from("asset").unwrap(),
                 },
                 Value::Int(1),
                 NonfungibleConditionCode::MaybeSent,

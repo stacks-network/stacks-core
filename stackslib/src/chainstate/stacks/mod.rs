@@ -971,11 +971,17 @@ define_u8_enum!(TransactionPayloadID {
 });
 
 /// Encoding of an asset type identifier
+/// Wire-narrow identifier for an asset referenced in a post-condition.
+///
+/// `asset_name` is a [`LegacyClarityName`] so the codec rejects bytes
+/// encoding a `_`-prefixed asset on deserialize. Post-conditions
+/// referencing Clarity-6 `_`-prefixed assets are unsupported here until
+/// a versioned `AssetInfo` variant is introduced alongside.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetInfo {
     pub contract_address: StacksAddress,
     pub contract_name: ContractName,
-    pub asset_name: ClarityName,
+    pub asset_name: LegacyClarityName,
 }
 
 /// numeric wire-format ID of an asset info type variant
@@ -1240,7 +1246,7 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::representations::ContractName;
     use clarity::vm::ClarityVersion;
     use stacks_common::bitvec::BitVec;
     use stacks_common::util::get_epoch_time_secs;
@@ -1260,7 +1266,7 @@ pub mod test {
         epoch_id: StacksEpochId,
     ) -> Vec<StacksTransaction> {
         let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let asset_name = LegacyClarityName::try_from("hello-asset").unwrap();
         let asset_value = Value::buff_from(vec![0, 1, 2, 3]).unwrap();
         let contract_name = ContractName::try_from("hello-world").unwrap();
         let hello_contract_call = "hello contract call";
