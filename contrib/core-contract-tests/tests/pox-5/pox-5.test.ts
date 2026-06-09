@@ -5085,3 +5085,92 @@ test('stake/register/update reject during the prepare phase', () => {
     bob,
   );
 });
+
+/**
+ * `transfer-from-reserve` is private and never called from within the contract;
+ * it exists only for the node to invoke as part of consensus (via the SIP
+ * process), so it is exercised here directly. It should debit the reserve
+ * balance and move the corresponding sBTC out of the pox-5 contract to the
+ * recipient.
+ */
+test('transfer-from-reserve debits the reserve and pays the recipient', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('reserve-transfer-signer-2').identifier;
+  const stakeAmount = stxToUStx(50_000);
+
+  registerSigner();
+
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: stakeAmount,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.stake({
+      signerManager: signer2,
+      amountUstx: stakeAmount,
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  // Fund the contract with sBTC and run a reward calculation so the reserve
+  // takes its cut.
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([]), deployer);
+
+  const reserve = reserveRewards(1000n);
+  expect(rov(pox5.getReserveBalance())).toBe(reserve);
+
+  const charlieBalanceBefore = sbtcBalance(charlie);
+  const contractBalanceBefore = sbtcBalance(pox5.identifier);
+
+  const transfer = txOk(
+    pox5.transferFromReserve({ amount: reserve, recipient: charlie }),
+    deployer,
+  );
+  expect(transfer.value).toBe(true);
+
+  // The reserve is fully drained.
+  expect(rov(pox5.getReserveBalance())).toBe(0n);
+
+  // sBTC moved from the contract to the recipient.
+  expect(sbtcBalance(charlie)).toBe(charlieBalanceBefore + reserve);
+  expect(sbtcBalance(pox5.identifier)).toBe(contractBalanceBefore - reserve);
+
+  const transferEvent = filterEvents(
+    transfer.events,
+    CoreNodeEventType.FtTransferEvent,
+  )[0]!;
+  expect(transferEvent.data.sender).toBe(pox5.identifier);
+  expect(transferEvent.data.recipient).toBe(charlie);
+  expect(transferEvent.data.amount).toBe(reserve.toString());
+});
+
+test('transfer-from-reserve fails when amount exceeds the reserve balance', () => {
+  // A freshly-initialized pox-5 has an empty reserve.
+  expect(rov(pox5.getReserveBalance())).toBe(0n);
+
+  const transfer = txErr(
+    pox5.transferFromReserve({ amount: 1n, recipient: charlie }),
+    deployer,
+  );
+  expect(transfer.value).toBe(pox5Errors.ERR_INSUFFICIENT_RESERVE_BALANCE);
+  expect(rov(pox5.getReserveBalance())).toBe(0n);
+});

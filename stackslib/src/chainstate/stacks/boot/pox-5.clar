@@ -64,6 +64,8 @@
 (define-constant ERR_REENTRANT_CALL (err u49))
 ;; The staker already announced an L1 early exit for this bond period
 (define-constant ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED (err u50))
+;; A reserve withdrawal was attempted with insufficient reserve balance
+(define-constant ERR_INSUFFICIENT_RESERVE_BALANCE (err u51))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -2532,8 +2534,28 @@
     }
 )
 
-;; TODO: private fn to transfer funds from reserve
-;; (define-private (transfer-from-reserve (amount uint) (recipient uint)))
+;; Transfer funds from reserve. This is private and not called anywhere in the
+;; contract, so it can only be called by the node as part of consensus (via the
+;; SIP process).
+;; #[allow(unused_private_fn)]
+(define-private (transfer-from-reserve
+        (amount uint)
+        (recipient principal)
+    )
+    (let ((cur-reserve (var-get reserve-balance)))
+        (asserts! (>= cur-reserve amount) ERR_INSUFFICIENT_RESERVE_BALANCE)
+        (var-set reserve-balance (- cur-reserve amount))
+        (try! (as-contract?
+            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                "sbtc-token" amount
+            ))
+            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                transfer amount current-contract recipient none
+            ))
+        ))
+        (ok true)
+    )
+)
 
 ;;; Signer key authorization functions
 
