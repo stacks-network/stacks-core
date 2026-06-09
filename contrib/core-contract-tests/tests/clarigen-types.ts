@@ -4749,7 +4749,10 @@ export const contracts = {
                     },
                   },
                 },
-                { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                {
+                  name: 'staker-unlock-bytes',
+                  type: { buffer: { length: 683 } },
+                },
               ],
             },
           },
@@ -4771,7 +4774,7 @@ export const contracts = {
                 txCount: number | bigint;
                 txIndex: number | bigint;
               }[];
-              unlockBytes: Uint8Array;
+              stakerUnlockBytes: Uint8Array;
             },
             'lockups'
           >,
@@ -5088,7 +5091,10 @@ export const contracts = {
                         },
                       },
                     },
-                    { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                    {
+                      name: 'staker-unlock-bytes',
+                      type: { buffer: { length: 683 } },
+                    },
                   ],
                 },
                 error: 'uint128',
@@ -5138,7 +5144,7 @@ export const contracts = {
                   txCount: number | bigint;
                   txIndex: number | bigint;
                 }[];
-                unlockBytes: Uint8Array;
+                stakerUnlockBytes: Uint8Array;
               },
               number | bigint
             >,
@@ -5742,7 +5748,7 @@ export const contracts = {
         args: [
           { name: 'staker', type: 'principal' },
           { name: 'unlock-burn-height', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+          { name: 'staker-unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
         outputs: { type: { buffer: { length: 34 } } },
@@ -5750,7 +5756,7 @@ export const contracts = {
         [
           staker: TypedAbiArg<string, 'staker'>,
           unlockBurnHeight: TypedAbiArg<number | bigint, 'unlockBurnHeight'>,
-          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+          stakerUnlockBytes: TypedAbiArg<Uint8Array, 'stakerUnlockBytes'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
         ],
         Uint8Array
@@ -5761,15 +5767,15 @@ export const contracts = {
         args: [
           { name: 'staker', type: 'principal' },
           { name: 'unlock-burn-height', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+          { name: 'staker-unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
-        outputs: { type: { buffer: { length: 4109 } } },
+        outputs: { type: { buffer: { length: 2437 } } },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
           unlockBurnHeight: TypedAbiArg<number | bigint, 'unlockBurnHeight'>,
-          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+          stakerUnlockBytes: TypedAbiArg<Uint8Array, 'stakerUnlockBytes'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
         ],
         Uint8Array

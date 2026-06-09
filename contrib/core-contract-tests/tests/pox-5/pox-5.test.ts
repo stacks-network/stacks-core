@@ -1618,7 +1618,7 @@ test.skip('l1 early exit prevents future bond rewards but leaves stx delegated',
         outputs: [
           buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
-        unlockBytes: new Uint8Array(),
+        stakerUnlockBytes: new Uint8Array(),
       }),
       signerCalldata: null,
     }),
@@ -1676,7 +1676,7 @@ test.skip('l1 early exit does not erase already accrued bond rewards', () => {
         outputs: [
           buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
-        unlockBytes: new Uint8Array(),
+        stakerUnlockBytes: new Uint8Array(),
       }),
       signerCalldata: null,
     }),
@@ -1733,7 +1733,7 @@ test.skip('l1 early exit does not erase already accrued staker rewards', () => {
         outputs: [
           buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
         ],
-        unlockBytes: new Uint8Array(),
+        stakerUnlockBytes: new Uint8Array(),
       }),
       signerCalldata: null,
     }),
