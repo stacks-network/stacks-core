@@ -98,15 +98,31 @@ pub fn copy_canonical_fork_storage(
     }
 
     clone_schemas_from_source(conn, &["__fork_storage"])?;
+    copy_leaf_referenced_rows(conn, "__fork_storage", "value_hash", leaf_hashes)
+}
 
-    // `value_hash` is borrowed via `get_ref` and validated for every row;
-    // only rows matching a canonical leaf allocate and copy `value`.
+/// Stream-copy a content-addressed `(key_col, value)` table from the ATTACHed
+/// `src`, keeping only rows whose key is in `keep` (the squashed MARF's leaf
+/// set). Used for the index `__fork_storage` and Clarity `data_table`; the
+/// leaf-set filter is in memory, not SQL, so these can't use `execute_copy_specs`.
+///
+/// The destination table must exist and be empty - unexpected pre-population errors.
+/// Each key must be the canonical lowercase hex of a `MARFValue`, else it's corruption.
+/// `table`/`key_col` are interpolated into SQL: pass only trusted fixed identifiers.
+pub fn copy_leaf_referenced_rows(
+    conn: &Connection,
+    table: &str,
+    key_col: &str,
+    keep: &HashSet<MARFValue>,
+) -> Result<u64, Error> {
     let t = Instant::now();
     let mut select = conn
-        .prepare("SELECT value_hash, value FROM src.__fork_storage")
+        .prepare(&format!("SELECT {key_col}, value FROM src.{table}"))
         .map_err(Error::SQLError)?;
     let mut insert = conn
-        .prepare("INSERT INTO __fork_storage (value_hash, value) VALUES (?1, ?2)")
+        .prepare(&format!(
+            "INSERT INTO {table} ({key_col}, value) VALUES (?1, ?2)"
+        ))
         .map_err(Error::SQLError)?;
     let mut rows: u64 = 0;
     let mut scanned: u64 = 0;
@@ -115,22 +131,22 @@ pub fn copy_canonical_fork_storage(
         scanned += 1;
         let key_ref = row.get_ref(0).map_err(Error::SQLError)?;
         let key_str = key_ref.as_str().map_err(|e| {
-            Error::CorruptionError(format!("src.__fork_storage.value_hash is not TEXT: {e:?}"))
+            Error::CorruptionError(format!("src.{table}.{key_col} is not TEXT: {e:?}"))
         })?;
         let key = MARFValue::from_hex(key_str).map_err(|e| {
             Error::CorruptionError(format!(
-                "src.__fork_storage.value_hash `{key_str}` is not a hex MARFValue: {e:?}"
+                "src.{table}.{key_col} `{key_str}` is not a hex MARFValue: {e:?}"
             ))
         })?;
-        // `store_indexed` writes lowercase hex and the runtime reads it
+        // Writers store the key as lowercase hex and the runtime reads it
         // back the same way; any other encoding (e.g. uppercase) is a
         // foreign writer and the copied row would be unreachable in dst.
         if key.to_hex() != key_str {
             return Err(Error::CorruptionError(format!(
-                "src.__fork_storage.value_hash `{key_str}` is not canonical lowercase hex"
+                "src.{table}.{key_col} `{key_str}` is not canonical lowercase hex"
             )));
         }
-        if leaf_hashes.contains(&key) {
+        if keep.contains(&key) {
             let value: String = row.get(1).map_err(Error::SQLError)?;
             insert
                 .execute(params![key_str, &value])
@@ -139,10 +155,8 @@ pub fn copy_canonical_fork_storage(
         }
     }
     info!(
-        "[fork_storage] stream-filter src.__fork_storage: scanned {scanned}, \
-         copied {rows} rows in {:?}",
+        "[copy] {table} stream-filter: scanned {scanned}, copied {rows} in {:?}",
         t.elapsed()
     );
-
     Ok(rows)
 }
