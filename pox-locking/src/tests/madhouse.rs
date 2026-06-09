@@ -183,17 +183,24 @@ impl AccountState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Pox5StakerState {
     current_burn_height: u64,
     account: AccountState,
+    /// Real SUT, owned by the `State` so `scenario!` rebuilds it fresh per
+    /// proptest case via `Default`.
+    sut: Pox5SystemUnderTest,
 }
 
 impl Default for Pox5StakerState {
     fn default() -> Self {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let mut sut = Pox5SystemUnderTest::new(staker);
+        sut.fund(TOTAL_USTX);
         Self {
             current_burn_height: 0,
             account: AccountState::Unlocked,
+            sut,
         }
     }
 }
@@ -300,7 +307,6 @@ struct CoverageCounters {
 
 #[derive(Clone)]
 pub struct Pox5Context {
-    sut: Arc<Mutex<Pox5SystemUnderTest>>,
     total_ustx: u128,
     coverage: Arc<Mutex<CoverageCounters>>,
 }
@@ -317,11 +323,7 @@ impl TestContext for Pox5Context {}
 
 impl Pox5Context {
     pub fn new() -> Self {
-        let staker: PrincipalData = StandardPrincipalData::transient().into();
-        let mut sut = Pox5SystemUnderTest::new(staker);
-        sut.fund(TOTAL_USTX);
         Self {
-            sut: Arc::new(Mutex::new(sut)),
             total_ustx: TOTAL_USTX,
             coverage: Arc::new(Mutex::new(CoverageCounters::default())),
         }
@@ -345,10 +347,9 @@ fn classify_state(model: &Pox5StakerState, ctx: &Pox5Context) {
 
 /// Invariants checked after every command. A failed assert panics out as a
 /// madhouse test failure with shrinking.
-fn check_invariants(model: &Pox5StakerState, ctx: &Pox5Context) {
-    classify_state(model, ctx);
-    let mut sut = ctx.sut.lock().unwrap();
-    let (sut_locked, sut_unlocked) = sut.balance_canonical();
+fn check_invariants(state: &mut Pox5StakerState, ctx: &Pox5Context) {
+    classify_state(state, ctx);
+    let (sut_locked, sut_unlocked) = state.sut.balance_canonical();
 
     // Invariant 1: conservation on the SUT.
     assert_eq!(
@@ -362,19 +363,19 @@ fn check_invariants(model: &Pox5StakerState, ctx: &Pox5Context) {
 
     // Invariant: model and SUT agree on canonical locked amount.
     assert_eq!(
-        model.account.locked_amount(),
+        state.account.locked_amount(),
         sut_locked,
         "model/SUT mismatch on canonical locked amount"
     );
 
     // Invariant 2: once burn height reaches unlock_height, `has_locked_tokens()`
     // must be false on the SUT (raw `amount_locked` reflects pre-canonicalization).
-    if let AccountState::Locked { unlock_height, .. } = model.account {
-        if model.current_burn_height >= unlock_height {
+    if let AccountState::Locked { unlock_height, .. } = state.account {
+        if state.current_burn_height >= unlock_height {
             assert!(
-                !sut.has_locked_tokens(),
+                !state.sut.has_locked_tokens(),
                 "auto-unlock invariant: current={} >= unlock={}, but SUT still reports locked tokens",
-                model.current_burn_height, unlock_height,
+                state.current_burn_height, unlock_height,
             );
         }
     }
@@ -396,11 +397,11 @@ impl Command<Pox5StakerState, Pox5Context> for Stake {
 
     fn apply(&self, state: &mut Pox5StakerState) {
         let staker = {
-            let sut = self.ctx.sut.lock().unwrap();
+            let sut = &state.sut;
             sut.staker.clone()
         };
         let result = {
-            let mut sut = self.ctx.sut.lock().unwrap();
+            let sut = &mut state.sut;
             sut.run(|db| pox_lock_v5(db, &staker, self.amount, self.unlock_height))
         };
         result.expect("Stake must succeed on a state check() deemed legal");
@@ -451,11 +452,11 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdateExtend {
         // guarantees the account is locked, so this reads the current amount.
         let locked = state.account.locked_amount();
         let staker = {
-            let sut = self.ctx.sut.lock().unwrap();
+            let sut = &state.sut;
             sut.staker.clone()
         };
         let result = {
-            let mut sut = self.ctx.sut.lock().unwrap();
+            let sut = &mut state.sut;
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, locked))
         };
         let balance = result.expect("StakeExtend must succeed on a state check() deemed legal");
@@ -515,11 +516,11 @@ impl Command<Pox5StakerState, Pox5Context> for StakeUpdateIncrease {
 
     fn apply(&self, state: &mut Pox5StakerState) {
         let staker = {
-            let sut = self.ctx.sut.lock().unwrap();
+            let sut = &state.sut;
             sut.staker.clone()
         };
         let result = {
-            let mut sut = self.ctx.sut.lock().unwrap();
+            let sut = &mut state.sut;
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total))
         };
         let balance = result.expect("StakeIncrease must succeed on a state check() deemed legal");
@@ -584,11 +585,11 @@ impl Command<Pox5StakerState, Pox5Context> for Unstake {
         // unlock_height > 0 + has_locked_tokens gates pass.
         let new_unlock = next_reward_cycle_start(state.current_burn_height);
         let staker = {
-            let sut = self.ctx.sut.lock().unwrap();
+            let sut = &state.sut;
             sut.staker.clone()
         };
         let result = {
-            let mut sut = self.ctx.sut.lock().unwrap();
+            let sut = &mut state.sut;
             sut.run(|db| pox_unstake_v5(db, &staker, new_unlock))
         };
         result.expect("Unstake must succeed on a state check() deemed legal");
@@ -628,7 +629,7 @@ impl Command<Pox5StakerState, Pox5Context> for AdvanceBurnHeight {
     fn apply(&self, state: &mut Pox5StakerState) {
         state.current_burn_height = state.current_burn_height.saturating_add(self.delta);
         {
-            let sut = self.ctx.sut.lock().unwrap();
+            let sut = &state.sut;
             sut.set_burn_height(state.current_burn_height);
         }
         state.maybe_auto_unlock();
@@ -680,9 +681,9 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeWhileLocked {
     }
 
     fn apply(&self, state: &mut Pox5StakerState) {
-        let staker = self.ctx.sut.lock().unwrap().staker.clone();
+        let staker = state.sut.staker.clone();
         let result = {
-            let mut sut = self.ctx.sut.lock().unwrap();
+            let sut = &mut state.sut;
             sut.run(|db| pox_lock_v5(db, &staker, self.amount, self.unlock_height))
         };
         let err = result.expect_err("staking while already locked must be rejected");
@@ -731,9 +732,9 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeUpdateOnUnlocked {
     }
 
     fn apply(&self, state: &mut Pox5StakerState) {
-        let staker = self.ctx.sut.lock().unwrap().staker.clone();
+        let staker = state.sut.staker.clone();
         let result = {
-            let mut sut = self.ctx.sut.lock().unwrap();
+            let sut = &mut state.sut;
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total))
         };
         let err = result.expect_err("stake-update while unlocked must be rejected");
@@ -778,9 +779,9 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalUnstakeOnUnlocked {
     }
 
     fn apply(&self, state: &mut Pox5StakerState) {
-        let staker = self.ctx.sut.lock().unwrap().staker.clone();
+        let staker = state.sut.staker.clone();
         let result = {
-            let mut sut = self.ctx.sut.lock().unwrap();
+            let sut = &mut state.sut;
             sut.run(|db| pox_unstake_v5(db, &staker, self.new_unlock_height))
         };
         let err = result.expect_err("unstake while unlocked must be rejected");
@@ -842,9 +843,9 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
     fn apply(&self, state: &mut Pox5StakerState) {
         let locked = state.account.locked_amount();
         let new_total = locked - self.decrease;
-        let staker = self.ctx.sut.lock().unwrap().staker.clone();
+        let staker = state.sut.staker.clone();
         let result = {
-            let mut sut = self.ctx.sut.lock().unwrap();
+            let sut = &mut state.sut;
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, new_total))
         };
         let err = result.expect_err("decreasing the lock via stake-update must be rejected");
@@ -879,11 +880,8 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
 /// Drive the staker through a random sequence of commands, checking invariants
 /// after each.
 ///
-/// The madhouse `scenario!` macro is intentionally NOT used: it builds the
-/// context once and shares it across iterations, but `proptest!` reruns the
-/// body for shrinking (even at `cases = 1`), and burn-height + balance state
-/// would leak across iterations. Expanding the macro by hand lets us reset the
-/// SUT per iteration.
+/// The SUT lives in `Pox5StakerState`, so `scenario!` rebuilds it fresh
+/// (`State::default()`) per proptest case.
 ///
 /// `MADHOUSE=1` switches from declaration order to random permutation.
 #[test]
