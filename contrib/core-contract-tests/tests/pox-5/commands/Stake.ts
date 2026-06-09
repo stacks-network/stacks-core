@@ -3,6 +3,7 @@ import type { Model, Real, StakerState } from './types';
 import {
   assertSignerCycleMembership,
   assertSignerDelegationForCycle,
+  assertStakerLock,
   assertStakerSharesForCycle,
   assertTotalDelegatedForCycle,
   currentRewardCycle,
@@ -108,6 +109,9 @@ export const Stake = (accounts: Real['accounts']) =>
             numCycles: r.numCycles,
             signer,
           });
+          // Lock should have started: the staked amount is now locked until
+          // the unlock burn height.
+          assertStakerLock(model, real, r.sender);
           // Per-cycle invariants at the staker's first and last locked cycles.
           assertSignerDelegationForCycle(model, real, firstLockedCycle, signer);
           assertSignerCycleMembership(model, real, firstLockedCycle, r.sender);

@@ -3,6 +3,7 @@ import type { Model, Real, StakerState } from './types';
 import {
   assertSignerCycleMembership,
   assertSignerDelegationForCycle,
+  assertStakerLock,
   assertStakerSharesForCycle,
   assertTotalDelegatedForCycle,
   currentRewardCycle,
@@ -111,6 +112,9 @@ export const Unstake = (accounts: Real['accounts']) =>
           numCycles: expectedNumCycles,
           signer: prev.signer,
         });
+        // Still locked at the same amount; only the unlock burn height moves
+        // earlier (to the next cycle).
+        assertStakerLock(model, real, r.sender);
         // Per-cycle invariants at the first and last removed cycles. After the
         // Act the staker no longer contributes to any unconditional-write map
         // for those cycles. Skipped when the removed range is empty (staker

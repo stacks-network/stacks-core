@@ -5,6 +5,7 @@ import {
   assertSignerDelegationForCycle,
   assertSignerInfo,
   assertStakerInfo,
+  assertStakerLock,
   assertStakerSharesForCycle,
   assertTotalDelegatedForCycle,
   currentRewardCycle,
@@ -69,6 +70,10 @@ export const AssertModelInvariants = (accounts: Real['accounts']) => {
           // null-or-record derivation lives inside the helpers.
           assertSignerInfo(model.signers, real, signer);
           assertStakerInfo(model.stakers, real, staker);
+
+          // Locked-STX invariant: an active staker's runtime lock matches the
+          // model (no-op when the sampled principal isn't an active staker).
+          assertStakerLock(model, real, staker);
 
           logCommand({
             action: 'assert-model-invariants',

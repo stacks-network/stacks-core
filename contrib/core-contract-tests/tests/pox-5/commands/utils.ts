@@ -2,6 +2,7 @@ import type { Model, Real, StakerState } from './types';
 import { accounts } from '../../clarigen-types';
 import { rov } from '@clarigen/test';
 import { hex } from '@scure/base';
+import { cvToValue, hexToCV } from '@stacks/transactions';
 import { expect } from 'vitest';
 
 export function currentRewardCycle(model: Readonly<Model>): bigint {
@@ -392,4 +393,46 @@ export function assertSignerInfo(
   expect(rov(real.contracts.pox5.getSignerInfo(signer))).toEqual(
     signers.get(signer)?.signerKey ?? null,
   );
+}
+
+// Locked-STX invariant. clarinet-sdk applies the pox-5 STX lock in simnet
+// (only for the boot pox-5 — see pox-5-helpers), so the runtime `stx-account`
+// of an active staker must agree with the model.
+
+/** Read a principal's `stx-account` (locked / unlocked / unlock-height). */
+function stxAccount(
+  real: Real,
+  address: string,
+): { locked: bigint; unlockHeight: bigint; unlocked: bigint } {
+  const acct = cvToValue(
+    hexToCV(real.network.runSnippet(`(stx-account '${address})`)),
+  );
+  return {
+    locked: BigInt(acct.locked.value),
+    unlockHeight: BigInt(acct['unlock-height'].value),
+    unlocked: BigInt(acct.unlocked.value),
+  };
+}
+
+/**
+ * An active staker's locked balance must equal `amountUstx`, unlocking at
+ * `unlockBurnHeight`. Asserted only for stakers still in `model.stakers`: their
+ * lock is provably active (currentCycle < unlockCycle ⇒ currentBurnHeight <
+ * unlockBurnHeight). A staker the model has expired *by cycle* can stay
+ * runtime-locked for up to half a cycle (unlock happens at the burn height
+ * `unlockBurnHeight`, which is the cycle start + half a cycle), so the "locked
+ * is 0" side can't be derived from the current snapshot — skip it.
+ */
+export function assertStakerLock(
+  model: Readonly<Model>,
+  real: Real,
+  staker: string,
+): void {
+  const st = model.stakers.get(staker);
+  // TODO: Update to throw after separating AssertModelInvariants into multiple
+  // separated commands.
+  if (!st) return;
+  const acct = stxAccount(real, staker);
+  expect(acct.locked).toBe(st.amountUstx);
+  expect(acct.unlockHeight).toBe(st.unlockBurnHeight);
 }
