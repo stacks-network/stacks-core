@@ -1,7 +1,9 @@
 import {
   CoreNodeEventType,
+  cvToValue,
   err,
   extractErrors,
+  hexToCV,
   isResponse,
   ok,
 } from '@clarigen/core';
@@ -25,6 +27,7 @@ import {
   testSignerErrors,
   pox5,
   initPox5,
+  registerSignerManager,
 } from './pox-5-helpers';
 
 const pox5Errors = extractErrors(pox5);
@@ -2843,4 +2846,32 @@ test('sbtc bond participant can recover sbtc after bond ends', () => {
     alice,
   );
   expect(sbtcBalance(alice)).toBe(aliceBalance + aliceSbtc);
+});
+
+test('stake locks STX in simnet', () => {
+  registerSignerManager();
+
+  const staker = simnet.getAccounts().get('wallet_1')!;
+  const stakeAmount = 1_000_000_000_000n;
+  const startBurnHt = simnet.burnBlockHeight;
+
+  const { result: stake } = simnet.callPublicFn(
+    'ST000000000000000000002AMW42H.pox-5',
+    'stake',
+    [
+      Cl.contractPrincipal(simnet.deployer, 'signer-manager'),
+      Cl.uint(stakeAmount),
+      Cl.uint(1),
+      Cl.uint(startBurnHt),
+      Cl.none(),
+    ],
+    staker,
+  );
+
+  expect(stake).toBeOk(expect.anything());
+
+  const acct = cvToValue<{ locked: bigint }>(
+    hexToCV(simnet.runSnippet(`(stx-account '${staker})`)),
+  );
+  expect(acct.locked).toBe(stakeAmount);
 });
