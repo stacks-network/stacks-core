@@ -1633,6 +1633,8 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
         contract_content: &str,
         analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<(), ClarityEvalError> {
+        use crate::vm::errors::WasmError;
+
         let clarity_version = invoke_ctx.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast(
@@ -1642,7 +1644,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             clarity_version,
             self.global_context.epoch_id,
         )
-        .map_err(|e| -> RuntimeError { e.into() })?;
+        .map_err(|e|   VmExecutionError::Wasm(WasmError::Expect(format!("Build Ast Error: {e}")) ))?;
 
         let contract_analysis = analysis::run_analysis(
             &contract_identifier,

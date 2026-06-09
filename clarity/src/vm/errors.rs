@@ -141,9 +141,6 @@ pub enum RuntimeError {
     SupplyUnderflow(u128, u128),
     /// Attempt to divide or compute modulo by zero.
     DivisionByZero,
-    /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
-    /// The `Box<ParseError>` wraps the specific parsing error encountered, detailing code interpretation issues.
-    ASTError(Box<ParseError>),
     /// The call stack exceeded the virtual machine's maximum depth.
     MaxStackDepthReached,
     /// The execution context depth exceeded the virtual machine's limit.
@@ -321,12 +318,6 @@ impl error::Error for VmExecutionError {
 impl error::Error for RuntimeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
-    }
-}
-
-impl From<ParseError> for RuntimeError {
-    fn from(value: ParseError) -> Self {
-        RuntimeError::ASTError(Box::new(value))
     }
 }
 

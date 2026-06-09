@@ -1836,7 +1836,7 @@ pub fn signature_from_string(
         version,
         epoch,
     )
-    .map_err(|e| -> RuntimeError { e.into() })?
+    .map_err(|e| VmExecutionError::Wasm(WasmError::Expect(format!("Build Ast Error: {e}"))))?
     .expressions;
     let expr = expr
         .first()
