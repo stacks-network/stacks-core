@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Mutex;
 
+use clarity::vm::representations::LegacyClarityName;
 use clarity::vm::analysis::contract_interface_builder::{
     build_contract_interface, ContractInterface,
 };
@@ -985,7 +986,7 @@ fn integration_test_get_info() {
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr.clone(),
                     contract_name: ContractName::from_literal("get-info"),
-                    function_name: ClarityName::from_literal("update-info"),
+                    function_name: LegacyClarityName::from_literal("update-info"),
                     function_args: vec![],
                 });
 
@@ -1035,7 +1036,7 @@ fn integration_test_get_info() {
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr,
                     contract_name: ContractName::from_literal("get-info"),
-                    function_name: ClarityName::from_literal("update-info"),
+                    function_name: LegacyClarityName::from_literal("update-info"),
                     function_args: vec![],
                 });
 

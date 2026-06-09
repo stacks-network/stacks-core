@@ -21,7 +21,7 @@ use std::{error, fmt, io};
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::VmExecutionError;
-use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::representations::{ClarityName, ContractName, LegacyClarityName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
@@ -663,12 +663,18 @@ pub enum TransactionAuth {
     Sponsored(TransactionSpendingCondition, TransactionSpendingCondition), // the second account pays on behalf of the first account
 }
 
-/// A transaction that calls into a smart contract
+/// A transaction that calls into a smart contract.
+///
+/// The `function_name` is held as a [`LegacyClarityName`] so the wire codec
+/// statically rejects names beginning with `_`. Calls into Clarity-6
+/// `_`-prefixed functions would need a versioned variant of this payload
+/// (analogous to [`TransactionPayloadID::VersionedSmartContract`]), which
+/// is not yet introduced.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionContractCall {
     pub address: StacksAddress,
     pub contract_name: ContractName,
-    pub function_name: ClarityName,
+    pub function_name: LegacyClarityName,
     pub function_args: Vec<Value>,
 }
 
@@ -1541,7 +1547,7 @@ pub mod test {
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress::new(4, Hash160([0xfc; 20])).unwrap(),
                 contract_name: ContractName::try_from("hello-contract-name").unwrap(),
-                function_name: ClarityName::try_from("hello-contract-call").unwrap(),
+                function_name: LegacyClarityName::try_from("hello-contract-call").unwrap(),
                 function_args: vec![Value::Int(0)],
             }),
             TransactionPayload::SmartContract(

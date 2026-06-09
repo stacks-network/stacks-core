@@ -17,7 +17,7 @@
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 
-use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::representations::{ClarityName, ContractName, LegacyClarityName};
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityVersion, Value};
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
@@ -42,7 +42,7 @@ impl StacksMessageCodec for TransactionContractCall {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionContractCall, codec_error> {
         let address: StacksAddress = read_next(fd)?;
         let contract_name: ContractName = read_next(fd)?;
-        let function_name: ClarityName = read_next(fd)?;
+        let function_name: LegacyClarityName = read_next(fd)?;
         let function_args: Vec<Value> = {
             let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_TRANSACTION_LEN));
             read_next(&mut bound_read)
@@ -382,7 +382,10 @@ impl TransactionPayload {
             }
         };
 
-        let function_name_str = match ClarityName::try_from(function_name.to_string()) {
+        // The wire-narrow `LegacyClarityName` constructor — rejects leading
+        // `_` names. Clarity-6 callable names beginning with `_` are
+        // unsupported here until a versioned `ContractCall` payload exists.
+        let function_name_str = match LegacyClarityName::try_from(function_name.to_string()) {
             Ok(s) => s,
             Err(_) => {
                 test_debug!("Not a clarity name: '{}'", contract_name);
@@ -1221,7 +1224,7 @@ impl StacksTransactionSigner {
 #[cfg(test)]
 mod test {
     use clarity::types::StacksEpochId;
-    use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::representations::{ClarityName, ContractName, LegacyClarityName};
     use clarity::vm::tests::test_clarity_versions;
     use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
     use rstest::rstest;
@@ -1866,7 +1869,7 @@ mod test {
                 TransactionPayload::ContractCall(TransactionContractCall {
                     address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
                     contract_name: ContractName::try_from("hello-world").unwrap(),
-                    function_name: ClarityName::try_from("hello-function").unwrap(),
+                    function_name: LegacyClarityName::try_from("hello-function").unwrap(),
                     function_args: vec![Value::Int(0)],
                 })
             }
@@ -2007,7 +2010,7 @@ mod test {
         TransactionContractCall {
             address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
             contract_name: ContractName::try_from("hello-contract-name").unwrap(),
-            function_name: ClarityName::try_from("hello-function-name").unwrap(),
+            function_name: LegacyClarityName::try_from("hello-function-name").unwrap(),
             function_args: vec![Value::Int(0)],
         }
     }
@@ -3345,7 +3348,7 @@ mod test {
         let contract_call = TransactionContractCall {
             address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
             contract_name: ContractName::try_from(hello_contract_name).unwrap(),
-            function_name: ClarityName::try_from(hello_function_name).unwrap(),
+            function_name: LegacyClarityName::try_from(hello_function_name).unwrap(),
             function_args: vec![Value::Int(0)],
         };
 
@@ -3384,7 +3387,7 @@ mod test {
         // test invalid contract name
         let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let contract_name = "hello\x00contract-name";
-        let function_name = ClarityName::try_from("hello-function-name").unwrap();
+        let function_name = LegacyClarityName::try_from("hello-function-name").unwrap();
         let function_args = vec![Value::Int(0)];
 
         let mut contract_call_bytes = vec![];

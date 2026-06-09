@@ -184,9 +184,13 @@ impl StacksMessageCodec for ClarityName {
 impl StacksMessageCodec for LegacyClarityName {
     #[allow(clippy::needless_as_bytes)]
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        // Error wording deliberately matches the historical
+        // `ClarityName::consensus_serialize` message so wire-level
+        // diagnostics — and any downstream tests that key off them —
+        // remain stable across this refactor.
         if self.as_bytes().len() > MAX_STRING_LEN as usize {
             return Err(codec_error::SerializeError(
-                "Failed to serialize legacy clarity name: too long".to_string(),
+                "Failed to serialize clarity name: too long".to_string(),
             ));
         }
         write_next(fd, &(self.as_bytes().len() as u8))?;
@@ -199,7 +203,7 @@ impl StacksMessageCodec for LegacyClarityName {
         let len_byte: u8 = read_next(fd)?;
         if len_byte > MAX_STRING_LEN {
             return Err(codec_error::DeserializeError(
-                "Failed to deserialize legacy clarity name: too long".to_string(),
+                "Failed to deserialize clarity name: too long".to_string(),
             ));
         }
         let mut bytes = vec![0u8; len_byte as usize];
@@ -207,7 +211,7 @@ impl StacksMessageCodec for LegacyClarityName {
 
         let s = String::from_utf8(bytes).map_err(|_e| {
             codec_error::DeserializeError(
-                "Failed to parse legacy Clarity name: could not construct from utf8".to_string(),
+                "Failed to parse Clarity name: could not construct from utf8".to_string(),
             )
         })?;
 
@@ -215,7 +219,7 @@ impl StacksMessageCodec for LegacyClarityName {
         // name produce a `DeserializeError`, which is the exact behavior
         // unmodified (pre-PR) nodes exhibit. Consensus preserved.
         let name = LegacyClarityName::try_from(s).map_err(|e| {
-            codec_error::DeserializeError(format!("Failed to parse legacy Clarity name: {e:?}"))
+            codec_error::DeserializeError(format!("Failed to parse Clarity name: {e:?}"))
         })?;
         Ok(name)
     }

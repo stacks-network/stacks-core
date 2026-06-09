@@ -18,6 +18,7 @@ use std::sync::{LazyLock, RwLock};
 
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
+use clarity::vm::representations::LegacyClarityName;
 use clarity::vm::{ClarityName, SymbolicExpression, Value};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
@@ -1073,7 +1074,7 @@ impl NakamotoSigners {
         };
         if payload.contract_identifier()
             != boot_code_id(SIGNERS_VOTING_NAME, transaction.is_mainnet())
-            || payload.function_name != ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME)
+            || payload.function_name != LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME)
         {
             // This is not a special cased transaction.
             return None;

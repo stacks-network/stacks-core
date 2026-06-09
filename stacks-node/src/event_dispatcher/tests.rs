@@ -19,10 +19,11 @@ use std::thread;
 use std::time::{Instant, SystemTime};
 
 use clarity::boot_util::boot_code_id;
+use clarity::vm::representations::LegacyClarityName;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::SmartContractEventData;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::vm::{ContractName, Value};
 use rusqlite::Connection;
 use serial_test::serial;
 use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -60,7 +61,7 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         let addr = to_addr(&private_key);
 
         let contract_name = ContractName::from_literal("test");
-        let function_name = ClarityName::from_literal("test");
+        let function_name = LegacyClarityName::from_literal("test");
 
         let payload = TransactionContractCall {
             address: addr.clone(),

@@ -17,7 +17,8 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksPrivateKey;
-use clarity::vm::{ClarityName, ContractName};
+use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::ContractName;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -256,7 +257,7 @@ fn replay_block_with_pc_failure() {
 
             let contract_call = {
                 let contract_name = ContractName::from_literal("test");
-                let function_name = ClarityName::from_literal("test");
+                let function_name = LegacyClarityName::from_literal("test");
 
                 let payload = TransactionContractCall {
                     address: addr.clone(),

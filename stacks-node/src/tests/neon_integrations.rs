@@ -20,12 +20,13 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{cmp, env, fs, io, thread};
 
+use clarity::vm::representations::LegacyClarityName;
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{
-    execute_with_parameters as execute, ClarityName, ClarityVersion, ContractName, Value,
+    execute_with_parameters as execute, ClarityVersion, ContractName, Value,
 };
 use rusqlite::params;
 use serde::Deserialize;
@@ -7360,7 +7361,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
                 address: spender_addr.clone(),
                 contract_name: ContractName::from_literal("increment-contract"),
-                function_name: ClarityName::from_literal("increment-many"),
+                function_name: LegacyClarityName::from_literal("increment-many"),
                 function_args: vec![],
             });
 

@@ -21,7 +21,7 @@ use std::ops::{Deref, DerefMut};
 
 use clarity::vm::errors::ClarityTypeError;
 use clarity::vm::representations::{
-    ClarityName, ContractName, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
+    ClarityName, ContractName, LegacyClarityName, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
 };
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -176,6 +176,14 @@ impl From<ClarityName> for StacksString {
     fn from(clarity_name: ClarityName) -> StacksString {
         // .unwrap() is safe since StacksString is less strict
         StacksString::from_str(&clarity_name).unwrap()
+    }
+}
+
+impl From<LegacyClarityName> for StacksString {
+    fn from(legacy_name: LegacyClarityName) -> StacksString {
+        // .unwrap() is safe since StacksString is less strict than
+        // LegacyClarityName's narrow regex.
+        StacksString::from_str(&legacy_name).unwrap()
     }
 }
 
