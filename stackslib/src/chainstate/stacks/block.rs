@@ -632,6 +632,47 @@ impl StacksBlock {
             error!("Authentication mode not supported in Epoch {epoch_id}");
             return false;
         }
+        // Reject transactions whose Values carry a tuple key that isn't
+        // accepted at this epoch:
+        //   * bare `_` is never a valid tuple key
+        //   * leading-`_` is rejected pre-Clarity-6 (Epoch40) to
+        //     preserve consensus with un-upgraded nodes whose narrow
+        //     wire codec rejects every leading-`_` name. The companion
+        //     wire types `LegacyClarityName` (used by
+        //     `TransactionContractCall.function_name` and
+        //     `AssetInfo.asset_name`) already enforce the rule for
+        //     those fields at deserialize time; this walk covers the
+        //     embedded `Value` positions —
+        //     `TransactionContractCall.function_args` and the
+        //     `Nonfungible` post-condition's `asset_value` — that the
+        //     codec can't gate without a versioned `Value` variant.
+        if let TransactionPayload::ContractCall(ref cc) = &tx.payload {
+            for arg in &cc.function_args {
+                if let Some(bad_key) = arg.find_invalid_tuple_key(epoch_id) {
+                    error!(
+                        "Disallowed tuple key in function argument";
+                        "txid" => %tx.txid(),
+                        "epoch" => %epoch_id,
+                        "key" => %bad_key,
+                    );
+                    return false;
+                }
+            }
+        }
+        for post_condition in tx.post_conditions.iter() {
+            if let TransactionPostCondition::Nonfungible(_, _, ref asset_value, _) = post_condition
+            {
+                if let Some(bad_key) = asset_value.find_invalid_tuple_key(epoch_id) {
+                    error!(
+                        "Disallowed tuple key in NFT post-condition asset value";
+                        "txid" => %tx.txid(),
+                        "epoch" => %epoch_id,
+                        "key" => %bad_key,
+                    );
+                    return false;
+                }
+            }
+        }
         return true;
     }
 
@@ -959,6 +1000,7 @@ impl StacksMicroblock {
 #[cfg(test)]
 mod test {
     use clarity::types::PublicKey;
+    use clarity::vm::types::TupleData;
     use rstest::rstest;
     use stacks_common::address::*;
     use stacks_common::types::chainstate::StacksAddress;
@@ -2217,6 +2259,134 @@ mod test {
             StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
             expected
         );
+    }
+
+    /// Build a single-key tuple `Value` for use as a function argument
+    /// or post-condition asset value in the tests below.
+    fn single_key_tuple(key: &str) -> Value {
+        Value::Tuple(
+            TupleData::from_data(vec![(
+                ClarityName::try_from(key.to_string()).unwrap(),
+                Value::Int(0),
+            )])
+            .unwrap(),
+        )
+    }
+
+    fn admission_test_auth(privk: &StacksPrivateKey) -> TransactionAuth {
+        TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(privk))
+                .unwrap(),
+        )
+    }
+
+    /// Contract-call transaction whose `function_args` contain a one-key
+    /// tuple with the supplied key.
+    fn admission_test_contract_call_with_tuple_arg(key: &str) -> StacksTransaction {
+        let privk = StacksPrivateKey::random();
+        StacksTransaction::new(
+            TransactionVersion::Testnet,
+            admission_test_auth(&privk),
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
+                contract_name: ContractName::try_from("hello-world").unwrap(),
+                function_name: LegacyClarityName::try_from("do-thing").unwrap(),
+                function_args: vec![single_key_tuple(key)],
+            }),
+        )
+    }
+
+    /// Token-transfer transaction carrying a single Nonfungible
+    /// post-condition whose `asset_value` is a one-key tuple with the
+    /// supplied key.
+    fn admission_test_nft_post_condition_with_tuple(key: &str) -> StacksTransaction {
+        let privk = StacksPrivateKey::random();
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            admission_test_auth(&privk),
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(StacksAddress::new(1, Hash160([0x11; 20])).unwrap()),
+                1,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx.post_conditions
+            .push(TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, Hash160([0x22; 20])).unwrap(),
+                    contract_name: ContractName::try_from("hello-world").unwrap(),
+                    asset_name: LegacyClarityName::try_from("asset").unwrap(),
+                },
+                single_key_tuple(key),
+                NonfungibleConditionCode::Sent,
+            ));
+        tx
+    }
+
+    /// Plain (no leading `_`) tuple keys are admissible at every epoch in
+    /// both function arguments and NFT post-condition payloads.
+    #[rstest]
+    #[case(StacksEpochId::Epoch33)]
+    #[case(StacksEpochId::Epoch34)]
+    #[case(StacksEpochId::Epoch40)]
+    fn test_validate_transaction_static_epoch_admits_plain_tuple_keys(
+        #[case] epoch_id: StacksEpochId,
+    ) {
+        let cc = admission_test_contract_call_with_tuple_arg("foo");
+        assert!(StacksBlock::validate_transaction_static_epoch(&cc, epoch_id));
+
+        let pc = admission_test_nft_post_condition_with_tuple("foo");
+        assert!(StacksBlock::validate_transaction_static_epoch(&pc, epoch_id));
+    }
+
+    /// Bare `_` is rejected at every epoch — it's reserved as the discard
+    /// marker and never a valid tuple key on the wire.
+    #[rstest]
+    #[case(StacksEpochId::Epoch33)]
+    #[case(StacksEpochId::Epoch34)]
+    #[case(StacksEpochId::Epoch40)]
+    fn test_validate_transaction_static_epoch_rejects_bare_underscore_tuple_key(
+        #[case] epoch_id: StacksEpochId,
+    ) {
+        let cc = admission_test_contract_call_with_tuple_arg("_");
+        assert!(!StacksBlock::validate_transaction_static_epoch(&cc, epoch_id));
+
+        let pc = admission_test_nft_post_condition_with_tuple("_");
+        assert!(!StacksBlock::validate_transaction_static_epoch(&pc, epoch_id));
+    }
+
+    /// Pre-Clarity-6 (pre-Epoch40) — leading-`_` tuple keys are rejected
+    /// to preserve consensus with un-upgraded nodes whose narrow wire
+    /// codec rejects every leading-`_` name.
+    #[rstest]
+    #[case(StacksEpochId::Epoch33)]
+    #[case(StacksEpochId::Epoch34)]
+    fn test_validate_transaction_static_epoch_rejects_leading_underscore_pre_clarity6(
+        #[case] epoch_id: StacksEpochId,
+    ) {
+        let cc = admission_test_contract_call_with_tuple_arg("_admin");
+        assert!(!StacksBlock::validate_transaction_static_epoch(&cc, epoch_id));
+
+        let pc = admission_test_nft_post_condition_with_tuple("_admin");
+        assert!(!StacksBlock::validate_transaction_static_epoch(&pc, epoch_id));
+    }
+
+    /// At Clarity-6 (Epoch40) and beyond, leading-`_` tuple keys are
+    /// admissible. Bare `_` is still rejected (covered by its own test).
+    #[test]
+    fn test_validate_transaction_static_epoch_admits_leading_underscore_in_clarity6() {
+        let cc = admission_test_contract_call_with_tuple_arg("_admin");
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &cc,
+            StacksEpochId::Epoch40,
+        ));
+
+        let pc = admission_test_nft_post_condition_with_tuple("_admin");
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &pc,
+            StacksEpochId::Epoch40,
+        ));
     }
 
     // TODO:

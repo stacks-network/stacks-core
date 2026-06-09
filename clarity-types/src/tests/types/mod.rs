@@ -902,3 +902,144 @@ fn test_sequence_try_retain_internal_error() {
     let err = seq.try_retain::<(), _>(utils::keep_all).unwrap_err();
     assert!(matches!(err, RetainValuesError::Internal(_)));
 }
+
+// `Value::find_invalid_tuple_key` — the recursive walker that backs the
+// transaction-admission epoch gate for `_`-prefixed tuple keys.
+
+/// Helper: a one-key tuple Value with the given key name and `Int(0)`
+/// payload. `ClarityName::try_from` is used (rather than `from_literal`)
+/// because the test inputs aren't `'static`; the walker only inspects
+/// the string content of the key, not its regex validity.
+fn tuple_with_key(key: &str) -> Value {
+    Value::Tuple(
+        TupleData::from_data(vec![(
+            ClarityName::try_from(key.to_string()).unwrap(),
+            Value::Int(0),
+        )])
+        .unwrap(),
+    )
+}
+
+/// The bare `_` tuple key is invalid at *every* epoch — it's reserved
+/// as the `let` / `match` discard marker and cannot be referenced.
+#[rstest]
+#[case::pre_clarity6(StacksEpochId::Epoch34)]
+#[case::clarity6(StacksEpochId::Epoch40)]
+fn test_find_invalid_tuple_key_rejects_bare_underscore(#[case] epoch: StacksEpochId) {
+    let value = tuple_with_key("_");
+    assert_eq!(value.find_invalid_tuple_key(epoch).as_deref(), Some("_"));
+}
+
+/// Pre-Clarity-6 epochs reject *every* leading-`_` tuple key — matches
+/// the narrow wire codec on un-upgraded nodes so consensus is preserved
+/// during the upgrade window.
+#[rstest]
+#[case::leading_underscore("_admin")]
+#[case::underscore_with_operators("_check!?")]
+#[case::underscore_with_digits("_var123")]
+fn test_find_invalid_tuple_key_rejects_leading_underscore_pre_clarity6(#[case] key: &str) {
+    let value = tuple_with_key(key);
+    assert_eq!(
+        value.find_invalid_tuple_key(StacksEpochId::Epoch34).as_deref(),
+        Some(key),
+    );
+}
+
+/// Post-activation, `_foo`-shaped tuple keys are permitted.
+#[rstest]
+#[case::leading_underscore("_admin")]
+#[case::underscore_with_operators("_check!?")]
+#[case::underscore_with_digits("_var123")]
+fn test_find_invalid_tuple_key_admits_leading_underscore_in_clarity6(#[case] key: &str) {
+    let value = tuple_with_key(key);
+    assert_eq!(value.find_invalid_tuple_key(StacksEpochId::Epoch40), None);
+}
+
+/// Plain identifiers are admissible at every epoch.
+#[rstest]
+#[case::plain("foo")]
+#[case::with_dash("foo-bar")]
+#[case::with_interior_underscore("foo_bar")]
+fn test_find_invalid_tuple_key_admits_plain_keys(#[case] key: &str) {
+    let value = tuple_with_key(key);
+    assert!(
+        value.find_invalid_tuple_key(StacksEpochId::Epoch34).is_none()
+            && value.find_invalid_tuple_key(StacksEpochId::Epoch40).is_none(),
+        "key {key:?} should be admissible at every epoch",
+    );
+}
+
+/// Leaf and tuple-free variants short-circuit to `None`.
+#[test]
+fn test_find_invalid_tuple_key_leaf_values() {
+    let epoch = StacksEpochId::Epoch34;
+    assert!(Value::Int(1).find_invalid_tuple_key(epoch).is_none());
+    assert!(Value::UInt(1).find_invalid_tuple_key(epoch).is_none());
+    assert!(Value::Bool(true).find_invalid_tuple_key(epoch).is_none());
+    assert!(Value::none().find_invalid_tuple_key(epoch).is_none());
+    assert!(
+        Value::buff_from(vec![1, 2, 3])
+            .unwrap()
+            .find_invalid_tuple_key(epoch)
+            .is_none()
+    );
+}
+
+/// The walker descends into `Optional::Some`, `Response`, `Sequence(List)`,
+/// and nested `Tuple` so an invalid key buried inside is still surfaced.
+#[test]
+fn test_find_invalid_tuple_key_descends_into_compound_values() {
+    let epoch = StacksEpochId::Epoch34;
+
+    // tuple inside `(some ...)`
+    let some_value = Value::some(tuple_with_key("_buried")).unwrap();
+    assert_eq!(
+        some_value.find_invalid_tuple_key(epoch).as_deref(),
+        Some("_buried"),
+    );
+
+    // tuple inside `(ok ...)`
+    let ok_value = Value::okay(tuple_with_key("_buried")).unwrap();
+    assert_eq!(
+        ok_value.find_invalid_tuple_key(epoch).as_deref(),
+        Some("_buried"),
+    );
+
+    // tuple inside `(err ...)`
+    let err_value = Value::error(tuple_with_key("_buried")).unwrap();
+    assert_eq!(
+        err_value.find_invalid_tuple_key(epoch).as_deref(),
+        Some("_buried"),
+    );
+
+    // tuple inside a list — list elements must share a schema, so the
+    // list is a single tuple whose key is `_buried`.
+    let list_value = Value::list_from(vec![tuple_with_key("_buried")]).unwrap();
+    assert_eq!(
+        list_value.find_invalid_tuple_key(epoch).as_deref(),
+        Some("_buried"),
+    );
+
+    // tuple nested inside a tuple — `_buried` is the inner key, but the
+    // walker reports the *first* offender it encounters and either inner
+    // or outer is fine; here only the inner has a `_` prefix.
+    let nested = Value::Tuple(
+        TupleData::from_data(vec![(
+            ClarityName::from_literal("outer"),
+            tuple_with_key("_buried"),
+        )])
+        .unwrap(),
+    );
+    assert_eq!(
+        nested.find_invalid_tuple_key(epoch).as_deref(),
+        Some("_buried"),
+    );
+}
+
+/// When the same value sits behind `(none)` (no payload), nothing is
+/// reported — the walker doesn't peek inside `Optional::None`.
+#[test]
+fn test_find_invalid_tuple_key_optional_none_is_inert() {
+    let none_value = Value::none();
+    assert!(none_value.find_invalid_tuple_key(StacksEpochId::Epoch34).is_none());
+}

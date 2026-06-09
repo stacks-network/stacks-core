@@ -37,7 +37,7 @@ pub use self::signatures::{
     TupleTypeSignature, TypeSignature,
 };
 use crate::errors::ClarityTypeError;
-use crate::representations::{ClarityName, ContractName, SymbolicExpression};
+use crate::representations::{ClarityName, ContractName, DISCARD_IDENTIFIER, SymbolicExpression};
 
 /// Maximum size in bytes allowed for types.
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -952,6 +952,68 @@ impl PartialEq for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
+    /// Walk this value recursively and return the first tuple key that
+    /// would not be accepted at `epoch`. Used by transaction admission
+    /// (see `StacksBlock::validate_transaction_static_epoch`) to keep
+    /// `_`-prefixed tuple keys off the wire when the active epoch
+    /// would not accept them.
+    ///
+    /// Two rules:
+    ///   1. Bare `_` is reserved as the `let` / `match` discard marker
+    ///      and is never a valid *tuple key* — rejected at every epoch.
+    ///   2. Any other leading-`_` key is rejected when `epoch < Epoch40`
+    ///      (pre-Clarity-6). The narrow wire codec on un-upgraded nodes
+    ///      already rejects every leading-`_` name; matching that
+    ///      behavior on upgraded nodes pre-activation preserves
+    ///      consensus during the upgrade window. Post-activation,
+    ///      `_foo` tuple keys are permitted.
+    pub fn find_invalid_tuple_key(&self, epoch: StacksEpochId) -> Option<String> {
+        match self {
+            Value::Tuple(data) => {
+                for (key, value) in data.data_map.iter() {
+                    if Self::tuple_key_invalid_for_epoch(key.as_str(), epoch) {
+                        return Some(key.as_str().to_string());
+                    }
+                    if let Some(found) = value.find_invalid_tuple_key(epoch) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            Value::Sequence(SequenceData::List(list)) => {
+                for item in &list.data {
+                    if let Some(found) = item.find_invalid_tuple_key(epoch) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            Value::Optional(OptionalData { data: Some(inner) }) => {
+                inner.find_invalid_tuple_key(epoch)
+            }
+            Value::Response(ResponseData { data, .. }) => data.find_invalid_tuple_key(epoch),
+            // Leaf / no-tuple variants.
+            Value::Int(_)
+            | Value::UInt(_)
+            | Value::Bool(_)
+            | Value::Principal(_)
+            | Value::CallableContract(_)
+            | Value::Sequence(SequenceData::Buffer(_))
+            | Value::Sequence(SequenceData::String(_))
+            | Value::Optional(OptionalData { data: None }) => None,
+        }
+    }
+
+    fn tuple_key_invalid_for_epoch(key: &str, epoch: StacksEpochId) -> bool {
+        if key == DISCARD_IDENTIFIER {
+            return true;
+        }
+        if epoch < StacksEpochId::Epoch40 && key.starts_with('_') {
+            return true;
+        }
+        false
+    }
+
     pub fn some(data: Value) -> Result<Value, ClarityTypeError> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
