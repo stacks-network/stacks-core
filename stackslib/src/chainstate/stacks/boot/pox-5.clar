@@ -602,9 +602,9 @@
     )
 )
 
-;; Register for a protocol bond. In order the call this function,
-;; the bond must already have been created, and `contract-caller`
-;; must be in the allowlist.
+;; Register for a protocol bond. In order to call this function,
+;; the bond must already have been created, and `tx-sender` must
+;; be in the allowlist.
 ;;
 ;; The caller must either provide sBTC that they want to lockup,
 ;; or they must provide proof of their L1 BTC lockup.
