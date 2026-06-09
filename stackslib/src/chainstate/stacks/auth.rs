@@ -16,7 +16,7 @@
 
 #[cfg(test)]
 mod test {
-use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::codec::StacksMessageCodec;
     use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::Hash160;
     use stacks_common::util::secp256k1::MessageSignature;
@@ -27,7 +27,8 @@ use stacks_common::codec::StacksMessageCodec;
         OrderIndependentMultisigSpendingCondition, SinglesigHashMode, SinglesigSpendingCondition,
         StacksPrivateKey, StacksPublicKey, StacksPublicKey as PubKey, TransactionAuth,
         TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
-        TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionAuthVerificationMode
+        TransactionAuthVerificationMode, TransactionPublicKeyEncoding,
+        TransactionSpendingCondition,
     };
     use crate::net::codec::test::check_codec_and_corruption;
 
@@ -996,7 +997,7 @@ use stacks_common::codec::StacksMessageCodec;
                     nonces[i],
                     &key_encoding,
                     &sig,
-                    TransactionAuthVerificationMode::EnforceLowS
+                    TransactionAuthVerificationMode::EnforceLowS,
                 )
                 .unwrap();
 
