@@ -1,131 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "444c5a06a54fa2e685cec36a3840f3174aa69911dfb5ddde5f3d4ca212e87d92",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 939,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 939,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b6a08978809251b0f9b3cd3868dc6153b9eb0113025a7e19efc229c8500d0bc5",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 939,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 939,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "3915f0033784352e6a11f44188646bf3cbe2be3d3adc0111e19ac61aced9aa09",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 939,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 939,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8ca28789c56e741c2b60cd2622eea19aff9599d18e366f6e0c3f84d0cbdbaf6d",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-tuple-field-name-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: invalid tuple field name) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 939,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 939,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2d9ce465e16c775a2c2c02b95e3c7223b16d6102e92ce725563a4a9dc932675e",
+    marf_hash: "c460d6f0924bd25945c0498a2f0a6b1b874775060366e7b82b53b4cdca8de279",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "deae33b69f9f643992a1f2e4d5cef7e97cfeb228b6514dab9d0c9f861bb2f3d9",
+    marf_hash: "af3630932b4a77f274e66857c3259161ce16952552800d8927381a181869e33c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0747b9816b6ca7c81d2e6a91cafd6e96f17747a36ce47d9a1c89bc3c318856ab",
+    marf_hash: "7a1e341672f9e03d17c33e57dab78449812eee9c7e573464fbdb5376feb15562",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bc1b1eb97fa148a93eb15328b6631e6197ec7560ddb142a42ae46ca947691fb1",
+    marf_hash: "291051fb93a654ab8c778c6b2a491c81f0be1665fffe661a3454ea2801d9de5c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c8bfaafc156d4b5281d4c5720a8bc2460528d8e35efa41e3a7d05748eb943571",
+    marf_hash: "049c36609b35b02d665959247ebaa39a7cb87358cd9cd22ab60ae58bb3e9411f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

@@ -6,16 +6,20 @@
   "type": "module",
   "scripts": {
     "test": "vitest run -- --coverage",
+    "test:watch": "SUPPRESS_CLARINET_LOGS=1 NODE_OPTIONS=\"--import ./tests/suppress-stdout.js\" vitest",
     "genhtml": "genhtml lcov.info --branch-coverage -o coverage/"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@clarigen/cli": "4.0.1",
-    "@clarigen/core": "4.0.1",
-    "@clarigen/test": "4.0.1",
+    "@clarigen/cli": "4.1.6",
+    "@clarigen/core": "4.1.6",
+    "@clarigen/test": "4.1.6",
+    "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
-    "@stacks/clarinet-sdk": "^3.10.0",
+    "@scure/base": "^2.0.0",
+    "@scure/btc-signer": "^2.0.1",
+    "@stacks/clarinet-sdk": "^3.18.1",
     "@stacks/clarunit": "0.1.0",
     "@stacks/rendezvous": "^0.7.4",
     "@stacks/stacking": "^7.3.1",
@@ -28,6 +32,7 @@
     "vitest-environment-clarinet": "^3.0.2"
   },
   "devDependencies": {
+    "dnum": "^2.17.0",
     "prettier": "^3.6.2"
   },
   "prettier": {

@@ -312,6 +312,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | Secp256k1Recover
             | Secp256k1Verify
             | Secp256r1Verify
+            | Ed25519Verify
+            | Secp256k1Decompress
             | ConsSome
             | ConsOkay
             | ConsError
@@ -381,7 +383,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
-            | AllowanceAll => {
+            | AllowanceAll
+            | VerifyMerkleProof
+            | GetBitcoinTxOutput => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }

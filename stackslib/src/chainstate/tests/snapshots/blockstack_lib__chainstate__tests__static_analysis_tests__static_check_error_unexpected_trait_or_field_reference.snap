@@ -1,131 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "14e233a91ae42f3057d503962f158edc933692faf518e1b5251601c7abd46003",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1969,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1969,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "5bfb8a30cd37948f08716185b2014e2fd267573ef0a791914904c1efe8ef9b42",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1969,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1969,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6450ed5315500c80f1a7587b096abde6740553f6834cc13797cb3f3391f8a0f5",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1969,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1969,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ffeabddffcdf886fa551fc1e2ebb56103f70c63a722fe256c7712e74852e2332",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: trait-or-field-ref-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: unexpected use of trait reference or field) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1969,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1969,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "1a90a6a3145e048a5af27c54f0b4d8d0aee226c8a882affc40975682a9123969",
+    marf_hash: "71db6d3629ba7e6e02e1a7cd5ea387655c8d0c47680b71acdd3b8709a727e9f0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "50d82bb17d325ed0265a8be81ec4e66e59cebb11892faa0dc2f0a0ebee283751",
+    marf_hash: "99395649fbda89929fdd3a607f3e46a5e56ebd41594845c779b7b2633bfba0ee",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6d525dee91c08df9cd0284169ea8b383bfb704d2c4e9049d6ca2859c0e454730",
+    marf_hash: "c029ae1f788624439a418fddd11293ecb10d6c7d951b159a4add789cf8fc96f0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bc44cc244fba441f28f1101594a6975b913473e851613549e02bf85bbe87382e",
+    marf_hash: "0d96eec1840856a8cc32689941072e1767ae731471f519c18b1f5859963b87b9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2aceec7c68bc4b6bf05bb599744fbb8f9c8c4047cd294a9d8ce3b44e625f86df",
+    marf_hash: "1bfd1e779a0a792ddc85f2fc2a4d1055c25e30a936105bb21f2e96cb056ef992",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

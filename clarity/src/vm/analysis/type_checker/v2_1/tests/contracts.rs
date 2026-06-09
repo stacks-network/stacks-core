@@ -2609,16 +2609,10 @@ fn clarity_trait_experiments_downcast_literal_2(
             load_versioned(db, "downcast-literal-2", version, epoch)
         })
         .unwrap_err();
-    match version {
-        ClarityVersion::Clarity2
-        | ClarityVersion::Clarity3
-        | ClarityVersion::Clarity4
-        | ClarityVersion::Clarity5 => {
-            assert!(err.starts_with("ExpectedCallableType(PrincipalType)"))
-        }
-        ClarityVersion::Clarity1 => {
-            assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"))
-        }
+    if version == ClarityVersion::Clarity1 {
+        assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"));
+    } else {
+        assert!(err.starts_with("ExpectedCallableType(PrincipalType)"));
     }
 }
 
@@ -2839,20 +2833,14 @@ fn clarity_trait_experiments_trait_cast_incompatible(
             load_versioned(db, "trait-cast-incompatible", version, epoch)
         })
         .unwrap_err();
-    match version {
-        ClarityVersion::Clarity1 => {
-            if epoch <= StacksEpochId::Epoch2_05 {
-                assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
-            } else {
-                assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
-            }
+    if version == ClarityVersion::Clarity1 {
+        if epoch <= StacksEpochId::Epoch2_05 {
+            assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"));
+        } else {
+            assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"));
         }
-        ClarityVersion::Clarity2
-        | ClarityVersion::Clarity3
-        | ClarityVersion::Clarity4
-        | ClarityVersion::Clarity5 => {
-            assert!(err.starts_with("IncompatibleTrait"))
-        }
+    } else {
+        assert!(err.starts_with("IncompatibleTrait"));
     }
 }
 

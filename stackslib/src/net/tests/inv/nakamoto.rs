@@ -23,7 +23,7 @@ use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLE
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::net::PeerAddress;
-use stacks_common::types::StacksEpoch;
+use stacks_common::types::{StacksEpoch, StacksEpochId};
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -154,7 +154,10 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
         peer.config.chain_config.epochs,
-        Some(StacksEpoch::unit_test_3_0_only(37))
+        Some(StacksEpoch::unit_test_epoch_only(
+            37,
+            StacksEpochId::Epoch30
+        ))
     );
 
     let (mut peer, reward_cycle_invs) =
@@ -236,7 +239,10 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
         peer.config.chain_config.epochs,
-        Some(StacksEpoch::unit_test_3_0_only(37))
+        Some(StacksEpoch::unit_test_epoch_only(
+            37,
+            StacksEpochId::Epoch30
+        ))
     );
 
     let (mut peer, reward_cycle_invs) =
@@ -311,7 +317,10 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
         peer.config.chain_config.epochs,
-        Some(StacksEpoch::unit_test_3_0_only(37))
+        Some(StacksEpoch::unit_test_epoch_only(
+            37,
+            StacksEpochId::Epoch30
+        ))
     );
 
     let (mut peer, reward_cycle_invs) =

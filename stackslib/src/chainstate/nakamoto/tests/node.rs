@@ -2567,7 +2567,7 @@ impl TestPeer<'_> {
 
         // check signer weight
         let mut max_signing_weight = 0;
-        for signer in reward_set.signers.as_ref().unwrap().iter() {
+        for signer in reward_set.signers().unwrap().iter() {
             max_signing_weight += signer.weight;
         }
 

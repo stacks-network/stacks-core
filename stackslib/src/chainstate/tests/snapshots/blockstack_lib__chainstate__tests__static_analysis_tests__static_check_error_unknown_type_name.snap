@@ -1,101 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d73a32a9a8727fe20f393a3c3c115c85fa03861d3227b1c05d380f1e9c0253f8",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-type-name-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 2519,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 2519,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d6a250a4c0aaef1707204a0f562c95163ed59e91024ac48bce1c8f1b462ef2cd",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-type-name-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 2519,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 2519,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2c86cd3cf25732771562221167fe9ef3bf29d03cc97d4c17df86599ad586fdfc",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-type-name-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 2519,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 2519,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7fa9503174a6e604e974b0f02f1291e64b547d3efde02b957428fdcd8d347ed3",
+    marf_hash: "6ae5ccbfd82729c193ef8a5cb21c50e3ffcb27cd205c452c65a18b308a00fe15",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -125,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d1ef8723942c2834e095b09f637a4ed344fefa2a8f86cbfed823b1e811f399ce",
+    marf_hash: "28c325b1d6a1a5c02a031d3019a4258417f7a63b323992006208a27b97dbbeee",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5eacf76da53083186a9f2a11942fa95c47aa80030f22ca58afa57ddddcc385db",
+    marf_hash: "d954399bf70add1c4f9ad5f2a89adfad997371f1b20077ae989301b48df12551",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0ab747c8dc120af168b1630ffce70770a97c3008e88f2e24840fb6e46e8c67cb",
+    marf_hash: "6cba37d02ff1c1fa22db07fd31b5c491d88413e8a71ece328f3220683f4602c4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

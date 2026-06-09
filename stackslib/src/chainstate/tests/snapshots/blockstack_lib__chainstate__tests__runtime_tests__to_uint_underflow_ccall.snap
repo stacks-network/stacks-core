@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "26bdc16dca58961f47d9005957b17e0afac21b7f4b5f871511829752ff48b97d",
+    marf_hash: "2405f5ab302b29dfea5cd9ec878f7b5d731f3dd5a4c0469c49c1fe718e5ccbaa",
     evaluated_epoch: Epoch20,
     transactions: [
       ExpectedTransactionOutput(
@@ -33,7 +32,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d1db6cbe9cb019f83916d03f8d293c1cf7a0443a91db8eaa83dd503fea9920eb",
+    marf_hash: "295f690cbe942138e0c227f36d7503c4d0cf392eec8ccfbbb9cd8bdeb70ddca7",
     evaluated_epoch: Epoch2_05,
     transactions: [
       ExpectedTransactionOutput(
@@ -61,7 +60,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1cba563fd3794416d007ce064d2ae141989b1c35b92e0a33fe33b3386a56a7ee",
+    marf_hash: "751b9a5735f26c27408eabcb263fc7aeadfbcf10794cd7c81d6aec93a687bdad",
     evaluated_epoch: Epoch21,
     transactions: [
       ExpectedTransactionOutput(
@@ -89,7 +88,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4208a47aebcc1c06634ff03d0f9dea6adb786cd7d20ea45c341db24d514c8b5d",
+    marf_hash: "f016feadca85d8b772644182d62c51d2c5d74d94c3b96fa752594407e2bb0521",
     evaluated_epoch: Epoch21,
     transactions: [
       ExpectedTransactionOutput(
@@ -117,7 +116,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "53cb757f54622b06ecf9677d444bc2bb7c7a4a1a66401931ecef40f8b0705732",
+    marf_hash: "90e3697fe61fff0b5c4c4345b06e24614ad9f303161831f478f6b639aef31ec5",
     evaluated_epoch: Epoch22,
     transactions: [
       ExpectedTransactionOutput(
@@ -145,7 +144,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "601683ae6d850621853da8033643e11f791ef32edb4989ea7ba70eb607291346",
+    marf_hash: "594aa0ec72e7e3fd9ea7c8f30fb4cfc39611ee751dc652766bd218a76ec9265a",
     evaluated_epoch: Epoch22,
     transactions: [
       ExpectedTransactionOutput(
@@ -173,7 +172,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "18568ec93e8771620d0c8953d90720a9710742270901a55ef2f8261ee121243d",
+    marf_hash: "d88de881894e240454b18dca7c13e3a00136f9d7125e65827b3ce34bb0d42ddd",
     evaluated_epoch: Epoch23,
     transactions: [
       ExpectedTransactionOutput(
@@ -201,7 +200,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "540610256950b662d7f799d1f3a0e10870137c00686691a9367faec69f790b2e",
+    marf_hash: "ebde7b87ded12df5c70d10435350aea9559f3b4ffc42822e3f21da2aaadcb263",
     evaluated_epoch: Epoch23,
     transactions: [
       ExpectedTransactionOutput(
@@ -229,7 +228,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4e4b18ac401453840d1a7165dc5d1310b7618d2920d42229af59e9c7c249a0fe",
+    marf_hash: "20fc37dfac5db2be4ed57767b2fe674a04150b83a0d90bbf4f06bf94bede2dc6",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -257,7 +256,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4e696bb6d29f323c634cec5ff4f7a59b4dec1e583ff56d42291f7ac2ff3c4812",
+    marf_hash: "4f0d87be7856cab97acee99195ea58375c1ffea85b1f8ee183b45d3c76d4b9e5",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -285,7 +284,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0c428e84281fbfd989bd2703ba2a13ef434d61b90c0dd5aeeca4dd777203a6ef",
+    marf_hash: "92d9c8ad2b528e365aff4c0f20136efabbeeadd93ba3c637e0986fd9f3f02357",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -313,7 +312,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d760a6daaa4bdd4bc6efb26c25bf288cc9c097999149d40a30aac50db49b3280",
+    marf_hash: "65acee4bf33149900470efadb1a4e5b20a808d8e88775ba94373861cde279964",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -341,7 +340,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "35078a3ae91f67cef1427d919451f12072e306284e24a4043012227cdc5f4a60",
+    marf_hash: "9f6eb25bba1e4675505c6a0508aefe1135a018b3b332081d8e5f4ef8e72d9e6b",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -369,7 +368,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "98ec985fbc3d613a3ecac174ce5c267442ceab129a419648bec7e5936b33a66b",
+    marf_hash: "bba7f3c6a4c720c848375006f12a1f0876b8488a108e6af146657ae936c0cdea",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -397,7 +396,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0524018c6f70d3f9e137c1137b055ef2dedf125bb05c05da669de78c16053a52",
+    marf_hash: "dc8b66e6102d5ba2bc3648b0c606510e4ee69bd9186ec72618976e0c81f9188a",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -425,7 +424,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9f5f86f5d69738ab689ba9654ce34fd9d365a6eebad8ef7ce01060a7b10de444",
+    marf_hash: "5e04851534a182f39c586c044fbf4f4fa2b6149e6d9c5947ec1f30b352f85864",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -453,7 +452,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3b623154dfea3919cf828ee4a52ae997a10452c4806b2d08969c2d541dbd7602",
+    marf_hash: "a0dfadc4c6123a459e2a9794d664a70ef5de4a71cc5f38d40ec28e6292df03cc",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -481,7 +480,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3ba3909bd2cd16f3d238db8a78f7599e0b75080d57901c97cd3880065e285c59",
+    marf_hash: "620b0aad7c581ffade89f637c2b77052f95a4aa0a69302194b7bc7e8a5a1eb1d",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -509,7 +508,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cdcee339a1c012b71a7c81fc5bd413f2c7e91c524f08bca39537c58ee44bb630",
+    marf_hash: "5f89074a06c3e559d91607b77994bc4b227e169fd9a0d7cdef3a0f0d71a7c2a5",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -537,7 +536,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f584c16b336befddc674dbad634693345c44a64a16fb0764f18365c7197e1407",
+    marf_hash: "388e48bcad0606765f188086f9d2c811bf46eb07bde48034e415402520fc76a5",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -565,7 +564,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "82ea30e07b6d668eaa1b6abe5e3db1cb473487b57cd372608c3a75f4cfb3f63c",
+    marf_hash: "15e3ccf7352d0d64a96b4acded2353b7b70fd80f71de8ce3e3a1845fcdd2b3d1",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -593,7 +592,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b10615b70d58d760642bc6b0571524d7dc46676c8692040aaee10e215dbe0d5b",
+    marf_hash: "241112d882ce70ec8380c46e9f6df48c0efd2f291e0ccdc5045ec14dc1095dad",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -621,7 +620,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b6ff2f7eae30ea30b48347b19ef857862d401a6fffd4b11e7b2ec195d2e69875",
+    marf_hash: "85d0a6e608fbf8a1a76990a433a5f2cfba55b2dd2f127b9b3599d9964e57c9c4",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -649,7 +648,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ca5f9cd6e31d9cd5e0a764a0fd688e41c687a0f31676d9714e1ec9a77ba18508",
+    marf_hash: "36328c08ac7068990d97cc25b4448141dd70c1bd8f4284ab4bf78d4bbb24933d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -677,7 +676,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "090703962bcfff4d0565386705346d5499ba9220a7fb9215d7e73045b6818a3c",
+    marf_hash: "0c1821bf4f1404a60adbe0c0787972b13ff772b0205890ae754cf69a7ba59f9b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -705,757 +704,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "59c27de45a5aecf3ffc2df49c05e9c56841d6bbf04df72d8137934e19bb1a3c2",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_0-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "881d06eaa9b7a2ff3f306beb2a1ef72f84a193d8a049a6f1ec2095f4c9ad4aaa",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_05-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bcaa219ee9d21afe77e8c852eb27b99fd548483883e1649154fdf451c395cfe6",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_1-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0b42a828513d4cd5a0c298d66e458e5f026f4b93f07371342c7fc5ffc792a32f",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_1-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4832d7a550a019a929a8a8885572885c3828bd4d1946ad95306308300a8c23a3",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_2-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "20469428a75b6829d8be5c0a537f485a0c3ddd3713c102437f5983030665314c",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_2-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ccd268d4ffeed47dfc6e85b91e4f0f5734240f68c267db8f4f00f4d82a274046",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_3-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c6ea2a7f3e3974078cc4c4f5fab090cf7f8e6548fbf547870447dbb4be8d44ae",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_3-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "5cb8f880be59ab33e4cb1c8accd9222cb09d7b5c6e586443c7120e0b5f1635be",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_4-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "dcb832e27ede7ca227ecb1e4b0aaeece3666fb9af0102ae0f042af9c519d5d0b",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_4-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "79bce66676102861afdc884203be4a6b9083642e3fa6815e5fcb9c080ae62f17",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_5-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "330336c55cdc93947c5810a6565d8e3e722dc77d2013539d918a24d8fd1989fb",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch2_5-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "850e5dc9e0d11d2f3a542a801aa53886b3a2670e8de559f6608aa59b4aca498c",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_0-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0c48858d6ae7efde936b60531d39060edc2ea711d4bd7e1aa890ccc93ea85232",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_0-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2ce57d6add429bbc417e2431a90651d5d81203d42683aba786170560a317331f",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_0-Clarity3, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4d921e51a6c9045b2f91dcc4344ea14f0c428129900154d1fff3dce6935d7d85",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_1-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c93dfffa7b646aa2e1a88e6bbe68ad855b19887f036595ee3e32a34565976da7",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_1-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "20554790ed43815e32d94f4fa79b8b0aaed5a0c9b1fcfaa362fe48868198bc68",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_1-Clarity3, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "883777943ffb5e77ff09095464507ba51d2d8e79e9ac76314417737c892495e1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_2-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ebda1f31ca77f5f5c252bf2ee9a69aa79fa708885f46f53dfd1ed2728adb4983",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_2-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "459ce77060ac0e0b0488f3fdb82c415c456c68d45a406f918df0d0e0dfbf4b1e",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_2-Clarity3, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "efb9d105ee76e220a9a47f3665740db0ca41d64efd64827ff3461bf2287cea52",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_3-Clarity1, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "73549a2902885508a69cd877d293f797be45f1fd128deec168e9a782bab322da",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_3-Clarity2, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "cfa0ad24ca627723eaa87b9530e369fa60f22ddbb638bf4c1c7632d02122585d",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_3-Clarity3, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ce70b77d415f50a87858609978dde71da5979b79243543369bfae518508097bd",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: to-uint-negative-Epoch3_3-Clarity4, function_name: trigger-underflow, function_args: [[]])",
-        vm_error: "Some(ArithmeticUnderflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 57,
-          read_count: 3,
-          runtime: 292,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 57,
-      read_count: 3,
-      runtime: 292,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "3a8f1b108fc6c468aba5e0d830b289430d7d8dde2446235ab86b7a377abe1bba",
+    marf_hash: "1ec7de2bb1c66bca15346cd1c680477935a108d0ee7437f4b9cdb8df23236c35",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1483,7 +732,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5e4542e0c3aef2daaad69fe728812a85643ccc0e9089c8704f942ada26cc307d",
+    marf_hash: "556f750553d514b8764f7ea38e284f6af01aa44b52713e23e496ba7b21157c7c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1511,7 +760,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4ef867b925fa64e6527455dc2e039c85ca2fee46bfa43fac7bc99d554bab725c",
+    marf_hash: "b78cf8a1b5d1650d9b5a197a9074bc14b6853a363137fa9a1f994e8f76cbffb3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1539,7 +788,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bfe8ed580127cb5e2dd3c2c22c44900eec7147be40888fc8bd47082ea86a9e70",
+    marf_hash: "fe8679debabc52d82fb65ac0ae1c2fad1f04c9c71753a429a35838446c3b505f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1567,7 +816,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e52ad38a10cac680a683309e2be7ee931294f1fb6e39fcb62ee272c78d80271b",
+    marf_hash: "b05ee16b972563076633e9869466edb5618d7fa8b843deaa8db1a9f7fd780ec8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1595,7 +844,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ff2f93e1247fabf264a95bcbe64c4abd14cf8cae644f15fdd66402962efd819c",
+    marf_hash: "51af9b5626bfa1e93f12b2ec7d93756eae36300fe5a6a0c4859c98b2375cea4f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1625,7 +874,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6bcc08bd7544dfa107100b8eb3fe5d8e1016b323b2a9c7d58bf21d605c95984c",
+    marf_hash: "5ee31d9b658a96ee2b9b2de6f1c98470027165b2d451c3798e1215298e51a0c9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1655,7 +904,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f10d6a60806a59df6d2cd296e31bd0e09dede1071a4f9e11ce9595da3fac4286",
+    marf_hash: "f9420813f4a7bf842b6211b60466c5c87089f2fa44be9a40e6a300cdccf705f7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1685,7 +934,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "86968c4c84a77dd0ff89ccb5f184034f170d015e6e74e04df2034eef7671b313",
+    marf_hash: "e631cde49f598e4e7f8ca8e5516c6a1a3fecaf04c5b326b968ddaabb2ddd1283",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1715,7 +964,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0bcd5f784d4c988ae26f740b492cd6dabcba1605cf70eba892ab674974e55cb7",
+    marf_hash: "acc856b65286be52b08ff262e446ea606634c58eb6fb12e2e0ddc104870f6019",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1745,7 +994,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "80453d34a1b2e2f8d531f639d10d69859f593cd6f481e879bdb557524b0b838f",
+    marf_hash: "f49ee5e9e218c3fe7c06b0cdfc8201520780cdccffc86a55395cc129f8df5003",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1775,7 +1024,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "98c4c041f8768e91ad4ec342b345295fc2e9cfe552bd8c065565b5640c53c6b6",
+    marf_hash: "5ddeff5c22a2ae63e088c6ebac54c8ee1deb534fc1f9ba639b74c7809de5e505",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1805,7 +1054,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f800734f353a47e14ea9d545e6fe31ac6d32b9f44a63463a7755bd96e1bbb9e4",
+    marf_hash: "2554ad8b29706fa45867bf5335a005a8e488618ce4fd9a1490cfb49e98820611",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1835,7 +1084,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b30d18929d9ac99eaec0ad40eacbb66b599bec9820d2eb6fc1ddbad8164dafea",
+    marf_hash: "f47b0d3c50f3b691e99ae040bdc7205f604c7900ad92d5113ed50e652203e824",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1865,7 +1114,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5570896ad4444e3f78da5afc3ef3fd5f3577a088314b6d3f8b2734a8c6f5b41b",
+    marf_hash: "b2cb5bc207cfb70e835aa13bf8b25a27f2f2ed8b109bc12d4be598b37468e03a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1895,7 +1144,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "245f41173a1d45481b927f9f1e8114db7d8f1ecad758c4d0ea46804c33b86a40",
+    marf_hash: "c10d29999cfc2d408dbeec640f4d7d3c6316c90861092ec7a88cd93a13d8973a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1925,7 +1174,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "177b6c947bf80ae7ce739e9926f50de5bdee99051fe9e6d9bd983fc62a090d54",
+    marf_hash: "88da3be758862f0239b8c71ceb7e0d63279924bdbecbf1294a4d7113493f5743",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1955,7 +1204,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c340657cc9bdac2a272d4d0118430d506203465eae00a8b97771814573fadd80",
+    marf_hash: "b1b25eeafb40b40e962936aae648df07363e72375f6b9d19bb4c0782de21d674",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1985,7 +1234,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "223f4f102f7d1d0e3ceeeeffc66767f2a6d29bfbb6f58ec6c6e48580ded79a8c",
+    marf_hash: "a8f7d4ccb123ede728b019c66975fe2ad0c3260dbdca15ece1de0ff5a4f3183c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2015,7 +1264,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "76de2269e7204fd05e92c15af53656b231c7686b5eebc842fbb63c3cebac6c38",
+    marf_hash: "a838eaf9040d1e3e9a4f44b398195643087b4245bfdd122591e8f265802e5e17",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2045,7 +1294,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "24bb3f20b656ed0b0928fa01bbb553e8ab66ec7810195a0f2f2fb4fd5dcb26b3",
+    marf_hash: "ed1fbe2058f09556c8a89e4b12cb942c8b811fbbd1b0f540a87df8d044d2487c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2075,7 +1324,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "aa933f7d1f79da5874e06dd5d6b8655ec9235afb2f3c2b6d3ccebc17554cc997",
+    marf_hash: "c6022bb6797cc0fa201306a0767653a481485d9612def5ed033452b6a9843ba5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2105,7 +1354,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "862f4139aebf780c6214f315597e24bf7101040f805245c5332f6d4c2943951f",
+    marf_hash: "8c7bf107b061f23885625504a1bd1f5fb3eabb857f7ebd106a098e1e814b7cbb",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2135,7 +1384,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5651ee78cde47435bfe383d184ad431edcf8a74e59078f1387c2d6ca89b97e78",
+    marf_hash: "2c39037792d34ef70b2fe6186dd78dd17d204bf0b8dfa384cb28e1cfee28e8d0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2165,7 +1414,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "35731d456dd94ab2d0c45b64a2ffdf6f87843e20a8850d258c2f6101f398001d",
+    marf_hash: "ce0a36e7de09649e22ad1c49d988b4e2728cead4e3370eeba009d29fe680adb3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2195,7 +1444,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "70a7644be907bc12df73c46a07853f584a4e5a3de4444f9c330b8de847541099",
+    marf_hash: "fe4899b487ead48aa82eeee2357d17aac09595a5c899d5dc68fa12eb85b43c60",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2225,7 +1474,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "55ba437be8cda6acf67bf420184ca1e53829e103f2e8f827e95da097412f9d43",
+    marf_hash: "f6aacb4e1489ea2fbd8bb3210b89dfa1af80e1e8b4183d52068b2e99c9c3755f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2255,7 +1504,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "703c3f81fb0967bdbfb275644b0aa2ec27f3cd3f997e73e88d742655710b2887",
+    marf_hash: "dee6aa54338bf814fa9e5d16f7b198adeca3331bee4ccd0aea317f417577acce",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2285,7 +1534,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "953f4b7f2cc3934e9b82635ede9fedefaa3c439a3f2172db3085a44b15a1f95e",
+    marf_hash: "7b6d36de16c5e06263e52a199d9986a91f83c1458dcff6519683ef33a692ceaf",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2315,7 +1564,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d8a5a6c54ab69bfde654d8e29a877d42458d4c56d9f63b9f472dc848f8743be0",
+    marf_hash: "ace367d8cf1c9aebaae14f59f8fb7f23c37e309b8ab064495a33bcb623103c06",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2345,7 +1594,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "76aa0b7f864cd961c8e33eef20772f0b6e5d3cbdc91beaa4581c1634f159abb7",
+    marf_hash: "9c7f22171109e2e4854f7b8a641e9beec3d25ae66742f62ca058c8b54abc86dc",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2375,7 +1624,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "565089ba7a73cbb0b52eb032ec6ead2d8e4a58c3af73546f750c7e5102115e31",
+    marf_hash: "8bc3514cf02ee941d51d73f89a878e5975fde40add28eb8f6acbaf06ac580282",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2405,7 +1654,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "88d247a46643a1528dc838dae56360bb0ce461207ff0cd74116b6d63414ace4d",
+    marf_hash: "3e84aa5b0b3449573f40c490f9b2463e4eff7e70e93734ef0a0f10db79dc91c5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2435,7 +1684,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4f4b11b950319f8dfdb137e012e4b8496fdbd03742b542fba2d10e1da0de8002",
+    marf_hash: "180efc648b73d6e18773e640adb8077fe24e7f1e75b7839240b4a32dd9ce6f39",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2465,7 +1714,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "297cb900784848f989fadfdb64018a8a6075b243918bf5c09b3c45d63b32a8d2",
+    marf_hash: "c13a48d960724c32a6a438c1fff6a0db423259643d70031e68532ec65128c5e8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

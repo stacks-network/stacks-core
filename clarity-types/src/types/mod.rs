@@ -123,7 +123,7 @@ impl StandardPrincipalData {
         (version, bytes)
     }
 
-    pub fn is_mainnet(self) -> bool {
+    pub fn is_mainnet(&self) -> bool {
         self.0 == C32_ADDRESS_VERSION_MAINNET_MULTISIG
             || self.0 == C32_ADDRESS_VERSION_MAINNET_SINGLESIG
     }
@@ -633,6 +633,24 @@ impl SequenceData {
             SequenceData::String(CharType::UTF8(data)) => retain_inner!(data, UTF8Data),
         }
         Ok(self)
+    }
+
+    /// Reserve capacity for `additional` more elements in the underlying
+    /// storage, avoiding intermediate reallocations during a sequence of
+    /// `concat` calls. The unit of `additional` matches the natural unit of
+    /// each sequence kind: bytes for `Buffer`/`String(ASCII)`, chars for
+    /// `String(UTF8)`, and elements for `List`.
+    ///
+    /// This is intended for variadic builders (e.g. Clarity 6's
+    /// `special_concat_v600`) that know the final size up front and want
+    /// to do a single allocation.
+    pub fn reserve(&mut self, additional: usize) {
+        match self {
+            SequenceData::Buffer(BuffData { data }) => data.reserve(additional),
+            SequenceData::List(ListData { data, .. }) => data.reserve(additional),
+            SequenceData::String(CharType::ASCII(ASCIIData { data })) => data.reserve(additional),
+            SequenceData::String(CharType::UTF8(UTF8Data { data })) => data.reserve(additional),
+        }
     }
 
     pub fn concat(

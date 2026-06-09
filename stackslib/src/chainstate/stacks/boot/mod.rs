@@ -32,7 +32,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::SymbolicExpression;
 use lazy_static::lazy_static;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -41,6 +41,9 @@ use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::nakamoto::signer_set::{
+    pox_5_bond_admin, pox_5_sbtc_contract, POX_5_BOND_ADMIN_MAINNET, SBTC_TOKEN_MAINNET_CONTRACT,
+};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::{StacksChainState, StacksDBConn};
 use crate::chainstate::stacks::Error;
@@ -57,6 +60,7 @@ pub const BOOT_CODE_COSTS: &str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COSTS_2: &str = std::include_str!("costs-2.clar");
 pub const BOOT_CODE_COSTS_3: &str = std::include_str!("costs-3.clar");
 pub const BOOT_CODE_COSTS_4: &str = std::include_str!("costs-4.clar");
+pub const BOOT_CODE_COSTS_5: &str = std::include_str!("costs-5.clar");
 pub const BOOT_CODE_COSTS_2_TESTNET: &str = std::include_str!("costs-2-testnet.clar");
 pub const BOOT_CODE_COST_VOTING_MAINNET: &str = std::include_str!("cost-voting.clar");
 pub const BOOT_CODE_BNS: &str = std::include_str!("bns.clar");
@@ -65,6 +69,7 @@ pub const POX_1_NAME: &str = "pox";
 pub const POX_2_NAME: &str = "pox-2";
 pub const POX_3_NAME: &str = "pox-3";
 pub const POX_4_NAME: &str = "pox-4";
+pub const POX_5_NAME: &str = "pox-5";
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -78,6 +83,7 @@ pub const SIGNERS_PK_LEN: usize = 33;
 const POX_2_BODY: &str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &str = std::include_str!("pox-4.clar");
+const POX_5_BODY: &str = std::include_str!("pox-5.clar");
 pub const SIGNERS_BODY: &str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &str = std::include_str!("signers-1-xxx.clar");
@@ -89,6 +95,7 @@ pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
 pub const COSTS_4_NAME: &str = "costs-4";
+pub const COSTS_5_NAME: &str = "costs-5";
 /// This contract name is used in testnet **only** to lookup an initial
 ///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
 ///  function called `aggregate-key` with zero arguments which returns a (buff 33)
@@ -194,6 +201,34 @@ pub fn make_sip_031_body(is_mainnet: bool) -> String {
     )
 }
 
+/// Generate the contract body for the pox-5 contract.
+///
+/// On mainnet the body is used verbatim, with the canonical sBTC token
+/// contract literal and the mainnet `bond-admin` principal baked in. On
+/// non-mainnet networks, every occurrence of the canonical sBTC token literal
+/// is rewritten to point at the configured sBTC token contract via
+/// [`set_pox_5_sbtc_contract`] (typically configured from the node config
+/// file), falling back to a well-known testnet default when unset, and the
+/// `bond-admin` initializer is rewritten via [`pox_5_bond_admin`] to the
+/// configured admin or the testnet default. Calling this with
+/// `is_mainnet = true` ignores both overrides entirely.
+///
+/// NB: We left multiple literals in the body instead of defining a constant
+/// because the read-only checker only resolves the read-only-ness of
+/// `(contract-call? <X> ...)` for *literal* contract principals — not for
+/// `define-constant`s — and pox-5 has read-only functions that call the
+/// sBTC token's `get-balance`.
+pub fn make_pox_5_body(is_mainnet: bool) -> String {
+    if is_mainnet {
+        return POX_5_BODY.to_string();
+    }
+    let sbtc_contract = pox_5_sbtc_contract(is_mainnet);
+    let bond_admin = pox_5_bond_admin(is_mainnet);
+    POX_5_BODY
+        .replace(SBTC_TOKEN_MAINNET_CONTRACT, &sbtc_contract.to_string())
+        .replace(POX_5_BOND_ADMIN_MAINNET, &bond_admin.to_string())
+}
+
 pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(
         StandardPrincipalData::from(addr.clone()),
@@ -209,19 +244,23 @@ pub struct RawRewardSetEntry {
     pub signer: Option<[u8; SIGNERS_PK_LEN]>,
 }
 
-// This enum captures the names of the PoX contracts by version.
-// This should deprecate the const values `POX_version_NAME`, but
-// that is the kind of refactor that should be in its own PR.
-// Having an enum here is useful for a bunch of reasons, but chiefly:
-//   * we'll be able to add an Ord implementation, so that we can
-//     do much easier version checks
-//   * static enforcement of matches
-define_named_enum!(PoxVersions {
-    Pox1("pox"),
-    Pox2("pox-2"),
-    Pox3("pox-3"),
-    Pox4("pox-4"),
-});
+define_named_enum!(
+    /// This enum captures the names of the PoX contracts by version.
+    // This should deprecate the const values `POX_version_NAME`, but
+    // that is the kind of refactor that should be in its own PR.
+    // Having an enum here is useful for a bunch of reasons, but chiefly:
+    //   * we'll be able to add an Ord implementation, so that we can
+    //     do much easier version checks
+    //   * static enforcement of matches
+    #[derive(PartialOrd, Ord)]
+    PoxVersions {
+        Pox1("pox"),
+        Pox2("pox-2"),
+        Pox3("pox-3"),
+        Pox4("pox-4"),
+        Pox5("pox-5"),
+    }
+);
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PoxStartCycleInfo {
@@ -263,7 +302,7 @@ pub struct NakamotoSignerEntry {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RewardSet {
+pub struct RewardSetV0 {
     pub rewarded_addresses: Vec<PoxAddress>,
     pub start_cycle_state: PoxStartCycleInfo,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -271,6 +310,62 @@ pub struct RewardSet {
     pub signers: Option<Vec<NakamotoSignerEntry>>,
     #[serde(default)]
     pub pox_ustx_threshold: Option<u128>,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct WaterfallCycleSet {
+    pub sbtc_address: PoxAddress,
+    pub signers: Vec<NakamotoSignerEntry>,
+    pub pox_ustx_threshold: u128,
+}
+
+/// Versioned reward set enum. Serializes with a `reward_set_version` field
+/// embedded in the JSON for backward-compatible deserialization.
+/// Existing data without the field is deserialized as V0 (default).
+#[derive(Debug, PartialEq, Clone)]
+pub enum RewardSet {
+    V0(RewardSetV0),
+    Waterfall(WaterfallCycleSet),
+}
+
+impl serde::Serialize for RewardSet {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Serialize as the inner variant's JSON with an added `reward_set_version` field
+        let mut value = match self {
+            RewardSet::V0(v0) => serde_json::to_value(v0).map_err(serde::ser::Error::custom)?,
+            RewardSet::Waterfall(wf) => {
+                serde_json::to_value(wf).map_err(serde::ser::Error::custom)?
+            }
+        };
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert(
+                "reward_set_version".to_string(),
+                serde_json::Value::Number(self.version().into()),
+            );
+        }
+        value.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RewardSet {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let version = value
+            .get("reward_set_version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        match version {
+            0 => serde_json::from_value::<RewardSetV0>(value)
+                .map(RewardSet::V0)
+                .map_err(serde::de::Error::custom),
+            1 => serde_json::from_value::<WaterfallCycleSet>(value)
+                .map(RewardSet::Waterfall)
+                .map_err(serde::de::Error::custom),
+            _ => Err(serde::de::Error::custom(format!(
+                "Unknown reward_set_version: {version}"
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -297,13 +392,21 @@ impl PoxStartCycleInfo {
 impl RewardSet {
     /// Create an empty reward set where no one gets an early unlock
     pub fn empty() -> RewardSet {
-        RewardSet {
+        RewardSet::V0(RewardSetV0 {
             rewarded_addresses: vec![],
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
             signers: None,
             pox_ustx_threshold: None,
+        })
+    }
+
+    /// Return the version discriminant for this reward set variant.
+    pub fn version(&self) -> u32 {
+        match self {
+            RewardSet::V0(_) => 0,
+            RewardSet::Waterfall(_) => 1,
         }
     }
 
@@ -320,16 +423,77 @@ impl RewardSet {
     /// Return the total `weight` of all signers in the reward set.
     /// If there are no reward set signers, a ChainstateError is returned.
     pub fn total_signing_weight(&self) -> Result<u32, String> {
-        let Some(ref reward_set_signers) = self.signers else {
+        let Some(signers) = self.signers() else {
             return Err("Unable to calculate total weight - No signers in reward set".to_string());
         };
-        Ok(reward_set_signers
-            .iter()
-            .map(|s| s.weight)
-            .fold(0, |s, acc| {
-                acc.checked_add(s)
-                    .expect("FATAL: Total signer weight > u32::MAX")
-            }))
+        Ok(signers.iter().map(|s| s.weight).fold(0, |s, acc| {
+            acc.checked_add(s)
+                .expect("FATAL: Total signer weight > u32::MAX")
+        }))
+    }
+
+    /// Return a reference to the signers list.
+    /// V0 returns `None` if the signers field is `None`;
+    /// Waterfall always has signers.
+    pub fn signers(&self) -> Option<&Vec<NakamotoSignerEntry>> {
+        match self {
+            RewardSet::V0(v0) => v0.signers.as_ref(),
+            RewardSet::Waterfall(wf) => Some(&wf.signers),
+        }
+    }
+
+    /// Return a reference to the inner `RewardSetV0`, if this is the V0 variant.
+    pub fn as_v0(&self) -> Option<&RewardSetV0> {
+        match self {
+            RewardSet::V0(v0) => Some(v0),
+            _ => None,
+        }
+    }
+
+    /// Return a mutable reference to the inner `RewardSetV0`, if this is the V0 variant.
+    pub fn as_v0_mut(&mut self) -> Option<&mut RewardSetV0> {
+        match self {
+            RewardSet::V0(v0) => Some(v0),
+            _ => None,
+        }
+    }
+
+    /// Return a reference to the inner `WaterfallCycleSet`, if this is the Waterfall variant.
+    pub fn as_waterfall(&self) -> Option<&WaterfallCycleSet> {
+        match self {
+            RewardSet::Waterfall(wf) => Some(wf),
+            _ => None,
+        }
+    }
+
+    /// Return the rewarded addresses (V0 only). Returns `None` for Waterfall.
+    pub fn rewarded_addresses(&self) -> Option<&Vec<PoxAddress>> {
+        match self {
+            RewardSet::V0(v0) => Some(&v0.rewarded_addresses),
+            _ => None,
+        }
+    }
+
+    /// Return the pox_ustx_threshold.
+    pub fn pox_ustx_threshold(&self) -> Option<u128> {
+        match self {
+            RewardSet::V0(v0) => v0.pox_ustx_threshold,
+            RewardSet::Waterfall(set) => Some(set.pox_ustx_threshold),
+        }
+    }
+
+    /// Length of the `pox_treatment` BitVec a miner should construct in blocks
+    /// during this reward set.
+    ///
+    /// * V0: one bit per reward-slot recipient.
+    /// * Waterfall: always 1 => there is a single sBTC output. This treatment vec
+    ///    is no longer used in consensus, but the miner includes it for deserialization
+    ///    compatibility
+    pub fn pox_treatment_bitvec_len(&self) -> u16 {
+        match self {
+            RewardSet::V0(v0) => v0.rewarded_addresses.len().try_into().unwrap_or(u16::MAX),
+            RewardSet::Waterfall(_) => 1,
+        }
     }
 }
 
@@ -930,14 +1094,14 @@ impl StacksChainState {
             missed_slots.clear();
         }
         info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
-        RewardSet {
+        RewardSet::V0(RewardSetV0 {
             rewarded_addresses: reward_set,
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: missed_slots,
             },
             signers: signer_set,
             pox_ustx_threshold: Some(threshold),
-        }
+        })
     }
 
     pub fn get_threshold_from_participation(
@@ -1348,9 +1512,12 @@ impl StacksChainState {
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
         let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
+        // Cycle-keyed query: derive the contract from the cycle itself rather
+        // than from a tip-height comparison, so the boundary semantics match
+        // `first_pox_waterfall_block` and the signer-set dispatch.
         let pox_contract_name = burnchain
             .pox_constants
-            .active_pox_contract(reward_cycle_start_height);
+            .active_pox_contract_for_cycle(burnchain.first_block_height, reward_cycle);
 
         info!(
             "Active PoX contract at {} (cycle start height {}): {}",
@@ -1429,6 +1596,89 @@ pub mod pox_4_tests;
 pub mod signers_tests;
 
 #[cfg(test)]
+mod pox_5_body_tests {
+    use super::*;
+    use crate::chainstate::nakamoto::signer_set::{
+        set_pox_5_bond_admin, set_pox_5_sbtc_contract, POX_5_BOND_ADMIN_TESTNET,
+        SBTC_TOKEN_TESTNET_CONTRACT,
+    };
+
+    #[test]
+    fn make_pox_5_body_substitution() {
+        // Reset globals to a known state; another test may have left values
+        // behind.
+        set_pox_5_sbtc_contract(None);
+        set_pox_5_bond_admin(None);
+
+        // Mainnet body preserves the canonical literal verbatim regardless of
+        // any override.
+        let body_mainnet = make_pox_5_body(true);
+        assert!(body_mainnet.contains(SBTC_TOKEN_MAINNET_CONTRACT));
+
+        // With no override, non-mainnet falls back to the testnet default.
+        let body_non_mainnet_default = make_pox_5_body(false);
+        assert!(body_non_mainnet_default.contains(SBTC_TOKEN_TESTNET_CONTRACT));
+        assert!(!body_non_mainnet_default.contains(SBTC_TOKEN_MAINNET_CONTRACT));
+
+        // With an override, the canonical literal is replaced on non-mainnet
+        // but ignored on mainnet.
+        let alt = QualifiedContractIdentifier::parse(
+            "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtc-token",
+        )
+        .unwrap();
+        set_pox_5_sbtc_contract(Some(alt.clone()));
+
+        let body_override = make_pox_5_body(false);
+        assert!(body_override.contains(&alt.to_string()));
+        assert!(!body_override.contains(SBTC_TOKEN_MAINNET_CONTRACT));
+
+        let body_mainnet_with_override = make_pox_5_body(true);
+        assert!(body_mainnet_with_override.contains(SBTC_TOKEN_MAINNET_CONTRACT));
+        assert!(!body_mainnet_with_override.contains(&alt.to_string()));
+
+        // Clean up so we don't leak into other tests in this binary.
+        set_pox_5_sbtc_contract(None);
+    }
+
+    #[test]
+    fn make_pox_5_body_bond_admin_substitution() {
+        // Reset globals to a known state.
+        set_pox_5_sbtc_contract(None);
+        set_pox_5_bond_admin(None);
+
+        // The mainnet placeholder must be present in the unsubstituted source
+        // — otherwise the substitution below would silently no-op.
+        assert!(POX_5_BODY.contains(POX_5_BOND_ADMIN_MAINNET));
+
+        // Mainnet leaves the placeholder verbatim regardless of any override.
+        let body_mainnet = make_pox_5_body(true);
+        assert!(body_mainnet.contains(POX_5_BOND_ADMIN_MAINNET));
+
+        // With no override, non-mainnet falls back to the testnet default.
+        let body_non_mainnet_default = make_pox_5_body(false);
+        assert!(body_non_mainnet_default.contains(POX_5_BOND_ADMIN_TESTNET));
+        assert!(!body_non_mainnet_default.contains(POX_5_BOND_ADMIN_MAINNET));
+
+        // With an override, the placeholder is replaced on non-mainnet but
+        // ignored on mainnet.
+        let admin = PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        set_pox_5_bond_admin(Some(admin.clone()));
+
+        let body_override = make_pox_5_body(false);
+        assert!(body_override.contains(&admin.to_string()));
+        assert!(!body_override.contains(POX_5_BOND_ADMIN_MAINNET));
+        assert!(!body_override.contains(POX_5_BOND_ADMIN_TESTNET));
+
+        let body_mainnet_with_override = make_pox_5_body(true);
+        assert!(body_mainnet_with_override.contains(POX_5_BOND_ADMIN_MAINNET));
+        assert!(!body_mainnet_with_override.contains(&admin.to_string()));
+
+        // Clean up so we don't leak into other tests in this binary.
+        set_pox_5_bond_admin(None);
+    }
+}
+
+#[cfg(test)]
 pub mod test {
     use std::collections::HashSet;
 
@@ -1502,7 +1752,8 @@ pub mod test {
         ];
         assert_eq!(
             StacksChainState::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05)
-                .rewarded_addresses
+                .rewarded_addresses()
+                .unwrap()
                 .len(),
             3
         );
@@ -1522,6 +1773,7 @@ pub mod test {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

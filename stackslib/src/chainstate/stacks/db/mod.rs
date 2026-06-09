@@ -288,20 +288,14 @@ impl DBConfig {
             error!("Failed to parse Stacks chainstate version as u32: {e}");
             0
         });
-        match epoch_id {
-            StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => (1..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
-            StacksEpochId::Epoch2_05 => (2..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
+        if epoch_id >= StacksEpochId::Epoch21 {
+            (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else if epoch_id == StacksEpochId::Epoch2_05 {
+            (2..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else if epoch_id == StacksEpochId::Epoch20 {
+            (1..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else {
+            true
         }
     }
 }

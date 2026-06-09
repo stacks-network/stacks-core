@@ -38,7 +38,10 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
-use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::nakamoto::signer_set::{
+    set_pox_5_bond_admin, set_pox_5_sbtc_contract, set_pox_5_sbtc_registry_contract,
+    NakamotoSigners,
+};
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -569,6 +572,15 @@ impl Config {
                 burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
                 burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
             }
+
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch40) {
+                // Override pox_5_activation_height to the start_height of epoch4.0
+                debug!(
+                    "Override pox_5_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_5_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_5_activation_height = epoch.start_height as u32;
+            }
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
@@ -733,6 +745,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch33)
             } else if epoch_name == EPOCH_CONFIG_3_4_0 {
                 Ok(StacksEpochId::Epoch34)
+            } else if epoch_name == EPOCH_CONFIG_4_0_0 {
+                Ok(StacksEpochId::Epoch40)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -749,22 +763,7 @@ impl Config {
             );
         }
 
-        let expected_list = [
-            StacksEpochId::Epoch10,
-            StacksEpochId::Epoch20,
-            StacksEpochId::Epoch2_05,
-            StacksEpochId::Epoch21,
-            StacksEpochId::Epoch22,
-            StacksEpochId::Epoch23,
-            StacksEpochId::Epoch24,
-            StacksEpochId::Epoch25,
-            StacksEpochId::Epoch30,
-            StacksEpochId::Epoch31,
-            StacksEpochId::Epoch32,
-            StacksEpochId::Epoch33,
-            StacksEpochId::Epoch34,
-        ];
-        for (expected_epoch, configured_epoch) in expected_list
+        for (expected_epoch, configured_epoch) in StacksEpochId::ALL
             .iter()
             .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
         {
@@ -912,6 +911,30 @@ impl Config {
         // Validate the node config
         if is_mainnet && node.use_test_genesis_chainstate == Some(true) {
             return Err("Attempted to run mainnet node with `use_test_genesis_chainstate`".into());
+        }
+
+        if is_mainnet && node.pox_5_sbtc_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_contract` set. \
+                 The pox-5 contract always references the canonical sBTC token on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_sbtc_registry_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_registry_contract` set. \
+                 Signer-set computation always reads the canonical sBTC registry on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_bond_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_bond_admin` set. \
+                 The pox-5 contract always uses its default bond-admin initializer on mainnet."
+                    .into(),
+            );
         }
 
         if node.stacker || node.miner {
@@ -1132,6 +1155,16 @@ impl Config {
 
     pub fn is_mainnet(&self) -> bool {
         matches!(self.burnchain.mode.as_str(), "mainnet")
+    }
+
+    /// Apply config-driven process-wide runtime state. Call once from a run
+    /// loop's lifecycle entry point, before chainstate is opened. This picks
+    /// up direct field mutations on `Config` (e.g., from integration tests)
+    /// in addition to values populated by [`Config::from_config_file`].
+    pub fn apply_runtime_state(&self) {
+        set_pox_5_sbtc_contract(self.node.pox_5_sbtc_contract.clone());
+        set_pox_5_sbtc_registry_contract(self.node.pox_5_sbtc_registry_contract.clone());
+        set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -1727,6 +1760,7 @@ pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
+pub const EPOCH_CONFIG_4_0_0: &str = "4.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -2221,6 +2255,30 @@ pub struct NodeConfig {
     /// ---
     /// @default: `false`
     pub txindex: bool,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
+    /// references via `get-balance`. Devnet/test only; different operators
+    /// configuring different contracts will fork the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that
+    /// signer-set computation reads `get-current-aggregate-pubkey` from to
+    /// derive the per-cycle sBTC waterfall recipient. Devnet/test only;
+    /// different operators configuring different contracts will fork the
+    /// chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_registry_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes
+    /// the `bond-admin` data var to. By default the contract source
+    /// initializes it to `tx-sender`, which at boot deploy time is the
+    /// unsignable boot principal — making `setup-bond` uncallable. Devnets
+    /// and integration tests can set this to a key they control. Devnet/test
+    /// only — different operators configuring different admins will fork
+    /// the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_bond_admin: Option<PrincipalData>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2485,6 +2543,9 @@ impl Default for NodeConfig {
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
             txindex: false,
+            pox_5_sbtc_contract: None,
+            pox_5_sbtc_registry_contract: None,
+            pox_5_bond_admin: None,
         }
     }
 }
@@ -3467,7 +3528,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum total size (in bytes) of data allowed to be read from Clarity data
     /// space (variables, maps) during a read-only call.
     /// ---
-    /// @default: `100_000` (100 KB).
+    /// @default: `200_000` (~200 KB).
     /// @units: bytes
     pub read_only_call_limit_read_length: Option<u64>,
     /// Maximum number of distinct write operations allowed during a read-only call.
@@ -3480,7 +3541,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum number of distinct read operations from Clarity data space allowed
     /// during a read-only call.
     /// ---
-    /// @default: `30`
+    /// @default: `100`
     pub read_only_call_limit_read_count: Option<u64>,
     /// Runtime cost limit for an individual read-only function call. This represents
     /// computation effort within the Clarity VM.
@@ -3951,6 +4012,19 @@ pub struct NodeConfigFile {
     pub fault_injection_block_push_fail_probability: Option<u8>,
     /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
     pub txindex: Option<bool>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC token contract that pox-5 references for `get-balance`.
+    pub pox_5_sbtc_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC registry contract from which signer-set computation reads
+    /// `get-current-aggregate-pubkey` to derive the per-cycle sBTC waterfall
+    /// recipient.
+    pub pox_5_sbtc_registry_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
+    /// pox-5 initializes the `bond-admin` data var to. Used to override the
+    /// default initializer (`tx-sender`, the unsignable boot principal) so
+    /// `setup-bond` is callable from a key controlled by the operator.
+    pub pox_5_bond_admin: Option<String>,
 }
 
 impl NodeConfigFile {
@@ -4050,6 +4124,24 @@ impl NodeConfigFile {
             },
 
             txindex: self.txindex.unwrap_or(default_node_config.txindex),
+            pox_5_sbtc_contract: self
+                .pox_5_sbtc_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_contract: {e}"))?,
+            pox_5_sbtc_registry_contract: self
+                .pox_5_sbtc_registry_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_registry_contract: {e}"))?,
+            pox_5_bond_admin: self
+                .pox_5_bond_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_bond_admin: {e}"))?,
         };
         Ok(node_config)
     }

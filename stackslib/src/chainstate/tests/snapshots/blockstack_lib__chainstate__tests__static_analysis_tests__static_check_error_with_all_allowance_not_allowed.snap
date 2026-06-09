@@ -1,41 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "1c35c239936aefb61049a31adf24465e18a8d36ba538098979aef4f2c3fe2152",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: all-allow-not-allowed-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 8,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 2029,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 8,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 2029,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "335528ccc40a9ce9d151e2e70610e149b11f30fe672b852884f7b19dc7f8c12e",
+    marf_hash: "b472edc9380e3b655021c8182862e0cc9255faf299ed85638be90885e5b69f30",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c6ff1152801c1de2c30ef12eb62401c34ab670499feeb6058135a3968fc70237",
+    marf_hash: "3b01c362bf30a7e4e03e80f42d9b790d93d5f838d999d25ef5e0dc87e33957c5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

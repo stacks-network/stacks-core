@@ -1214,7 +1214,7 @@ mod tests {
                                 }
                             ]
                         }
-                    ]
+                    ],
                 })
             },
             BlockFixture {

@@ -54,7 +54,37 @@ use crate::net::tests::NakamotoBootPlan;
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
 /// Note that contract deploys MUST be done in each epoch >= 2.0.
-pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch33, StacksEpochId::Epoch34];
+///
+/// Epoch 4.0 is intentionally excluded while it is under active development:
+/// its consensus behavior is still changing, so including it here would force
+/// constant churn in the `.snap` files. Re-add `StacksEpochId::Epoch40` here
+/// once 4.0 stabilizes (the supporting infra in `clarity_versions_for_epoch`
+/// and the epoch height calculation is left in place for that purpose).
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch34];
+
+/// The latest epoch exercised by the consensus snapshot tests, i.e. the maximum
+/// of [`EPOCHS_TO_TEST`]. Epochs beyond this are intentionally excluded (e.g.
+/// Epoch 4.0 while it is under active development).
+pub fn max_tested_epoch() -> StacksEpochId {
+    *EPOCHS_TO_TEST
+        .iter()
+        .max()
+        .expect("EPOCHS_TO_TEST must contain at least one epoch")
+}
+
+/// Like [`StacksEpochId::since`], but clamped to [`max_tested_epoch`]. Tests use
+/// this to build deploy/call epoch ranges so that excluded epochs are never
+/// deployed in or called in. Deploying or calling in an excluded epoch would
+/// otherwise keep that epoch's results (marf hashes, costs) in the snapshots and
+/// reintroduce the churn that excluding it is meant to avoid.
+pub fn tested_epochs_since(start: StacksEpochId) -> Vec<StacksEpochId> {
+    let max = max_tested_epoch();
+    StacksEpochId::since(start)
+        .iter()
+        .copied()
+        .filter(|epoch| *epoch <= max)
+        .collect()
+}
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
@@ -99,6 +129,14 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity3,
             ClarityVersion::Clarity4,
             ClarityVersion::Clarity5,
+        ],
+        StacksEpochId::Epoch40 => &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity2,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5,
+            ClarityVersion::Clarity6,
         ],
     }
 }
@@ -383,7 +421,8 @@ impl ConsensusChain<'_> {
                 StacksEpochId::Epoch30
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
-                | StacksEpochId::Epoch33 => {
+                | StacksEpochId::Epoch33
+                | StacksEpochId::Epoch34 => {
                     // Only need 1 block per Epoch
                     if num_blocks_per_epoch.contains_key(epoch_id) {
                         start_height + 1
@@ -394,7 +433,7 @@ impl ConsensusChain<'_> {
                     }
                 }
                 // The last Epoch height never ends
-                StacksEpochId::Epoch34 => STACKS_EPOCH_MAX,
+                StacksEpochId::Epoch40 => STACKS_EPOCH_MAX,
             };
 
             // Special case the Epoch 2.5 -> Epoch 3.0 transition
@@ -1609,7 +1648,7 @@ impl TestTxFactory {
 /// * `contract_code` — The Clarity source code for the contract.
 /// * `function_name` — The public function to call.
 /// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
-/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
+/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to every epoch from 2.0 up to the latest epoch under test (see [`tested_epochs_since`]).
 /// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
 /// * `clarity_versions` — *(optional)* Clarity versions to include in testing. For each epoch to test, at least one clarity version must be available. Defaults to [`ClarityVersion::ALL`] (all versions tested).
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy once before the main contract logic.
@@ -1645,9 +1684,11 @@ macro_rules! contract_call_consensus_test {
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
-             // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-            let deploy_epochs = &clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
-            $(let deploy_epochs = $deploy_epochs;)?
+             // Handle deploy_epochs parameter (default to every epoch from 2.0 up
+             // to the latest epoch under test if not provided).
+            let default_deploy_epochs = $crate::chainstate::tests::consensus::tested_epochs_since(clarity::types::StacksEpochId::Epoch20);
+            let deploy_epochs: &[clarity::types::StacksEpochId] = &default_deploy_epochs;
+            $(let deploy_epochs: &[clarity::types::StacksEpochId] = $deploy_epochs;)?
 
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
             let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
@@ -1968,7 +2009,7 @@ fn problematic_supertype_list() {
     (err  1)))
     (print (var-get my-list))
     ",
-    deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch20),
+    deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch20),
     );
 }
 

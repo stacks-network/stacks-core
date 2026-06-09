@@ -2,6 +2,12 @@
 [project]
 name = "core-contracts"
 
+[[project.requirements]]
+contract_id = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit"
+
+[[project.requirements]]
+contract_id = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal"
+
 [repl]
 costs_version = 1
 
@@ -53,3 +59,25 @@ epoch = 2.4
 path = "./tests/pox_4_test.clar"
 clarity_version = 2
 epoch = 2.4
+
+[contracts.pox-5]
+path = "./contracts/pox-5.clar"
+clarity_version = 6
+epoch = 4.0
+
+[contracts.test-pox-5-signer]
+path = "./contracts/test-pox-5-signer.clar"
+clarity_version = 6
+epoch = 4.0
+
+[contracts.signer-manager]
+path = "./contracts/signer-manager.clar"
+clarity_version = 6
+epoch = 4.0
+
+[repl.analysis.lints]
+# unused_const = "off"
+# unused_data_var = "off"
+panic = "off"
+case_fn = "off"
+# unused_map = "off"

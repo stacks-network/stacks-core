@@ -1,131 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "8e90d17ed98dbd2770b62617005d3d26df8153f41b907686e1b8fd85f06dfde1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 423,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 423,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "03caed5e2447e10ccf3d8053ba7691cd3196f66bac08ec829aea25533dd2c34a",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 423,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 423,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "aadef2a86e017db7484936a1d9d7b9c098d6c4b2e3d7f70dd0a4ffae9a0d730a",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 423,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 423,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6078c4386fab655f20fa19a9ec5452a8a8c0bc4a012389afdd679af0875fa8cd",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unknown-function-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 423,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 423,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0f00fe2dbf7cbd3b8c97103a428ac960d66b732c82026e6f20114f2a134b0ba7",
+    marf_hash: "542a8ccad01320773239360a1911aba3de354eb3d5f96453595d3ab7eeab5dee",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "052dd157af1a4f980b967e01c2e025ceb28cfaa947ee7ce58a3ece9cbc34f863",
+    marf_hash: "ffac3536828badc582ee5866fe96380fd53f3b5076e26230be2c16c064246057",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6a5d19188862c9b81159f896ee996402374b678e996b56b7190572acb11008ea",
+    marf_hash: "34e7b97ac2f3a027f54e1a616049a07415ddc8184146380e8375298d8a4062ea",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ee3dd279579c6850af67ee86711d6bf641a14f192d76a7224c543c90d7e8f50d",
+    marf_hash: "de0f9cce8f46f4290282d43e4845aa8706c8e2993bfee2b015aa35e6143205ad",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9e027d537e83cdbdfd47f0b7eaca6f5ee064ff839ef25775a6bbaf86d16386ea",
+    marf_hash: "7b500c25f338c5e88312cce945d148f5f634a37cb158ba6930327862a245bf06",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

@@ -1,131 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "f64ec0c5d6b7033c006f97bb4a1f981895706f2406e2a2a4777b0c39d400a313",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-bad-sign-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: invalid trait definition) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1397,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1397,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "38b93efacd88baca41f53afd4c3c3a6a784afd90a5e096c8473d3ac41a7945f1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-bad-sign-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: invalid trait definition) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1397,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1397,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "3881de5c4f1984b5854a764141e8be754a68e9012053dc594b0a21668235b993",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-bad-sign-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: invalid trait definition) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1397,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1397,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bfdb92b1db0aaebc7a4a5a6e716900d1748a917f8b531059d925c42da40ddf14",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-bad-sign-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: invalid trait definition) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 9,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1397,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 9,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1397,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f0d91debeebd071ff896cb69954845f32be02fbd9ee39ae60ebd944f53b5ed2c",
+    marf_hash: "3e1ea38f201bc3d8c45bcf50f841a05691586b95b52efe9ae80edf4868de24c6",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8d85991b75b71135a8e61f2859c72bc14d8dfaa2428465365ae55b08c7e47c33",
+    marf_hash: "dff5e624966a7b04a58b4b92568830080c0d613adcaad9f1d9c18c25f4535705",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8995aa86c55a39a3e0b8e17a4e46338d657286ce88ea39db6ccac7dfbe272bc8",
+    marf_hash: "296e44817bfb246e79f6e280c003702f30a4132a9083914c01a0f199826a2324",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "060079d1bc91a876f3e769a69e97a791ae8c2d44652cbae249fbd8ce811b1b96",
+    marf_hash: "a27c3727ca563514a57d70a31303daff9b4af4aad2ea8eea2fca7be991ee8137",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,7 +124,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bb952c8dcf99f1ea79cb8b73bccb5888fa2d377454b62a14f4ecec9da8918401",
+    marf_hash: "04fc4106924b0f84435cbac63584375ad82ee23cd71c1311fc5522c7a3b43cd7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

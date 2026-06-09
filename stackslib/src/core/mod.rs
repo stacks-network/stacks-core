@@ -55,7 +55,7 @@ pub use stacks_common::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_MAINNET, PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET,
+    PEER_VERSION_EPOCH_4_0, PEER_VERSION_MAINNET, PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET,
     PEER_VERSION_TESTNET_MAJOR, STACKS_EPOCH_MAX,
 };
 
@@ -74,6 +74,31 @@ pub const BURNCHAIN_TX_SEARCH_WINDOW: u8 = 6;
 pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 20;
 
 pub const GENESIS_EPOCH: StacksEpochId = StacksEpochId::Epoch20;
+
+/// The x-coordinate public key with no known discrete logarithm.
+///
+/// # Notes
+///
+/// This particular X-coordinate was discussed in the original taproot BIP
+/// on spending rules BIP-0341[1]. Specifically, the X-coordinate is formed
+/// by taking the hash of the standard uncompressed encoding of the
+/// secp256k1 base point G as the X-coordinate. In that BIP the authors
+/// wrote the X-coordinate that is reproduced below.
+///
+/// [1]: https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
+#[rustfmt::skip]
+pub const NUMS_X_COORDINATE: [u8; 32] = [
+    0x50, 0x92, 0x9b, 0x74, 0xc1, 0xa0, 0x49, 0x54,
+    0xb7, 0x8b, 0x4b, 0x60, 0x35, 0xe9, 0x7a, 0x5e,
+    0x07, 0x8a, 0x5a, 0x0f, 0x28, 0xec, 0x96, 0xd5,
+    0x47, 0xbf, 0xee, 0x9a, 0xce, 0x80, 0x3a, 0xc0,
+];
+
+/// Maximum BTC fee, in satoshis, encoded into the sBTC deposit script's
+/// `<deposit-data>` payload. Scaffolding constant: chosen high enough that
+/// real-world bitcoin fees never exceed it. Will be replaced by a
+/// protocol-determined value before mainnet activation.
+pub const POX_5_SBTC_DEPOSIT_MAX_FEE_SATS: u64 = 80_000;
 
 /// The number of blocks which will share the block bonus
 ///   from burn blocks that occurred without a sortition.
@@ -116,6 +141,8 @@ pub const BITCOIN_MAINNET_STACKS_32_BURN_HEIGHT: u64 = 907_740;
 pub const BITCOIN_MAINNET_STACKS_33_BURN_HEIGHT: u64 = 923_222;
 /// This is Epoch-3.4, activation timing proposed in SIP-039
 pub const BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT: u64 = 943_333;
+/// This is Epoch-4.0, activation timing TBD. Placeholder until scheduled.
+pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 4_000_000;
 
 /// Bitcoin mainline testnet3 activation heights.
 /// TODO: No longer used since testnet3 is dead, so remove.
@@ -134,6 +161,7 @@ pub const BITCOIN_TESTNET_STACKS_31_BURN_HEIGHT: u64 = 30_000_001;
 pub const BITCOIN_TESTNET_STACKS_32_BURN_HEIGHT: u64 = 30_000_002;
 pub const BITCOIN_TESTNET_STACKS_33_BURN_HEIGHT: u64 = 30_000_003;
 pub const BITCOIN_TESTNET_STACKS_34_BURN_HEIGHT: u64 = 30_000_004;
+pub const BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT: u64 = 40_000_000;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -339,9 +367,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_4
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch40,
+            start_height: BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
+            network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
 }
@@ -435,9 +470,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: BITCOIN_TESTNET_STACKS_34_BURN_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_4
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch40,
+            start_height: BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
+            network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
 }
@@ -531,9 +573,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: 11001,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: 12001,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_4
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch40,
+            start_height: 12001,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
+            network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
 }
@@ -585,6 +634,10 @@ pub static STACKS_EPOCH_3_3_MARKER: u8 = 0x0f;
 /// *or greater*.
 pub static STACKS_EPOCH_3_4_MARKER: u8 = 0x10;
 
+/// Stacks 4.0 epoch marker.  All block-commits in 4.0 must have a memo bitfield with this value
+/// *or greater*.
+pub static STACKS_EPOCH_4_0_MARKER: u8 = 0x11;
+
 /// Latest Stacks epoch marker. Automatically uses the marker for the highest supported epoch.
 pub static STACKS_EPOCH_LATEST_MARKER: u8 =
     marker_for_epoch(StacksEpochId::latest()).expect("Latest epoch should always have a marker");
@@ -604,6 +657,7 @@ pub const fn marker_for_epoch(epoch_id: StacksEpochId) -> Option<u8> {
         StacksEpochId::Epoch32 => Some(STACKS_EPOCH_3_2_MARKER),
         StacksEpochId::Epoch33 => Some(STACKS_EPOCH_3_3_MARKER),
         StacksEpochId::Epoch34 => Some(STACKS_EPOCH_3_4_MARKER),
+        StacksEpochId::Epoch40 => Some(STACKS_EPOCH_4_0_MARKER),
     }
 }
 
@@ -938,48 +992,29 @@ fn test_validate_epochs_rejects_stale_peer_network_epoch() {
 }
 
 pub trait StacksEpochExtension {
+    /// Build an epoch list spanning `Epoch10..=last_epoch` with the standard
+    /// test cadence: Epoch10 covers `[0, first_burnchain_height)`, each
+    /// subsequent epoch occupies 4 blocks, and `last_epoch` ends at
+    /// `STACKS_EPOCH_MAX`.
     #[cfg(test)]
-    fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> EpochList;
+    fn unit_test_up_to(first_burnchain_height: u64, last_epoch: StacksEpochId) -> EpochList;
+    /// Build an epoch list where `target_epoch` is the only active epoch.
+    /// Pre-Epoch25 epochs are disabled (zero-width at height 0); Epoch25
+    /// spans `[0, first_burnchain_height)` as the transition point; Nakamoto
+    /// epochs before `target_epoch` are zero-width at `first_burnchain_height`;
+    /// `target_epoch` spans `[first_burnchain_height, STACKS_EPOCH_MAX)`.
+    /// Requires `target_epoch >= Epoch30`.
     #[cfg(test)]
-    fn unit_test_2_05(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_2_05_only(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_pre_2_05(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_2_1(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_2_2(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_2_3(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_2_4(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_2_5(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_0(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_1(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_2(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_3(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_4(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_0_only(first_burnchain_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_2_only(first_burnchain_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_3_only(first_burnchain_height: u64) -> EpochList;
-    #[cfg(test)]
-    fn unit_test_3_4_only(first_burnchain_height: u64) -> EpochList;
-    fn all(
-        epoch_2_0_block_height: u64,
-        epoch_2_05_block_height: u64,
-        epoch_2_1_block_height: u64,
+    fn unit_test_epoch_only(first_burnchain_height: u64, target_epoch: StacksEpochId) -> EpochList;
+    /// Build a pre-Nakamoto fixture with custom transition heights for the
+    /// pre-2.1 epochs. Spans Epoch10..=Epoch21 with all `block_limit`s set to
+    /// `ExecutionCost::max_value()` (so cost limits are out of the way).
+    /// Each parameter is the `start_height` of the named epoch (which equals
+    /// the `end_height` of the preceding one).
+    fn unit_test_2_1_with_heights(
+        epoch_2_0_start: u64,
+        epoch_2_05_start: u64,
+        epoch_2_1_start: u64,
     ) -> EpochList;
     fn validate_epochs(epochs: &[StacksEpoch]) -> EpochList;
     /// This method gets the epoch vector.
@@ -1014,1665 +1049,123 @@ impl StacksEpochExtension for StacksEpoch {
     }
 
     #[cfg(test)]
-    fn unit_test_pre_2_05(first_burnchain_height: u64) -> EpochList {
+    fn unit_test_up_to(first_burnchain_height: u64, last_epoch: StacksEpochId) -> EpochList {
         info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
+            "StacksEpoch unit_test_up_to last_epoch={last_epoch} first_burn_height={first_burnchain_height}"
         );
 
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_2_05(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
+        // Block limits used by the test epoch fixtures.
+        let block_limit_for = |epoch_id: StacksEpochId| -> ExecutionCost {
+            match epoch_id {
+                StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => ExecutionCost::max_value(),
+                StacksEpochId::Epoch2_05 => ExecutionCost {
                     write_length: 205205,
                     write_count: 205205,
                     read_length: 205205,
                     read_count: 205205,
                     runtime: 205205,
                 },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_2_05_only(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_2_1(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
+                _ => ExecutionCost {
                     write_length: 210210,
                     write_count: 210210,
                     read_length: 210210,
                     read_count: 210210,
                     runtime: 210210,
                 },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_2_2(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_2_3(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test_2_3 first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: first_burnchain_height + 16,
-                block_limit: ExecutionCost {
-                    write_length: 220220,
-                    write_count: 220220,
-                    read_length: 220220,
-                    read_count: 220220,
-                    runtime: 220220,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 16,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 230230,
-                    write_count: 230230,
-                    read_length: 230230,
-                    read_count: 230230,
-                    runtime: 230230,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_2_4(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test_2_4 first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: first_burnchain_height + 16,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 16,
-                end_height: first_burnchain_height + 20,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: first_burnchain_height + 20,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_2_5(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test_2_5 first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: first_burnchain_height + 16,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 16,
-                end_height: first_burnchain_height + 20,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: first_burnchain_height + 20,
-                end_height: first_burnchain_height + 24,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: first_burnchain_height + 24,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_5,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_0(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test_3_0 first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: first_burnchain_height + 16,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 16,
-                end_height: first_burnchain_height + 20,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: first_burnchain_height + 20,
-                end_height: first_burnchain_height + 24,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: first_burnchain_height + 24,
-                end_height: first_burnchain_height + 28,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_5,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height + 28,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_1(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test_3_1 first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: first_burnchain_height + 16,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 16,
-                end_height: first_burnchain_height + 20,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: first_burnchain_height + 20,
-                end_height: first_burnchain_height + 24,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: first_burnchain_height + 24,
-                end_height: first_burnchain_height + 28,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_5,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height + 28,
-                end_height: first_burnchain_height + 32,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height + 32,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_1,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_2(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test_3_2 first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: first_burnchain_height + 16,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 16,
-                end_height: first_burnchain_height + 20,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: first_burnchain_height + 20,
-                end_height: first_burnchain_height + 24,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: first_burnchain_height + 24,
-                end_height: first_burnchain_height + 28,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_5,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height + 28,
-                end_height: first_burnchain_height + 32,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height + 32,
-                end_height: first_burnchain_height + 36,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch32,
-                start_height: first_burnchain_height + 36,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_2,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_3(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test_3_3 first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: first_burnchain_height + 16,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 16,
-                end_height: first_burnchain_height + 20,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: first_burnchain_height + 20,
-                end_height: first_burnchain_height + 24,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: first_burnchain_height + 24,
-                end_height: first_burnchain_height + 28,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_5,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height + 28,
-                end_height: first_burnchain_height + 32,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height + 32,
-                end_height: first_burnchain_height + 36,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch32,
-                start_height: first_burnchain_height + 36,
-                end_height: first_burnchain_height + 40,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch33,
-                start_height: first_burnchain_height + 40,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_3,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_4(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test_3_4 first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height + 4,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 8,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height + 8,
-                end_height: first_burnchain_height + 12,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 12,
-                end_height: first_burnchain_height + 16,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 16,
-                end_height: first_burnchain_height + 20,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: first_burnchain_height + 20,
-                end_height: first_burnchain_height + 24,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: first_burnchain_height + 24,
-                end_height: first_burnchain_height + 28,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_5,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height + 28,
-                end_height: first_burnchain_height + 32,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height + 32,
-                end_height: first_burnchain_height + 36,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch32,
-                start_height: first_burnchain_height + 36,
-                end_height: first_burnchain_height + 40,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch33,
-                start_height: first_burnchain_height + 40,
-                end_height: first_burnchain_height + 44,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch34,
-                start_height: first_burnchain_height + 44,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_3_4,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_2_1_only(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost {
-                    write_length: 205205,
-                    write_count: 205205,
-                    read_length: 205205,
-                    read_count: 205205,
-                    runtime: 205205,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: first_burnchain_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
-                },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_0_only(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_2_only(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch32,
-                start_height: first_burnchain_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_2,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_3_only(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch32,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch33,
-                start_height: first_burnchain_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_3,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test_3_4_only(first_burnchain_height: u64) -> EpochList {
-        info!(
-            "StacksEpoch unit_test first_burn_height = {}",
-            first_burnchain_height
-        );
-
-        EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch22,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch23,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch24,
-                start_height: 0,
-                end_height: 0,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch25,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-                network_epoch: PEER_VERSION_EPOCH_2_4,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_1,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch32,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_2,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch33,
-                start_height: first_burnchain_height,
-                end_height: first_burnchain_height,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_3,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch34,
-                start_height: first_burnchain_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: BLOCK_LIMIT_MAINNET_21,
-                network_epoch: PEER_VERSION_EPOCH_3_4,
-            },
-        ])
-    }
-
-    #[cfg(test)]
-    fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> EpochList {
-        match stacks_epoch_id {
-            StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
-                StacksEpoch::unit_test_pre_2_05(first_burnchain_height)
             }
-            StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(first_burnchain_height),
-            StacksEpochId::Epoch21 => StacksEpoch::unit_test_2_1(first_burnchain_height),
-            StacksEpochId::Epoch22 => StacksEpoch::unit_test_2_2(first_burnchain_height),
-            StacksEpochId::Epoch23 => StacksEpoch::unit_test_2_3(first_burnchain_height),
-            StacksEpochId::Epoch24 => StacksEpoch::unit_test_2_4(first_burnchain_height),
-            StacksEpochId::Epoch25 => StacksEpoch::unit_test_2_5(first_burnchain_height),
-            StacksEpochId::Epoch30 => StacksEpoch::unit_test_3_0(first_burnchain_height),
-            StacksEpochId::Epoch31 => StacksEpoch::unit_test_3_1(first_burnchain_height),
-            StacksEpochId::Epoch32 => StacksEpoch::unit_test_3_2(first_burnchain_height),
-            StacksEpochId::Epoch33 => StacksEpoch::unit_test_3_3(first_burnchain_height),
-            StacksEpochId::Epoch34 => StacksEpoch::unit_test_3_4(first_burnchain_height),
+        };
+
+        let mut epochs = Vec::new();
+        let mut start_height = 0u64;
+        for epoch_id in StacksEpochId::ALL.iter() {
+            let end_height = if *epoch_id == last_epoch {
+                STACKS_EPOCH_MAX
+            } else if *epoch_id == StacksEpochId::Epoch10 {
+                first_burnchain_height
+            } else {
+                start_height + 4
+            };
+            epochs.push(StacksEpoch {
+                epoch_id: *epoch_id,
+                start_height,
+                end_height,
+                block_limit: block_limit_for(*epoch_id),
+                network_epoch: StacksEpochId::network_epoch(*epoch_id),
+            });
+            if *epoch_id == last_epoch {
+                break;
+            }
+            start_height = end_height;
         }
+        EpochList::new(&epochs)
     }
 
-    fn all(
-        epoch_2_0_block_height: u64,
-        epoch_2_05_block_height: u64,
-        epoch_2_1_block_height: u64,
+    #[cfg(test)]
+    fn unit_test_epoch_only(first_burnchain_height: u64, target_epoch: StacksEpochId) -> EpochList {
+        info!(
+            "StacksEpoch unit_test_epoch_only target={target_epoch} first_burn_height={first_burnchain_height}"
+        );
+        assert!(
+            target_epoch >= StacksEpochId::Epoch30,
+            "unit_test_epoch_only requires a Nakamoto-era target (Epoch30+), got {target_epoch}"
+        );
+
+        // Height layout, iterating through StacksEpochId::ALL:
+        //  - Pre-Epoch25 epochs sit in a dead zone at height 0 (start == end == 0).
+        //  - Epoch25 spans [0, first_burnchain_height), the transition point.
+        //  - Nakamoto epochs before `target_epoch` are zero-width at
+        //    `first_burnchain_height`.
+        //  - `target_epoch` spans [first_burnchain_height, STACKS_EPOCH_MAX).
+        //
+        // Each epoch's `start_height` is the previous epoch's `end_height`,
+        // which falls out of that layout for free.
+        let mut epochs = Vec::new();
+        let mut start_height = 0u64;
+        for epoch_id in StacksEpochId::ALL.iter() {
+            let end_height = if *epoch_id == target_epoch {
+                STACKS_EPOCH_MAX
+            } else if *epoch_id < StacksEpochId::Epoch25 {
+                0
+            } else {
+                first_burnchain_height
+            };
+            let block_limit = if *epoch_id < StacksEpochId::Epoch25 {
+                ExecutionCost::max_value()
+            } else {
+                BLOCK_LIMIT_MAINNET_21
+            };
+            epochs.push(StacksEpoch {
+                epoch_id: *epoch_id,
+                start_height,
+                end_height,
+                block_limit,
+                network_epoch: StacksEpochId::network_epoch(*epoch_id),
+            });
+            if *epoch_id == target_epoch {
+                break;
+            }
+            start_height = end_height;
+        }
+        EpochList::new(&epochs)
+    }
+
+    fn unit_test_2_1_with_heights(
+        epoch_2_0_start: u64,
+        epoch_2_05_start: u64,
+        epoch_2_1_start: u64,
     ) -> EpochList {
+        let make = |epoch_id, start_height, end_height| StacksEpoch {
+            epoch_id,
+            start_height,
+            end_height,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: StacksEpochId::network_epoch(epoch_id),
+        };
         EpochList::new(&[
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: epoch_2_0_block_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: epoch_2_0_block_height,
-                end_height: epoch_2_05_block_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: epoch_2_05_block_height,
-                end_height: epoch_2_1_block_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: epoch_2_1_block_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
+            make(StacksEpochId::Epoch10, 0, epoch_2_0_start),
+            make(StacksEpochId::Epoch20, epoch_2_0_start, epoch_2_05_start),
+            make(StacksEpochId::Epoch2_05, epoch_2_05_start, epoch_2_1_start),
+            make(StacksEpochId::Epoch21, epoch_2_1_start, STACKS_EPOCH_MAX),
         ])
     }
 
@@ -2846,6 +1339,61 @@ impl StacksEpochExtension for StacksEpoch {
             Activation height: {epoch_3_0_start}, \
             offset: {}, PoX Parameters: {:?}",
             epoch_3_0_start % reward_cycle_length,
+            burnchain.pox_constants
+        );
+
+        // Validate Epoch 4.0 / PoX-5 transition if present.
+        //
+        // Only enforced when `pox_5_activation_height` is wired to Epoch 4.0's
+        // start (the production convention enforced by `apply_test_settings`).
+        // Tests/fixtures that include Epoch 4.0 in the epoch list but leave
+        // `pox_5_activation_height` at a default never drive the chain past
+        // pox-5 activation, so the dispatch-safety checks are irrelevant.
+        let Some(epoch_4_0) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch40) else {
+            return;
+        };
+        let epoch_4_0_start = epoch_4_0.start_height;
+        let pox_5_activation = u64::from(burnchain.pox_constants.pox_5_activation_height);
+        if pox_5_activation != epoch_4_0_start {
+            return;
+        }
+
+        // pox_5_activation_height must fall strictly inside a reward phase. If it lands
+        // inside the prepare phase that sets up the first PoX-5 cycle, two forks observing
+        // different blocks of that prepare phase can derive the signer set from pox-4 vs
+        // pox-5. The cycle-keyed predicate `active_pox_contract_for_cycle` makes the
+        // dispatch self-consistent regardless, but this check rejects ambiguous configs
+        // up front so failures are loud at startup rather than subtle at runtime.
+        assert!(
+            !burnchain.is_in_prepare_phase(pox_5_activation),
+            "FATAL: pox_5_activation_height must fall during a reward phase, not a prepare \
+            phase. Activation height: {pox_5_activation}, PoX Parameters: {:?}",
+            burnchain.pox_constants
+        );
+
+        // Mirror the Epoch 3.0 boundary exclusion: forbid offsets 0 and 1, where
+        // `first_pox_waterfall_block` (floor-division) and `active_pox_contract` (strict
+        // `>`) treat the boundary asymmetrically.
+        let pox_5_offset = pox_5_activation
+            .checked_sub(burnchain.first_block_height)
+            .expect("FATAL: pox_5_activation_height precedes first_block_height")
+            % reward_cycle_length;
+        assert!(
+            pox_5_offset > 1,
+            "FATAL: pox_5_activation_height must not fall on a reward cycle boundary \
+            (offset 0 or 1). Activation height: {pox_5_activation}, offset: {pox_5_offset}, \
+            PoX Parameters: {:?}",
+            burnchain.pox_constants
+        );
+
+        // Epoch 3.0 and Epoch 4.0 in distinct cycles, mirroring the 2.5/3.0 rule.
+        let epoch_4_0_reward_cycle = epoch_4_0_start / reward_cycle_length;
+        assert_ne!(
+            epoch_3_0_reward_cycle, epoch_4_0_reward_cycle,
+            "FATAL: Epoch 3.0 and Epoch 4.0 must not be in the same reward cycle. \
+            Epoch 3.0 cycle: {epoch_3_0_reward_cycle}, \
+            Epoch 4.0 cycle: {epoch_4_0_reward_cycle}, \
+            PoX Parameters: {:?}",
             burnchain.pox_constants
         );
     }

@@ -26,7 +26,7 @@ use clarity::consts::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, STACKS_EPOCH_MAX,
 };
 use clarity::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -56,6 +56,9 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::*;
 use crate::chainstate::coordinator::{Error as CoordinatorError, *};
 use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
+use crate::chainstate::nakamoto::signer_set::{
+    set_pox_5_sbtc_contract, set_pox_5_sbtc_registry_contract,
+};
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBIndexed};
@@ -75,6 +78,47 @@ use crate::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use crate::util_lib::strings::*;
+
+/// Minimal SIP-010 `sbtc-token` stub deployed at chainstate genesis from
+/// the boot-code test address. pox-5 (deployed at the Epoch 4.0 boundary)
+/// statically references an sBTC token contract via `(contract-call?
+/// '<sbtc-token> ...)`; tests can't easily inject a real deploy between
+/// epoch transitions, so the harness installs this stub up front.
+const POX_5_SBTC_TOKEN_STUB_NAME: &str = "sbtc-token";
+const POX_5_SBTC_TOKEN_STUB_BODY: &str = r#"
+(define-fungible-token sbtc-token)
+
+(define-public (transfer
+        (amount uint)
+        (sender principal)
+        (recipient principal)
+        (memo (optional (buff 34)))
+    )
+    (begin
+        (try! (ft-transfer? sbtc-token amount sender recipient))
+        (ok true)
+    )
+)
+
+(define-read-only (get-balance (who principal))
+    (ok (ft-get-balance sbtc-token who))
+)
+
+(define-public (mint (amount uint) (recipient principal))
+    (ft-mint? sbtc-token amount recipient)
+)
+"#;
+
+/// Minimal `sbtc-registry` stub deployed alongside the token stub. Exposes
+/// `get-current-aggregate-pubkey` so signer-set computation has a real
+/// contract to read from. The returned key is a fixed 33-byte buffer; tests
+/// that need a specific aggregate pubkey should override via their own setup.
+const POX_5_SBTC_REGISTRY_STUB_NAME: &str = "sbtc-registry";
+const POX_5_SBTC_REGISTRY_STUB_BODY: &str = r#"
+(define-read-only (get-current-aggregate-pubkey)
+    0x000000000000000000000000000000000000000000000000000000000000000000
+)
+"#;
 
 // describes a chainstate's initial configuration
 #[derive(Debug, Clone)]
@@ -206,7 +250,10 @@ impl<'a> TestChainstate<'a> {
         config.burnchain.working_dir = get_burnchain(&test_path, None).working_dir;
 
         let epochs = config.epochs.clone().unwrap_or_else(|| {
-            StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
+            StacksEpoch::unit_test_up_to(
+                config.burnchain.first_block_height,
+                StacksEpochId::Epoch20,
+            )
         });
 
         let mut sortdb = SortitionDB::connect(
@@ -234,6 +281,25 @@ impl<'a> TestChainstate<'a> {
 
         let agg_pub_key_opt = config.aggregate_public_key.clone();
 
+        // pox-5 (deployed at the Epoch 4.0 boundary) statically references
+        // an sBTC token contract, and signer-set computation reads
+        // `get-current-aggregate-pubkey` from a separate sBTC registry
+        // contract. Point the global pointers at the boot-code test address
+        // before chainstate boots; the post-flight callback below deploys
+        // both matching stubs.
+        let sbtc_token_stub_id = QualifiedContractIdentifier::new(
+            boot_code_test_addr().into(),
+            ContractName::try_from(POX_5_SBTC_TOKEN_STUB_NAME.to_string())
+                .expect("FATAL: invalid sbtc-token stub contract name"),
+        );
+        set_pox_5_sbtc_contract(Some(sbtc_token_stub_id));
+        let sbtc_registry_stub_id = QualifiedContractIdentifier::new(
+            boot_code_test_addr().into(),
+            ContractName::try_from(POX_5_SBTC_REGISTRY_STUB_NAME.to_string())
+                .expect("FATAL: invalid sbtc-registry stub contract name"),
+        );
+        set_pox_5_sbtc_registry_contract(Some(sbtc_registry_stub_id));
+
         let conf = config.clone();
         let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
             let mut receipts = vec![];
@@ -244,6 +310,49 @@ impl<'a> TestChainstate<'a> {
             } else {
                 debug!("Not setting aggregate public key");
             }
+            // Deploy the sBTC token and registry stub contracts.
+            let deploy_stub = |clarity_tx: &mut ClarityTx, name: &str, body: &str| {
+                clarity_tx.connection().as_transaction(|clarity| {
+                    let boot_code_addr = boot_code_test_addr();
+                    let boot_code_account = StacksAccount {
+                        principal: boot_code_addr.to_account_principal(),
+                        nonce: 0,
+                        stx_balance: STXBalance::zero(),
+                    };
+                    let boot_code_auth = boot_code_tx_auth(boot_code_addr.clone());
+                    let smart_contract = TransactionPayload::SmartContract(
+                        TransactionSmartContract {
+                            name: ContractName::try_from(name.to_string())
+                                .expect("FATAL: invalid sbtc stub contract name"),
+                            code_body: StacksString::from_str(body)
+                                .expect("FATAL: invalid sbtc stub body"),
+                        },
+                        None,
+                    );
+                    let smart_contract_tx = StacksTransaction::new(
+                        TransactionVersion::Testnet,
+                        boot_code_auth,
+                        smart_contract,
+                    );
+                    StacksChainState::process_transaction_payload(
+                        clarity,
+                        &smart_contract_tx,
+                        &boot_code_account,
+                        None,
+                    )
+                    .expect("FATAL: failed to deploy sbtc stub")
+                })
+            };
+            receipts.push(deploy_stub(
+                clarity_tx,
+                POX_5_SBTC_TOKEN_STUB_NAME,
+                POX_5_SBTC_TOKEN_STUB_BODY,
+            ));
+            receipts.push(deploy_stub(
+                clarity_tx,
+                POX_5_SBTC_REGISTRY_STUB_NAME,
+                POX_5_SBTC_REGISTRY_STUB_BODY,
+            ));
             // add test-specific boot code
             if !conf.setup_code.is_empty() {
                 let receipt = clarity_tx.connection().as_transaction(|clarity| {
@@ -1266,6 +1375,7 @@ impl<'a> TestChainstate<'a> {
         block_commit_op.commit_outs = match recipients {
             Some(info) => {
                 let mut recipients = info
+                    .unwrap_v0()
                     .recipients
                     .into_iter()
                     .map(|x| x.0)
@@ -1543,6 +1653,7 @@ impl<'a> TestChainstate<'a> {
         block_commit_op.commit_outs = match recipients {
             Some(info) => {
                 let mut recipients = info
+                    .unwrap_v0()
                     .recipients
                     .into_iter()
                     .map(|x| x.0)
@@ -1760,9 +1871,16 @@ impl<'a> TestChainstate<'a> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch34,
                 start_height: first_burnchain_height + 4,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 5,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch40,
+                start_height: first_burnchain_height + 5,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_4_0,
             },
         ])
     }
@@ -1862,9 +1980,16 @@ impl<'a> TestChainstate<'a> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch34,
                 start_height: first_burnchain_height + 32,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 33,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch40,
+                start_height: first_burnchain_height + 33,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_4_0,
             },
         ])
     }
@@ -1905,6 +2030,7 @@ fn advance_through_all_epochs() {
         StacksEpochId::Epoch32,
         StacksEpochId::Epoch33,
         StacksEpochId::Epoch34,
+        StacksEpochId::Epoch40,
     ] {
         chainstate.advance_to_epoch_boundary(&privk, target_epoch);
         let burn_block_height = chainstate.get_burn_block_height();
@@ -1967,22 +2093,26 @@ fn advance_through_nakamoto_bootstrapped() {
             + boot_plan.pox_constants.reward_cycle_length
             + 1) as u64,
     );
+    let epoch_vec = epochs.clone().to_vec();
+    let final_epoch = epoch_vec.last().unwrap().epoch_id;
+    let penultimate_epoch = epoch_vec.get(epoch_vec.len() - 2).unwrap().epoch_id;
+
     let activation_height = boot_plan.pox_constants.pox_4_activation_height;
     boot_plan = boot_plan.with_epochs(epochs);
     let mut chainstate = boot_plan.to_chainstate(None, Some(activation_height.into()));
     // Make sure we can advance through every single epoch.
-    chainstate.advance_to_epoch_boundary(&privk, StacksEpochId::Epoch34);
+    chainstate.advance_to_epoch_boundary(&privk, final_epoch);
     let burn_block_height = chainstate.get_burn_block_height();
     let current_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
             .unwrap()
             .unwrap()
             .epoch_id;
-    assert_eq!(current_epoch, StacksEpochId::Epoch33);
+    assert_eq!(current_epoch, penultimate_epoch);
     let next_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height + 1)
             .unwrap()
             .unwrap()
             .epoch_id;
-    assert_eq!(next_epoch, StacksEpochId::Epoch34);
+    assert_eq!(next_epoch, final_epoch);
 }

@@ -149,11 +149,12 @@ impl NakamotoBootPlan {
         )
         .unwrap();
 
-        let default_epoch = StacksEpoch::unit_test_3_0_only(
+        let default_epoch = StacksEpoch::unit_test_epoch_only(
             (self.pox_constants.pox_4_activation_height
                 + self.pox_constants.reward_cycle_length
                 + 1)
             .into(),
+            StacksEpochId::Epoch30,
         );
         chainstate_config.epochs = Some(self.epochs.clone().unwrap_or(default_epoch));
         chainstate_config.initial_balances = vec![];
@@ -223,6 +224,8 @@ impl NakamotoBootPlan {
             3 * cycle_length + 1,
             // pox-3 activates at start of third cycle, just before v2 unlock
             2 * cycle_length + 1,
+            // do not activate pox-5 in default tests for now.
+            1000 * cycle_length + 1,
         );
         self.pox_constants = new_consts;
         self

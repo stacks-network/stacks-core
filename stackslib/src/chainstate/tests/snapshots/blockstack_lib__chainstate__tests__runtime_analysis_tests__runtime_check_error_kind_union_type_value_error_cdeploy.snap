@@ -1,41 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "64a0ebec2287977d98f9d5c5dc0d12db71e7226a837f21a84f8f888db1c3934f",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-2-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], \"CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-1\\\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\\\"trait-1\\\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-2-Epoch3_3-Clarity4\\\") } }) })\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 287,
-          write_count: 2,
-          read_length: 3,
-          read_count: 2,
-          runtime: 25164,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 287,
-      write_count: 2,
-      read_length: 3,
-      read_count: 2,
-      runtime: 25164,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c2ce54dd4fd2f553c00e817fd13b44d8ab8e39b60acce198da015f788ac984d9",
+    marf_hash: "a5faab48858d4cce997682773f1f170d0e62c55874e241fb73c8081e3fe86466",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9d875f1184fe4da9a93762d05963a043441b162aed63f91f3e43722fbd48684e",
+    marf_hash: "d188da1a176e299101b89bd8c9ff8a2b69bebdd6735c6cebdef72b9a5d9fd3e2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

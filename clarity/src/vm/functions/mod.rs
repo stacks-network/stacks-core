@@ -28,7 +28,7 @@ use crate::vm::errors::{
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{PrincipalData, TypeSignature, Value};
+use crate::vm::types::{BuffData, PrincipalData, SequenceData, TypeSignature, Value};
 use crate::vm::{LocalContext, eval, is_reserved};
 
 macro_rules! switch_on_global_epoch {
@@ -39,32 +39,12 @@ macro_rules! switch_on_global_epoch {
             invoke_ctx: &crate::vm::InvocationContext,
             context: &LocalContext,
         ) -> std::result::Result<Value, VmExecutionError> {
-            match exec_state.epoch() {
-                StacksEpochId::Epoch10 => {
-                    panic!("Executing Clarity method during Epoch 1.0, before Clarity")
-                }
-                StacksEpochId::Epoch20 => $Epoch2Version(args, exec_state, invoke_ctx, context),
-                StacksEpochId::Epoch2_05 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.1.
-                StacksEpochId::Epoch21 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.2.
-                StacksEpochId::Epoch22 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.3.
-                StacksEpochId::Epoch23 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.4.
-                StacksEpochId::Epoch24 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 2.5.
-                StacksEpochId::Epoch25 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.0.
-                StacksEpochId::Epoch30 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.1.
-                StacksEpochId::Epoch31 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.2.
-                StacksEpochId::Epoch32 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.3.
-                StacksEpochId::Epoch33 => $Epoch205Version(args, exec_state, invoke_ctx, context),
-                // Note: We reuse 2.05 for 3.4.
-                StacksEpochId::Epoch34 => $Epoch205Version(args, exec_state, invoke_ctx, context),
+            if exec_state.epoch() == &StacksEpochId::Epoch10 {
+                panic!("Executing Clarity method during Epoch 1.0, before Clarity")
+            } else if exec_state.epoch() == &StacksEpochId::Epoch20 {
+                $Epoch2Version(args, exec_state, invoke_ctx, context)
+            } else {
+                $Epoch205Version(args, exec_state, invoke_ctx, context)
             }
         }
     };
@@ -75,6 +55,7 @@ use crate::vm::ClarityVersion;
 
 mod arithmetic;
 mod assets;
+pub(crate) mod bitcoin;
 mod boolean;
 mod conversions;
 mod crypto;
@@ -207,6 +188,10 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, None),
     AllowanceAll("with-all-assets-unsafe", ClarityVersion::Clarity4, None),
     Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
+    VerifyMerkleProof("verify-merkle-proof", ClarityVersion::Clarity6, None),
+    GetBitcoinTxOutput("get-bitcoin-tx-output?", ClarityVersion::Clarity6, None),
+    Ed25519Verify("ed25519-verify", ClarityVersion::Clarity6, None),
+    Secp256k1Decompress("secp256k1-decompress?", ClarityVersion::Clarity6, None),
 });
 
 ///
@@ -596,6 +581,29 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             Secp256r1Verify => {
                 SpecialFunction("native_secp256r1-verify", &crypto::special_secp256r1_verify)
             }
+            VerifyMerkleProof => NativeFunction205(
+                "native_verify_merkle_proof",
+                NativeHandle::MoreArg(&bitcoin::native_verify_merkle_proof),
+                ClarityCostFunction::VerifyMerkleProof,
+                &bitcoin::cost_input_verify_merkle_proof,
+            ),
+            GetBitcoinTxOutput => NativeFunction205(
+                "native_get_bitcoin_tx_output",
+                NativeHandle::DoubleArg(&bitcoin::native_get_bitcoin_tx_output),
+                ClarityCostFunction::GetBitcoinTxOutput,
+                &bitcoin::cost_input_get_bitcoin_tx_output,
+            ),
+            Ed25519Verify => NativeFunction205(
+                "native_ed25519-verify",
+                NativeHandle::MoreArg(&crypto::native_ed25519_verify),
+                ClarityCostFunction::Ed25519verify,
+                &crypto::cost_input_ed25519_verify,
+            ),
+            Secp256k1Decompress => NativeFunction(
+                "native_secp256k1-decompress",
+                NativeHandle::SingleArg(&crypto::native_secp256k1_decompress),
+                ClarityCostFunction::Secp256k1decompress,
+            ),
         };
         Some(callable)
     } else {
@@ -920,6 +928,28 @@ fn special_contract_of(
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
     Ok(contract_principal)
+}
+
+/// Helper to coerce a Clarity buffer value into a fixed-size byte array.
+pub fn buff_to_array<const N: usize>(value: &Value) -> Option<[u8; N]> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == N => {
+            let mut out = [0u8; N];
+            out.copy_from_slice(data);
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// Helper to coerce a Clarity buffer value into a Vec<u8> if-and-only-if buff.len() <= max_size
+pub fn buff_to_vec(value: &Value, max_size: usize) -> Option<Vec<u8>> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= max_size => {
+            Some(data.clone())
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]

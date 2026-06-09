@@ -305,7 +305,36 @@ pub fn special_append(
     }
 }
 
-switch_on_global_epoch!(special_concat(special_concat_v200, special_concat_v205));
+/// Epoch-based dispatch for `concat`.
+///
+/// - [`special_concat_v200`]: Epoch 2.0 (legacy size-based cost)
+/// - [`special_concat_v205`]: Epoch 2.05 .. 3.4 (per-element cost, exactly 2 args)
+/// - [`special_concat_v600`]: Epoch 4.0+ (Clarity 6 variadic `concat`)
+pub fn special_concat(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    match exec_state.epoch() {
+        StacksEpochId::Epoch10 => {
+            panic!("Executing Clarity method during Epoch 1.0, before Clarity")
+        }
+        StacksEpochId::Epoch20 => special_concat_v200(args, exec_state, invoke_ctx, context),
+        StacksEpochId::Epoch2_05
+        | StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25
+        | StacksEpochId::Epoch30
+        | StacksEpochId::Epoch31
+        | StacksEpochId::Epoch32
+        | StacksEpochId::Epoch33
+        | StacksEpochId::Epoch34 => special_concat_v205(args, exec_state, invoke_ctx, context),
+        StacksEpochId::Epoch40 => special_concat_v600(args, exec_state, invoke_ctx, context),
+    }
+}
 
 pub fn special_concat_v200(
     args: &[SymbolicExpression],
@@ -393,6 +422,110 @@ pub fn special_concat_v205(
     };
 
     Ok(wrapped_seq)
+}
+
+/// Variadic `concat` introduced in Clarity 6 (Epoch 4.0+).
+///
+/// Accepts 2 or more sequence arguments and concatenates them in a single
+/// pass with linear cost. The 2-argument case is byte-for-byte equivalent
+/// to v205.
+///
+/// # Cost model
+///
+/// This deliberately departs from the per-step cost charged by v205. With
+/// the v205 formula applied per fold step, `(concat a b c d)` would charge
+/// `len(a)+len(b)` then `len(a+b)+len(c)` then `len(a+b+c)+len(d)` — roughly
+/// `O(N² · L)` in number of args. The runtime work is amortized linear, so
+/// that pricing over-charges users for work the runtime doesn't actually do.
+///
+/// The variadic form charges `total_len` once, which is linear in the size
+/// of the final sequence. Variadic `concat` is therefore strictly cheaper
+/// than the equivalent nested-binary form — that's intentional: it reflects
+/// the real work done and is one of the user-visible reasons to prefer the
+/// variadic form.
+///
+/// # Algorithm
+///
+/// Phase 1 evaluates every arg into a `Vec<Value>` while summing the total
+/// length. Phase 2 charges cost once, takes the first arg as the accumulator,
+/// pre-reserves capacity to fit the final result, and appends the remaining
+/// args. Pre-reservation means the underlying `Vec` does not reallocate as
+/// we concat — exactly one allocation per `special_concat_v600` call.
+///
+/// Peak memory during phase 1 is bounded by the type checker's sequence-
+/// length limits: every arg is ≤ `MAX_VALUE_SIZE`, and the type checker
+/// also bounds the *combined* length to that same ceiling, so we hold at
+/// most ~`MAX_VALUE_SIZE` bytes of args alive.
+///
+/// The type checker (`check_special_concat`) rejects variadic calls from
+/// contracts at `ClarityVersion < Clarity6`, so at this epoch a Clarity 1-5
+/// contract only ever reaches this function with exactly two arguments —
+/// in which case the two-pass form collapses to the same work and cost as
+/// v205.
+pub fn special_concat_v600(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_arguments_at_least(2, args)?;
+
+    // Phase 1: evaluate every arg, summing the total length. Bail with a
+    // clean error on the first non-sequence — defensive only, since the
+    // type checker already enforces this.
+    let mut values: Vec<Value> = Vec::with_capacity(args.len());
+    let mut total_len: u64 = 0;
+    for arg in args {
+        let value = eval(arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+        match &value {
+            Value::Sequence(seq) => {
+                total_len = total_len.cost_overflow_add(seq.len() as u64)?;
+            }
+            non_seq => {
+                runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Expected sequence: {}",
+                    TypeSignature::type_of(non_seq)?
+                ))
+                .into());
+            }
+        }
+        values.push(value);
+    }
+
+    // Phase 2: charge cost once (linear in total_len), pre-allocate, append.
+    runtime_cost(ClarityCostFunction::Concat, exec_state, total_len)?;
+
+    let mut values_iter = values.into_iter();
+    let mut result = values_iter
+        .next()
+        .expect("arity ≥ 2 guarantees at least one value");
+
+    if let Value::Sequence(seq) = &mut result {
+        let already = seq.len() as u64;
+        // saturating_sub: if `already == total_len` (a single empty append
+        // chain) we just reserve 0.
+        let extra = total_len.saturating_sub(already);
+        seq.reserve(extra as usize);
+    }
+
+    for other in values_iter {
+        match (&mut result, other) {
+            (Value::Sequence(seq), Value::Sequence(other_seq)) => {
+                seq.concat(exec_state.epoch(), other_seq)?;
+            }
+            (Value::Sequence(seq_data), other_value) => {
+                return Err(RuntimeCheckErrorKind::TypeValueError(
+                    Box::new(seq_data.type_signature()?),
+                    other_value.to_error_string(),
+                )
+                .into());
+            }
+            _ => unreachable!("first arg was validated as a sequence in phase 1"),
+        }
+    }
+
+    Ok(result)
 }
 
 pub fn special_as_max_len(

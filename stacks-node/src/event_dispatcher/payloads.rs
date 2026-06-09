@@ -147,14 +147,29 @@ impl RewardSetEventPayload {
         }
     }
     pub fn from_reward_set(reward_set: &RewardSet) -> Self {
-        Self {
-            rewarded_addresses: reward_set.rewarded_addresses.clone(),
-            start_cycle_state: reward_set.start_cycle_state.clone(),
-            signers: reward_set
-                .signers
-                .as_ref()
-                .map(|signers| signers.iter().map(Self::signer_entry_to_payload).collect()),
-            pox_ustx_threshold: reward_set.pox_ustx_threshold,
+        match reward_set {
+            RewardSet::V0(v0) => Self {
+                rewarded_addresses: v0.rewarded_addresses.clone(),
+                start_cycle_state: v0.start_cycle_state.clone(),
+                signers: v0
+                    .signers
+                    .as_ref()
+                    .map(|signers| signers.iter().map(Self::signer_entry_to_payload).collect()),
+                pox_ustx_threshold: v0.pox_ustx_threshold,
+            },
+            RewardSet::Waterfall(wf) => Self {
+                rewarded_addresses: vec![],
+                start_cycle_state: PoxStartCycleInfo {
+                    missed_reward_slots: vec![],
+                },
+                signers: Some(
+                    wf.signers
+                        .iter()
+                        .map(Self::signer_entry_to_payload)
+                        .collect(),
+                ),
+                pox_ustx_threshold: None,
+            },
         }
     }
 }
@@ -394,6 +409,7 @@ pub fn make_new_block_processed_payload(
         "pox_v1_unlock_height": pox_constants.v1_unlock_height,
         "pox_v2_unlock_height": pox_constants.v2_unlock_height,
         "pox_v3_unlock_height": pox_constants.v3_unlock_height,
+        "pox_v4_unlock_height": pox_constants.pox_5_activation_height,
         "signer_bitvec": signer_bitvec_value,
         "reward_set": reward_set_value,
         "cycle_number": cycle_number_value,

@@ -218,8 +218,11 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         // This method should only ever called if the current reward cycle is a nakamoto reward cycle
         //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
         //  Non participation is fatal.
-        if reward_set.rewarded_addresses.is_empty() {
-            // no one is stacking
+        if reward_set
+            .rewarded_addresses()
+            .map_or(false, |addrs| addrs.is_empty())
+        {
+            // no one is stacking (V0 with empty rewarded_addresses)
             err_or_debug!(debug_log, "No PoX participation");
             return Err(Error::PoXAnchorBlockRequired);
         }
@@ -233,7 +236,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             "burn_header_height" => reward_set_block.burn_header_height,
         );
 
-        if reward_set.signers.is_none() {
+        if reward_set.signers().is_none() {
             err_or_debug!(
                 debug_log,
                 "FATAL: PoX reward set did not specify signer set in Nakamoto"
@@ -566,6 +569,23 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     Ok(Some((rc_info, anchor_block_header)))
 }
 
+/// Is `block_height` the first reward-receiving block of its reward cycle?
+///
+/// In waterfall epochs (Epoch 4.0+) the cycle's first reward-receiving block
+/// is the mod-0 block (the same block the cycle's signer set first signs).
+/// In classic PoX it is the mod-1 block.
+fn is_naka_reward_cycle_start_for_epoch(burnchain: &Burnchain, block_height: u64) -> bool {
+    let first_wf_block = burnchain
+        .pox_constants
+        .first_pox_waterfall_block(burnchain.first_block_height)
+        .unwrap_or(u64::MAX);
+    if block_height >= first_wf_block {
+        burnchain.is_naka_signing_cycle_start(block_height)
+    } else {
+        burnchain.is_reward_cycle_start(block_height)
+    }
+}
+
 /// Get the next PoX recipients in the Nakamoto epoch.
 /// This is a little different than epoch 2.x:
 /// * we're guaranteed to have an anchor block
@@ -584,7 +604,8 @@ pub fn get_nakamoto_next_recipients(
         error!("CORRUPTION: evaluating burn block height before starting burn height");
         return Err(Error::BurnchainError(burnchains::Error::NoStacksEpoch));
     };
-    let reward_cycle_info = if burnchain.is_reward_cycle_start(next_burn_height) {
+    let is_cycle_start = is_naka_reward_cycle_start_for_epoch(burnchain, next_burn_height);
+    let reward_cycle_info = if is_cycle_start {
         let Some((reward_set, _)) = load_nakamoto_reward_set(
             reward_cycle,
             &sortition_tip.sortition_id,
@@ -1092,9 +1113,11 @@ impl<
                 }
             };
 
-            let reward_cycle_info = if self.burnchain.is_reward_cycle_start(header.block_height) {
+            let is_reward_cycle_start =
+                is_naka_reward_cycle_start_for_epoch(&self.burnchain, header.block_height);
+            let reward_cycle_info = if is_reward_cycle_start {
                 // we're at the end of the prepare phase, so we'd better have obtained the reward
-                // cycle info of we must block.
+                // cycle info or we must block.
                 // NOTE(safety): the reason it's safe to use the local best stacks tip here is
                 // because as long as at least 30% of the signers are honest, there's no way there
                 // can be two or more distinct reward sets calculated for a reward cycle.  Due to

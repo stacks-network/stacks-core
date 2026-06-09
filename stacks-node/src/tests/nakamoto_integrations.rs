@@ -81,7 +81,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, PEER_VERSION_TESTNET,
+    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_TESTNET,
 };
 use stacks::libstackerdb::{SlotMetadata, StackerDBChunkData};
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
@@ -135,12 +135,13 @@ use crate::tests::neon_integrations::{
     get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
+use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
-pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
-pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
+pub static POX_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
+pub static POX_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
 use clarity::vm::database::STXBalance;
 use stacks::chainstate::stacks::boot::SIP_031_NAME;
@@ -150,7 +151,7 @@ use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::clarity::vm::clarity::ClarityConnection;
 
 lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 13] = [
+    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 14] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -233,14 +234,31 @@ lazy_static! {
             start_height: 252,
             end_height: 253,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_2
+            network_epoch: PEER_VERSION_EPOCH_3_3
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: 253,
+            end_height: 1_002,
+            block_limit: HELIUM_BLOCK_LIMIT_20,
+            network_epoch: PEER_VERSION_EPOCH_3_4
+        },
+        // Epoch 4.0 is pushed out by default so the typical signer integration
+        // test (which boots through Epoch 3.0 and mines a handful of reward
+        // cycles) doesn't accidentally cross into it. pox-5 is deployed at the
+        // Epoch 4.0 boundary and statically references an sBTC token contract,
+        // so any test that crosses it must first deploy the stub (see
+        // `check_pox_5_stake_lifecycle` for the pattern). Tests that
+        // *intentionally* exercise Epoch 4.0 override these heights -- e.g.
+        // `epochs[Epoch34].end_height = 262; epochs[Epoch40].start_height = 262;`.
+        // The default 1_002 keeps the boundary off the prepare phase and off
+        // reward-cycle offsets 0/1.
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch40,
+            start_height: 1_002,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_3
+            network_epoch: PEER_VERSION_EPOCH_3_4
         },
     ];
 }
@@ -746,6 +764,27 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     (conf, miner_account)
 }
 
+/// Activate Epoch 4.0 (inactive by default in `NAKAMOTO_INTEGRATION_EPOCHS`).
+/// Must be applied to every node's config so peers agree on the boundary.
+///
+/// The boundary is placed at `260` — the start of cycle 13 under the default
+/// integration-test PoX params (`reward_length=20`)..
+pub fn enable_epoch_4_0(conf: &mut Config) {
+    let epochs = conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("Missing burnchain epochs in config");
+    epochs
+        .get_mut(StacksEpochId::Epoch34)
+        .expect("Missing epoch 3.4 in config")
+        .end_height = 262;
+    epochs
+        .get_mut(StacksEpochId::Epoch40)
+        .expect("Missing epoch 4.0 in config")
+        .start_height = 262;
+}
+
 pub fn next_block_and<F>(
     btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
@@ -947,7 +986,7 @@ pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
     let stacker_address = tests::to_addr(&stacker_sk);
     naka_conf.add_initial_balance(
         PrincipalData::from(stacker_address).to_string(),
-        POX_4_DEFAULT_STACKER_BALANCE,
+        POX_DEFAULT_STACKER_BALANCE,
     );
     stacker_sk
 }
@@ -1028,7 +1067,7 @@ pub fn boot_to_epoch_3(
             "pox-4",
             "stack-stx",
             &[
-                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                clarity::vm::Value::UInt(POX_DEFAULT_STACKER_STX_AMT),
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(block_height as u128),
                 clarity::vm::Value::UInt(12),
@@ -1111,6 +1150,115 @@ pub fn boot_to_epoch_3(
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
 }
 
+/// Boot the chain through `boot_to_epoch_3`, deploy the sBTC stub contracts
+/// that pox-5 requires for static analysis at the Epoch 4.0 boundary, then
+/// mine forward until the chain crosses into Epoch 4.0.
+///
+/// Steps:
+///  1. `boot_to_epoch_3` with `stacker_sks` / `signer_sks` / `self_signing`.
+///  2. Append `extra_signer_keys` to `self_signing.signer_keys`. `boot_to_epoch_3`
+///     replaces the signer set with `signer_sks`; tests that register an
+///     additional pox-5 signer pass that key here so `blind_signer`'s clone can
+///     sign across the pox-4 → pox-5 cycle boundary.
+///  3. Spawn `blind_signer` and wait for the first Nakamoto block commit.
+///  4. Publish `sbtc-token` (and `sbtc-registry` if `sbtc_registry_pubkey` is
+///     `Some`) from `sbtc_deployer_sk` starting at nonce 0, using `deploy_fee`.
+///     The caller must have set `naka_conf.node.pox_5_sbtc_contract` (and
+///     `pox_5_sbtc_registry_contract` when deploying the registry) to match
+///     the deployer's qualified contract ids.
+///  5. Mine bitcoin blocks until the observer reports a burn height at or past
+///     the configured Epoch 4.0 start.
+pub fn boot_to_epoch_4_0(
+    naka_conf: &Config,
+    blocks_processed: &Arc<AtomicU64>,
+    counters: &Counters,
+    coord_channel: &Arc<Mutex<CoordinatorChannels>>,
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
+    extra_signer_keys: &[StacksPrivateKey],
+    sbtc_deployer_sk: &StacksPrivateKey,
+    sbtc_registry_pubkey: Option<&[u8; 33]>,
+    deploy_fee: u64,
+    self_signing: &mut Option<&mut TestSigners>,
+    btc_regtest_controller: &mut BitcoinRegtestController,
+) {
+    boot_to_epoch_3(
+        naka_conf,
+        blocks_processed,
+        stacker_sks,
+        signer_sks,
+        self_signing,
+        btc_regtest_controller,
+    );
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    if let Some(signers) = self_signing.as_mut() {
+        signers.signer_keys.extend_from_slice(extra_signer_keys);
+        blind_signer(naka_conf, signers, counters);
+    }
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let chain_id = naka_conf.burnchain.chain_id;
+
+    let sbtc_deploy_tx = make_contract_publish(
+        sbtc_deployer_sk,
+        0,
+        deploy_fee,
+        chain_id,
+        "sbtc-token",
+        sbtc_token_stub_source(),
+    );
+    submit_tx(&http_origin, &sbtc_deploy_tx);
+
+    let expected_deployer_nonce: u64 = if let Some(pubkey) = sbtc_registry_pubkey {
+        let sbtc_registry_contract = sbtc_registry_stub_source(pubkey);
+        let sbtc_registry_deploy_tx = make_contract_publish(
+            sbtc_deployer_sk,
+            1,
+            deploy_fee,
+            chain_id,
+            "sbtc-registry",
+            &sbtc_registry_contract,
+        );
+        submit_tx(&http_origin, &sbtc_registry_deploy_tx);
+        2
+    } else {
+        1
+    };
+    next_block_and_process_new_stacks_block(btc_regtest_controller, 60, coord_channel)
+        .expect("Failed to mine block including sBTC stub deploy(s)");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(sbtc_deployer_sk)).nonce >= expected_deployer_nonce)
+    })
+    .expect("Timed out waiting for sBTC stub deploy(s) to confirm");
+
+    let epoch_40_height =
+        naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch40].start_height;
+    loop {
+        let blocks_before = test_observer::get_blocks().len();
+        next_block_and_process_new_stacks_block(btc_regtest_controller, 60, coord_channel)
+            .expect("Failed to mine block while advancing to Epoch 4.0");
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= epoch_40_height
+        {
+            break;
+        }
+    }
+    info!(
+        "Reached Epoch-4.0 boundary; current burn_height={}",
+        get_chain_info_opt(naka_conf).unwrap().burn_block_height
+    );
+}
+
 /// Boot the chain to just before the Epoch 3.0 boundary to allow for flash blocks
 /// This function is similar to `boot_to_epoch_3`, but it stops at epoch 3 start height - 2,
 /// allowing for flash blocks to occur when the epoch changes.
@@ -1190,7 +1338,7 @@ pub fn boot_to_pre_epoch_3_boundary(
             "pox-4",
             "stack-stx",
             &[
-                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                clarity::vm::Value::UInt(POX_DEFAULT_STACKER_STX_AMT),
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(block_height as u128),
                 clarity::vm::Value::UInt(12),
@@ -1279,7 +1427,7 @@ fn get_signer_index(
     stacker_set: &GetStackersResponse,
     signer_key: &Secp256k1PublicKey,
 ) -> Result<usize, String> {
-    let Some(ref signer_set) = stacker_set.stacker_set.signers else {
+    let Some(signer_set) = stacker_set.stacker_set.signers() else {
         return Err("Empty signer set for reward cycle".into());
     };
     let signer_key_bytes = signer_key.to_bytes_compressed();
@@ -1434,7 +1582,7 @@ pub fn setup_epoch_3_reward_set(
             "pox-4",
             "stack-stx",
             &[
-                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                clarity::vm::Value::UInt(POX_DEFAULT_STACKER_STX_AMT),
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(block_height as u128),
                 clarity::vm::Value::UInt(lock_period),
@@ -1617,7 +1765,7 @@ fn make_contract_call_with_post_conditions(
     signer.get_tx().unwrap().serialize_to_vec()
 }
 
-fn get_tx_result_by_id(txid: &str) -> Option<Value> {
+pub(crate) fn get_tx_result_by_id(txid: &str) -> Option<Value> {
     for block in test_observer::get_blocks().iter() {
         for tx in block.get("transactions").unwrap().as_array().unwrap() {
             let Some(observed_txid) = tx
@@ -3056,12 +3204,16 @@ fn correct_burn_outs() {
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let stacker_response = get_stacker_set(&http_origin, first_epoch_3_cycle).unwrap();
-    assert!(stacker_response.stacker_set.signers.is_some());
+    assert!(stacker_response.stacker_set.signers().is_some());
+    assert_eq!(stacker_response.stacker_set.signers().unwrap().len(), 1);
     assert_eq!(
-        stacker_response.stacker_set.signers.as_ref().unwrap().len(),
+        stacker_response
+            .stacker_set
+            .rewarded_addresses()
+            .unwrap()
+            .len(),
         1
     );
-    assert_eq!(stacker_response.stacker_set.rewarded_addresses.len(), 1);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -14835,8 +14987,13 @@ fn test_epoch_3_3_activation() {
 
     // mine until epoch 3.3 height
     loop {
+        let blocks_before = test_observer::get_blocks().len();
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
+
+        // wait for the observer to process the new block
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
 
         // once we actually get a block in epoch 3.3, exit
         let blocks = test_observer::get_blocks();
@@ -15667,8 +15824,13 @@ fn check_block_time_keyword() {
 
     // mine until epoch 3.3 height
     loop {
+        let blocks_before = test_observer::get_blocks().len();
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
+
+        // wait for the observer to process the new block
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
 
         // once we actually get a block in epoch 3.3, exit
         let blocks = test_observer::get_blocks();
@@ -16372,6 +16534,14 @@ fn check_with_stacking_allowances_delegate_stx() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // Do not exceed beyond epoch 3.4 since 4.0 activates pox-5 which does not include `delegate-stx`.
+    naka_conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .unwrap()
+        .truncate_after(StacksEpochId::Epoch34);
+
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -16436,8 +16606,13 @@ fn check_with_stacking_allowances_delegate_stx() {
 
     // mine until epoch 3.3 height
     loop {
+        let blocks_before = test_observer::get_blocks().len();
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
+
+        // wait for the observer to process the new block
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
 
         // once we actually get a block in epoch 3.3, exit
         let blocks = test_observer::get_blocks();
@@ -16504,14 +16679,13 @@ fn check_with_stacking_allowances_delegate_stx() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -16765,6 +16939,13 @@ fn check_with_stacking_allowances_stack_stx() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // Do not exceed beyond epoch 3.4 so that we can test pox-4 behavior.
+    naka_conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .unwrap()
+        .truncate_after(StacksEpochId::Epoch34);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -16836,8 +17017,13 @@ fn check_with_stacking_allowances_stack_stx() {
 
     // mine until epoch 3.3 height
     loop {
+        let blocks_before = test_observer::get_blocks().len();
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
+
+        // wait for the observer to process the new block
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
 
         // once we actually get a block in epoch 3.3, exit
         let blocks = test_observer::get_blocks();
@@ -16919,14 +17105,13 @@ fn check_with_stacking_allowances_stack_stx() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -16953,7 +17138,7 @@ fn check_with_stacking_allowances_stack_stx() {
     test_observer::clear();
 
     // Amount to stack
-    let amount = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+    let amount = Value::UInt(POX_DEFAULT_STACKER_STX_AMT);
 
     // Map txid to expected result, `true` for ok, `false` for error
     let mut expected_results = HashMap::new();
@@ -17000,7 +17185,7 @@ fn check_with_stacking_allowances_stack_stx() {
         &Pox4SignatureTopic::StackStx,
         naka_conf.burnchain.chain_id,
         12_u128,
-        POX_4_DEFAULT_STACKER_STX_AMT,
+        POX_DEFAULT_STACKER_STX_AMT,
         auth_id,
     )
     .unwrap()
@@ -17057,7 +17242,7 @@ fn check_with_stacking_allowances_stack_stx() {
     expected_results.insert(authorize_txid, Value::okay_true());
 
     let auth_id = 1;
-    let allowed = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 1);
+    let allowed = Value::UInt(POX_DEFAULT_STACKER_STX_AMT - 1);
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
         stacker_addr.bytes().clone(),
@@ -17070,7 +17255,7 @@ fn check_with_stacking_allowances_stack_stx() {
         &Pox4SignatureTopic::StackStx,
         naka_conf.burnchain.chain_id,
         12_u128,
-        POX_4_DEFAULT_STACKER_STX_AMT,
+        POX_DEFAULT_STACKER_STX_AMT,
         auth_id,
     )
     .unwrap()
@@ -17099,8 +17284,8 @@ fn check_with_stacking_allowances_stack_stx() {
     wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
 
     // ***** Stack successfully with stackers[1] with two allowances
-    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
-    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT + 100);
+    let allowed1 = Value::UInt(POX_DEFAULT_STACKER_STX_AMT);
+    let allowed2 = Value::UInt(POX_DEFAULT_STACKER_STX_AMT + 100);
     let stack_2_ok_tx = make_contract_call(
         stacker,
         stacker_nonce,
@@ -17153,8 +17338,8 @@ fn check_with_stacking_allowances_stack_stx() {
     expected_results.insert(authorize_txid, Value::okay_true());
 
     let auth_id = 1;
-    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
-    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 1000);
+    let allowed1 = Value::UInt(POX_DEFAULT_STACKER_STX_AMT - 100);
+    let allowed2 = Value::UInt(POX_DEFAULT_STACKER_STX_AMT - 1000);
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
         stacker_addr.bytes().clone(),
@@ -17167,7 +17352,7 @@ fn check_with_stacking_allowances_stack_stx() {
         &Pox4SignatureTopic::StackStx,
         naka_conf.burnchain.chain_id,
         12_u128,
-        POX_4_DEFAULT_STACKER_STX_AMT,
+        POX_DEFAULT_STACKER_STX_AMT,
         auth_id,
     )
     .unwrap()
@@ -17197,8 +17382,8 @@ fn check_with_stacking_allowances_stack_stx() {
     wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
 
     // ***** Fail to stack with stackers[2] with two allowances (first too small)
-    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
-    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+    let allowed1 = Value::UInt(POX_DEFAULT_STACKER_STX_AMT - 100);
+    let allowed2 = Value::UInt(POX_DEFAULT_STACKER_STX_AMT);
 
     let stack_2_first_err_tx = make_contract_call(
         stacker,
@@ -17227,8 +17412,8 @@ fn check_with_stacking_allowances_stack_stx() {
     wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
 
     // ***** Fail to stack with stackers[2] with two allowances (second too small)
-    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
-    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
+    let allowed1 = Value::UInt(POX_DEFAULT_STACKER_STX_AMT);
+    let allowed2 = Value::UInt(POX_DEFAULT_STACKER_STX_AMT - 100);
 
     let stack_2_second_err_tx = make_contract_call(
         stacker,
@@ -17431,8 +17616,13 @@ fn check_restrict_assets_rollback() {
 
     // mine until epoch 3.3 height
     loop {
+        let blocks_before = test_observer::get_blocks().len();
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
+
+        // wait for the observer to process the new block
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
 
         // once we actually get a block in epoch 3.3, exit
         let blocks = test_observer::get_blocks();
@@ -17606,14 +17796,13 @@ fn check_restrict_assets_rollback() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -18148,8 +18337,13 @@ fn check_as_contract_rollback() {
 
     // mine until epoch 3.3 height
     loop {
+        let blocks_before = test_observer::get_blocks().len();
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
+
+        // wait for the observer to process the new block
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
 
         // once we actually get a block in epoch 3.3, exit
         let blocks = test_observer::get_blocks();
@@ -18322,14 +18516,13 @@ fn check_as_contract_rollback() {
 "#
     );
 
-    let contract_tx = make_contract_publish_versioned(
+    let contract_tx = make_contract_publish(
         &sender_sk,
         sender_nonce,
         deploy_fee,
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
