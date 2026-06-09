@@ -1019,7 +1019,7 @@ check_dependencies() {
     local has_sudo=1
     local cmd rp package find_path
     local -a required=(
-        apt-get sudo curl tmux git aria2c tar zstd grep cargo pgrep tput
+        apt-get sudo curl tmux git aria2c tar zstd grep cc cargo pgrep tput
         find xargs awk sed nproc stat stdbuf
     )
     for cmd in "${required[@]}"; do
@@ -1048,6 +1048,12 @@ check_dependencies() {
                     warn "'sudo' not found; automatic package installation will fail"
                     has_sudo=0
                     continue
+                    ;;
+                "cc")
+                    # Rust uses the C compiler as its linker, and crates like
+                    # `libc`/`proc-macro2` build native code; `build-essential`
+                    # provides `cc` (via gcc), `make`, and the C headers.
+                    package="build-essential"
                     ;;
                 "cargo")
                     install_cargo
