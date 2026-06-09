@@ -1595,7 +1595,7 @@
                 (if (< cur-delegated-for-signer SIGNER_SET_MIN_USTX)
                     ;; They just crossed the threshold - add to signer set and add to reward calculations
                     (begin
-                        (try! (add-signer-to-set-for-cycle signer cycle))
+                        (add-signer-to-set-for-cycle signer cycle)
                         (map-set total-shares-staked-for-cycle {
                             reward-cycle: cycle,
                             bond-index: none,
@@ -3313,15 +3313,6 @@
         (cycle uint)
     )
     (let ((last-item (map-get? signer-set-ll-last-for-cycle cycle)))
-        ;; Todo: remove this and guard in a higher-level fn
-        (asserts!
-            (not (is-some (map-get? signer-set-ll-for-cycle {
-                cycle: cycle,
-                signer: signer,
-            })))
-            ERR_ALREADY_STAKED
-        )
-
         (match last-item
             last-signer (let ((last-node (unwrap-panic (map-get? signer-set-ll-for-cycle {
                     cycle: cycle,
@@ -3356,7 +3347,6 @@
         )
 
         (map-set signer-set-ll-last-for-cycle cycle signer)
-        (ok true)
     )
 )
 
