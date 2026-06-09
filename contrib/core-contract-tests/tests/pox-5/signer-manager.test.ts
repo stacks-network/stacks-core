@@ -8,6 +8,7 @@ import {
   deployTestSigner,
   sbtc,
   sbtcBalance,
+  makePoxAddrCalldata,
 } from './pox-5-helpers';
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { hex } from '@scure/base';
@@ -98,27 +99,6 @@ function calculateAndClaimSignerRewards(rewards: bigint, height: bigint) {
   mineUntil(height);
   txOk(pox5.calculateRewards([]), deployer);
   txOk(signerManager.claimRewards([], 1n), deployer);
-}
-
-function makePoxAddrCalldata(
-  { maxFee }: { maxFee: bigint } = { maxFee: 100n },
-) {
-  const poxAddr = randomPoxAddress();
-  return {
-    poxAddr,
-    maxFee,
-    calldata: hex.decode(
-      serializeCV(
-        Cl.tuple({
-          'pox-addr': Cl.tuple({
-            version: Cl.buffer(poxAddr.version),
-            hashbytes: Cl.buffer(poxAddr.hashbytes),
-          }),
-          'max-fee': Cl.uint(maxFee),
-        }),
-      ),
-    ),
-  };
 }
 
 test('validate-stake! errors when not called by the pox-5 contract', () => {

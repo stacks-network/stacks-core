@@ -9837,6 +9837,15 @@ export const contracts = {
         ],
         Response<bigint, bigint>
       >,
+      reclaimFailedWithdrawal: {
+        name: 'reclaim-failed-withdrawal',
+        access: 'public',
+        args: [{ name: 'request-id', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [requestId: TypedAbiArg<number | bigint, 'requestId'>],
+        Response<boolean, bigint>
+      >,
       registerSelf: {
         name: 'register-self',
         access: 'public',
@@ -9873,6 +9882,24 @@ export const contracts = {
           },
           bigint
         >
+      >,
+      settleAcceptedWithdrawal: {
+        name: 'settle-accepted-withdrawal',
+        access: 'public',
+        args: [{ name: 'request-id', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [requestId: TypedAbiArg<number | bigint, 'requestId'>],
+        Response<boolean, bigint>
+      >,
+      sweepFeeRefunds: {
+        name: 'sweep-fee-refunds',
+        access: 'public',
+        args: [{ name: 'recipient', type: 'principal' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [recipient: TypedAbiArg<string, 'recipient'>],
+        Response<bigint, bigint>
       >,
       updateAdmin: {
         name: 'update-admin',
@@ -10048,6 +10075,18 @@ export const contracts = {
           };
         } | null
       >,
+      getUnclaimedStakerRewards: {
+        name: 'get-unclaimed-staker-rewards',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getWithdrawalLiability: {
+        name: 'get-withdrawal-liability',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       getWithdrawalRequestStaker: {
         name: 'get-withdrawal-request-staker',
         access: 'read_only',
@@ -10170,6 +10209,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NO_REFUNDS: {
+        name: 'ERR_NO_REFUNDS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_UNAUTHORIZED_ADMIN: {
         name: 'ERR_UNAUTHORIZED_ADMIN',
         type: {
@@ -10182,6 +10231,36 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_UNAUTHORIZED_CALLER: {
         name: 'ERR_UNAUTHORIZED_CALLER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNKNOWN_WITHDRAWAL_REQUEST: {
+        name: 'ERR_UNKNOWN_WITHDRAWAL_REQUEST',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_WITHDRAWAL_NOT_ACCEPTED: {
+        name: 'ERR_WITHDRAWAL_NOT_ACCEPTED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_WITHDRAWAL_NOT_REJECTED: {
+        name: 'ERR_WITHDRAWAL_NOT_REJECTED',
         type: {
           response: {
             ok: 'none',
@@ -10215,6 +10294,16 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      unclaimedStakerRewards: {
+        name: 'unclaimed-staker-rewards',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      withdrawalLiability: {
+        name: 'withdrawal-liability',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
     },
     constants: {
       ERR_INSUFFICIENT_FEES: {
@@ -10237,6 +10326,10 @@ export const contracts = {
         isOk: false,
         value: 1_001n,
       },
+      ERR_NO_REFUNDS: {
+        isOk: false,
+        value: 1_010n,
+      },
       ERR_UNAUTHORIZED_ADMIN: {
         isOk: false,
         value: 1_002n,
@@ -10245,11 +10338,25 @@ export const contracts = {
         isOk: false,
         value: 1_006n,
       },
+      ERR_UNKNOWN_WITHDRAWAL_REQUEST: {
+        isOk: false,
+        value: 1_008n,
+      },
+      ERR_WITHDRAWAL_NOT_ACCEPTED: {
+        isOk: false,
+        value: 1_011n,
+      },
+      ERR_WITHDRAWAL_NOT_REJECTED: {
+        isOk: false,
+        value: 1_009n,
+      },
       MAX_ADDRESS_VERSION: 6n,
       mAX_ADDRESS_VERSION_BUFF_20: 4n,
       MAX_BIPS: 10_000n,
       earnedFees: 0n,
       feesBips: 0n,
+      unclaimedStakerRewards: 0n,
+      withdrawalLiability: 0n,
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
