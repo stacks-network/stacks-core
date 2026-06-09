@@ -19,7 +19,6 @@ clarity = { path = "../clarity" }
 hashbrown = { workspace = true }
 libc = "0.2"
 libstackerdb = { path = "../libstackerdb" }
-prometheus = { version = "0.9", optional = true }
 serde = "1"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 stacks-common = { path = "../stacks-common" }
@@ -43,6 +42,3 @@ sha2 = { version = "0.10", features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os = "windows")))'.dependencies]
 sha2 = { version = "0.10" }
-
-[features]
-monitoring_prom = ["prometheus"]
