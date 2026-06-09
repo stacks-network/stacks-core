@@ -22,9 +22,20 @@ import { UnstakeErrInPreparePhase } from './commands/UnstakeErrInPreparePhase';
 import { Model, Real } from './commands/types';
 import { reportCommandRuns } from './commands/utils';
 import { initSimnet } from '@stacks/clarinet-sdk';
-import { REWARD_CYCLE_LENGTH, initPox5, testSigner } from './pox-5-helpers';
+import {
+  REWARD_CYCLE_LENGTH,
+  initBootPox5,
+  pox5,
+  testSigner,
+} from './pox-5-helpers';
 
-const contracts = projectFactory(project, 'simnet');
+const contracts = {
+  ...projectFactory(project, 'simnet'),
+  // Use the lock-aware boot pox-5: clarinet-sdk only applies STX locking to
+  // ST0…AMW42H.pox-5, which signer-manager.clar / test-pox-5-signer.clar now
+  // target. The local [contracts.pox-5] is not lock-aware in simnet.
+  pox5,
+};
 
 // Local sweeps override via env, e.g.:
 //   FAST_CHECK_NUM_RUNS=1000 FAST_CHECK_SIZE=large FAST_CHECK_TIMEOUT_MS=600000 npx vitest run ...
@@ -42,10 +53,9 @@ test(
       network: await initSimnet(),
     };
 
-    // initPox5 calls setBurnchainParameters with configured firstBurnHeight,
-    // prepareCycleLength, rewardCycleLength, beginPox5RewardCycle, and sets the
-    // deployer as bond admin.
-    initPox5();
+    // Configure the boot pox-5's burnchain params (the instance the commands
+    // stake against).
+    initBootPox5();
 
     const model: Model = {
       stakers: new Map(),

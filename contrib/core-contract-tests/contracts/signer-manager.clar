@@ -10,8 +10,8 @@
 ;; rate is set, the next time that staker claims rewards will have fees taken
 ;; from reward _even before_ the fee was set.
 
-(impl-trait .pox-5.signer-manager-trait)
-(use-trait signer-manager-trait .pox-5.signer-manager-trait)
+(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 
 ;; A staker tried to claim rewards, but they had none available
 (define-constant ERR_NO_CLAIMABLE_REWARDS (err u1001))
@@ -237,7 +237,7 @@
         (reward-cycle uint)
     )
     (let ((new-rewards-info (try! (as-contract? ()
-            (try! (contract-call? .pox-5 claim-rewards bond-periods reward-cycle))
+            (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards bond-periods reward-cycle))
         ))))
         (update-rewards-info
             (get rewards-per-token (get stx-rewards new-rewards-info)) false
@@ -263,7 +263,7 @@
         (index uint)
     )
     (let (
-            (shares (contract-call? .pox-5 get-staker-shares-staked-for-cycle staker
+            (shares (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-staker-shares-staked-for-cycle staker
                 is-bond index current-contract
             ))
             (rpt-current (get-rewards-per-token-for-cycle is-bond index))
@@ -399,10 +399,10 @@
     (begin
         (try! (authorize-admin))
         (as-contract? ()
-            (try! (contract-call? .pox-5 grant-signer-key signer-key current-contract
+            (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key signer-key current-contract
                 auth-id signer-sig
             ))
-            (try! (contract-call? .pox-5 register-signer signer-manager signer-key))
+            (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer signer-manager signer-key))
         )
     )
 )

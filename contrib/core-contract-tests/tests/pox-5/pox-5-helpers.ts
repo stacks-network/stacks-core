@@ -22,7 +22,15 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { expect } from 'vitest';
 
 const contracts = projectFactory(project, 'simnet');
-export const pox5 = contracts.pox5;
+// clarinet-sdk applies STX locking only to the boot pox-5 (ST0…AMW42H.pox-5),
+// which signer-manager.clar / test-pox-5-signer.clar target. The whole suite's
+// `pox5` handle points there. The local [contracts.pox-5] still deploys but is
+// unused.
+export const POX5_BOOT_ID: string = 'ST000000000000000000002AMW42H.pox-5';
+export const pox5 = contractFactory(
+  project.contracts.pox5,
+  POX5_BOOT_ID,
+) as typeof contracts.pox5;
 export const errorCodes = projectErrors(project).pox5;
 export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
@@ -437,6 +445,9 @@ export function expectAllSignersHaveKeys() {
 }
 
 export function initPox5() {
+  // With `override_boot_contracts_source`, the boot pox-5 is our raw
+  // pox-5.clar, so its initial bond-admin is the mainnet placeholder it ships
+  // with.
   const INITIAL_BOND_ADMIN = 'SP000000000000000000002Q6VF78';
 
   txOk(
@@ -449,4 +460,23 @@ export function initPox5() {
     deployer,
   );
   txOk(pox5.setBondAdmin(deployer), INITIAL_BOND_ADMIN);
+}
+
+//  The boot-deployed pox-5 (`ST0…AMW42H.pox-5`) that clarinet-sdk recognizes
+//  and applies STX locking to. `signer-manager.clar` now targets this instance,
+//  so the test infra must register/stake against it. The local
+//  `[contracts.pox-5]` is not lock-aware in simnet. Typed via the local ABI
+//  re-pointed at the boot id.
+
+/** `initPox5` for the boot instance: burnchain params only (no bond-admin). */
+export function initBootPox5() {
+  txOk(
+    pox5.setBurnchainParameters({
+      firstBurnHeight: 0n,
+      prepareCycleLength: 10n,
+      rewardCycleLength: REWARD_CYCLE_LENGTH,
+      beginPox5RewardCycle: 1n,
+    }),
+    deployer,
+  );
 }
