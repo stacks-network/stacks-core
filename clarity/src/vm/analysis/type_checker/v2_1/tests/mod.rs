@@ -35,8 +35,8 @@ use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, Sequence
 use crate::vm::types::signatures::TypeSignature::OptionalType;
 use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
 use crate::vm::types::{
-    BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, TypeSignatureExt as _,
+    BufferLength, FixedFunction, FunctionType, MAX_VALUE_SIZE, QualifiedContractIdentifier,
+    TraitIdentifier, TypeSignature, TypeSignatureExt as _,
 };
 use crate::vm::{ClarityName, ClarityVersion, execute_v2};
 
@@ -2105,10 +2105,13 @@ fn test_native_concat() {
         "(concat (list u0))",
     ];
 
+    // `type_check_helper` runs at the latest Clarity version, which is variadic
+    // for `concat` (Clarity 6+). The 1-arg case therefore produces
+    // `RequiresAtLeastArguments` rather than the strict `IncorrectArgumentCount`.
     let bad_expected = [
         StaticCheckErrorKind::TypeError(Box::new(IntType), Box::new(UIntType)),
         StaticCheckErrorKind::TypeError(Box::new(UIntType), Box::new(IntType)),
-        StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
+        StaticCheckErrorKind::RequiresAtLeastArguments(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
@@ -2151,6 +2154,146 @@ fn test_buff_concat() {
             &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
+}
+
+/// Variadic `concat` was introduced in Clarity 6 / Epoch 4.0. The type checker
+/// folds `least_supertype` across all args (for lists) and sums `max_len` for
+/// every sequence kind. Older Clarity versions must still reject more than 2
+/// arguments.
+#[test]
+fn test_variadic_concat_type_check() {
+    let v6_pairs = [
+        ("(concat 0x01 0x02 0x03)", "(buff 3)"),
+        (
+            "(concat \"Hi \" \"Stacks\" \" World!\")",
+            "(string-ascii 16)",
+        ),
+        ("(concat u\"a\" u\"bc\" u\"d\")", "(string-utf8 4)"),
+        ("(concat (list 1) (list 2 3) (list 4))", "(list 4 int)"),
+        // Many args stress-test: the fold should keep summing max_len.
+        (
+            "(concat 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08)",
+            "(buff 8)",
+        ),
+    ];
+    for (snippet, expected) in v6_pairs {
+        let got =
+            type_check_helper_version(snippet, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+                .unwrap();
+        assert_eq!(expected, &format!("{got}"), "snippet: {snippet}");
+    }
+
+    // List element types must be unifiable across all args
+    let list_supertype = type_check_helper_version(
+        "(concat (list) (list 2 3) (list))",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap();
+    assert_eq!("(list 2 int)", &format!("{list_supertype}"));
+
+    // Nested list element types are propagated through `least_supertype`
+    let nested = type_check_helper_version(
+        "(concat (list (list 1)) (list (list 2)) (list (list 3)))",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap();
+    assert_eq!("(list 3 (list 1 int))", &format!("{nested}"));
+}
+
+#[test]
+fn test_variadic_concat_pre_clarity_6_rejected() {
+    // Older versions of `check_special_concat` keep the strict 2-arg signature
+    // and must reject every arg count other than exactly 2. The expected error
+    // variant differs by version: pre-Clarity-6 uses `IncorrectArgumentCount`
+    // for *all* off-arity calls (including the too-few side), while Clarity 6+
+    // returns `RequiresAtLeastArguments` for too-few only — covered separately
+    // in `test_variadic_concat_arity_rejected` and `test_native_concat`.
+    let snippets_and_expected = [
+        (
+            "(concat)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 0),
+        ),
+        (
+            "(concat 0xaa)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
+        ),
+        (
+            "(concat 0x01 0x02 0x03)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
+        ),
+    ];
+
+    for version in ClarityVersion::ALL
+        .iter()
+        .copied()
+        .take_while(|v| *v < ClarityVersion::Clarity6)
+    {
+        // Pick a compatible epoch for each version.
+        let epoch = match version {
+            ClarityVersion::Clarity1 => StacksEpochId::Epoch20,
+            ClarityVersion::Clarity2 => StacksEpochId::Epoch21,
+            ClarityVersion::Clarity3 => StacksEpochId::Epoch30,
+            ClarityVersion::Clarity4 => StacksEpochId::Epoch33,
+            ClarityVersion::Clarity5 => StacksEpochId::Epoch34,
+            ClarityVersion::Clarity6 => unreachable!(),
+        };
+        for (snippet, expected) in &snippets_and_expected {
+            let err = type_check_helper_version(snippet, version, epoch).unwrap_err();
+            assert_eq!(
+                *expected, *err.err,
+                "expected strict 2-arg rejection at {version}/{epoch} for `{snippet}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_variadic_concat_buffer_max_length_exceeded() {
+    // The combined declared length of `ARG_COUNT × PER_ARG_LEN` must exceed
+    // `MAX_VALUE_SIZE`, so the type checker rejects this at compile time. A
+    // literal buffer of that size can't be written directly, so the args are
+    // passed via declared function-parameter types.
+    //
+    // The const_assert below guards against `MAX_VALUE_SIZE` ever growing
+    // past this test's combined size, which would silently turn this into a
+    // pass-without-asserting case.
+    const PER_ARG_LEN: u32 = 350_000;
+    const ARG_COUNT: u32 = 3;
+    const _: () = assert!(
+        PER_ARG_LEN * ARG_COUNT > MAX_VALUE_SIZE,
+        "PER_ARG_LEN * ARG_COUNT must exceed MAX_VALUE_SIZE; if MAX_VALUE_SIZE \
+         grew, bump these constants so this test still exercises the overflow"
+    );
+
+    let snippet = format!(
+        "(define-public (foo (a (buff {PER_ARG_LEN})) (b (buff {PER_ARG_LEN})) (c (buff {PER_ARG_LEN})))
+            (ok (concat a b c)))"
+    );
+    let err = type_check_helper_version(&snippet, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+        .unwrap_err();
+    assert!(
+        matches!(*err.err, StaticCheckErrorKind::ValueTooLarge),
+        "expected ValueTooLarge for an oversized variadic concat, got {:?}",
+        err.err
+    );
+}
+
+#[test]
+fn test_variadic_concat_mixed_types_rejected() {
+    // Buffer mixed with string-ascii — third arg breaks the chain
+    let err = type_check_helper_version(
+        "(concat 0x01 0x02 \"hi\")",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap_err();
+    let err_str = format!("{:?}", err.err);
+    assert!(
+        err_str.contains("TypeError") || err_str.contains("ExpectedSequence"),
+        "expected a type error mixing buff and string, got: {err_str}"
+    );
 }
 
 #[test]

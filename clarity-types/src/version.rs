@@ -117,6 +117,12 @@ impl ClarityVersion {
     pub fn protects_logn_cost_fn(&self) -> bool {
         self >= &ClarityVersion::Clarity5
     }
+
+    /// Beginning in Clarity 6, `concat` is variadic and accepts two or more
+    /// arguments. Earlier versions require exactly two arguments.
+    pub fn supports_variadic_concat(&self) -> bool {
+        self >= &ClarityVersion::Clarity6
+    }
 }
 
 impl FromStr for ClarityVersion {
