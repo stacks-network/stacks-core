@@ -52,19 +52,41 @@ lazy_static! {
         "({})|({})",
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
     );
+    // `ClarityName` (legacy, pre-Clarity-6) — identifier must begin with a
+    // letter or be an operator name. The PR-7243 transitional state widens
+    // this to also accept a leading `_`; a follow-up commit will narrow it
+    // back once the AST/analyzer have been migrated to `ClarityNameV6` for
+    // their source-level identifier representation. After that narrowing,
+    // `ClarityName` is the type used in wire-narrow positions where a
+    // leading `_` must be statically forbidden (e.g.
+    // `TransactionContractCall.function_name`, post-condition `asset_name`,
+    // and legacy `TupleData` keys).
+    //
     // Three alternation arms:
-    //   1) `[a-zA-Z_]...` — identifier starting with a letter or `_` (including
-    //                      the bare `_`). The `_` leading position is accepted
-    //                      unconditionally at the codec/lexer level per
-    //                      Clarity 6; pre-Clarity-6 ASTs reject these
-    //                      at the parser pass.
+    //   1) `[a-zA-Z_]...` — identifier starting with a letter or `_`
+    //                      (transitional; will narrow to `[a-zA-Z]`).
     //   2) `[-+=/*]`      — single-char operator name.
     //   3) `[<>]=?`       — comparison operator name.
     pub static ref CLARITY_NAME_REGEX_STRING: String =
         "^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
+    // `ClarityNameV6` — Clarity-6 relaxation. Permits identifiers to begin
+    // with `_`, including the bare `_` discard binding. Used by Clarity-6
+    // wire variants (e.g. `TransactionContractCallV6`, `Value::TupleV6`)
+    // and by source-level AST representations where leading-`_` names
+    // must be admitted.
+    //
+    // The arm shape mirrors `CLARITY_NAME_REGEX_STRING` but allows `_` in
+    // the leading position. The bare `_` is accepted because the `*`
+    // quantifier admits zero trailing chars.
+    pub static ref CLARITY_NAME_V6_REGEX_STRING: String =
+        "^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
     {
         Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
+    };
+    pub static ref CLARITY_NAME_V6_REGEX: Regex =
+    {
+        Regex::new(CLARITY_NAME_V6_REGEX_STRING.as_str()).unwrap()
     };
     pub static ref CONTRACT_NAME_REGEX: Regex =
     {
@@ -82,12 +104,48 @@ guarded_string!(
 );
 
 guarded_string!(
+    ClarityNameV6,
+    CLARITY_NAME_V6_REGEX,
+    MAX_STRING_LEN,
+    ClarityTypeError,
+    ClarityTypeError::InvalidClarityName
+);
+
+guarded_string!(
     ContractName,
     CONTRACT_NAME_REGEX,
     MAX_STRING_LEN,
     ClarityTypeError,
     ClarityTypeError::InvalidContractName
 );
+
+/// Widening from the narrow legacy `ClarityName` to the Clarity-6
+/// `ClarityNameV6`. Infallible: every string accepted by the legacy
+/// regex is also accepted by the V6 regex, so the inner `String` is
+/// guaranteed valid in the target type.
+impl From<ClarityName> for ClarityNameV6 {
+    fn from(name: ClarityName) -> Self {
+        // SAFETY: `name.0` already passed the narrow regex, which is a
+        // subset of the V6 regex. We reconstruct via `try_from` rather
+        // than touching the private field, which keeps the V6 invariant
+        // enforced by its own constructor.
+        let raw: String = name.into();
+        ClarityNameV6::try_from(raw)
+            .expect("BUG: every ClarityName must be a valid ClarityNameV6")
+    }
+}
+
+/// Narrowing from `ClarityNameV6` to `ClarityName`. Fallible: a V6 name
+/// beginning with `_` (or the bare `_`) is not a legal legacy
+/// `ClarityName`. Use this at boundaries where a Clarity-6 value flows
+/// into a legacy wire-narrow position.
+impl TryFrom<ClarityNameV6> for ClarityName {
+    type Error = ClarityTypeError;
+    fn try_from(name: ClarityNameV6) -> Result<Self, Self::Error> {
+        let raw: String = name.into();
+        ClarityName::try_from(raw)
+    }
+}
 
 impl StacksMessageCodec for ClarityName {
     #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
@@ -125,6 +183,43 @@ impl StacksMessageCodec for ClarityName {
         // must decode to a clarity name
         let name = ClarityName::try_from(s).map_err(|e| {
             codec_error::DeserializeError(format!("Failed to parse Clarity name: {e:?}"))
+        })?;
+        Ok(name)
+    }
+}
+
+impl StacksMessageCodec for ClarityNameV6 {
+    #[allow(clippy::needless_as_bytes)]
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        if self.as_bytes().len() > MAX_STRING_LEN as usize {
+            return Err(codec_error::SerializeError(
+                "Failed to serialize clarity name (v6): too long".to_string(),
+            ));
+        }
+        write_next(fd, &(self.as_bytes().len() as u8))?;
+        fd.write_all(self.as_bytes())
+            .map_err(codec_error::WriteError)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ClarityNameV6, codec_error> {
+        let len_byte: u8 = read_next(fd)?;
+        if len_byte > MAX_STRING_LEN {
+            return Err(codec_error::DeserializeError(
+                "Failed to deserialize clarity name (v6): too long".to_string(),
+            ));
+        }
+        let mut bytes = vec![0u8; len_byte as usize];
+        fd.read_exact(&mut bytes).map_err(codec_error::ReadError)?;
+
+        let s = String::from_utf8(bytes).map_err(|_e| {
+            codec_error::DeserializeError(
+                "Failed to parse Clarity name (v6): could not construct from utf8".to_string(),
+            )
+        })?;
+
+        let name = ClarityNameV6::try_from(s).map_err(|e| {
+            codec_error::DeserializeError(format!("Failed to parse Clarity name (v6): {e:?}"))
         })?;
         Ok(name)
     }

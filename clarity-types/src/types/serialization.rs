@@ -24,7 +24,7 @@ use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
 use crate::errors::{ClarityTypeError, IncomparableError};
-use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
+use crate::representations::{ClarityName, ClarityNameV6, ContractName, MAX_STRING_LEN};
 use crate::types::{
     BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, MAX_TYPE_DEPTH,
     MAX_VALUE_SIZE, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -248,6 +248,7 @@ macro_rules! serialize_guarded_string {
 }
 
 serialize_guarded_string!(ClarityName);
+serialize_guarded_string!(ClarityNameV6);
 serialize_guarded_string!(ContractName);
 
 impl PrincipalData {
