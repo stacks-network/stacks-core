@@ -24,12 +24,12 @@ use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 
-use crate::burnchains::bitcoin::address::{BitcoinAddress, SegwitBitcoinAddress};
+use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::{
     bits, BitcoinBlock, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
-    Error as btc_error, PeerMessage, WatchedP2WSHOutput, WitnessScriptHash,
+    Error as btc_error, PeerMessage,
 };
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
@@ -475,40 +475,12 @@ impl BitcoinBlockParser {
             }
         }
 
-        // Extract transactions with P2WSH outputs
-        let mut watched_p2wsh_outputs = vec![];
-        for tx in block.txdata.iter() {
-            for (vout_index, output) in tx.output.iter().enumerate() {
-                let Some(parsed_output) =
-                    BitcoinTxOutput::from_bitcoin_txout(self.network_id, output)
-                else {
-                    continue;
-                };
-                let BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(
-                    _network_id,
-                    witness_script_hash,
-                )) = parsed_output.address
-                else {
-                    continue;
-                };
-                watched_p2wsh_outputs.push(WatchedP2WSHOutput {
-                    witness_script_hash: WitnessScriptHash(witness_script_hash),
-                    amount: parsed_output.units,
-                    txid: Txid::from_bitcoin_tx_hash(&tx.txid()),
-                    vout: vout_index
-                        .try_into()
-                        .expect("FATAL: parsed bitcoin tx with greater than u32::MAX outputs"),
-                });
-            }
-        }
-
         BitcoinBlock {
             block_height,
             block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.bitcoin_hash()),
             parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
             txs: accepted_txs,
             timestamp: block.header.time as u64,
-            watched_p2wsh_outputs,
         }
     }
 
@@ -569,25 +541,16 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
-    use stacks_common::deps_common::bitcoin::blockdata::block::{
-        Block, BlockHeader, LoneBlockHeader,
-    };
-    use stacks_common::deps_common::bitcoin::blockdata::script::Script as BtcScript;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::{
-        OutPoint, Transaction, TxIn, TxOut,
-    };
+    use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-    use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
     use stacks_common::types::Address;
     use stacks_common::util::hash::hex_bytes;
 
     use super::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::address::{
-        BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
-    };
+    use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::{
         BitcoinBlock, BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInputRaw,
@@ -640,97 +603,6 @@ mod tests {
         let bytes = &inp[..inp.len()];
         ret.copy_from_slice(bytes);
         Txid(ret)
-    }
-
-    proptest! {
-        /// Only canonical P2WSH outputs (`OP_0 <32-byte program>`) are captured
-        /// into `watched_p2wsh_outputs` by the real `parse_block` path; every
-        /// other standard output type — P2PKH, P2SH, P2WPKH, P2TR, bare
-        /// OP_RETURN — is ignored, and the captured `(txid, vout, hash, amount)`
-        /// matches the P2WSH output exactly, whatever its position in the tx.
-        ///
-        /// Exercises the extraction end-to-end through
-        /// `BitcoinTxOutput::from_bitcoin_txout`, the same code the node runs.
-        /// The near-misses it guards are P2WPKH (`OP_0 <20>`) and P2TR
-        /// (`OP_1 <32>`): admitting either into the watched set would fire
-        /// spurious staking events.
-        #[test]
-        #[cfg_attr(test, pinny::tag(t_prop))]
-        fn prop_extract_only_p2wsh_outputs(
-            wsh in any::<[u8; 32]>(),
-            p2pkh_h in any::<[u8; 20]>(),
-            p2sh_h in any::<[u8; 20]>(),
-            p2wpkh_h in any::<[u8; 20]>(),
-            p2tr_k in any::<[u8; 32]>(),
-            wsh_amount in 1u64..=21_000_000_000_000,
-            p2wsh_pos in 0usize..6,
-        ) {
-            let network_id = BitcoinNetworkType::Mainnet;
-
-            // P2PKH: OP_DUP OP_HASH160 <20> OP_EQUALVERIFY OP_CHECKSIG.
-            let mut p2pkh_spk = vec![0x76u8, 0xa9, 0x14];
-            p2pkh_spk.extend_from_slice(&p2pkh_h);
-            p2pkh_spk.extend_from_slice(&[0x88, 0xac]);
-            let p2pkh = TxOut { value: 1000, script_pubkey: BtcScript::from(p2pkh_spk) };
-
-            // P2SH: OP_HASH160 <20> OP_EQUAL.
-            let mut p2sh_spk = vec![0xa9u8, 0x14];
-            p2sh_spk.extend_from_slice(&p2sh_h);
-            p2sh_spk.push(0x87);
-            let p2sh = TxOut { value: 1001, script_pubkey: BtcScript::from(p2sh_spk) };
-
-            // Bare OP_RETURN with a small data push.
-            let op_return = TxOut {
-                value: 0,
-                script_pubkey: BtcScript::from(vec![0x6au8, 0x04, 0xde, 0xad, 0xbe, 0xef]),
-            };
-
-            let p2wpkh = SegwitBitcoinAddress::to_p2wpkh_tx_out(&p2wpkh_h, 1002);
-            let p2tr = SegwitBitcoinAddress::to_p2tr_tx_out(&p2tr_k, 1003);
-            let p2wsh = SegwitBitcoinAddress::to_p2wsh_tx_out(&wsh, wsh_amount);
-
-            // Insert the P2WSH output at a random position among the others so
-            // the captured `vout` is exercised independently of ordering.
-            let mut outputs = vec![p2pkh, p2sh, op_return, p2wpkh, p2tr];
-            outputs.insert(p2wsh_pos, p2wsh);
-
-            let tx = Transaction {
-                version: 1,
-                lock_time: 0,
-                input: vec![TxIn {
-                    previous_output: OutPoint {
-                        txid: Sha256dHash([0u8; 32]),
-                        vout: 0xffffffff,
-                    },
-                    script_sig: BtcScript::from(vec![]),
-                    sequence: 0xffffffff,
-                    witness: vec![],
-                }],
-                output: outputs,
-            };
-
-            let block = Block {
-                header: BlockHeader {
-                    version: 1,
-                    prev_blockhash: Sha256dHash([0u8; 32]),
-                    merkle_root: Sha256dHash([0u8; 32]),
-                    time: 0,
-                    bits: 0,
-                    nonce: 0,
-                },
-                txdata: vec![tx.clone()],
-            };
-
-            let parser = BitcoinBlockParser::new(network_id, MagicBytes([105, 100]));
-            let parsed = parser.parse_block(&block, 1, StacksEpochId::Epoch2_05);
-
-            prop_assert_eq!(parsed.watched_p2wsh_outputs.len(), 1);
-            let w = &parsed.watched_p2wsh_outputs[0];
-            prop_assert_eq!(w.witness_script_hash.0, wsh);
-            prop_assert_eq!(w.amount, wsh_amount);
-            prop_assert_eq!(w.vout as usize, p2wsh_pos);
-            prop_assert_eq!(&w.txid, &Txid::from_bitcoin_tx_hash(&tx.txid()));
-        }
     }
 
     fn to_block_hash(inp: &[u8]) -> BurnchainHeaderHash {
@@ -1188,7 +1060,6 @@ mod tests {
                             ]
                         }
                     ],
-                    watched_p2wsh_outputs: vec![],
                     timestamp: 1543267060,
                 })
             },
@@ -1344,7 +1215,6 @@ mod tests {
                             ]
                         }
                     ],
-                    watched_p2wsh_outputs: vec![],
                 })
             },
             BlockFixture {

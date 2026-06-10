@@ -239,7 +239,7 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: 253,
-            end_height: 1_000,
+            end_height: 1_002,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_4
         },
@@ -249,11 +249,13 @@ lazy_static! {
         // Epoch 4.0 boundary and statically references an sBTC token contract,
         // so any test that crosses it must first deploy the stub (see
         // `check_pox_5_stake_lifecycle` for the pattern). Tests that
-        // *intentionally* exercise Epoch 4.0 override these heights — e.g.
-        // `epochs[Epoch34].end_height = 260; epochs[Epoch40].start_height = 260;`.
+        // *intentionally* exercise Epoch 4.0 override these heights -- e.g.
+        // `epochs[Epoch34].end_height = 262; epochs[Epoch40].start_height = 262;`.
+        // The default 1_002 keeps the boundary off the prepare phase and off
+        // reward-cycle offsets 0/1.
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch40,
-            start_height: 1_000,
+            start_height: 1_002,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_4
@@ -776,11 +778,11 @@ pub fn enable_epoch_4_0(conf: &mut Config) {
     epochs
         .get_mut(StacksEpochId::Epoch34)
         .expect("Missing epoch 3.4 in config")
-        .end_height = 260;
+        .end_height = 262;
     epochs
         .get_mut(StacksEpochId::Epoch40)
         .expect("Missing epoch 4.0 in config")
-        .start_height = 260;
+        .start_height = 262;
 }
 
 pub fn next_block_and<F>(

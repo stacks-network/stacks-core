@@ -14,17 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use pinny::tag;
+use proptest::prelude::*;
 use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::to_hex;
 
+use crate::vm::analysis::type_checker::v2_1::MAX_FUNCTION_PARAMETERS;
 use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::TypeSignature::{self, BoolType, IntType, SequenceType, UIntType};
 use crate::vm::types::signatures::SequenceSubtype::{self, BufferType, StringType};
 use crate::vm::types::signatures::StringSubtype::ASCII;
 use crate::vm::types::{BufferLength, ListTypeData, StringSubtype, StringUTF8Length, Value};
-use crate::vm::{ClarityVersion, execute, execute_v2};
+use crate::vm::{ClarityVersion, execute, execute_v2, execute_v6};
 
 #[test]
 fn test_simple_list_admission() {
@@ -668,6 +672,166 @@ fn test_simple_buff_concat() {
             )))
         )
         .into()
+    );
+}
+
+/// Variadic `concat` was introduced in Clarity 6 / Epoch 4.0. Earlier versions
+/// require exactly 2 arguments. These tests exercise both the new variadic
+/// runtime behavior and the version gate.
+#[test]
+fn test_variadic_concat_buff() {
+    // Variadic over buffers
+    assert_eq!(
+        Value::buff_from(vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap(),
+        execute_v6("(concat 0x01 0x02 0x03 0x04 0x05 0x06)")
+            .unwrap()
+            .unwrap()
+    );
+    assert_eq!(
+        Value::buff_from(vec![0xaa, 0xbb, 0xcc]).unwrap(),
+        execute_v6("(concat 0xaa 0xbb 0xcc)").unwrap().unwrap()
+    );
+    // 2-arg case is unchanged
+    assert_eq!(
+        Value::buff_from(vec![0x30, 0x31, 0x32, 0x33, 0x34]).unwrap(),
+        execute_v6("(concat 0x303132 0x3334)").unwrap().unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_string_ascii() {
+    assert_eq!(
+        execute_v6("(concat \"Hello \" \"Stacks \" \"World!\")")
+            .unwrap()
+            .unwrap(),
+        execute_v6("\"Hello Stacks World!\"").unwrap().unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_string_utf8() {
+    // Existing test_string_utf8_concat builds the same emoji from 5 binary
+    // concats — here we do it in one variadic call to verify the v600 path
+    // preserves UTF-8 semantics.
+    let variadic =
+        "(concat u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\")";
+    let expected = Value::string_utf8_from_bytes("🤦🏼‍♂️".into()).unwrap();
+    assert_eq!(expected, execute_v6(variadic).unwrap().unwrap());
+}
+
+#[test]
+fn test_variadic_concat_list() {
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(3),
+        Value::Int(4),
+        Value::Int(5),
+        Value::Int(6),
+    ])
+    .unwrap();
+    assert_eq!(
+        expected,
+        execute_v6("(concat (list 1 2) (list 3 4) (list 5 6))")
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_nested_list() {
+    // Lists of lists exercise the recursive `least_supertype` path during
+    // type checking and the recursive sequence-concat at runtime.
+    let expected = Value::list_from(vec![
+        Value::list_from(vec![Value::Int(1)]).unwrap(),
+        Value::list_from(vec![Value::Int(2)]).unwrap(),
+        Value::list_from(vec![Value::Int(3)]).unwrap(),
+    ])
+    .unwrap();
+    assert_eq!(
+        expected,
+        execute_v6("(concat (list (list 1)) (list (list 2)) (list (list 3)))")
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_many_args() {
+    // 16 args — exercises the two-pass loop with a non-trivial N, including
+    // the pre-reserve path on the accumulator. With per-step cost charging
+    // this would have charged ~O(N^2) cost; with the two-pass linear-cost
+    // approach we charge O(total_len) once.
+    let snippet = "(concat \
+        0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 \
+        0x09 0x0a 0x0b 0x0c 0x0d 0x0e 0x0f 0x10)";
+    let expected = Value::buff_from((1u8..=16).collect()).unwrap();
+    assert_eq!(expected, execute_v6(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_variadic_concat_empty_sequences() {
+    // Empty sequences in any position should be transparent. This regression-
+    // guards the fold against any path that special-cases empty inputs.
+    assert_eq!(
+        Value::buff_from(vec![0x01, 0x02]).unwrap(),
+        execute_v6("(concat 0x 0x01 0x 0x02 0x)").unwrap().unwrap()
+    );
+    assert_eq!(
+        Value::list_from(vec![Value::Int(1), Value::Int(2)]).unwrap(),
+        execute_v6("(concat (list) (list 1) (list) (list 2) (list))")
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_variadic_concat_arity_rejected() {
+    // 0 args
+    let err = format!("{:?}", execute_v6("(concat)").unwrap_err());
+    assert!(
+        err.contains("Requires at least args: 2 got 0"),
+        "expected an arity error for (concat), got: {err}"
+    );
+
+    // 1 arg
+    let err = format!("{:?}", execute_v6("(concat 0xaa)").unwrap_err());
+    assert!(
+        err.contains("Requires at least args: 2 got 1"),
+        "expected an arity error for (concat x), got: {err}"
+    );
+}
+
+#[test]
+fn test_variadic_concat_mixed_types_rejected() {
+    // Concatenating a buffer onto a list shouldn't type-check.
+    let err = execute_v6("(concat 0x01 (list 2))").unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("TypeError")
+            || err_str.contains("ExpectedSequence")
+            || err_str.contains("Expected sequence"),
+        "expected a type error mixing buff and list, got: {err_str}"
+    );
+}
+
+#[test]
+fn test_variadic_concat_rejected_pre_clarity_6() {
+    // A Clarity 1 contract at any pre-Clarity-6 epoch should be rejected at
+    // analysis time when it passes more than two args to `concat`.
+    let err = execute("(concat 0x01 0x02 0x03)").unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("IncorrectArgumentCount") || err_str.contains("ArgumentCount"),
+        "expected an argument-count error, got: {err_str}"
+    );
+
+    // Same for Clarity 2 at Epoch 2.1.
+    let err = execute_v2("(concat 0x01 0x02 0x03)").unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("IncorrectArgumentCount") || err_str.contains("ArgumentCount"),
+        "expected an argument-count error under v2, got: {err_str}"
     );
 }
 
@@ -1389,4 +1553,178 @@ fn test_filter_with_special_functions() {
     let test = "(filter or (list false true false true))";
     let expected = Value::list_from(vec![Value::Bool(true), Value::Bool(true)]).unwrap();
     assert_eq!(expected, execute(test).unwrap().unwrap());
+}
+
+// =============================================================================
+// Property tests for variadic `concat` (Clarity 6 / Epoch 4.0+).
+//
+// Each test generates `2..=MAX_FUNCTION_PARAMETERS` args of one sequence kind
+// with random data, builds the variadic `(concat a1 a2 ... aN)` snippet, and
+// verifies the result equals the byte/char/element-wise concatenation of all
+// args computed in Rust. This exercises both the two-pass evaluation in
+// `special_concat_v600` (phase 1 sum, phase 2 reserve+concat) and the
+// type-checker fold in `check_special_concat`.
+//
+// Per-arg lengths are kept small so that the combined result fits comfortably
+// below the `MAX_VALUE_SIZE` ceiling even at `MAX_FUNCTION_PARAMETERS` args.
+// =============================================================================
+
+/// Random bytes for a buffer arg.
+fn buff_chunk_strategy() -> impl Strategy<Value = Vec<u8>> {
+    prop::collection::vec(any::<u8>(), 0..=32)
+}
+
+/// Random printable-ASCII bytes (no `"` or `\`) for a string-ascii arg.
+fn ascii_chunk_strategy() -> impl Strategy<Value = Vec<u8>> {
+    prop::collection::vec(
+        (0x20u8..=0x7Eu8).prop_filter("not quote or backslash", |b| *b != b'"' && *b != b'\\'),
+        0..=32,
+    )
+}
+
+/// Random Unicode chars (printable ASCII + BMP + emoji) for a string-utf8 arg.
+fn utf8_chunk_strategy() -> impl Strategy<Value = Vec<char>> {
+    prop::collection::vec(
+        prop_oneof![
+            // Printable ASCII excluding `"` and `\`
+            (0x20u8..=0x7Eu8)
+                .prop_filter("not quote or backslash", |b| *b != b'"' && *b != b'\\')
+                .prop_map(|b| b as char),
+            // BMP non-control non-surrogate codepoints
+            (0xA1u32..=0xD7FF).prop_filter_map("valid bmp char", |n| {
+                char::from_u32(n).filter(|c| !c.is_control())
+            }),
+            // Emoji range
+            (0x1F300u32..=0x1F6FFu32).prop_filter_map("valid emoji", char::from_u32),
+        ],
+        0..=16,
+    )
+}
+
+/// Random uints for a `(list uint)` arg.
+fn uint_list_chunk_strategy() -> impl Strategy<Value = Vec<u128>> {
+    prop::collection::vec(any::<u128>(), 0..=8)
+}
+
+/// Format raw bytes as a Clarity ASCII string literal.
+fn ascii_to_clarity_literal(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() + 2);
+    s.push('"');
+    for &b in bytes {
+        // Strategy already filters out `"` and `\`, so every byte is a
+        // printable ASCII char that needs no escaping.
+        s.push(b as char);
+    }
+    s.push('"');
+    s
+}
+
+/// Format a sequence of chars as a Clarity UTF-8 string literal.
+fn utf8_chars_to_clarity_literal(chars: &[char]) -> String {
+    let mut s = String::from("u\"");
+    for &c in chars {
+        if c.is_ascii() && c != '"' && c != '\\' && !c.is_control() {
+            s.push(c);
+        } else {
+            s.push_str(&format!("\\u{{{:X}}}", c as u32));
+        }
+    }
+    s.push('"');
+    s
+}
+
+/// Format a uint list as a Clarity list literal. Empty lists use `(list)`
+/// which is valid syntax and combines correctly via the type checker's
+/// supertype path.
+fn uint_list_to_clarity_literal(items: &[u128]) -> String {
+    if items.is_empty() {
+        "(list)".to_string()
+    } else {
+        let body = items
+            .iter()
+            .map(|u| format!("u{u}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("(list {body})")
+    }
+}
+
+proptest! {
+    /// Variadic buffer concat: result is the byte-wise concatenation of args.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_variadic_concat_buff(
+        chunks in prop::collection::vec(buff_chunk_strategy(), 2..=MAX_FUNCTION_PARAMETERS),
+    ) {
+        let snippets: Vec<String> = chunks
+            .iter()
+            .map(|bytes| format!("0x{}", to_hex(bytes)))
+            .collect();
+        let snippet = format!("(concat {})", snippets.join(" "));
+
+        let result = execute_v6(&snippet)
+            .map_err(|e| TestCaseError::fail(format!("execute_v6 failed: {e:?}")))?
+            .ok_or_else(|| TestCaseError::fail("no return value"))?;
+        let expected_bytes: Vec<u8> = chunks.into_iter().flatten().collect();
+        let expected = Value::buff_from(expected_bytes)
+            .map_err(|e| TestCaseError::fail(format!("buff_from failed: {e:?}")))?;
+        prop_assert_eq!(result, expected);
+    }
+
+    /// Variadic string-ascii concat: result is the byte-wise concatenation.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_variadic_concat_string_ascii(
+        chunks in prop::collection::vec(ascii_chunk_strategy(), 2..=MAX_FUNCTION_PARAMETERS),
+    ) {
+        let snippets: Vec<String> = chunks.iter().map(|b| ascii_to_clarity_literal(b)).collect();
+        let snippet = format!("(concat {})", snippets.join(" "));
+
+        let result = execute_v6(&snippet)
+            .map_err(|e| TestCaseError::fail(format!("execute_v6 failed: {e:?}")))?
+            .ok_or_else(|| TestCaseError::fail("no return value"))?;
+        let expected_bytes: Vec<u8> = chunks.into_iter().flatten().collect();
+        let expected = Value::string_ascii_from_bytes(expected_bytes)
+            .map_err(|e| TestCaseError::fail(format!("string_ascii_from_bytes failed: {e:?}")))?;
+        prop_assert_eq!(result, expected);
+    }
+
+    /// Variadic string-utf8 concat: result is the char-wise concatenation.
+    /// Exercises ASCII, BMP, and supplementary plane (emoji) codepoints.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_variadic_concat_string_utf8(
+        chunks in prop::collection::vec(utf8_chunk_strategy(), 2..=MAX_FUNCTION_PARAMETERS),
+    ) {
+        let snippets: Vec<String> = chunks.iter().map(|cs| utf8_chars_to_clarity_literal(cs)).collect();
+        let snippet = format!("(concat {})", snippets.join(" "));
+
+        let result = execute_v6(&snippet)
+            .map_err(|e| TestCaseError::fail(format!("execute_v6 failed: {e:?}")))?
+            .ok_or_else(|| TestCaseError::fail("no return value"))?;
+        let combined: String = chunks.into_iter().flatten().collect();
+        let expected = Value::string_utf8_from_bytes(combined.into_bytes())
+            .map_err(|e| TestCaseError::fail(format!("string_utf8_from_bytes failed: {e:?}")))?;
+        prop_assert_eq!(result, expected);
+    }
+
+    /// Variadic list concat: result is the element-wise concatenation. All
+    /// args have homogeneous element type `uint`, including empty lists which
+    /// must combine cleanly via the type checker's supertype path.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_variadic_concat_list_uint(
+        chunks in prop::collection::vec(uint_list_chunk_strategy(), 2..=MAX_FUNCTION_PARAMETERS),
+    ) {
+        let snippets: Vec<String> = chunks.iter().map(|l| uint_list_to_clarity_literal(l)).collect();
+        let snippet = format!("(concat {})", snippets.join(" "));
+
+        let result = execute_v6(&snippet)
+            .map_err(|e| TestCaseError::fail(format!("execute_v6 failed: {e:?}")))?
+            .ok_or_else(|| TestCaseError::fail("no return value"))?;
+        let expected_values: Vec<Value> = chunks.into_iter().flatten().map(Value::UInt).collect();
+        let expected = Value::list_from(expected_values)
+            .map_err(|e| TestCaseError::fail(format!("list_from failed: {e:?}")))?;
+        prop_assert_eq!(result, expected);
+    }
 }

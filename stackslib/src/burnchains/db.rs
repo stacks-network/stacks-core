@@ -22,9 +22,7 @@ use rusqlite::{params, Connection, OpenFlags, Row, Transaction};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::burnchains::bitcoin::{WatchedP2WSHOutput, WitnessScriptHash};
 use crate::burnchains::{
     Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError, Txid,
 };
@@ -51,10 +49,6 @@ static MIGRATIONS: &[Migration] = &[
         version: 3,
         statements: SCHEMA_3,
     },
-    Migration {
-        version: 4,
-        statements: SCHEMA_4,
-    },
 ];
 
 pub struct BurnchainDB {
@@ -68,7 +62,6 @@ pub struct BurnchainDBTransaction<'a> {
 pub struct BurnchainBlockData {
     pub header: BurnchainBlockHeader,
     pub ops: Vec<BlockstackOperationType>,
-    pub p2wsh_outputs: Vec<WatchedP2WSHOutput>,
 }
 
 /// A trait for reading burnchain block headers
@@ -101,46 +94,6 @@ pub struct BlockCommitMetadata {
     pub anchor_block: Option<u64>,
     /// If Some(..), then this is the reward cycle which contains the anchor block that this block-commit descends from
     pub anchor_block_descendant: Option<u64>,
-}
-
-impl rusqlite::ToSql for WitnessScriptHash {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(rusqlite::types::ToSqlOutput::Owned(
-            rusqlite::types::Value::Text(to_hex(&self.0)),
-        ))
-    }
-}
-
-impl rusqlite::types::FromSql for WitnessScriptHash {
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
-        let hex_str = value.as_str()?;
-        let bytes = hex_bytes(hex_str).map_err(|e| {
-            warn!("Bad hex string read for witness-script-hash from SQLite DB"; "err" => %e);
-            rusqlite::types::FromSqlError::InvalidType
-        })?;
-        let script_hash = bytes.try_into().map_err(|_e| {
-            warn!("Bad witness script hash stored in SQLite DB, length should be 32 bytes");
-            rusqlite::types::FromSqlError::InvalidType
-        })?;
-        Ok(WitnessScriptHash(script_hash))
-    }
-}
-
-impl FromRow<WatchedP2WSHOutput> for WatchedP2WSHOutput {
-    fn from_row(row: &Row) -> Result<WatchedP2WSHOutput, DBError> {
-        let txid: Txid = row.get("txid")?;
-        let vout: u32 = row.get("vout")?;
-        let witness_script_hash: WitnessScriptHash = row.get("witness_script_hash")?;
-        let amount_i64: i64 = row.get("amount")?;
-
-        Ok(WatchedP2WSHOutput {
-            witness_script_hash,
-            amount: u64::try_from(amount_i64)
-                .expect("FATAL: negative amount stored in watched_p2wsh_outputs"),
-            txid,
-            vout,
-        })
-    }
 }
 
 impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
@@ -386,26 +339,6 @@ pub static SCHEMA_3: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (3);",
 ];
 
-const BURNCHAIN_DB_SCHEMA_4: &[&str] = &[
-    r#"
-    CREATE TABLE IF NOT EXISTS watched_p2wsh_outputs (
-        txid TEXT NOT NULL,
-        vout INTEGER NOT NULL,
-        block_hash TEXT NOT NULL,
-        block_height INTEGER NOT NULL,
-        witness_script_hash TEXT NOT NULL,
-        amount INTEGER NOT NULL,
-        PRIMARY KEY(txid, vout, block_hash),
-        FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
-    );
-    "#,
-    r#"CREATE INDEX IF NOT EXISTS index_watched_outputs_block_hash
-       ON watched_p2wsh_outputs(block_hash);"#,
-    "INSERT OR REPLACE INTO db_config (version) VALUES (4);",
-];
-
-pub static SCHEMA_4: &[&str] = BURNCHAIN_DB_SCHEMA_4;
-
 impl BurnchainDBTransaction<'_> {
     /// Store a burnchain block header into the burnchain database.
     /// Returns the row ID on success.
@@ -535,65 +468,6 @@ impl BurnchainDBTransaction<'_> {
         Ok(())
     }
 
-    /// Store watched outputs for a burnchain block.
-    /// Watched outputs are P2WSH outputs extracted from Bitcoin blocks.
-    pub(crate) fn store_watched_outputs(
-        &self,
-        block_header: &BurnchainBlockHeader,
-        watched_p2wsh_outputs: &[WatchedP2WSHOutput],
-    ) -> Result<(), BurnchainError> {
-        if watched_p2wsh_outputs.is_empty() {
-            return Ok(());
-        }
-
-        let sql = "INSERT INTO watched_p2wsh_outputs
-                   (txid, vout, block_hash, block_height, witness_script_hash, amount)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
-
-        for output in watched_p2wsh_outputs {
-            let args = params![
-                &output.txid,
-                output.vout,
-                &block_header.block_hash,
-                u64_to_sql(block_header.block_height)?,
-                &output.witness_script_hash,
-                u64_to_sql(output.amount)?,
-            ];
-
-            self.sql_tx.execute(sql, args)?;
-        }
-
-        test_debug!(
-            "Stored {} watched outputs for block {} at height {}",
-            watched_p2wsh_outputs.len(),
-            &block_header.block_hash,
-            block_header.block_height
-        );
-
-        Ok(())
-    }
-
-    /// Prune watched outputs whose block height is older than 1.5 reward cycles
-    /// before `current_block_height`.
-    pub fn prune_watched_outputs(
-        &self,
-        reward_cycle_length: u32,
-        current_block_height: u64,
-    ) -> Result<(), BurnchainError> {
-        let window = (3u64 * u64::from(reward_cycle_length)) / 2;
-        let threshold = current_block_height.saturating_sub(window);
-        let sql = "DELETE FROM watched_p2wsh_outputs WHERE block_height < ?1";
-        let deleted = self.sql_tx.execute(sql, [u64_to_sql(threshold)?])?;
-        if deleted > 0 {
-            test_debug!(
-                "Pruned {} watched outputs older than block height {}",
-                deleted,
-                threshold
-            );
-        }
-        Ok(())
-    }
-
     pub fn commit(self) -> Result<(), BurnchainError> {
         self.sql_tx.commit().map_err(BurnchainError::from)
     }
@@ -619,7 +493,7 @@ impl BurnchainDBTransaction<'_> {
 
 impl BurnchainDB {
     /// The current schema version of the burnchain DB.
-    pub const SCHEMA_VERSION: u32 = 4;
+    pub const SCHEMA_VERSION: u32 = 3;
 
     /// Returns the schema version of the database
     fn get_schema_version(conn: &Connection) -> Result<u32, BurnchainError> {
@@ -883,13 +757,7 @@ impl BurnchainDB {
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
         let ops = query_rows(conn, block_ops_qry, params![block])?;
 
-        let p2wsh_outputs = Self::get_watched_outputs_at_block(conn, block)?;
-
-        Ok(BurnchainBlockData {
-            header,
-            ops,
-            p2wsh_outputs,
-        })
+        Ok(BurnchainBlockData { header, ops })
     }
 
     fn inner_get_burnchain_op(
@@ -1124,27 +992,16 @@ impl BurnchainDB {
         );
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
-        // Extract watched outputs from the block
-        let watched_p2wsh_outputs = match block {
-            BurnchainBlock::Bitcoin(bitcoin_block) => &bitcoin_block.watched_p2wsh_outputs,
-        };
-
-        // Store block header, blockstack ops, and watched outputs in a single transaction
+        // Store block header and blockstack ops in a single transaction
         let db_tx = self.tx_begin()?;
         test_debug!(
-            "Store block {},{} with {} ops and {} watched outputs",
+            "Store block {},{} with {} ops",
             &header.block_hash,
             header.block_height,
             blockstack_ops.len(),
-            watched_p2wsh_outputs.len()
         );
         db_tx.store_burnchain_db_entry(&header)?;
         db_tx.store_blockstack_ops(&header, &blockstack_ops)?;
-        db_tx.store_watched_outputs(&header, watched_p2wsh_outputs)?;
-        db_tx.prune_watched_outputs(
-            burnchain.pox_constants.reward_cycle_length,
-            header.block_height,
-        )?;
         db_tx.commit()?;
 
         Ok(blockstack_ops)
@@ -1162,18 +1019,6 @@ impl BurnchainDB {
             test_debug!("No block-commit tx {}", &txid);
             Ok(None)
         }
-    }
-
-    /// Get all watched outputs for a specific Bitcoin block
-    pub fn get_watched_outputs_at_block(
-        conn: &DBConn,
-        block_hash: &BurnchainHeaderHash,
-    ) -> Result<Vec<WatchedP2WSHOutput>, BurnchainError> {
-        let sql = "SELECT txid, vout, witness_script_hash, amount
-                   FROM watched_p2wsh_outputs
-                   WHERE block_hash = ?1
-                   ORDER BY txid, vout";
-        query_rows(conn, sql, [block_hash]).map_err(BurnchainError::DBError)
     }
 
     pub fn get_commit_in_block_at(

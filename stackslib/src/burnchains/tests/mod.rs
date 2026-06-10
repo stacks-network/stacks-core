@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod burnchain;
+pub mod cycle_dispatch;
 pub mod db;
-pub mod madhouse;
 pub mod thread_join;
 
 use std::collections::HashMap;
