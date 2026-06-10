@@ -18,10 +18,10 @@
 use ::libsecp256k1::curve::Scalar;
 pub use ::libsecp256k1::Error;
 use ::libsecp256k1::{
-    self, PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
+    self, Error as LibSecp256k1Error, Message as LibSecp256k1Message,
+    PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
     SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature, ECMULT_GEN_CONTEXT,
 };
-use ::libsecp256k1::{Error as LibSecp256k1Error, Message as LibSecp256k1Message};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
 
@@ -550,9 +550,9 @@ mod tests {
     }
 
     use super::*;
-    use crate::util::hash::hex_bytes;
     #[cfg(not(feature = "wasm-deterministic"))]
     use crate::util::get_epoch_time_ms;
+    use crate::util::hash::hex_bytes;
 
     struct KeyFixture<I, R> {
         input: I,
