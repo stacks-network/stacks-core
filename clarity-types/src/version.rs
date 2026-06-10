@@ -128,7 +128,7 @@ impl ClarityVersion {
     ///   1. Any identifier can start with `_` (e.g. `_foo`, `_admin`).
     ///   2. A bare `_` can be used in `let` / `match` expressions to
     ///      discard the result of an expression. The expression is
-    ///      evaluated, but the result cannot be referenced
+    ///      evaluated, but the result cannot be referenced.
     pub fn allows_underscore_prefix(&self) -> bool {
         self >= &ClarityVersion::Clarity6
     }

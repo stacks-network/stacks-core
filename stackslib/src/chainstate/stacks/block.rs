@@ -631,16 +631,16 @@ impl StacksBlock {
             error!("Authentication mode not supported in Epoch {epoch_id}");
             return false;
         }
-        // Reject leading-`_` names at every wire position when the
-        // active epoch is pre-Clarity-6 (Epoch40). This mirrors what
-        // un-upgraded nodes' narrow wire codec does and so preserves
-        // consensus during the upgrade window. Bare `_` is *also*
-        // rejected for tuple keys at every epoch (it would otherwise
-        // be referenceable via `(get _ …)`, contradicting its discard
-        // semantic). `SmartContract.code_body` is intentionally skipped:
-        // its bytes are version-blind `StacksString` (no `ClarityName`
-        // codec step), and source-level rejection happens in
-        // `UnderscoreIdentifierChecker`.
+        // Reject leading-`_` names at every wire position when
+        // `epoch_id < Epoch40` (i.e., before Clarity 6 activates).
+        // This mirrors un-upgraded nodes' narrow wire codec and so
+        // preserves consensus during the upgrade window. Bare `_` is
+        // *also* rejected for tuple keys at every epoch (it would
+        // otherwise be referenceable via `(get _ …)`, contradicting
+        // its discard semantic). `SmartContract.code_body` is
+        // intentionally skipped: its bytes are version-blind
+        // `StacksString` (no `ClarityName` codec step), and
+        // source-level rejection happens in `UnderscoreIdentifierChecker`.
         if let TransactionPayload::ContractCall(ref cc) = &tx.payload {
             if epoch_id < StacksEpochId::Epoch40 && cc.function_name.starts_with('_') {
                 error!(

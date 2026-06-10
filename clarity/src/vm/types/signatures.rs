@@ -450,7 +450,7 @@ impl TypeSignatureExt for TypeSignature {
                 .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
             // Clarity 6: bare `_` is reserved as a discard pattern and cannot
             // name a trait method.
-            if fn_name.as_str() == clarity_types::representations::DISCARD_IDENTIFIER {
+            if fn_name.as_str() == DISCARD_IDENTIFIER {
                 return Err(CommonCheckErrorKind::BareUnderscoreReserved);
             }
 
