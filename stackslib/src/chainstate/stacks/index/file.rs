@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::{env, fs, io};
@@ -23,18 +23,30 @@ use std::{env, fs, io};
 #[cfg(test)]
 use rusqlite::params;
 use rusqlite::Connection;
-use stacks_common::types::chainstate::{BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
 
 use crate::chainstate::stacks::index::bits::{
-    read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
+    get_node_max_byte_len, read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
 };
+use crate::chainstate::stacks::index::blob_layout::{self, BlobHeader};
 use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 use crate::chainstate::stacks::index::storage::NodeHashReader;
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{blob_layout, trie_sql, Error, MarfTrieId};
+use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::sql_vacuum;
+
+/// Reader-thread count for the bulk header fan-out.
+///
+/// The workers spend nearly all their time blocked on small positioned
+/// reads, so the count targets a device queue depth rather than a core
+/// count. Always in `16..=32`.
+fn header_read_parallelism() -> usize {
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    (cores * 2).clamp(16, 32)
+}
 
 /// Positioned equivalent of `read_exact`.
 ///
@@ -43,7 +55,7 @@ use crate::util_lib::db::sql_vacuum;
 /// `FileExt::seek_read` does mutate the cursor, so we save and restore it
 /// explicitly via the `Seek` impl on `&File`. This save/read/restore sequence
 /// is not atomic with other cursor-using operations on the same file handle.
-pub(crate) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+pub(super) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::FileExt;
@@ -105,12 +117,50 @@ pub(crate) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io:
     }
 }
 
+/// Async `posix_fadvise(WILLNEED)` hint over `[offset, offset + len)`.
+/// Returns immediately; no-op on non-Linux targets (Windows, macOS).
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+fn prefetch_file_range(file: &File, offset: u64, len: u64) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::io::AsRawFd;
+        nix::fcntl::posix_fadvise(
+            file.as_raw_fd(),
+            offset as i64,
+            len as i64,
+            nix::fcntl::PosixFadviseAdvice::POSIX_FADV_WILLNEED,
+        )
+        .map_err(|e| io::Error::from_raw_os_error(e as i32))?;
+    }
+    Ok(())
+}
+
+/// Read the [`BlobHeader`] of every entry in `chunk`.
+/// Worker body for [`TrieFile::bulk_read_blob_headers_sorted`].
+///
+/// Opens its own handle: positioned reads share no cursor state across
+/// threads this way, which the Windows `read_exact_at` requires (it
+/// restores the handle's cursor non-atomically).
+fn read_blob_header_chunk<T: MarfTrieId + Send + Sync>(
+    path: &str,
+    chunk: &[MarfDataEntry<T>],
+) -> Result<Vec<(T, BlobHeader<T>)>, Error> {
+    let file = File::open(path).map_err(Error::IOError)?;
+    let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
+    let mut headers = Vec::with_capacity(chunk.len());
+    for entry in chunk {
+        read_exact_at(&file, &mut buf, entry.external_offset).map_err(Error::IOError)?;
+        headers.push((entry.block_hash.clone(), BlobHeader::parse(&buf)));
+    }
+    Ok(headers)
+}
+
 /// Mapping between block IDs and trie offsets
 pub type TrieIdOffsets = HashMap<u32, u64>;
 
 /// Handle to a flat file containing Trie blobs
 pub struct TrieFileDisk {
-    fd: fs::File,
+    fd: File,
     path: String,
     trie_offsets: TrieIdOffsets,
 }
@@ -183,6 +233,35 @@ impl TrieFile {
             data.fd.sync_data()?;
         }
         Ok(())
+    }
+
+    /// Async-prefetch the node at `(block_id, in_block_ptr)`: hint the
+    /// node's max on-disk size for its type (`node_id`) from its start. The
+    /// kernel rounds to its own page size, so a node inside one page warms
+    /// just that page, while one straddling a boundary warms both.
+    ///
+    /// Best-effort: requires the blob offset already in `trie_offsets`,
+    /// else no-op. No-op for RAM-backed `TrieFile`s and non-Linux targets.
+    pub(super) fn prefetch_node(
+        &self,
+        block_id: u32,
+        in_block_ptr: u64,
+        node_id: u8,
+        u64_ptr_offsets: bool,
+    ) {
+        let TrieFile::Disk(disk) = self else {
+            return;
+        };
+        let Some(&blob_offset) = disk.trie_offsets.get(&block_id) else {
+            return;
+        };
+        let Some(abs) = blob_offset.checked_add(in_block_ptr) else {
+            return;
+        };
+        let Ok(len) = get_node_max_byte_len(node_id, u64_ptr_offsets) else {
+            return;
+        };
+        let _ = prefetch_file_range(&disk.fd, abs, len as u64);
     }
 
     /// Get a copy of the path to this TrieFile.
@@ -412,25 +491,13 @@ impl NodeHashReader for TrieFileNodeHashReader<'_> {
 }
 
 impl TrieFile {
-    /// Warm the offset cache from confirmed `marf_data` rows.
-    pub fn warm_trie_offsets(&mut self, db: &Connection) -> Result<(), Error> {
-        let mut stmt =
-            db.prepare("SELECT block_id, external_offset FROM marf_data WHERE unconfirmed = 0")?;
-        let rows = stmt.query_map([], |row| {
-            let block_id: u32 = row.get(0)?;
-            let offset_i64: i64 = row.get(1)?;
-            Ok((block_id, offset_i64))
-        })?;
+    /// Cache a known trie blob offset.
+    pub(super) fn cache_trie_offset(&mut self, block_id: u32, offset: u64) {
         let offsets_cache = match self {
             TrieFile::RAM(ref mut ram) => &mut ram.trie_offsets,
             TrieFile::Disk(ref mut disk) => &mut disk.trie_offsets,
         };
-        for row in rows {
-            let (block_id, offset_i64) = row?;
-            let offset = u64::try_from(offset_i64).map_err(|_| Error::OverflowError)?;
-            offsets_cache.insert(block_id, offset);
-        }
-        Ok(())
+        offsets_cache.insert(block_id, offset);
     }
 
     /// Determine the file offset in the TrieFile where a serialized trie starts.
@@ -546,24 +613,75 @@ impl TrieFile {
         Ok(offset)
     }
 
-    /// Read `(parent_hash, root_hash)` from a block's blob header.
-    pub fn read_parent_and_root_hash<T: MarfTrieId>(
+    /// Read a block's [`BlobHeader`].
+    pub(super) fn read_blob_header<T: MarfTrieId>(
         &mut self,
         db: &Connection,
         block_id: u32,
-    ) -> Result<(T, TrieHash), Error> {
+    ) -> Result<BlobHeader<T>, Error> {
         let blob_offset = self.get_trie_offset(db, block_id)?;
         let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
         self.read_blob_bytes_at(blob_offset, &mut buf)?;
+        Ok(BlobHeader::parse(&buf))
+    }
 
-        let mut parent_bytes = [0u8; BLOCK_HEADER_HASH_ENCODED_SIZE];
-        parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
-        let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
-        root_bytes.copy_from_slice(
-            &buf[blob_layout::ROOT_NODE_OFFSET
-                ..blob_layout::ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE],
-        );
-        Ok((T::from_bytes(parent_bytes), TrieHash(root_bytes)))
+    /// Bulk-read the [`BlobHeader`] of every entry in offset order.
+    /// Returns a map keyed by block hash.
+    ///
+    /// Fans the entries out to oversubscribed reader threads in contiguous
+    /// offset-sorted chunks: blocked positioned reads on N threads keep the
+    /// device queue ~N deep, hiding per-read latency. Each entry costs one
+    /// header-sized read, so only the pages backing headers are touched.
+    ///
+    /// Requires a `Disk`-backed `TrieFile`; callers should fall back to
+    /// [`Self::read_blob_header`] otherwise.
+    pub(super) fn bulk_read_blob_headers_sorted<T: MarfTrieId + Send + Sync>(
+        &self,
+        sorted_entries: &[MarfDataEntry<T>],
+    ) -> Result<HashMap<T, BlobHeader<T>>, Error> {
+        let TrieFile::Disk(disk) = self else {
+            return Err(Error::UnsupportedTrieFileType(
+                "bulk_read_blob_headers_sorted",
+            ));
+        };
+        if sorted_entries.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let num_threads = header_read_parallelism().min(sorted_entries.len());
+        let chunk_size = sorted_entries.len().div_ceil(num_threads);
+        let path = &disk.path;
+
+        std::thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(num_threads);
+            for chunk in sorted_entries.chunks(chunk_size) {
+                let handle = std::thread::Builder::new()
+                    .name("marf-header-read".into())
+                    .spawn_scoped(scope, move || read_blob_header_chunk::<T>(path, chunk))
+                    .map_err(Error::IOError)?;
+                handles.push(handle);
+            }
+
+            let mut headers = HashMap::with_capacity(sorted_entries.len());
+            let mut first_err: Option<Error> = None;
+            for handle in handles {
+                match handle.join() {
+                    Ok(Ok(chunk_headers)) => headers.extend(chunk_headers),
+                    Ok(Err(e)) => {
+                        first_err.get_or_insert(e);
+                    }
+                    Err(_) => {
+                        first_err.get_or_insert(Error::IOError(io::Error::other(
+                            "blob header reader thread panicked",
+                        )));
+                    }
+                }
+            }
+            match first_err {
+                Some(e) => Err(e),
+                None => Ok(headers),
+            }
+        })
     }
 
     /// Read blob bytes without moving the file cursor.

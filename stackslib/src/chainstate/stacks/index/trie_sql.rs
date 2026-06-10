@@ -27,7 +27,7 @@ use crate::chainstate::stacks::index::bits::{
 use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
 use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::types::sqlite::NO_PARAMS;
 use crate::util_lib::db::{query_count, query_row, table_exists, tx_begin_immediate, u64_to_sql};
@@ -362,14 +362,53 @@ pub fn bulk_read_squashed_blocks<T: MarfTrieId>(
     Ok(result)
 }
 
+/// Test-only: insert one `marf_squashed_blocks` row, as the squash engine
+/// would. Lets test fixtures outside the MARF module populate squash
+/// metadata without writing MARF-internal SQL. The table itself is created
+/// by the schema-3 migration.
+#[cfg(test)]
+pub fn test_insert_squashed_block<T: MarfTrieId>(
+    conn: &Connection,
+    height: u32,
+    block_hash: &T,
+    marf_root_hash: &TrieHash,
+) -> Result<(), Error> {
+    conn.execute(
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
+         VALUES (?1, ?2, ?3)",
+        params![
+            i64::from(height),
+            block_hash.as_bytes(),
+            marf_root_hash.as_bytes()
+        ],
+    )?;
+    Ok(())
+}
+
+/// Test-only: append a `marf_squashed_blocks` row one above the current
+/// maximum height.
+#[cfg(test)]
+pub fn test_append_squashed_block<T: MarfTrieId>(
+    conn: &Connection,
+    block_hash: &T,
+    marf_root_hash: &TrieHash,
+) -> Result<(), Error> {
+    conn.execute(
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
+         VALUES ((SELECT COALESCE(MAX(height) + 1, 0) FROM marf_squashed_blocks), ?1, ?2)",
+        params![block_hash.as_bytes(), marf_root_hash.as_bytes()],
+    )?;
+    Ok(())
+}
+
 /// Bulk-read all confirmed block entries from `marf_data`.
 ///
-/// Returns `(block_id, block_hash, external_offset)` for every confirmed row,
-/// ordered by `block_id`.  Used by the squash pipeline to avoid per-row SQL
+/// Returns one [`MarfDataEntry`] for every confirmed row, ordered by
+/// `block_id`.  Used by the squash pipeline to avoid per-row SQL
 /// lookups for block IDs and blob offsets.
 pub fn bulk_read_block_entries<T: MarfTrieId>(
     conn: &Connection,
-) -> Result<Vec<(u32, T, u64)>, Error> {
+) -> Result<Vec<MarfDataEntry<T>>, Error> {
     let mut stmt = conn.prepare(
         "SELECT block_id, block_hash, external_offset FROM marf_data \
          WHERE unconfirmed = 0 ORDER BY block_id",
@@ -383,8 +422,12 @@ pub fn bulk_read_block_entries<T: MarfTrieId>(
     let mut result = Vec::new();
     for row in rows {
         let (block_id, block_hash, offset_i64) = row?;
-        let offset = u64::try_from(offset_i64).map_err(|_| Error::OverflowError)?;
-        result.push((block_id, block_hash, offset));
+        let external_offset = u64::try_from(offset_i64).map_err(|_| Error::OverflowError)?;
+        result.push(MarfDataEntry {
+            block_id,
+            block_hash,
+            external_offset,
+        });
     }
     Ok(result)
 }

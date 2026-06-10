@@ -1657,53 +1657,8 @@ pub mod test {
         check_deserialize(T::consensus_deserialize(&mut &bytes[..]))
     }
 
-    pub fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
-        obj: &T,
-        bytes: &[u8],
-    ) {
-        // obj should serialize to bytes
-        let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
-        obj.consensus_serialize(&mut write_buf).unwrap();
-        assert_eq!(write_buf, *bytes);
-
-        // bytes should deserialize to obj
-        let read_buf: Vec<u8> = write_buf.clone();
-        let res = T::consensus_deserialize(&mut &read_buf[..]);
-        match res {
-            Ok(out) => {
-                assert_eq!(out, *obj);
-            }
-            Err(e) => {
-                panic!("Failed to parse to {obj:?}: {bytes:?}\nerror: {e:?}");
-            }
-        }
-
-        // short message shouldn't parse, but should EOF
-        if !write_buf.is_empty() {
-            let mut short_buf = write_buf.clone();
-            let short_len = short_buf.len() - 1;
-            short_buf.truncate(short_len);
-
-            let underflow_res = T::consensus_deserialize(&mut &short_buf[..]);
-            match underflow_res {
-                Ok(oops) => {
-                    test_debug!(
-                        "\nMissing Underflow: Parsed {oops:?}\nFrom {:?}\n",
-                        &write_buf[0..short_len].to_vec()
-                    );
-                }
-                Err(codec_error::ReadError(io_error)) => match io_error.kind() {
-                    io::ErrorKind::UnexpectedEof => {}
-                    _ => {
-                        panic!("Got unexpected I/O error: {io_error:?}");
-                    }
-                },
-                Err(e) => {
-                    panic!("Got unexpected Net error: {e:?}");
-                }
-            };
-        }
-    }
+    // Canonical implementation lives in `stacks_common::codec::testing`.
+    pub use stacks_common::codec::testing::check_codec_and_corruption;
 
     #[test]
     fn codec_primitive_types() {

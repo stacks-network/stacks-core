@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[cfg(test)]
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -30,6 +28,7 @@ use crate::chainstate::stacks::index::bits::{
     read_nodetype, read_root_hash, reserved_root_size, resolve_inline_child_offsets,
     write_nodetype_bytes, write_nodetype_bytes_compressed,
 };
+use crate::chainstate::stacks::index::blob_layout::{self, BlobHeader};
 use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
@@ -39,11 +38,11 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
-    blob_layout, trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher,
+    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfDataEntry, MarfTrieId, TrieHasher,
     MAX_PATCH_DEPTH,
 };
 use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::util::hash::to_hex;
 use crate::util_lib::db::{
     sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error, SQLITE_MARF_PAGE_SIZE,
@@ -2493,22 +2492,56 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         &self.db
     }
 
-    /// Warm the file-backed blob offset cache.
+    /// Warm the file-backed blob offset cache from rows already loaded by the caller.
     ///
     /// No-op for SQLite-internal storage.
-    pub fn warm_trie_offsets(&mut self) -> Result<(), Error> {
-        let db: &Connection = &self.db;
+    pub(super) fn warm_trie_offsets_from_entries(&mut self, block_entries: &[MarfDataEntry<T>]) {
         if let Some(trie_file) = self.blobs.as_deref_mut() {
-            trie_file.warm_trie_offsets(db)?;
+            for entry in block_entries {
+                trie_file.cache_trie_offset(entry.block_id, entry.external_offset);
+            }
         }
-        Ok(())
     }
 
-    /// Read `(parent_hash, root_hash)` for a block.
-    pub fn read_parent_and_root_hash(&mut self, block_id: u32) -> Result<(T, TrieHash), Error> {
+    /// Forwards to [`TrieFile::prefetch_node`].
+    /// No-op for SQLite-internal storage.
+    pub(super) fn prefetch_node(&self, block_id: u32, in_block_ptr: u64, node_id: u8) {
+        let u64_ptr_offsets = self.squash_info().is_some();
+        if let Some(trie_file) = self.blobs.as_deref() {
+            trie_file.prefetch_node(block_id, in_block_ptr, node_id, u64_ptr_offsets);
+        }
+    }
+
+    /// Bulk-read the [`BlobHeader`] of many blocks. Entries should be
+    /// sorted by `external_offset` ascending so each parallel reader
+    /// works a contiguous file region. Only disk-backed `TrieFile`s use the
+    /// parallel path; RAM-backed `TrieFile`s and SQLite-internal storage
+    /// fall back to per-block reads.
+    pub(super) fn bulk_read_blob_headers_sorted(
+        &mut self,
+        sorted_entries: &[MarfDataEntry<T>],
+    ) -> Result<HashMap<T, BlobHeader<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        if let Some(trie_file @ TrieFile::Disk(_)) = self.blobs.as_deref() {
+            return trie_file.bulk_read_blob_headers_sorted(sorted_entries);
+        }
+        // No flat file to stream from (RAM-backed or SQLite-internal blobs):
+        // fall back to per-row reads.
+        let mut headers = HashMap::with_capacity(sorted_entries.len());
+        for entry in sorted_entries {
+            let header = self.read_blob_header(entry.block_id)?;
+            headers.insert(entry.block_hash.clone(), header);
+        }
+        Ok(headers)
+    }
+
+    /// Read a block's [`BlobHeader`].
+    pub(super) fn read_blob_header(&mut self, block_id: u32) -> Result<BlobHeader<T>, Error> {
         let db: &Connection = &self.db;
         match self.blobs.as_deref_mut() {
-            Some(trie_file) => trie_file.read_parent_and_root_hash::<T>(db, block_id),
+            Some(trie_file) => trie_file.read_blob_header::<T>(db, block_id),
             None => {
                 let mut blob = db.blob_open(
                     rusqlite::DatabaseName::Main,
@@ -2519,14 +2552,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                 )?;
                 let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
                 blob.read_exact(&mut buf)?;
-                let mut parent_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
-                parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
-                let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
-                root_bytes.copy_from_slice(
-                    &buf[blob_layout::ROOT_NODE_OFFSET
-                        ..blob_layout::ROOT_NODE_OFFSET + TRIEHASH_ENCODED_SIZE],
-                );
-                Ok((T::from_bytes(parent_bytes), TrieHash(root_bytes)))
+                Ok(BlobHeader::parse(&buf))
             }
         }
     }
