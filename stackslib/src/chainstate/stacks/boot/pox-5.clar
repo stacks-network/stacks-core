@@ -791,6 +791,16 @@
                 unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
                 unlock-cycle: unlock-cycle,
                 is-l1-lock: (is-ok btc-lockup),
+                btc-lockup: (match btc-lockup
+                    l1-info {
+                        type: "l1",
+                        txs: (some (map get-l1-lockup-summary (get outputs l1-info))),
+                    }
+                    sbtc-amount {
+                        type: "l2",
+                        txs: none,
+                    }
+                ),
             }))
             (print (merge { topic: "register-for-bond" } result))
             (ok result)
@@ -1184,8 +1194,7 @@
         )
         (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
         (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
-        (asserts!
-            (not (has-announced-l1-early-exit bond-index staker))
+        (asserts! (not (has-announced-l1-early-exit bond-index staker))
             ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED
         )
 
@@ -1974,6 +1983,22 @@
             seen-outpoints: (unwrap-panic (as-max-len? (append seen-outpoints outpoint) u10)),
         })
     )
+)
+
+(define-private (get-l1-lockup-summary (lockup {
+    height: uint,
+    tx: (buff 100000),
+    output-index: uint,
+    header: (buff 80),
+    leaf-hashes: (list 14 (buff 32)),
+    tx-count: uint,
+    tx-index: uint,
+    amount: uint,
+}))
+    {
+        txid: (get-reversed-txid (get tx lockup)),
+        output-index: (get output-index lockup),
+    }
 )
 
 ;;; Reward calculation
