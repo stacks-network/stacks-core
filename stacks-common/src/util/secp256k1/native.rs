@@ -246,8 +246,8 @@ fn is_low_s(sig: &LibSecp256k1Signature) -> bool {
     // secp256k1 group order n divided by 2 (big-endian)
     const HALF_ORDER: [u8; 32] = [
         0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68,
-        0x1b, 0x20, 0xa0,
+        0xff, 0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b,
+        0x20, 0xa0,
     ];
     let bytes = sig.serialize();
     bytes[32..] <= HALF_ORDER[..]
@@ -355,9 +355,8 @@ impl PrivateKey for Secp256k1PrivateKey {
 
     #[cfg(not(feature = "wasm-deterministic"))]
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
-        let message = LibSecp256k1Message::parse_slice(data_hash).map_err(|_e| {
-            "Invalid message: failed to decode data hash: must be a 32-byte hash"
-        })?;
+        let message = LibSecp256k1Message::parse_slice(data_hash)
+            .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
         let (sig, recid) = libsecp256k1::sign(&message, &self.key);
         Ok(MessageSignature::from_secp256k1_recoverable(&sig, recid))
     }
@@ -377,9 +376,8 @@ impl PrivateKey for Secp256k1PrivateKey {
         data_hash: &[u8],
         noncedata: &[u8; 32],
     ) -> Result<MessageSignature, &'static str> {
-        let message = LibSecp256k1Message::parse_slice(data_hash).map_err(|_e| {
-            "Invalid message: failed to decode data hash: must be a 32-byte hash"
-        })?;
+        let message = LibSecp256k1Message::parse_slice(data_hash)
+            .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
         let mut nonce = Scalar::default();
         let _ = nonce.set_b32(noncedata);
 
@@ -443,8 +441,7 @@ pub fn secp256k1_recover(
 ) -> Result<[u8; 33], LibSecp256k1Error> {
     let recovery_id = libsecp256k1::RecoveryId::parse(serialized_signature_arr[64] as u8)?;
     let message = LibSecp256k1Message::parse_slice(message_arr)?;
-    let signature =
-        LibSecp256k1Signature::parse_standard_slice(&serialized_signature_arr[..64])?;
+    let signature = LibSecp256k1Signature::parse_standard_slice(&serialized_signature_arr[..64])?;
     let recovered_pub = libsecp256k1::recover(&message, &signature, &recovery_id)?;
     Ok(recovered_pub.serialize_compressed())
 }
@@ -456,8 +453,7 @@ pub fn secp256k1_verify(
     pubkey_arr: &[u8],
 ) -> Result<(), LibSecp256k1Error> {
     let message = LibSecp256k1Message::parse_slice(message_arr)?;
-    let signature =
-        LibSecp256k1Signature::parse_standard_slice(&serialized_signature_arr[..64])?; // ignore 65th byte if present
+    let signature = LibSecp256k1Signature::parse_standard_slice(&serialized_signature_arr[..64])?; // ignore 65th byte if present
     let pubkey = LibSecp256k1PublicKey::parse_slice(
         pubkey_arr,
         Some(libsecp256k1::PublicKeyFormat::Compressed),
@@ -986,9 +982,15 @@ mod tests {
         // to_der_signature must produce a valid SEQUENCE header for any parsed signature.
         let privk = Secp256k1PrivateKey::random();
         let sig = privk.sign(&[0x44u8; 32]).expect("sign must succeed");
-        let der = sig.to_der_signature().expect("must return Some for valid sig");
+        let der = sig
+            .to_der_signature()
+            .expect("must return Some for valid sig");
         assert_eq!(der[0], 0x30, "DER SEQUENCE tag");
-        assert_eq!(der.len(), der[1] as usize + 2, "DER length field consistent");
+        assert_eq!(
+            der.len(),
+            der[1] as usize + 2,
+            "DER length field consistent"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1059,7 +1061,10 @@ mod tests {
         let sk = Secp256k1PrivateKey::from_slice(&raw).expect("32-byte slice must parse");
         assert!(!sk.compress_public());
         let bytes = sk.to_bytes();
-        assert_eq!(bytes, raw, "to_bytes on uncompressed key must return the 32 raw bytes");
+        assert_eq!(
+            bytes, raw,
+            "to_bytes on uncompressed key must return the 32 raw bytes"
+        );
 
         // 33-byte slice with 0x01 suffix → compressed key
         let mut raw_comp = [0u8; 33];
@@ -1184,8 +1189,7 @@ mod tests {
             hex_bytes("0385f2e2867524289d6047d0d9c5e764c5d413729fc32291ad2c353fbc396a4219")
                 .unwrap();
         let message =
-            hex_bytes("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
-                .unwrap();
+            hex_bytes("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9").unwrap();
         // secp256k1_verify takes RS (first 64 bytes); recovery ID at byte 64 is ignored
         let sig_rs = hex_bytes(
             "354445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb44\
@@ -1222,8 +1226,7 @@ mod tests {
         )
         .unwrap();
         let high_s_msg =
-            hex_bytes("89171d7815da4bc1f644665a3234bc99d1680afa0b3285eff4878f4275fbfa89")
-                .unwrap();
+            hex_bytes("89171d7815da4bc1f644665a3234bc99d1680afa0b3285eff4878f4275fbfa89").unwrap();
         let high_s_pubkey =
             hex_bytes("0256b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967")
                 .unwrap();
