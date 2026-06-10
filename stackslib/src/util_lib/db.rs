@@ -728,7 +728,9 @@ fn inner_connection_open<P: AsRef<Path>>(
     Connection::open_with_flags(path, flags)
 }
 
-/// Open a database connection and set some typically-used pragmas
+/// Open a database connection and set some typically-used pragmas.
+/// Connections are always opened in SQLite multi-thread (`NO_MUTEX`) mode: a
+/// `FULL_MUTEX` request is rejected in debug builds and overridden in release.
 pub fn sqlite_open<P: AsRef<Path>>(
     path: P,
     flags: OpenFlags,
