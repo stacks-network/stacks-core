@@ -312,7 +312,7 @@ pub mod testing {
                 Ok(oops) => {
                     panic!(
                         "Parsed {oops:?} from a truncated buffer {:?}; expected an UnexpectedEof read error",
-                        &write_buf[0..short_len].to_vec()
+                        &write_buf[0..short_len]
                     );
                 }
                 Err(codec_error::ReadError(io_error)) => match io_error.kind() {
