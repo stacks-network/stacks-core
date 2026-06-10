@@ -2198,10 +2198,14 @@ mod test {
         #[case] epoch_id: StacksEpochId,
     ) {
         let cc = admission_test_contract_call_with_tuple_arg("foo");
-        assert!(StacksBlock::validate_transaction_static_epoch(&cc, epoch_id));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &cc, epoch_id
+        ));
 
         let pc = admission_test_nft_post_condition_with_tuple("foo");
-        assert!(StacksBlock::validate_transaction_static_epoch(&pc, epoch_id));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &pc, epoch_id
+        ));
     }
 
     /// Bare `_` is rejected at every epoch — it's reserved as the discard
@@ -2214,10 +2218,14 @@ mod test {
         #[case] epoch_id: StacksEpochId,
     ) {
         let cc = admission_test_contract_call_with_tuple_arg("_");
-        assert!(!StacksBlock::validate_transaction_static_epoch(&cc, epoch_id));
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &cc, epoch_id
+        ));
 
         let pc = admission_test_nft_post_condition_with_tuple("_");
-        assert!(!StacksBlock::validate_transaction_static_epoch(&pc, epoch_id));
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &pc, epoch_id
+        ));
     }
 
     /// Pre-Clarity-6 (pre-Epoch40) — leading-`_` tuple keys are rejected
@@ -2230,10 +2238,14 @@ mod test {
         #[case] epoch_id: StacksEpochId,
     ) {
         let cc = admission_test_contract_call_with_tuple_arg("_admin");
-        assert!(!StacksBlock::validate_transaction_static_epoch(&cc, epoch_id));
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &cc, epoch_id
+        ));
 
         let pc = admission_test_nft_post_condition_with_tuple("_admin");
-        assert!(!StacksBlock::validate_transaction_static_epoch(&pc, epoch_id));
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &pc, epoch_id
+        ));
     }
 
     /// At Clarity-6 (Epoch40) and beyond, leading-`_` tuple keys are
@@ -2306,7 +2318,9 @@ mod test {
         #[case] epoch_id: StacksEpochId,
     ) {
         let cc = admission_test_contract_call_with_function_name("_admin");
-        assert!(!StacksBlock::validate_transaction_static_epoch(&cc, epoch_id));
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &cc, epoch_id
+        ));
     }
 
     #[rstest]
@@ -2316,7 +2330,9 @@ mod test {
         #[case] epoch_id: StacksEpochId,
     ) {
         let pc = admission_test_nft_post_condition_with_asset_name("_admin");
-        assert!(!StacksBlock::validate_transaction_static_epoch(&pc, epoch_id));
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &pc, epoch_id
+        ));
     }
 
     /// At Clarity-6, leading-`_` scalar names are admissible.
@@ -2344,10 +2360,14 @@ mod test {
         #[case] epoch_id: StacksEpochId,
     ) {
         let cc = admission_test_contract_call_with_function_name("do-thing");
-        assert!(StacksBlock::validate_transaction_static_epoch(&cc, epoch_id));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &cc, epoch_id
+        ));
 
         let pc = admission_test_nft_post_condition_with_asset_name("asset");
-        assert!(StacksBlock::validate_transaction_static_epoch(&pc, epoch_id));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &pc, epoch_id
+        ));
     }
 
     // TODO:

@@ -17,7 +17,7 @@
 use std::{error, fmt};
 
 use clarity_types::errors::ClarityTypeError;
-use clarity_types::representations::SymbolicExpression;
+use clarity_types::representations::{DISCARD_IDENTIFIER, SymbolicExpression};
 use clarity_types::types::{TraitIdentifier, TupleTypeSignature, TypeSignature};
 use stacks_common::types::StacksEpochId;
 
@@ -1245,6 +1245,9 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::BadLetSyntax => "invalid syntax of 'let'".into(),
             StaticCheckErrorKind::BadSyntaxBinding(binding_error) => format!("invalid syntax binding: {}", &binding_error.message()),
             StaticCheckErrorKind::MaxContextDepthReached => "reached depth limit".into(),
+            StaticCheckErrorKind::UndefinedVariable(var_name) if var_name == DISCARD_IDENTIFIER => {
+                format!("{DISCARD_IDENTIFIER} is reserved as a discard pattern; it cannot be referenced as a variable")
+            }
             StaticCheckErrorKind::UndefinedVariable(var_name) => format!("use of unresolved variable '{var_name}'"),
             StaticCheckErrorKind::RequiresAtLeastArguments(expected, found) => format!("expecting >= {expected} arguments, got {found}"),
             StaticCheckErrorKind::RequiresAtMostArguments(expected, found) => format!("expecting < {expected} arguments, got {found}"),

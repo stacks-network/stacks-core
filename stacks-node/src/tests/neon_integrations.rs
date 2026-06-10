@@ -21,14 +21,12 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{cmp, env, fs, io, thread};
 
-use clarity::vm::representations::ClarityName;
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{
-    execute_with_parameters as execute, ClarityVersion, ContractName, Value,
-};
+use clarity::vm::{execute_with_parameters as execute, ClarityVersion, ContractName, Value};
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;

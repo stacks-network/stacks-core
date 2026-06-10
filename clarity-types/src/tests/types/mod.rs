@@ -937,7 +937,9 @@ fn test_find_invalid_tuple_key_rejects_bare_underscore(#[case] epoch: StacksEpoc
 fn test_find_invalid_tuple_key_rejects_leading_underscore_pre_clarity6(#[case] key: &str) {
     let value = tuple_with_key(key);
     assert_eq!(
-        value.find_invalid_tuple_key(StacksEpochId::Epoch34).as_deref(),
+        value
+            .find_invalid_tuple_key(StacksEpochId::Epoch34)
+            .as_deref(),
         Some(key),
     );
 }
@@ -960,8 +962,12 @@ fn test_find_invalid_tuple_key_admits_leading_underscore_in_clarity6(#[case] key
 fn test_find_invalid_tuple_key_admits_plain_keys(#[case] key: &str) {
     let value = tuple_with_key(key);
     assert!(
-        value.find_invalid_tuple_key(StacksEpochId::Epoch34).is_none()
-            && value.find_invalid_tuple_key(StacksEpochId::Epoch40).is_none(),
+        value
+            .find_invalid_tuple_key(StacksEpochId::Epoch34)
+            .is_none()
+            && value
+                .find_invalid_tuple_key(StacksEpochId::Epoch40)
+                .is_none(),
         "key {key:?} should be admissible at every epoch",
     );
 }
@@ -1040,5 +1046,9 @@ fn test_find_invalid_tuple_key_descends_into_compound_values() {
 #[test]
 fn test_find_invalid_tuple_key_optional_none_is_inert() {
     let none_value = Value::none();
-    assert!(none_value.find_invalid_tuple_key(StacksEpochId::Epoch34).is_none());
+    assert!(
+        none_value
+            .find_invalid_tuple_key(StacksEpochId::Epoch34)
+            .is_none()
+    );
 }

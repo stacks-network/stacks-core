@@ -21,9 +21,9 @@ use clarity::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::tests::BurnStateDB;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::representations::ClarityName;
 use clarity::vm::{ClarityVersion, ContractName, Value};
 
 use crate::chainstate::stacks::db::StacksChainState;

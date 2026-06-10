@@ -20,9 +20,9 @@ use std::thread;
 use std::time::{Instant, SystemTime};
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::representations::ClarityName;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::SmartContractEventData;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::{ContractName, Value};
 use rusqlite::Connection;
