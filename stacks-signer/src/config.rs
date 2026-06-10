@@ -88,8 +88,6 @@ pub enum Network {
     Mainnet,
     /// The testnet network
     Testnet,
-    /// The mocknet network
-    Mocknet,
 }
 
 impl std::fmt::Display for Network {
@@ -97,7 +95,6 @@ impl std::fmt::Display for Network {
         match self {
             Self::Mainnet => write!(f, "mainnet"),
             Self::Testnet => write!(f, "testnet"),
-            Self::Mocknet => write!(f, "mocknet"),
         }
     }
 }
@@ -107,7 +104,7 @@ impl Network {
     pub const fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            Self::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         }
     }
 
@@ -115,7 +112,7 @@ impl Network {
     pub const fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
-            Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
+            Self::Testnet => TransactionVersion::Testnet,
         }
     }
 
@@ -123,7 +120,7 @@ impl Network {
     pub const fn is_mainnet(&self) -> bool {
         match self {
             Self::Mainnet => true,
-            Self::Testnet | Self::Mocknet => false,
+            Self::Testnet => false,
         }
     }
 }
@@ -305,7 +302,7 @@ struct RawConfigFile {
     ///   - 64 or 66 hex characters (with optional `01` compression suffix).
     ///   - This key determines the signer's on-chain identity and address.
     pub stacks_private_key: String,
-    /// The network to use. One of `"mainnet"`, `"testnet"`, or `"mocknet"`.
+    /// The network to use. One of `"mainnet"` or `"testnet"`.
     /// ---
     /// @default: (required, no default)
     /// @notes:
@@ -709,7 +706,7 @@ Dry run: {dry_run}
     pub fn to_chain_id(&self) -> u32 {
         self.chain_id.unwrap_or(match self.network {
             Network::Mainnet => CHAIN_ID_MAINNET,
-            Network::Testnet | Network::Mocknet => CHAIN_ID_TESTNET,
+            Network::Testnet => CHAIN_ID_TESTNET,
         })
     }
 }

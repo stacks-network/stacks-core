@@ -39,7 +39,7 @@ node_host = "127.0.0.1:20443"
 endpoint = "0.0.0.0:30000"
 
 # REQUIRED: Network selection.
-# Valid values: "mainnet", "testnet", "mocknet"
+# Valid values: "mainnet", "testnet"
 network = "mainnet"
 
 # REQUIRED: Authorization password for the node's block proposal endpoint.

@@ -12,7 +12,7 @@ cargo build -p stacks-inspect
 
 ```
 --config <CONFIG_FILE>       Path to stacks-node configuration file
---network-config <NETWORK>   Use a predefined network (helium, mainnet, mocknet, xenon)
+--network-config <NETWORK>   Use a predefined network (helium, mainnet, xenon)
 --version                    Show version information
 --help                       Show help
 ```

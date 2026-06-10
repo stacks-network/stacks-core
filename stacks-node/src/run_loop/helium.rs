@@ -3,9 +3,7 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use super::RunLoopCallbacks;
 use crate::burnchains::Error as BurnchainControllerError;
-use crate::{
-    BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
-};
+use crate::{BitcoinRegtestController, BurnchainController, ChainTip, Config, Node};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -40,11 +38,8 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, expected_num_rounds: u64) -> Result<(), BurnchainControllerError> {
         // Initialize and start the burnchain.
-        let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.mode[..] {
-            "helium" => Box::new(BitcoinRegtestController::new(self.config.clone(), None)),
-            "mocknet" => MocknetController::generic(self.config.clone()),
-            _ => unreachable!(),
-        };
+        let mut burnchain: Box<dyn BurnchainController> =
+            Box::new(BitcoinRegtestController::new(self.config.clone(), None));
 
         self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 

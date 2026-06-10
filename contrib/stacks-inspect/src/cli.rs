@@ -115,7 +115,7 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "CONFIG_FILE")]
     pub config: Option<String>,
 
-    /// Use a predefined network configuration (helium, mainnet, mocknet, xenon)
+    /// Use a predefined network configuration (helium, mainnet, xenon)
     #[arg(long = "network-config", global = true, value_name = "NETWORK")]
     pub network_config: Option<String>,
 
