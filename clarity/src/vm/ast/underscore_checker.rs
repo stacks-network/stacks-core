@@ -16,11 +16,16 @@
 //! AST pass that rejects identifiers beginning with `_` for pre-`Clarity6`
 //! contracts.
 //!
-//! The wire-level `ClarityName` regex and the v2 lexer accept underscore-led
-//! names unconditionally so that the parser can produce a well-formed AST and
-//! report a precise, version-aware diagnostic here rather than a generic
-//! "illegal name" lexer error. Clarity 6 permits the relaxation only from
-//! `ClarityVersion::Clarity6` onwards.
+//! The wide `ClarityName` regex and the v2 lexer accept underscore-led
+//! names unconditionally so that the parser can produce a well-formed AST
+//! and report a precise, version-aware diagnostic here rather than a
+//! generic "illegal name" lexer error. The narrow `LegacyClarityName`
+//! type, used at wire-narrow positions (`TransactionContractCall.function_name`,
+//! `AssetInfo.asset_name`), separately enforces the pre-Clarity-6 rule at
+//! the codec layer; together with this pass and the tuple-key admission
+//! check in `StacksBlock::validate_transaction_static_epoch`, leading-`_`
+//! names are kept out of pre-Clarity-6 contexts at every layer. Clarity 6
+//! permits the relaxation only from `ClarityVersion::Clarity6` onwards.
 
 use clarity_types::representations::ClarityName;
 use stacks_common::types::StacksEpochId;

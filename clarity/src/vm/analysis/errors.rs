@@ -215,8 +215,10 @@ pub enum CommonCheckErrorKind {
     /// Too many trait methods specified.
     /// The first `usize` represents the number of methods found, the second the maximum allowed.
     TraitTooManyMethods(usize, usize),
-    /// Clarity 6: bare `_` cannot be used as a trait method name, tuple key, or
-    /// any other position covered by shared validation flow.
+    /// Clarity 6: bare `_` is reserved as the discard pattern in `let`/`match`
+    /// bindings and cannot be used to name a top-level definition, function
+    /// argument, trait method, tuple key, tuple-type field, or `use-trait`
+    /// alias.
     BareUnderscoreReserved,
 }
 
@@ -408,9 +410,10 @@ pub enum StaticCheckErrorKind {
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
-    /// Clarity 6: bare `_` is reserved as a discard pattern in `let`/`match`
-    /// bindings and cannot be used to name a top-level definition or function
-    /// argument.
+    /// Clarity 6: bare `_` is reserved as the discard pattern in `let`/`match`
+    /// bindings and cannot be used to name a top-level definition, function
+    /// argument, trait method, tuple key, tuple-type field, or `use-trait`
+    /// alias.
     BareUnderscoreReserved,
     /// Name is a reserved word in Clarity and cannot be used.
     /// The `String` wraps the reserved name.
@@ -626,9 +629,10 @@ pub enum RuntimeCheckErrorKind {
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
-    /// Clarity 6: bare `_` is reserved as a discard pattern in `let`/`match`
-    /// bindings and cannot be used to name a top-level definition or function
-    /// argument.
+    /// Clarity 6: bare `_` is reserved as the discard pattern in `let`/`match`
+    /// bindings and cannot be used to name a top-level definition, function
+    /// argument, trait method, tuple key, tuple-type field, or `use-trait`
+    /// alias.
     BareUnderscoreReserved,
 
     /// Referenced function is not defined in the current scope.

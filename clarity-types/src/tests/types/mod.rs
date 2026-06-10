@@ -1012,8 +1012,13 @@ fn test_find_invalid_tuple_key_descends_into_compound_values() {
         Some("_buried"),
     );
 
-    // tuple inside a list — list elements must share a schema, so the
-    // list is a single tuple whose key is `_buried`.
+    // Tuple inside a list. Clarity lists are homogeneous (all elements
+    // share a `TupleTypeSignature`), so we can't easily exercise the
+    // "offender is the second element" path with mixed schemas — the
+    // single-element form is sufficient to prove the walker descends
+    // into `Sequence(List)`. The for-loop in
+    // `find_invalid_tuple_key`'s `Sequence(List)` arm makes the
+    // second-element behavior identical.
     let list_value = Value::list_from(vec![tuple_with_key("_buried")]).unwrap();
     assert_eq!(
         list_value.find_invalid_tuple_key(epoch).as_deref(),

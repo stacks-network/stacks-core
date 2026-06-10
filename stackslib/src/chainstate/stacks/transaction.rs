@@ -2477,6 +2477,74 @@ mod test {
         );
     }
 
+    /// The consensus contract that makes the LegacyClarityName refactor
+    /// safe: bytes encoding a leading-`_` `function_name` MUST fail to
+    /// deserialize as a `TransactionContractCall`. Un-upgraded nodes
+    /// already reject these bytes via their narrow `ClarityName` codec;
+    /// the `LegacyClarityName` codec on upgraded nodes is required to
+    /// reject them identically. If this test ever flips to passing, the
+    /// chain-split risk that motivated the refactor has silently
+    /// reappeared.
+    #[test]
+    fn tx_contract_call_function_name_rejects_leading_underscore_on_the_wire() {
+        let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let contract_name = ContractName::try_from("hello-contract-name").unwrap();
+        let bad_function_name = "_admin";
+        let mut bad_function_name_bytes = vec![bad_function_name.len() as u8];
+        bad_function_name_bytes.extend_from_slice(bad_function_name.as_bytes());
+
+        let function_args: Vec<Value> = vec![];
+
+        let mut contract_call_bytes = vec![];
+        address
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+        contract_name
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+        contract_call_bytes.extend_from_slice(&bad_function_name_bytes);
+        function_args
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+
+        let mut tx_bytes = vec![TransactionPayloadID::ContractCall as u8];
+        tx_bytes.append(&mut contract_call_bytes);
+
+        let err = TransactionPayload::consensus_deserialize(&mut &tx_bytes[..])
+            .expect_err("leading-`_` function_name must not deserialize");
+        assert!(
+            err.to_string().find("Failed to parse Clarity name").is_some(),
+            "expected `Failed to parse Clarity name` in error, got: {err}",
+        );
+    }
+
+    /// Analogous to the function_name test: bytes encoding a leading-`_`
+    /// `asset_name` inside an `AssetInfo` MUST fail to deserialize.
+    #[test]
+    fn tx_asset_info_asset_name_rejects_leading_underscore_on_the_wire() {
+        let contract_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let contract_name = ContractName::try_from("hello-contract-name").unwrap();
+        let bad_asset_name = "_admin";
+        let mut bad_asset_name_bytes = vec![bad_asset_name.len() as u8];
+        bad_asset_name_bytes.extend_from_slice(bad_asset_name.as_bytes());
+
+        let mut asset_info_bytes = vec![];
+        contract_address
+            .consensus_serialize(&mut asset_info_bytes)
+            .unwrap();
+        contract_name
+            .consensus_serialize(&mut asset_info_bytes)
+            .unwrap();
+        asset_info_bytes.extend_from_slice(&bad_asset_name_bytes);
+
+        let err = AssetInfo::consensus_deserialize(&mut &asset_info_bytes[..])
+            .expect_err("leading-`_` asset_name must not deserialize");
+        assert!(
+            err.to_string().find("Failed to parse Clarity name").is_some(),
+            "expected `Failed to parse Clarity name` in error, got: {err}",
+        );
+    }
+
     #[test]
     fn tx_stacks_asset() {
         let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();

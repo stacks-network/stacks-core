@@ -645,6 +645,15 @@ impl StacksBlock {
         //     `TransactionContractCall.function_args` and the
         //     `Nonfungible` post-condition's `asset_value` — that the
         //     codec can't gate without a versioned `Value` variant.
+        //
+        // Note: `TransactionPayload::SmartContract.code_body` is not
+        // walked here because the contract source is `StacksString`
+        // (raw bytes), not a structured `Value`. Source-level
+        // leading-`_` names are gated by the `UnderscoreIdentifierChecker`
+        // AST pass at analysis time, and the bytes themselves are
+        // version-blind on the wire (both upgraded and un-upgraded
+        // nodes accept the same source-text payload), so no codec
+        // divergence is possible.
         if let TransactionPayload::ContractCall(ref cc) = &tx.payload {
             for arg in &cc.function_args {
                 if let Some(bad_key) = arg.find_invalid_tuple_key(epoch_id) {

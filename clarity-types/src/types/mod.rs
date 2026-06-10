@@ -972,9 +972,8 @@ pub const NONE: Value = Value::Optional(OptionalData { data: None });
 impl Value {
     /// Walk this value recursively and return the first tuple key that
     /// would not be accepted at `epoch`. Used by transaction admission
-    /// (see `StacksBlock::validate_transaction_static_epoch`) to keep
-    /// `_`-prefixed tuple keys off the wire when the active epoch
-    /// would not accept them.
+    /// to keep `_`-prefixed tuple keys off the wire when the active
+    /// epoch would not accept them.
     ///
     /// Two rules:
     ///   1. Bare `_` is reserved as the `let` / `match` discard marker
@@ -985,6 +984,14 @@ impl Value {
     ///      behavior on upgraded nodes pre-activation preserves
     ///      consensus during the upgrade window. Post-activation,
     ///      `_foo` tuple keys are permitted.
+    ///
+    /// NOTE: this walker is the consensus-critical companion to the
+    /// "value sanitization" routine flagged above the `Value` enum (see
+    /// `Value`'s definition). Any new compound `Value` variant added in
+    /// the future — one that can carry `_other_ values_` like `Tuple`,
+    /// `Optional`, `Response`, or `Sequence(List)` — must be handled
+    /// here too, or `_`-prefixed tuple keys could escape into the
+    /// wire-format payload of an admitted transaction.
     pub fn find_invalid_tuple_key(&self, epoch: StacksEpochId) -> Option<String> {
         match self {
             Value::Tuple(data) => {
