@@ -24,8 +24,8 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DE
 use clarity::vm::{ClarityVersion, ContractName, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
-    SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_ADDRESS, FAUCET_PRIV_KEY,
+    contract_call_consensus_snap_test, contract_deploy_consensus_snap_test, ConsensusTest,
+    ConsensusUtils, SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_ADDRESS, FAUCET_PRIV_KEY,
 };
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
@@ -154,7 +154,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
 /// Outcome: block rejected.
 #[test]
 fn runtime_check_error_cost_balance_exceeded_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &format!("
         (define-data-var foo int 1)
@@ -173,7 +173,7 @@ fn runtime_check_error_cost_balance_exceeded_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_memory_balance_exceeded_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "test-exceeds",
         contract_code: &{
             let define_data_var = "(define-constant buff-0 0x00)";
@@ -208,7 +208,7 @@ fn runtime_check_error_memory_balance_exceeded_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_memory_balance_exceeded_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "memory-test-contract",
         contract_code: &{
             // Procedurally generate a contract with large buffer constants and a function
@@ -253,7 +253,7 @@ fn runtime_check_error_memory_balance_exceeded_ccall() {
 /// Outcome: block rejected.
 #[test]
 fn runtime_check_error_cost_balance_exceeded_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &format!("
         (define-data-var foo int 1)
@@ -273,7 +273,7 @@ fn runtime_check_error_cost_balance_exceeded_ccall() {
 /// Outcome: block accepted
 #[test]
 fn runtime_check_error_kind_no_such_public_function_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "target-contract",
         contract_code: "(define-private (get-one) (ok u1))",
         function_name: "get-one",
@@ -286,7 +286,7 @@ fn runtime_check_error_kind_no_such_public_function_ccall() {
 /// Outcome: block rejected.
 #[test]
 fn runtime_check_error_kind_name_already_used_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "name-already-used",
         contract_code: "(define-private (ft-get-supply) 1)",
     );
@@ -299,7 +299,7 @@ fn runtime_check_error_kind_name_already_used_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_name_already_used_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "name-already-used",
         contract_code: "
         (define-public (trigger-error)
@@ -317,7 +317,7 @@ fn runtime_check_error_kind_name_already_used_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_value_too_large_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "value-too-large",
         contract_code: r#"
         (define-private (make-buff-256)
@@ -366,7 +366,7 @@ fn runtime_check_error_kind_value_too_large_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_value_too_large_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "value-too-large",
         contract_code: r#"
         (define-private (make-buff-256)
@@ -417,7 +417,7 @@ fn runtime_check_error_kind_value_too_large_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_type_signature_too_deep_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "type-depth-runtime",
         contract_code: &{
             let optional_layers: usize = MAX_TYPE_DEPTH as usize - 2;
@@ -459,7 +459,7 @@ fn runtime_check_error_kind_type_signature_too_deep_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_type_signature_too_deep_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "type-depth-runtime",
         contract_code: &{
             let optional_layers: usize = MAX_TYPE_DEPTH as usize - 2;
@@ -531,7 +531,7 @@ fn runtime_check_error_kind_type_error_cdeploy() {
     )
     .with_clarity_version(ClarityVersion::Clarity2); // Only works with clarity 1 or 2
 
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "value-too-large",
         contract_code: "
     ;; Rewards - calls pool via trait
@@ -590,7 +590,7 @@ fn runtime_check_error_kind_type_error_ccall() {
     )
     .with_clarity_version(ClarityVersion::Clarity1); // Only works with clarity 1 or 2
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "value-too-large",
         contract_code: "
     (use-trait pool-trait .pool-trait.pool-trait)
@@ -623,7 +623,7 @@ fn runtime_check_error_kind_type_error_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_type_value_error_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "check-error-kind",
         // `as-max-len?` widens `0x` to type `(buff 33)` even though it contains 0 bytes.
         // This passes the analyzer but fails at runtime when `principal-of` enforces
@@ -637,7 +637,7 @@ fn runtime_check_error_kind_type_value_error_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_type_value_error_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "check-error-kind",
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
         function_name: "trigger-error",
@@ -668,7 +668,7 @@ fn runtime_check_error_kind_contract_call_expect_name_cdeploy() {
             (ok true))",
     );
 
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "contract-3",
         contract_code: "
             (use-trait simple-trait .contract-1.simple-trait)
@@ -705,7 +705,7 @@ fn runtime_check_error_kind_contract_call_expect_name_ccall() {
             (ok true))",
     );
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "contract-3",
         contract_code: "
             (use-trait simple-trait .contract-1.simple-trait)
@@ -739,7 +739,7 @@ fn runtime_check_error_kind_union_type_value_error_cdeploy() {
                 (ok true))",
     );
 
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "contract-2",
         contract_code: "
             (define-trait trait-1 (
@@ -770,7 +770,7 @@ fn runtime_check_error_kind_union_type_value_error_ccall() {
                 (ok true))",
     );
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "contract-2",
         contract_code: "
             (define-trait trait-1 (
@@ -830,7 +830,7 @@ fn runtime_check_error_kind_list_types_must_match_cdeploy() {
     (ok (list first second)))",
     );
 
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "contract-3",
         contract_code: "
 ;; Contract under test: during initialization it defines a constant list that
@@ -876,7 +876,7 @@ fn runtime_check_error_kind_return_types_must_match_ccall() {
     ))
     .unwrap();
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "dispatching-contract",
         contract_code: "
         (use-trait simple-trait .trait-contract.simple-trait)
@@ -894,7 +894,7 @@ fn runtime_check_error_kind_return_types_must_match_ccall() {
 /// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
 #[test]
 fn runtime_check_error_kind_expected_contract_principal_value_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "contract",
         contract_code: r#"
             (define-constant trigger-error
@@ -911,7 +911,7 @@ fn runtime_check_error_kind_expected_contract_principal_value_cdeploy() {
 /// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
 #[test]
 fn runtime_check_error_kind_expected_contract_principal_value_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "contract",
         contract_code: r#"
             (define-public (trigger-error)
@@ -930,7 +930,7 @@ fn runtime_check_error_kind_expected_contract_principal_value_ccall() {
 /// Outcome: block accepted (transaction aborts with the runtime error).
 #[test]
 fn runtime_check_error_kind_undefined_function_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "undef-fn-call",
         contract_code: "
         (define-public (noop)
@@ -945,7 +945,7 @@ fn runtime_check_error_kind_undefined_function_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_at_block_unavailable_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "at-block-unavail",
         contract_code: "
         (define-public (trigger-error)
@@ -1019,7 +1019,7 @@ fn runtime_check_error_kind_could_not_determine_type_ccall() {
     )
     .with_epoch(StacksEpochId::Epoch23);
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "mixed-constant",
         contract_code: "
         (use-trait trait-a .contract-traits.trait-a)
@@ -1074,7 +1074,7 @@ fn runtime_check_error_kind_circular_reference_ccall() {
             (define-public (main-get-1 (contract <trait-1>))
             (contract-call? .dispatch-contract wrapped-get-1 contract))";
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "main-contract",
         contract_code: main_contract,
         function_name: "main-get-1",
@@ -1088,7 +1088,7 @@ fn runtime_check_error_kind_circular_reference_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_incorrect_argument_count_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "check-error-kind",
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
         function_name: "trigger-error",
@@ -1119,7 +1119,7 @@ fn bad_trait_implementation_mismatched_args() {
         ",
     );
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "dispatching-contract",
         contract_code: "
             (use-trait getter-trait .traits.getter-trait)
@@ -1145,7 +1145,7 @@ fn bad_trait_implementation_mismatched_args() {
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
 #[test]
 fn invalid_characters_detected_invalid_ascii() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "invalid-ascii",
         contract_code: "
             (define-constant deserialized-invalid-ascii
@@ -1164,7 +1164,7 @@ fn invalid_characters_detected_invalid_ascii() {
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
 #[test]
 fn invalid_characters_detected_invalid_utf8() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "invalid-utf8",
         contract_code: "
             (define-constant deserialized-invalid-utf8
@@ -1184,7 +1184,7 @@ fn invalid_characters_detected_invalid_utf8() {
 ///       stored in the constant).
 #[test]
 fn arithmetic_zero_n_log_n_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "zero-n-log-n-deploy",
         contract_code: "(define-constant overflow (from-consensus-buff? int 0x))",
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
@@ -1200,7 +1200,7 @@ fn arithmetic_zero_n_log_n_cdeploy() {
 ///       `none`.
 #[test]
 fn arithmetic_zero_n_log_n_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "zero-n-log-n",
         contract_code: "
 (define-read-only (trigger)
@@ -1263,7 +1263,7 @@ fn trait_reference_unknown_transitive_use_trait_ccall() {
     )
     .with_clarity_version(ClarityVersion::Clarity1);
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "call-foo",
         // Resolves <foo> through .transitive.foo, not .foo.foo directly.
         // Static analysis accepts this; runtime check_trait_expectations fails.
@@ -1347,7 +1347,7 @@ fn trait_method_unknown_transitive_use_trait_ccall() {
     )
     .with_clarity_version(ClarityVersion::Clarity1);
 
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "call-foo",
         // Analysis resolves .transitive.foo to {do-it} (from the overwritten analysis DB entry)
         // and accepts (contract-call? f do-it). At runtime, .transitive's
