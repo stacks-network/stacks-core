@@ -367,7 +367,7 @@ pub fn bulk_read_squashed_blocks<T: MarfTrieId>(
 /// Returns one [`MarfDataEntry`] for every confirmed row, ordered by
 /// `block_id`.  Used by the squash pipeline to avoid per-row SQL
 /// lookups for block IDs and blob offsets.
-pub(super) fn bulk_read_block_entries<T: MarfTrieId>(
+pub fn bulk_read_block_entries<T: MarfTrieId>(
     conn: &Connection,
 ) -> Result<Vec<MarfDataEntry<T>>, Error> {
     let mut stmt = conn.prepare(

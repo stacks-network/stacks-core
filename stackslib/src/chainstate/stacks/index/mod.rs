@@ -105,7 +105,7 @@ pub trait MarfTrieId:
 /// One confirmed `marf_data` row, as loaded by
 /// [`trie_sql::bulk_read_block_entries`].
 #[derive(Debug, Clone)]
-struct MarfDataEntry<T> {
+pub struct MarfDataEntry<T> {
     /// SQLite rowid of the block in `marf_data`.
     pub block_id: u32,
     pub block_hash: T,
