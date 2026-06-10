@@ -255,8 +255,7 @@ fn test_match_opt_none_arm_with_discard_some() {
     assert_eq!(result, Value::Int(11));
 }
 
-/// Clarity 6: bare `_` is reserved as a discard pattern; it cannot name a
-/// top-level definition. Rejected by the analyzer's `check_name_used`.
+/// Rejected by the analyzer's `check_name_used`.
 #[test]
 fn test_bare_underscore_as_define_name_rejected_in_clarity6() {
     let program = "(define-constant _ 1)";
@@ -347,7 +346,6 @@ fn test_bare_underscore_as_tuple_type_key_rejected_in_clarity6() {
     );
 }
 
-/// Clarity 6: bare `_` cannot name a function argument either.
 #[test]
 fn test_bare_underscore_as_function_arg_rejected_in_clarity6() {
     let program = "(define-public (foo (_ uint)) (ok true)) (foo u1)";

@@ -2188,83 +2188,6 @@ mod test {
         tx
     }
 
-    /// Plain (no leading `_`) tuple keys are admissible at every epoch in
-    /// both function arguments and NFT post-condition payloads.
-    #[rstest]
-    #[case(StacksEpochId::Epoch33)]
-    #[case(StacksEpochId::Epoch34)]
-    #[case(StacksEpochId::Epoch40)]
-    fn test_validate_transaction_static_epoch_admits_plain_tuple_keys(
-        #[case] epoch_id: StacksEpochId,
-    ) {
-        let cc = admission_test_contract_call_with_tuple_arg("foo");
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &cc, epoch_id
-        ));
-
-        let pc = admission_test_nft_post_condition_with_tuple("foo");
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &pc, epoch_id
-        ));
-    }
-
-    /// Bare `_` is rejected at every epoch — it's reserved as the discard
-    /// marker and never a valid tuple key on the wire.
-    #[rstest]
-    #[case(StacksEpochId::Epoch33)]
-    #[case(StacksEpochId::Epoch34)]
-    #[case(StacksEpochId::Epoch40)]
-    fn test_validate_transaction_static_epoch_rejects_bare_underscore_tuple_key(
-        #[case] epoch_id: StacksEpochId,
-    ) {
-        let cc = admission_test_contract_call_with_tuple_arg("_");
-        assert!(!StacksBlock::validate_transaction_static_epoch(
-            &cc, epoch_id
-        ));
-
-        let pc = admission_test_nft_post_condition_with_tuple("_");
-        assert!(!StacksBlock::validate_transaction_static_epoch(
-            &pc, epoch_id
-        ));
-    }
-
-    /// Pre-Clarity-6 (pre-Epoch40) — leading-`_` tuple keys are rejected
-    /// to preserve consensus with un-upgraded nodes whose narrow wire
-    /// codec rejects every leading-`_` name.
-    #[rstest]
-    #[case(StacksEpochId::Epoch33)]
-    #[case(StacksEpochId::Epoch34)]
-    fn test_validate_transaction_static_epoch_rejects_leading_underscore_pre_clarity6(
-        #[case] epoch_id: StacksEpochId,
-    ) {
-        let cc = admission_test_contract_call_with_tuple_arg("_admin");
-        assert!(!StacksBlock::validate_transaction_static_epoch(
-            &cc, epoch_id
-        ));
-
-        let pc = admission_test_nft_post_condition_with_tuple("_admin");
-        assert!(!StacksBlock::validate_transaction_static_epoch(
-            &pc, epoch_id
-        ));
-    }
-
-    /// At Clarity-6 (Epoch40) and beyond, leading-`_` tuple keys are
-    /// admissible. Bare `_` is still rejected (covered by its own test).
-    #[test]
-    fn test_validate_transaction_static_epoch_admits_leading_underscore_in_clarity6() {
-        let cc = admission_test_contract_call_with_tuple_arg("_admin");
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &cc,
-            StacksEpochId::Epoch40,
-        ));
-
-        let pc = admission_test_nft_post_condition_with_tuple("_admin");
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &pc,
-            StacksEpochId::Epoch40,
-        ));
-    }
-
     /// Build a contract-call transaction whose `function_name` is the
     /// supplied string. Bypasses `ClarityName`-style construction
     /// so we can exercise admission rejection independently of any
@@ -2310,64 +2233,167 @@ mod test {
         tx
     }
 
-    /// Pre-Clarity-6 — leading-`_` scalar names are rejected at admission.
-    #[rstest]
-    #[case(StacksEpochId::Epoch33)]
-    #[case(StacksEpochId::Epoch34)]
-    fn test_validate_transaction_static_epoch_rejects_leading_underscore_function_name_pre_clarity6(
-        #[case] epoch_id: StacksEpochId,
-    ) {
-        let cc = admission_test_contract_call_with_function_name("_admin");
-        assert!(!StacksBlock::validate_transaction_static_epoch(
-            &cc, epoch_id
-        ));
+    /// Build a contract-call transaction whose single `function_args`
+    /// element is the supplied value. Used to exercise the admission
+    /// walker's descent through compound containers.
+    fn admission_test_contract_call_with_arg(arg: Value) -> StacksTransaction {
+        let privk = StacksPrivateKey::random();
+        StacksTransaction::new(
+            TransactionVersion::Testnet,
+            admission_test_auth(&privk),
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
+                contract_name: ContractName::try_from("hello-world").unwrap(),
+                function_name: ClarityName::try_from("do-thing").unwrap(),
+                function_args: vec![arg],
+            }),
+        )
     }
 
-    #[rstest]
-    #[case(StacksEpochId::Epoch33)]
-    #[case(StacksEpochId::Epoch34)]
-    fn test_validate_transaction_static_epoch_rejects_leading_underscore_asset_name_pre_clarity6(
-        #[case] epoch_id: StacksEpochId,
-    ) {
-        let pc = admission_test_nft_post_condition_with_asset_name("_admin");
-        assert!(!StacksBlock::validate_transaction_static_epoch(
-            &pc, epoch_id
-        ));
+    /// Wrap a `_buried`-keyed tuple inside the supplied compound shape so
+    /// `find_invalid_tuple_key`'s recursion paths can be exercised
+    /// end-to-end through the admission walker.
+    fn buried_underscore_value(shape: &str) -> Value {
+        let bad_tuple = single_key_tuple("_buried");
+        match shape {
+            "some" => Value::some(bad_tuple).unwrap(),
+            "ok" => Value::okay(bad_tuple).unwrap(),
+            "err" => Value::error(bad_tuple).unwrap(),
+            "list" => Value::list_from(vec![bad_tuple]).unwrap(),
+            "nested_tuple" => Value::Tuple(
+                TupleData::from_data(vec![(ClarityName::from_literal("outer"), bad_tuple)])
+                    .unwrap(),
+            ),
+            other => panic!("unknown shape: {other}"),
+        }
     }
 
-    /// At Clarity-6, leading-`_` scalar names are admissible.
-    #[test]
-    fn test_validate_transaction_static_epoch_admits_leading_underscore_scalars_in_clarity6() {
-        let cc = admission_test_contract_call_with_function_name("_admin");
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &cc,
-            StacksEpochId::Epoch40,
-        ));
+    /// Admission walker: tuple keys in `function_args` and NFT
+    /// `asset_value`. Plain keys are admissible at every epoch; bare
+    /// `_` is rejected at every epoch (reserved as the discard marker);
+    /// leading-`_` is rejected pre-Clarity-6 (to match un-upgraded
+    /// nodes' narrow wire codec) and admitted from Clarity-6 onward.
+    #[rstest]
+    #[case::plain_epoch33(StacksEpochId::Epoch33, "foo", true)]
+    #[case::plain_epoch34(StacksEpochId::Epoch34, "foo", true)]
+    #[case::plain_epoch40(StacksEpochId::Epoch40, "foo", true)]
+    #[case::bare_underscore_epoch33(StacksEpochId::Epoch33, "_", false)]
+    #[case::bare_underscore_epoch34(StacksEpochId::Epoch34, "_", false)]
+    #[case::bare_underscore_epoch40(StacksEpochId::Epoch40, "_", false)]
+    #[case::leading_underscore_epoch33(StacksEpochId::Epoch33, "_admin", false)]
+    #[case::leading_underscore_epoch34(StacksEpochId::Epoch34, "_admin", false)]
+    #[case::leading_underscore_epoch40(StacksEpochId::Epoch40, "_admin", true)]
+    fn test_validate_transaction_static_epoch_tuple_keys(
+        #[case] epoch_id: StacksEpochId,
+        #[case] key: &str,
+        #[case] expected_admitted: bool,
+    ) {
+        let cc = admission_test_contract_call_with_tuple_arg(key);
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&cc, epoch_id),
+            expected_admitted,
+            "function_args tuple key {key:?} at {epoch_id}",
+        );
 
-        let pc = admission_test_nft_post_condition_with_asset_name("_admin");
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &pc,
-            StacksEpochId::Epoch40,
-        ));
+        let pc = admission_test_nft_post_condition_with_tuple(key);
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&pc, epoch_id),
+            expected_admitted,
+            "NFT post-condition tuple key {key:?} at {epoch_id}",
+        );
     }
 
-    /// Plain (no leading `_`) scalar names are admissible at every epoch.
+    /// Admission walker: scalar names — `TransactionContractCall.function_name`
+    /// and `AssetInfo.asset_name`. Plain names admissible everywhere;
+    /// leading-`_` rejected pre-Clarity-6, admitted from Clarity-6.
+    ///
+    /// Bare `_` is unreachable on this path: `ClarityName::try_from`
+    /// accepts it but the analyzer's `BareUnderscoreReserved` blocks
+    /// any contract that would declare a function or asset called `_`,
+    /// so no such transaction can refer to a real deployable target.
     #[rstest]
-    #[case(StacksEpochId::Epoch33)]
-    #[case(StacksEpochId::Epoch34)]
-    #[case(StacksEpochId::Epoch40)]
-    fn test_validate_transaction_static_epoch_admits_plain_scalar_names(
+    #[case::plain_epoch33(StacksEpochId::Epoch33, "do-thing", "asset", true)]
+    #[case::plain_epoch34(StacksEpochId::Epoch34, "do-thing", "asset", true)]
+    #[case::plain_epoch40(StacksEpochId::Epoch40, "do-thing", "asset", true)]
+    #[case::leading_underscore_epoch33(StacksEpochId::Epoch33, "_admin", "_admin", false)]
+    #[case::leading_underscore_epoch34(StacksEpochId::Epoch34, "_admin", "_admin", false)]
+    #[case::leading_underscore_epoch40(StacksEpochId::Epoch40, "_admin", "_admin", true)]
+    fn test_validate_transaction_static_epoch_scalar_names(
+        #[case] epoch_id: StacksEpochId,
+        #[case] function_name: &str,
+        #[case] asset_name: &str,
+        #[case] expected_admitted: bool,
+    ) {
+        let cc = admission_test_contract_call_with_function_name(function_name);
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&cc, epoch_id),
+            expected_admitted,
+            "function_name {function_name:?} at {epoch_id}",
+        );
+
+        let pc = admission_test_nft_post_condition_with_asset_name(asset_name);
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&pc, epoch_id),
+            expected_admitted,
+            "asset_name {asset_name:?} at {epoch_id}",
+        );
+    }
+
+    /// Admission must descend into compound containers in `function_args`
+    /// to find buried `_`-prefixed tuple keys: rejected pre-Clarity-6,
+    /// admitted from Clarity-6 onward. Covers `Optional::Some`,
+    /// `Response` (ok / err), `Sequence(List)`, and nested `Tuple`.
+    #[rstest]
+    #[case::some_pre_clarity6("some", StacksEpochId::Epoch34, false)]
+    #[case::some_clarity6("some", StacksEpochId::Epoch40, true)]
+    #[case::ok_pre_clarity6("ok", StacksEpochId::Epoch34, false)]
+    #[case::ok_clarity6("ok", StacksEpochId::Epoch40, true)]
+    #[case::err_pre_clarity6("err", StacksEpochId::Epoch34, false)]
+    #[case::err_clarity6("err", StacksEpochId::Epoch40, true)]
+    #[case::list_pre_clarity6("list", StacksEpochId::Epoch34, false)]
+    #[case::list_clarity6("list", StacksEpochId::Epoch40, true)]
+    #[case::nested_tuple_pre_clarity6("nested_tuple", StacksEpochId::Epoch34, false)]
+    #[case::nested_tuple_clarity6("nested_tuple", StacksEpochId::Epoch40, true)]
+    fn test_validate_transaction_static_epoch_descends_into_compound_function_args(
+        #[case] shape: &str,
+        #[case] epoch_id: StacksEpochId,
+        #[case] expected_admitted: bool,
+    ) {
+        let arg = buried_underscore_value(shape);
+        let cc = admission_test_contract_call_with_arg(arg);
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&cc, epoch_id),
+            expected_admitted,
+            "`_buried` inside {shape} at {epoch_id}",
+        );
+    }
+
+    /// Bare `_` tuple keys are rejected at every epoch — even when
+    /// buried inside compound containers — because the walker's
+    /// every-epoch rule short-circuits before the leading-`_` check.
+    #[rstest]
+    #[case::some_epoch34("some", StacksEpochId::Epoch34)]
+    #[case::some_epoch40("some", StacksEpochId::Epoch40)]
+    #[case::ok_epoch34("ok", StacksEpochId::Epoch34)]
+    #[case::ok_epoch40("ok", StacksEpochId::Epoch40)]
+    #[case::list_epoch34("list", StacksEpochId::Epoch34)]
+    #[case::list_epoch40("list", StacksEpochId::Epoch40)]
+    fn test_validate_transaction_static_epoch_rejects_bare_underscore_inside_compound(
+        #[case] shape: &str,
         #[case] epoch_id: StacksEpochId,
     ) {
-        let cc = admission_test_contract_call_with_function_name("do-thing");
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &cc, epoch_id
-        ));
-
-        let pc = admission_test_nft_post_condition_with_asset_name("asset");
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &pc, epoch_id
-        ));
+        let bare = single_key_tuple("_");
+        let arg = match shape {
+            "some" => Value::some(bare).unwrap(),
+            "ok" => Value::okay(bare).unwrap(),
+            "list" => Value::list_from(vec![bare]).unwrap(),
+            other => panic!("unknown shape: {other}"),
+        };
+        let cc = admission_test_contract_call_with_arg(arg);
+        assert!(
+            !StacksBlock::validate_transaction_static_epoch(&cc, epoch_id),
+            "bare `_` inside {shape} at {epoch_id} should be rejected",
+        );
     }
 
     // TODO:

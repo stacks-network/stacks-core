@@ -924,7 +924,7 @@ fn tuple_with_key(key: &str) -> Value {
 #[case::clarity6(StacksEpochId::Epoch40)]
 fn test_find_invalid_tuple_key_rejects_bare_underscore(#[case] epoch: StacksEpochId) {
     let value = tuple_with_key("_");
-    assert_eq!(value.find_invalid_tuple_key(epoch).as_deref(), Some("_"));
+    assert_eq!(value.find_invalid_tuple_key(epoch), Some("_"));
 }
 
 /// Pre-Clarity-6 epochs reject *every* leading-`_` tuple key — matches
@@ -937,9 +937,7 @@ fn test_find_invalid_tuple_key_rejects_bare_underscore(#[case] epoch: StacksEpoc
 fn test_find_invalid_tuple_key_rejects_leading_underscore_pre_clarity6(#[case] key: &str) {
     let value = tuple_with_key(key);
     assert_eq!(
-        value
-            .find_invalid_tuple_key(StacksEpochId::Epoch34)
-            .as_deref(),
+        value.find_invalid_tuple_key(StacksEpochId::Epoch34),
         Some(key),
     );
 }
@@ -996,34 +994,22 @@ fn test_find_invalid_tuple_key_descends_into_compound_values() {
 
     // tuple inside `(some ...)`
     let some_value = Value::some(tuple_with_key("_buried")).unwrap();
-    assert_eq!(
-        some_value.find_invalid_tuple_key(epoch).as_deref(),
-        Some("_buried"),
-    );
+    assert_eq!(some_value.find_invalid_tuple_key(epoch), Some("_buried"));
 
     // tuple inside `(ok ...)`
     let ok_value = Value::okay(tuple_with_key("_buried")).unwrap();
-    assert_eq!(
-        ok_value.find_invalid_tuple_key(epoch).as_deref(),
-        Some("_buried"),
-    );
+    assert_eq!(ok_value.find_invalid_tuple_key(epoch), Some("_buried"));
 
     // tuple inside `(err ...)`
     let err_value = Value::error(tuple_with_key("_buried")).unwrap();
-    assert_eq!(
-        err_value.find_invalid_tuple_key(epoch).as_deref(),
-        Some("_buried"),
-    );
+    assert_eq!(err_value.find_invalid_tuple_key(epoch), Some("_buried"));
 
     // Tuple inside a list. Clarity lists are homogeneous, so the
     // single-element form is sufficient: the walker's for-loop over
     // `Sequence(List)` makes the second-element behavior identical to
     // the first.
     let list_value = Value::list_from(vec![tuple_with_key("_buried")]).unwrap();
-    assert_eq!(
-        list_value.find_invalid_tuple_key(epoch).as_deref(),
-        Some("_buried"),
-    );
+    assert_eq!(list_value.find_invalid_tuple_key(epoch), Some("_buried"));
 
     // tuple nested inside a tuple — `_buried` is the inner key, but the
     // walker reports the *first* offender it encounters and either inner
@@ -1035,10 +1021,7 @@ fn test_find_invalid_tuple_key_descends_into_compound_values() {
         )])
         .unwrap(),
     );
-    assert_eq!(
-        nested.find_invalid_tuple_key(epoch).as_deref(),
-        Some("_buried"),
-    );
+    assert_eq!(nested.find_invalid_tuple_key(epoch), Some("_buried"));
 }
 
 /// When the same value sits behind `(none)` (no payload), nothing is

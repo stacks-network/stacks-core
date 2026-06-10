@@ -970,28 +970,22 @@ impl PartialEq for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
-    /// Walk this value recursively and return the first tuple key
-    /// that would not be accepted at `epoch`. Used by transaction
-    /// admission to keep `_`-prefixed tuple keys off the wire.
+    /// Walk this value recursively and return the first tuple key that
+    /// would not be accepted at `epoch`. Bare `_` is invalid at every
+    /// epoch (reserved as the discard pattern); other leading-`_` keys
+    /// are invalid pre-Clarity-6.
     ///
-    /// Two rules:
-    ///   1. Bare `_` is never a valid tuple key (reserved as the
-    ///      `let` / `match` discard marker; rejected at every epoch).
-    ///   2. Any other leading-`_` key is rejected pre-Clarity-6 (epoch
-    ///      `< Epoch40`) to match un-upgraded nodes' narrow wire codec.
-    ///      Post-activation, `_foo` tuple keys are permitted.
-    ///
-    /// NOTE: this is the consensus-critical companion to the "value
-    /// sanitization" routine flagged above the `Value` enum. Any new
-    /// compound `Value` variant — one that can carry other values —
-    /// must be handled here too, or `_`-prefixed keys could escape into
-    /// a transaction's wire payload.
-    pub fn find_invalid_tuple_key(&self, epoch: StacksEpochId) -> Option<String> {
+    /// NOTE: this is the consensus-critical companion to the value-
+    /// sanitization routine above the `Value` enum. Any new compound
+    /// `Value` variant — one that can carry other values — must be
+    /// handled here too, or `_`-prefixed keys could escape into a
+    /// transaction's wire payload.
+    pub fn find_invalid_tuple_key(&self, epoch: StacksEpochId) -> Option<&str> {
         match self {
             Value::Tuple(data) => {
                 for (key, value) in data.data_map.iter() {
                     if Self::tuple_key_invalid_for_epoch(key.as_str(), epoch) {
-                        return Some(key.as_str().to_string());
+                        return Some(key.as_str());
                     }
                     if let Some(found) = value.find_invalid_tuple_key(epoch) {
                         return Some(found);
