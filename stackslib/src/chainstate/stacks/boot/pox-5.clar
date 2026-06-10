@@ -2672,7 +2672,7 @@
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
 
-        ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
+        ;; Validate that `contract-caller` has the same pubkey hash as `signer-key`
         (asserts!
             (is-eq
                 (unwrap-panic (principal-construct?
@@ -2682,7 +2682,7 @@
                     )
                     (hash160 signer-key)
                 ))
-                tx-sender
+                contract-caller
             )
             ERR_UNAUTHORIZED
         )
