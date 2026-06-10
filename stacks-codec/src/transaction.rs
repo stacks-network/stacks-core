@@ -3393,7 +3393,7 @@ mod high_s {
                     TransactionAuthField::PublicKey(_) => f.clone(),
                     TransactionAuthField::Signature(pubkey, sig) => {
                         handled_one = true;
-                        TransactionAuthField::Signature(pubkey.clone(), sig.with_negated_s())
+                        TransactionAuthField::Signature(*pubkey, sig.with_negated_s())
                     }
                 }
             })
