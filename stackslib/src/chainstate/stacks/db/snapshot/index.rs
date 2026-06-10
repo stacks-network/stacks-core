@@ -20,7 +20,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
-    clone_schemas_from_source, execute_copy_specs, with_offline_write_session, TableCopySpec,
+    clone_schemas_from_source, copied_rows, execute_copy_specs, with_offline_write_session,
+    TableCopySpec,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
@@ -296,31 +297,23 @@ fn copy_tables_inner(
     let specs = index_copy_specs(max_reward_cycle);
     let results = execute_copy_specs(conn, &specs)?;
 
-    let get = |name: &str| -> u64 {
-        results
-            .iter()
-            .find(|(t, _)| *t == name)
-            .map(|(_, r)| *r)
-            .unwrap_or_else(|| panic!("BUG: no copy-spec result for `{name}`"))
-    };
-
     conn.execute_batch("DROP TABLE IF EXISTS canonical_blocks")
         .map_err(Error::SQLError)?;
 
     info!("[index] all tables done in {:?}", total_start.elapsed());
 
     Ok(IndexSideTableStats {
-        block_headers_rows: get("block_headers"),
-        nakamoto_block_headers_rows: get("nakamoto_block_headers"),
-        payments_rows: get("payments"),
-        transactions_rows: get("transactions"),
-        nakamoto_tenure_events_rows: get("nakamoto_tenure_events"),
-        nakamoto_reward_sets_rows: get("nakamoto_reward_sets"),
-        signer_stats_rows: get("signer_stats"),
-        matured_rewards_rows: get("matured_rewards"),
-        burnchain_txids_rows: get("burnchain_txids"),
-        epoch_transitions_rows: get("epoch_transitions"),
-        staging_blocks_rows: get("staging_blocks"),
+        block_headers_rows: copied_rows(&results, "block_headers"),
+        nakamoto_block_headers_rows: copied_rows(&results, "nakamoto_block_headers"),
+        payments_rows: copied_rows(&results, "payments"),
+        transactions_rows: copied_rows(&results, "transactions"),
+        nakamoto_tenure_events_rows: copied_rows(&results, "nakamoto_tenure_events"),
+        nakamoto_reward_sets_rows: copied_rows(&results, "nakamoto_reward_sets"),
+        signer_stats_rows: copied_rows(&results, "signer_stats"),
+        matured_rewards_rows: copied_rows(&results, "matured_rewards"),
+        burnchain_txids_rows: copied_rows(&results, "burnchain_txids"),
+        epoch_transitions_rows: copied_rows(&results, "epoch_transitions"),
+        staging_blocks_rows: copied_rows(&results, "staging_blocks"),
         fork_storage_rows,
     })
 }

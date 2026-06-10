@@ -110,6 +110,17 @@ pub fn execute_copy_specs(
     Ok(results)
 }
 
+/// Look up the rows-copied count for `table` in [`execute_copy_specs`]
+/// results. Panics if `table` had no spec: that is a bug in the caller's
+/// spec list, not a data error.
+pub fn copied_rows(results: &[(&'static str, u64)], table: &str) -> u64 {
+    results
+        .iter()
+        .find(|(t, _)| *t == table)
+        .map(|(_, rows)| *rows)
+        .unwrap_or_else(|| panic!("BUG: no copy-spec result for `{table}`"))
+}
+
 /// Collect every user-defined index on `main.table` along with its
 /// CREATE statement so the caller can drop and later rebuild them.
 /// Excludes `sqlite_autoindex_*` (those have `sql IS NULL` and are
