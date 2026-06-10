@@ -8,6 +8,8 @@ import {
   assertTotalDelegatedForCycle,
   currentRewardCycle,
   getWalletNameByAddress,
+  grantedSigners,
+  isInPreparePhase,
   isStakerActive,
   logCommand,
   modelAddStakerToCycles,
@@ -35,7 +37,12 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
         // stays within the contract's [1, 96] band; otherwise stake-update
         // would always reject with ERR_INVALID_NUM_CYCLES.
         check: (model: Readonly<Model>) => {
-          if (model.signers.size === 0) return false;
+          // The new signer must have a live grant (revoke now blocks
+          // stake-update).
+          if (grantedSigners(model).length === 0) return false;
+          // stake-update reverts with ERR_STAKE_IN_PREPARE_PHASE in the
+          // prepare phase.
+          if (isInPreparePhase(model)) return false;
           if (!isStakerActive(model, r.sender)) return false;
           const prev = model.stakers.get(r.sender)!;
           const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
@@ -49,7 +56,7 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake-update');
 
           // Arrange
-          const registered = Array.from(model.signers.keys());
+          const registered = grantedSigners(model);
           const newSigner = registered[r.signerIndex % registered.length];
           pickedSigner = newSigner;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
@@ -58,9 +65,10 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
           const prev = model.stakers.get(r.sender)!;
           const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
           const expectedUnlockCycle = prevUnlockCycle + r.cyclesToExtend;
-          const expectedUnlockBurnHeight =
-            rewardCycleToBurnHeight(model, expectedUnlockCycle) +
-            model.rewardCycleLength / 2n;
+          const expectedUnlockBurnHeight = rewardCycleToBurnHeight(
+            model,
+            expectedUnlockCycle,
+          );
           const expectedAmountUstx = prev.amountUstx + r.amountIncrease;
           // Contract preserves the original first-reward-cycle in staker-info
           // and bumps num-cycles by cyclesToExtend.

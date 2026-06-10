@@ -8,6 +8,8 @@ import {
   assertTotalDelegatedForCycle,
   currentRewardCycle,
   getWalletNameByAddress,
+  grantedSigners,
+  isInPreparePhase,
   isStakerActive,
   logCommand,
   modelAddStakerToCycles,
@@ -33,13 +35,19 @@ export const Stake = (accounts: Real['accounts']) =>
       let pickedSigner: string | undefined;
       return {
         check: (model: Readonly<Model>) =>
-          model.signers.size > 0 && !isStakerActive(model, r.sender),
+          // Only signers whose grant is still live can accept a new stake
+          // (revoke blocks it); the run picks from these.
+          grantedSigners(model).length > 0 &&
+          !isStakerActive(model, r.sender) &&
+          // stake reverts with ERR_STAKE_IN_PREPARE_PHASE in the prepare
+          // phase; the rejection is asserted by StakeErrInPreparePhase.
+          !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'stake');
 
           // Arrange
-          const registered = Array.from(model.signers.keys());
+          const registered = grantedSigners(model);
           const signer = registered[r.signerIndex % registered.length];
           pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
@@ -47,9 +55,10 @@ export const Stake = (accounts: Real['accounts']) =>
           const expectedFirstStakedRewardCycle = currentRewardCycle(model) + 1n;
           const expectedUnlockCycle =
             expectedFirstStakedRewardCycle + r.numCycles;
-          const expectedUnlockBurnHeight =
-            rewardCycleToBurnHeight(model, expectedUnlockCycle) +
-            model.rewardCycleLength / 2n;
+          const expectedUnlockBurnHeight = rewardCycleToBurnHeight(
+            model,
+            expectedUnlockCycle,
+          );
           const stakerInfoBefore = rov(
             real.contracts.pox5.getStakerInfo(r.sender),
           );

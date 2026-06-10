@@ -2,6 +2,8 @@ import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
   getWalletNameByAddress,
+  grantedSigners,
+  isInPreparePhase,
   isStakerActive,
   logCommand,
   refreshModel,
@@ -35,18 +37,22 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
     .map((r) => {
       let pickedSigner: string | undefined;
       return {
-        // Gate on the same preconditions as Stake so we know ERR_INVALID_NUM_CYCLES
-        // is the *first* failing assertion: registered signer exists, sender
-        // not yet staking (otherwise the contract path is identical until the
-        // num-cycles check, which fires before the already-staked check anyway).
+        // Gate on the same preconditions as Stake so we know
+        // ERR_INVALID_NUM_CYCLES is the first failing assertion: registered
+        // signer exists, sender not yet staking, and not in the prepare phase
+        // (whose guard fires before the num-cycles check).
         check: (model: Readonly<Model>) =>
-          model.signers.size > 0 && !isStakerActive(model, r.sender),
+          // Live grant needed; the grant check runs before the num-cycles
+          // check.
+          grantedSigners(model).length > 0 &&
+          !isStakerActive(model, r.sender) &&
+          !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'stake_err_invalid_num_cycles');
 
           // Arrange
-          const registered = Array.from(model.signers.keys());
+          const registered = grantedSigners(model);
           const signer = registered[r.signerIndex % registered.length];
           pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;

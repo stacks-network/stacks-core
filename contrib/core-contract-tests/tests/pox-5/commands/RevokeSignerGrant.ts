@@ -63,8 +63,8 @@ export const RevokeSignerGrant = () =>
 
           // Grant was live entering the command.
           expect(verifiedBefore).toBe(true);
-          // map-delete returns true because the entry existed.
-          expect(receipt.value).toBe(true);
+          // Receipt tuple reports `existed: true` because the entry was live.
+          expect(receipt.value.existed).toBe(true);
           // Grant is now gone: verify-signer-key-grant reports not-found.
           expect(
             rovErr(

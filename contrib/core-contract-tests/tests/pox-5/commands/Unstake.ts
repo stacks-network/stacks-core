@@ -37,9 +37,10 @@ export const Unstake = (accounts: Real['accounts']) =>
         const prev = model.stakers.get(r.sender)!;
         const currentCycle = currentRewardCycle(model);
         const expectedUnlockCycle = currentCycle + 1n;
-        const expectedUnlockBurnHeight =
-          rewardCycleToBurnHeight(model, expectedUnlockCycle) +
-          model.rewardCycleLength / 2n;
+        const expectedUnlockBurnHeight = rewardCycleToBurnHeight(
+          model,
+          expectedUnlockCycle,
+        );
         // Contract sets `num-cycles = unlock-cycle - first-reward-cycle`
         // where `unlock-cycle = current-cycle + 1`. With the precondition
         // `current-cycle < unlockCycle` (i.e., lock not yet expired), this is

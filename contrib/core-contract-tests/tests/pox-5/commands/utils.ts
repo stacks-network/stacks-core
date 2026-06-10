@@ -33,7 +33,7 @@ export function isStakerActive(
 }
 
 /**
- * True when `staker` holds a position in the *current* reward cycle: its lock
+ * True when `staker` holds a position in the current reward cycle: its lock
  * has started (firstRewardCycle <= current) and not yet expired (current <
  * unlockCycle) — exactly the stakers the contract has a current-cycle
  * membership for, so `modelStakerSignerForCycle` is guaranteed to resolve.
@@ -184,6 +184,31 @@ export const candidateSignerIds: string[] = [
 /** `model.activeGrants` key: one entry per live `signer-key-grants` row. */
 export function grantKey(signerKey: Uint8Array, signerManager: string): string {
   return `${hex.encode(signerKey)}|${signerManager}`;
+}
+
+/**
+ * True when `signerManager`'s current key still has a live grant; the
+ * condition every new-stake entry point re-checks (else
+ * ERR_SIGNER_KEY_GRANT_NOT_FOUND). A revoked grant leaves the signer
+ * registered but unstakeable.
+ */
+export function signerHasActiveGrant(
+  model: Readonly<Model>,
+  signerManager: string,
+): boolean {
+  const signer = model.signers.get(signerManager);
+  if (!signer) return false;
+  return model.activeGrants.has(grantKey(signer.signerKey, signerManager));
+}
+
+/**
+ * Registered signers whose current key still has a live grant; the only
+ * signers a new stake / stake-update can target.
+ */
+export function grantedSigners(model: Readonly<Model>): string[] {
+  return [...model.signers.keys()].filter((s) =>
+    signerHasActiveGrant(model, s),
+  );
 }
 
 /** `model.usedGrants` key: one entry per consumed `used-signer-key-grants` row. */

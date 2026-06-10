@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
   getWalletNameByAddress,
+  isInPreparePhase,
   logCommand,
   refreshModel,
   trackCommandRun,
@@ -33,7 +34,10 @@ export const StakeErrSignerNotFound = (accounts: Real['accounts']) =>
 
       return {
         check: (model: Readonly<Model>) =>
-          pickUnregisteredId(model) !== undefined,
+          pickUnregisteredId(model) !== undefined &&
+          // The prepare-phase guard runs before the signer lookup; avoid it so
+          // ERR_SIGNER_NOT_FOUND is the error under test.
+          !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'stake_err_signer_not_found');

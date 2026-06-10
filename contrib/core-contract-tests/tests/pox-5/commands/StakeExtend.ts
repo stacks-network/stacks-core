@@ -8,12 +8,14 @@ import {
   assertTotalDelegatedForCycle,
   currentRewardCycle,
   getWalletNameByAddress,
+  isInPreparePhase,
   isStakerActive,
   logCommand,
   modelAddStakerToCycles,
   modelRemoveStakerFromCycles,
   refreshModel,
   rewardCycleToBurnHeight,
+  signerHasActiveGrant,
   trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
@@ -38,8 +40,14 @@ export const StakeExtend = (accounts: Real['accounts']) =>
         // the contract's [1, 96] band, else stake-update rejects.
         check: (model: Readonly<Model>) => {
           if (model.signers.size === 0) return false;
+          // stake-update reverts with ERR_STAKE_IN_PREPARE_PHASE in the
+          // prepare phase.
+          if (isInPreparePhase(model)) return false;
           if (!isStakerActive(model, r.sender)) return false;
           const prev = model.stakers.get(r.sender)!;
+          // stake-update re-checks the (reused) signer's grant; skip if
+          // revoked.
+          if (!signerHasActiveGrant(model, prev.signer)) return false;
           const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
           const newUnlockCycle = prevUnlockCycle + r.cyclesToExtend;
           const internalNumCycles =
@@ -60,9 +68,10 @@ export const StakeExtend = (accounts: Real['accounts']) =>
           pickedSigner = signer;
           const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
           const expectedUnlockCycle = prevUnlockCycle + r.cyclesToExtend;
-          const expectedUnlockBurnHeight =
-            rewardCycleToBurnHeight(model, expectedUnlockCycle) +
-            model.rewardCycleLength / 2n;
+          const expectedUnlockBurnHeight = rewardCycleToBurnHeight(
+            model,
+            expectedUnlockCycle,
+          );
           // Extend-only: amount unchanged (amountIncrease = 0).
           const expectedAmountUstx = prev.amountUstx;
           // Contract keeps first-reward-cycle, bumps num-cycles by cyclesToExtend.

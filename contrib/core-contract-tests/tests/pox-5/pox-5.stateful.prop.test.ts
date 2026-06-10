@@ -46,6 +46,10 @@ const NUM_RUNS = Number(process.env.FAST_CHECK_NUM_RUNS ?? 100);
 const TEST_TIMEOUT_MS = Number(process.env.FAST_CHECK_TIMEOUT_MS ?? 120_000);
 // Command-sequence length scale. CI default `medium`; sweeps crank to `large`.
 const SIZE = (process.env.FAST_CHECK_SIZE ?? 'medium') as fc.Size;
+// Shrinking can collapse any failure onto a non-idempotent command (one whose
+// `check` lets it re-run against already-consumed state), masking the real
+// divergence; noShrink shows what actually failed first.
+const NO_SHRINK = process.env.FAST_CHECK_NO_SHRINK === '1';
 
 test(
   'pox-5 stateful property test',
@@ -106,7 +110,7 @@ test(
         const state = () => ({ model: model, real: real });
         fc.modelRun(state, cmds);
       }),
-      { numRuns: NUM_RUNS, verbose: 2 },
+      { numRuns: NUM_RUNS, verbose: 2, endOnFailure: NO_SHRINK },
     );
 
     reportCommandRuns(model);

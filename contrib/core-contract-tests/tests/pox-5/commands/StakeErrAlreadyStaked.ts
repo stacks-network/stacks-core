@@ -2,6 +2,8 @@ import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
   getWalletNameByAddress,
+  grantedSigners,
+  isInPreparePhase,
   isStakerActive,
   logCommand,
   refreshModel,
@@ -25,13 +27,19 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
       let pickedSigner: string | undefined;
       return {
         check: (model: Readonly<Model>) =>
-          model.signers.size > 0 && isStakerActive(model, r.sender),
+          // A live grant is needed or the grant check (which runs before the
+          // already-staked check) would mask ERR_ALREADY_STAKED.
+          grantedSigners(model).length > 0 &&
+          isStakerActive(model, r.sender) &&
+          // In the prepare phase stake reverts with ERR_STAKE_IN_PREPARE_PHASE
+          // first, masking ERR_ALREADY_STAKED.
+          !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'stake_err_already_staked');
 
           // Arrange
-          const registered = Array.from(model.signers.keys());
+          const registered = grantedSigners(model);
           const signer = registered[r.signerIndex % registered.length];
           pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;

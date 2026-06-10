@@ -61,8 +61,9 @@ export const RevokeSignerGrantNonexistent = () =>
 
           // Assert
 
-          // map-delete returns false: there was nothing to delete.
-          expect(receipt.value).toBe(false);
+          // Receipt tuple reports `existed: false`: there was nothing to
+          // delete.
+          expect(receipt.value.existed).toBe(false);
 
           logCommand({
             action: 'revoke-signer-grant-nonexistent',
