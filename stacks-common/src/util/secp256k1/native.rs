@@ -21,7 +21,6 @@ use ::libsecp256k1::{
     self, PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
     SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature, ECMULT_GEN_CONTEXT,
 };
-#[cfg(not(feature = "wasm-deterministic"))]
 use ::libsecp256k1::{Error as LibSecp256k1Error, Message as LibSecp256k1Message};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
@@ -166,7 +165,6 @@ impl Secp256k1PublicKey {
             .map_err(|_e| "Invalid public key: failed to load")
     }
 
-    #[cfg(not(feature = "wasm-deterministic"))]
     pub fn from_private(privk: &Secp256k1PrivateKey) -> Secp256k1PublicKey {
         let key =
             LibSecp256k1PublicKey::from_secret_key_with_context(&privk.key, &ECMULT_GEN_CONTEXT);
@@ -192,7 +190,6 @@ impl Secp256k1PublicKey {
         self.compressed = value;
     }
 
-    #[cfg(not(feature = "wasm-deterministic"))]
     /// recover message and signature to public key (will be compressed)
     pub fn recover_to_pubkey(
         msg: &[u8],
@@ -241,7 +238,6 @@ impl PublicKey for Secp256k1PublicKey {
 }
 
 /// Returns true if the signature's S value is in the lower half of the secp256k1 group order.
-#[cfg(not(feature = "wasm-deterministic"))]
 fn is_low_s(sig: &LibSecp256k1Signature) -> bool {
     // secp256k1 group order n divided by 2 (big-endian)
     const HALF_ORDER: [u8; 32] = [
@@ -434,19 +430,17 @@ fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(
     LibSecp256k1PrivateKey::parse_slice(&key_bytes[..]).map_err(de_Error::custom)
 }
 
-#[cfg(not(feature = "wasm-deterministic"))]
 pub fn secp256k1_recover(
     message_arr: &[u8],
     serialized_signature_arr: &[u8],
 ) -> Result<[u8; 33], LibSecp256k1Error> {
-    let recovery_id = libsecp256k1::RecoveryId::parse(serialized_signature_arr[64] as u8)?;
+    let recovery_id = libsecp256k1::RecoveryId::parse(serialized_signature_arr[64])?;
     let message = LibSecp256k1Message::parse_slice(message_arr)?;
     let signature = LibSecp256k1Signature::parse_standard_slice(&serialized_signature_arr[..64])?;
     let recovered_pub = libsecp256k1::recover(&message, &signature, &recovery_id)?;
     Ok(recovered_pub.serialize_compressed())
 }
 
-#[cfg(not(feature = "wasm-deterministic"))]
 pub fn secp256k1_verify(
     message_arr: &[u8],
     serialized_signature_arr: &[u8],
@@ -471,6 +465,7 @@ pub fn secp256k1_verify(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "wasm-deterministic"))]
     use rand::RngCore as _;
 
     /// Negate a secp256k1 scalar: returns `n - s` (mod n), giving the complementary S value.
@@ -493,6 +488,7 @@ mod tests {
         result
     }
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_recover_high_s() {
         // Sign a message, convert the signature to its high-S equivalent, and verify that
@@ -554,8 +550,9 @@ mod tests {
     }
 
     use super::*;
-    use crate::util::get_epoch_time_ms;
     use crate::util::hash::hex_bytes;
+    #[cfg(not(feature = "wasm-deterministic"))]
+    use crate::util::get_epoch_time_ms;
 
     struct KeyFixture<I, R> {
         input: I,
@@ -593,13 +590,14 @@ mod tests {
             .unwrap()
             .compress_public());
 
-        assert_eq!(Secp256k1PrivateKey::from_hex(&h_uncomp), Ok(t1.clone()));
+        assert_eq!(Secp256k1PrivateKey::from_hex(&h_uncomp), Ok(t1));
 
         t1.set_compress_public(true);
 
         assert_eq!(Secp256k1PrivateKey::from_hex(&h_comp), Ok(t1));
     }
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     /// Test the behavior of from_seed using hard-coded values from previous existing integration tests
     fn sk_from_seed() {
@@ -685,6 +683,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_verify() {
         let fixtures: Vec<VerifyFixture<Result<bool, &'static str>>> = vec![
@@ -763,6 +762,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     #[ignore]
     fn test_verify_benchmark_roundtrip() {
@@ -826,6 +826,7 @@ mod tests {
     // MessageSignature::empty
     // -----------------------------------------------------------------------
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_message_signature_empty() {
         let sig = MessageSignature::empty();
@@ -849,6 +850,7 @@ mod tests {
     // MessageSignature: from_secp256k1_recoverable / to_secp256k1_recoverable
     // -----------------------------------------------------------------------
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_message_signature_recoverable_roundtrip() {
         let privk = Secp256k1PrivateKey::random();
@@ -953,6 +955,7 @@ mod tests {
         assert_eq!(der[s_offset + 2], 0x01, "S value");
     }
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_to_der_signature_matches_der_encode() {
         let privk = Secp256k1PrivateKey::random();
@@ -977,6 +980,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_to_der_signature_structure() {
         // to_der_signature must produce a valid SEQUENCE header for any parsed signature.
@@ -1023,6 +1027,7 @@ mod tests {
     // Secp256k1PublicKey::recover_to_pubkey
     // -----------------------------------------------------------------------
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_recover_to_pubkey() {
         let privk = Secp256k1PrivateKey::random();
@@ -1109,6 +1114,7 @@ mod tests {
     // PrivateKey::sign (non-ignored, end-to-end)
     // -----------------------------------------------------------------------
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_sign_and_verify_roundtrip() {
         let privk = Secp256k1PrivateKey::random();
@@ -1135,6 +1141,7 @@ mod tests {
     // PrivateKey::sign_with_noncedata
     // -----------------------------------------------------------------------
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_sign_with_noncedata_deterministic() {
         let privk = Secp256k1PrivateKey::random();
@@ -1179,6 +1186,7 @@ mod tests {
     // secp256k1_verify
     // -----------------------------------------------------------------------
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     #[test]
     fn test_secp256k1_verify_function() {
         // Use the same test vector as test_verify:
