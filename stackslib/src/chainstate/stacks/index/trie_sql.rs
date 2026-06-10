@@ -362,6 +362,45 @@ pub fn bulk_read_squashed_blocks<T: MarfTrieId>(
     Ok(result)
 }
 
+/// Test-only: insert one `marf_squashed_blocks` row, as the squash engine
+/// would. Lets test fixtures outside the MARF module populate squash
+/// metadata without writing MARF-internal SQL. The table itself is created
+/// by the schema-3 migration.
+#[cfg(test)]
+pub fn test_insert_squashed_block<T: MarfTrieId>(
+    conn: &Connection,
+    height: u32,
+    block_hash: &T,
+    marf_root_hash: &TrieHash,
+) -> Result<(), Error> {
+    conn.execute(
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
+         VALUES (?1, ?2, ?3)",
+        params![
+            i64::from(height),
+            block_hash.as_bytes(),
+            marf_root_hash.as_bytes()
+        ],
+    )?;
+    Ok(())
+}
+
+/// Test-only: append a `marf_squashed_blocks` row one above the current
+/// maximum height.
+#[cfg(test)]
+pub fn test_append_squashed_block<T: MarfTrieId>(
+    conn: &Connection,
+    block_hash: &T,
+    marf_root_hash: &TrieHash,
+) -> Result<(), Error> {
+    conn.execute(
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
+         VALUES ((SELECT COALESCE(MAX(height) + 1, 0) FROM marf_squashed_blocks), ?1, ?2)",
+        params![block_hash.as_bytes(), marf_root_hash.as_bytes()],
+    )?;
+    Ok(())
+}
+
 /// Bulk-read all confirmed block entries from `marf_data`.
 ///
 /// Returns `(block_id, block_hash, external_offset)` for every confirmed row,

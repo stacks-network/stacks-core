@@ -168,7 +168,7 @@ fn test_copy_index_side_tables_round_trip() {
     // ibh3 is NOT canonical.
     let dst_path = dir.path().join("dst_index.sqlite");
     let dst = create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh2"]);
-    append_canonical_block(&dst, &tip_id.0);
+    append_canonical_block(&dst, &tip_id);
     drop(dst);
 
     // Copy: only canonical blocks ibh1 and ibh2 should be included.
@@ -248,7 +248,7 @@ fn test_copy_excludes_fork_rows() {
     // Only ibh1_canonical (and the tip) is in the canonical set.
     let dst_path = dir.path().join("dst_index.sqlite");
     let dst = create_dest_db_with_canonical_blocks(&dst_path, &["ibh1_canonical"]);
-    append_canonical_block(&dst, &tip_id.0);
+    append_canonical_block(&dst, &tip_id);
     drop(dst);
 
     let stats =
@@ -331,7 +331,7 @@ fn test_staging_blocks_populated_for_canonical() {
     // Canonical set includes ibh1, ibh2, ibh4, ibh5, but NOT ibh3.
     let dst_path = dir.path().join("dst.sqlite");
     let dst = create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh2", "ibh4", "ibh5"]);
-    append_canonical_block(&dst, &tip_id.0);
+    append_canonical_block(&dst, &tip_id);
     drop(dst);
 
     let stats =
@@ -390,7 +390,7 @@ fn test_signer_stats_copied_through_tip_reward_cycle() {
 
     let dst_path = dir.path().join("dst.sqlite");
     let dst = create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
-    append_canonical_block(&dst, &tip_id.0);
+    append_canonical_block(&dst, &tip_id);
     drop(dst);
 
     // first_burn_height=0, reward_cycle_len=5 → tip cycle = 10 / 5 = 2.
@@ -447,8 +447,8 @@ fn test_epoch2_tip_above_nakamoto_block_is_corruption() {
     // ibh2 (epoch-2) sits above the Nakamoto block in the canonical set.
     let dst_path = dir.path().join("dst.sqlite");
     let dst = create_dest_db_with_canonical_blocks(&dst_path, &[]);
-    append_canonical_block(&dst, &nak_id.0);
-    append_canonical_block(&dst, &label_block_id("ibh2").0);
+    append_canonical_block(&dst, &nak_id);
+    append_canonical_block(&dst, &label_block_id("ibh2"));
     drop(dst);
 
     let err = copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 5)

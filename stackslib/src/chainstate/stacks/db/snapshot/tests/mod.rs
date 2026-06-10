@@ -17,12 +17,12 @@ use std::collections::HashSet;
 
 use rstest::rstest;
 use rusqlite::{params, Connection};
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use tempfile::tempdir;
 
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue};
+use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 
 mod index;
 
@@ -73,77 +73,23 @@ fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&st
 
     let conn = Connection::open(path).unwrap();
     for (h, bh) in canonical.iter().enumerate() {
-        let id = label_block_id(bh);
-        conn.execute(
-            "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
-             VALUES (?1, ?2, ?3)",
-            params![h as i64, id.0.as_slice(), [0u8; 32].as_slice()],
+        trie_sql::test_insert_squashed_block(
+            &conn,
+            h as u32,
+            &label_block_id(bh),
+            &TrieHash([0u8; 32]),
         )
         .unwrap();
     }
     conn
 }
 
-/// Append a canonical block above the existing ones. `block_hash` is the
-/// raw BLOB content: a test label or a computed [`StacksBlockId`].
-fn append_canonical_block(conn: &Connection, block_hash: &[u8]) {
-    conn.execute(
-        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
-         VALUES ((SELECT COALESCE(MAX(height) + 1, 0) FROM marf_squashed_blocks), ?1, ?2)",
-        params![block_hash, [0u8; 32].as_slice()],
-    )
-    .unwrap();
+/// Append a canonical block above the existing ones. `block_hash` is a
+/// test label or a computed [`StacksBlockId`].
+fn append_canonical_block(conn: &Connection, block_hash: &StacksBlockId) {
+    trie_sql::test_append_squashed_block(conn, block_hash, &TrieHash([0u8; 32])).unwrap();
 }
 
-/// Insert an epoch-2 `block_headers` row at the given height.
-fn insert_epoch2_block_header(conn: &Connection, height: u32, suffix: &str) {
-    conn.execute(
-            "INSERT INTO block_headers (version, total_burn, total_work, proof, parent_block, \
-             parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, \
-             microblock_pubkey_hash, block_hash, index_block_hash, block_height, index_root, \
-             consensus_hash, burn_header_hash, burn_header_height, burn_header_timestamp, \
-             parent_block_id, cost, block_size) \
-             VALUES (1,'0','0','p','par','mb',0,'mr','sr','mph',?1,?2,?3,'ir',?4,'bhh',?3,0,'pid','0','0')",
-            params![
-                format!("bh{suffix}"),
-                hex_id(&format!("ibh{suffix}")),
-                height,
-                format!("ch{suffix}"),
-            ],
-        )
-        .unwrap();
-}
-
-/// Insert a payment row at the given height.
-fn insert_payment(conn: &Connection, height: u32, suffix: &str) {
-    conn.execute(
-        "INSERT INTO payments (address, block_hash, consensus_hash, parent_block_hash, \
-             parent_consensus_hash, coinbase, tx_fees_anchored, tx_fees_streamed, stx_burns, \
-             burnchain_commit_burn, burnchain_sortition_burn, miner, stacks_block_height, \
-             index_block_hash, vtxindex, recipient, schedule_type) \
-             VALUES ('addr',?1,?2,'pbh','pch','100','0','0','0',0,0,1,?3,?4,0,NULL,'Epoch2')",
-        params![
-            format!("bh{suffix}"),
-            format!("ch{suffix}"),
-            height,
-            hex_id(&format!("ibh{suffix}")),
-        ],
-    )
-    .unwrap();
-}
-
-/// Insert a transaction row for the given index_block_hash label.
-///
-/// Callers pass a short label (e.g. `"ibh1"`); we store it as
-/// [`hex_id`] so it joins against the squash side-table.
-fn insert_transaction(conn: &Connection, id: i64, ibh_label: &str) {
-    conn.execute(
-        "INSERT INTO transactions (id, txid, index_block_hash, tx_hex, result) \
-             VALUES (?1, ?2, ?3, '0x00', 'ok')",
-        params![id, format!("tx{id}"), hex_id(ibh_label)],
-    )
-    .unwrap();
-}
 /// Assert `err` is a [`Error::CorruptionError`] whose message contains
 /// `needle`, pinning which corruption guard fired.
 fn assert_corruption_containing(err: Error, needle: &str) {
