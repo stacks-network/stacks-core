@@ -108,7 +108,8 @@ pub fn copy_canonical_fork_storage(
 ///
 /// The destination table must exist and be empty - unexpected pre-population errors.
 /// Each key must be the canonical lowercase hex of a `MARFValue`, else it's corruption.
-/// `table`/`key_col` are interpolated into SQL: pass only trusted fixed identifiers.
+/// `table`/`key_col` are interpolated into SQL: pass only trusted fixed identifiers,
+/// while the payload column is assumed to be named `value`.
 pub fn copy_leaf_referenced_rows(
     conn: &Connection,
     table: &str,
