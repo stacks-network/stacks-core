@@ -1,5 +1,6 @@
 import type { Model, Real, StakerState } from './types';
 import { accounts } from '../../clarigen-types';
+import { MAX_SIGNERS, testSigner } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
 import { hex } from '@scure/base';
 import { cvToValue, hexToCV } from '@stacks/transactions';
@@ -29,6 +30,22 @@ export function isStakerActive(
   // unlockCycle == first + num, so the staker is active while
   // current < unlockCycle.
   return currentRewardCycle(model) < staker.unlockCycle;
+}
+
+/**
+ * True when `staker` holds a position in the *current* reward cycle: its lock
+ * has started (firstRewardCycle <= current) and not yet expired (current <
+ * unlockCycle) — exactly the stakers the contract has a current-cycle
+ * membership for, so `modelStakerSignerForCycle` is guaranteed to resolve.
+ */
+export function isStakerInCurrentCycle(
+  model: Readonly<Model>,
+  address: string,
+): boolean {
+  const staker = model.stakers.get(address);
+  if (!staker) return false;
+  const cycle = currentRewardCycle(model);
+  return staker.firstRewardCycle <= cycle && cycle < staker.unlockCycle;
 }
 
 /**
@@ -145,6 +162,20 @@ function logAsTree(statistics: [string, number][]) {
 export const getWalletNameByAddress = (address: string): string | undefined =>
   Object.entries(accounts).find(([, v]) => v.address === address)?.[0];
 
+/**
+ * Every signer-manager identifier a run can produce: the default `testSigner`
+ * plus the `test-pox-5-signer-1..(MAX_SIGNERS-1)` instances DeploySigner
+ * creates. A static candidate set for `fc.constantFrom`; Assert* commands gate
+ * on `model.signers.has(...)` to pick only the registered ones.
+ */
+export const candidateSignerIds: string[] = [
+  testSigner.identifier,
+  ...Array.from(
+    { length: MAX_SIGNERS - 1 },
+    (_, i) => `${accounts.deployer.address}.test-pox-5-signer-${i + 1}`,
+  ),
+];
+
 // Signer-key-grant (de)serialisation. The model stores grants as flat strings
 // so they live in plain `Set`s; these are the only places that know the wire
 // format. `|` is a safe delimiter: hex, principals, and decimal auth-ids never
@@ -207,12 +238,11 @@ function stakerSignerCycleKey(
   return `${staker}|${signer}|${cycle}`;
 }
 
-// Per-cycle model writes. These mirror the contract's `add-staker-to-signer-
-// for-cycle` / `remove-staker-from-signer-for-cycle` folds, but only for the
-// four unconditional-write maps (the threshold-gated `signer-shares` /
-// `total-shares` maps are not modelled — SKILL §5.3). Call them in the Act's
-// "Update model" step so every cycle the Act touched ends up holding exactly
-// what the contract committed there.
+// Per-cycle model writes mirroring the contract's `add-staker-to-signer-for-
+// cycle` / `remove-staker-from-signer-for-cycle` folds, for the four
+// unconditional-write maps only (the threshold-gated `signer-shares` /
+// `total-shares` maps are not modelled). Call them in the Act's "Update model"
+// step so each touched cycle holds exactly what the contract committed.
 
 /**
  * Mirror of `add-staker-to-signer-cycles`: add `staker`/`signer`/`amountUstx`
@@ -284,6 +314,21 @@ export function modelRemoveStakerFromCycles(
       (model.ustxDelegatedPerCycle.get(cycle) ?? 0n) - amountUstx,
     );
   }
+}
+
+/**
+ * The signer the model recorded for `staker` at `cycle` (its per-cycle
+ * membership signer — which a mid-lock signer change can make differ from the
+ * staker's latest `signer`). Undefined when the staker has no membership that
+ * cycle.
+ */
+export function modelStakerSignerForCycle(
+  model: Readonly<Model>,
+  staker: string,
+  cycle: bigint,
+): string | undefined {
+  return model.stakerSignerCycleMemberships.get(stakerCycleKey(staker, cycle))
+    ?.signer;
 }
 
 // Per-cycle invariant checks. Each asserts one unconditional-write contract
@@ -416,12 +461,7 @@ function stxAccount(
 
 /**
  * An active staker's locked balance must equal `amountUstx`, unlocking at
- * `unlockBurnHeight`. Asserted only for stakers still in `model.stakers`: their
- * lock is provably active (currentCycle < unlockCycle ⇒ currentBurnHeight <
- * unlockBurnHeight). A staker the model has expired *by cycle* can stay
- * runtime-locked for up to half a cycle (unlock happens at the burn height
- * `unlockBurnHeight`, which is the cycle start + half a cycle), so the "locked
- * is 0" side can't be derived from the current snapshot — skip it.
+ * `unlockBurnHeight`.
  */
 export function assertStakerLock(
   model: Readonly<Model>,
@@ -429,10 +469,8 @@ export function assertStakerLock(
   staker: string,
 ): void {
   const st = model.stakers.get(staker);
-  // TODO: Update to throw after separating AssertModelInvariants into multiple
-  // separated commands.
-  if (!st) return;
+  expect(st).toBeDefined();
   const acct = stxAccount(real, staker);
-  expect(acct.locked).toBe(st.amountUstx);
-  expect(acct.unlockHeight).toBe(st.unlockBurnHeight);
+  expect(acct.locked).toBe(st!.amountUstx);
+  expect(acct.unlockHeight).toBe(st!.unlockBurnHeight);
 }

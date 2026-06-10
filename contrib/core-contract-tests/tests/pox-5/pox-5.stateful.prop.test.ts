@@ -4,6 +4,8 @@ import { projectFactory } from '@clarigen/core';
 import { test } from 'vitest';
 
 import { AssertModelInvariants } from './commands/AssertModelInvariants';
+import { AssertSignerInvariants } from './commands/AssertSignerInvariants';
+import { AssertStakerInvariants } from './commands/AssertStakerInvariants';
 import { DeploySigner } from './commands/DeploySigner';
 import { MineBitcoinBlocks } from './commands/MineBlocks';
 import { RegisterSigner } from './commands/RegisterSigner';
@@ -16,6 +18,7 @@ import { Stake } from './commands/Stake';
 import { StakeErrAlreadyStaked } from './commands/StakeErrAlreadyStaked';
 import { StakeErrInvalidNumCycles } from './commands/StakeErrInvalidNumCycles';
 import { StakeErrSignerNotFound } from './commands/StakeErrSignerNotFound';
+import { StakeExtend } from './commands/StakeExtend';
 import { StakeUpdate } from './commands/StakeUpdate';
 import { Unstake } from './commands/Unstake';
 import { UnstakeErrInPreparePhase } from './commands/UnstakeErrInPreparePhase';
@@ -86,12 +89,15 @@ test(
       RevokeSignerGrantErrUnauthorized(accounts),
       Stake(accounts),
       StakeUpdate(accounts),
+      StakeExtend(accounts),
       Unstake(accounts),
       StakeErrAlreadyStaked(accounts),
       StakeErrSignerNotFound(accounts),
       StakeErrInvalidNumCycles(accounts),
       UnstakeErrInPreparePhase(accounts),
       MineBitcoinBlocks(),
+      AssertSignerInvariants(),
+      AssertStakerInvariants(accounts),
       AssertModelInvariants(accounts),
     ];
 
