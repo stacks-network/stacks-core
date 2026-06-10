@@ -734,6 +734,14 @@ pub fn sqlite_open<P: AsRef<Path>>(
     flags: OpenFlags,
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
+    // Without an explicit mutex flag the bundled SQLite defaults to serialized
+    // mode, whose per-connection mutex is pure overhead here: `Connection` is
+    // `!Sync`, so no thread can ever contend on it.
+    debug_assert!(
+        !flags.contains(OpenFlags::SQLITE_OPEN_FULL_MUTEX),
+        "sqlite_open always opens in multi-thread mode; FULL_MUTEX is not supported"
+    );
+    let flags = flags | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let db = inner_connection_open(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
