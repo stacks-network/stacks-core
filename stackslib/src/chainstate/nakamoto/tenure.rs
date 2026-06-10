@@ -941,7 +941,7 @@ impl NakamotoChainState {
     /// - the parent tenure's total fees
     ///
     /// TODO: unit test
-    pub(crate) fn calculate_scheduled_tenure_reward(
+    pub fn calculate_scheduled_tenure_reward(
         chainstate_tx: &mut ChainstateTx,
         burn_dbconn: &SortitionHandleConn,
         block: &NakamotoBlock,

@@ -3397,7 +3397,7 @@ impl NakamotoChainState {
 
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
-    fn advance_tip(
+    pub fn advance_tip(
         headers_tx: &mut StacksDBTx,
         parent_tip: &StacksBlockHeaderTypes,
         parent_consensus_hash: &ConsensusHash,

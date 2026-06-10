@@ -12,6 +12,7 @@ members = [
     "libsigner",
     "stacks-signer",
     "stacks-node",
+    "contrib/stacks-bench",
     "stacks-profiler",
     "stacks-profiler-macros",
     "contrib/stacks-inspect",
@@ -46,8 +47,28 @@ toml = "0.5.6"
 variant_count = "1.1"
 
 # Other dependencies
+anyhow = { version = "1.0.100", default-features = false }
+chrono = { version = "0.4.43", default-features = false, features = ["serde"] }
+clap = { version = "4.5.58", default-features = false, features = ["std", "derive", "color", "help", "usage", "error-context", "suggestions"] }
+cliclack = { version = "0.3.8", default-features = false }
+console = { version = "0.16.2", default-features = false, features = ["std", "unicode-width", "ansi-parsing"] }
+diesel = { version = "2.3.4", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono", "32-column-tables", "serde_json"] }
+diesel-async = { version = "0.7.4", default-features = false, features = ["sqlite", "migrations", "bb8"] }
+diesel_migrations = { version = "2.3.1", default-features = false, features = ["sqlite"] }
+erased-serde = { version = "0.4", default-features = false, features = ["std"] }
+futures = { version = "0.3.31", default-features = false }
+globset = "0.4.18"
+hex = { version = "0.4.3", default-features = false, features = ["std"] }
+home = { version = "0.5", default-features = false }
+ignore = { version = "0.4.25", default-features = false }
 libc = { version = "0.2.182", default-features = false }
 rapidhash = { version = "4.3.0", default-features = false, features = ["std"] }
+reflink-copy = { version = "0.1.28", default-features = false }
+rmcp = { version = "=1.3.0", features = ["transport-io"] }
+schemars = "1.2"
+sha2 = { version = "0.10.9", default-features = false }
+tempfile = { version = "3.25.0", default-features = false, features = ["getrandom"] }
+tokio = { version = "1.49.0", default-features = false, features = ["signal", "macros", "rt-multi-thread", "rt"] }
 trybuild = { version = "1.0.116", default-features = false }
 
 # Benchmarking dependencies
