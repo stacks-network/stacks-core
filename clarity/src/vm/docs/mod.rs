@@ -1036,19 +1036,26 @@ The `func` argument must be a literal function name.
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
-    input_type: "sequence_A, sequence_A",
+    input_type: "sequence_A, sequence_A, ...",
     snippet: "concat ${1:sequence-1} ${2:sequence-2}",
     output_type: "sequence_A",
-    signature: "(concat sequence1 sequence2)",
-    description: "The `concat` function takes two sequences of the same type,
+    signature: "(concat sequence1 sequence2 ...)",
+    description: "The `concat` function takes two or more sequences of the same type,
 and returns a concatenated sequence of the same type, with the resulting
-sequence_len = sequence1_len + sequence2_len.
+sequence_len equal to the sum of the input sequence lengths.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
+
+Prior to Clarity 6, `concat` accepts exactly two arguments. Beginning in
+Clarity 6, `concat` is variadic and accepts two or more arguments in a single
+call. The variadic form charges runtime cost proportional to the combined
+length of the inputs (rather than the quadratic-in-N cost of an equivalent
+nested-binary chain), so it is strictly cheaper than chaining binary calls.
 ",
     example: r#"
 (concat (list 1 2) (list 3 4)) ;; Returns (1 2 3 4)
 (concat "hello " "world") ;; Returns "hello world"
 (concat 0x0102 0x0304) ;; Returns 0x01020304
+(concat 0x01 0x02 0x03 0x04) ;; Returns 0x01020304
 "#,
 };
 
@@ -1487,6 +1494,36 @@ without trusting the caller to have correctly hashed or stripped witness data fr
 (get-bitcoin-tx-output? 0x01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000 u0)
 ;; Returns (ok (tuple (amount u5000000000) (script 0x4104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac) (txid 0x3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a)))
 (get-bitcoin-tx-output? 0x00 u0) ;; Returns (err u1)",
+};
+
+const ED25519VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 1048576), (buff 64), (buff 32)",
+    snippet: "ed25519-verify ${1:message} ${2:signature} ${3:public-key})",
+    output_type: "bool",
+    signature: "(ed25519-verify message signature public-key)",
+    description: "The `ed25519-verify` function verifies that the provided signature of the message
+was signed with the private key that generated the public key.
+The `message` can be up to 1 MiB in size. The `signature` is the raw 64-byte signature, and the `public-key` is the raw 32-byte public key.
+returns `true` if the signature is valid, and `false` otherwise.
+Note that validation is in strict mode, so non-canonical signatures will be rejected.",
+    example: "(ed25519-verify 0xaf82
+    0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a
+    0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns true
+(ed25519-verify 0x00000000000000000000000000000000000000 0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a
+    0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025) ;; Returns false"
+};
+
+const SECP256K1DECOMPRESS_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 33)",
+    snippet: "secp256k1-decompress? ${1:public-key})",
+    output_type: "(response (buff 65) uint)",
+    signature: "(secp256k1-decompress? public-key)",
+    description: "The `secp256k1-decompress?` function decompresses the provided (compressed) public key.
+    Returns the uncompressed public key as a 65-byte buffer on success. This function may fail with the error code:
+    - `(err u1)` — invalid compressed public-key.
+    ",
+    example: "(secp256k1-decompress? 0x0250863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b2352) 
+    ;; Returns (ok 0x0450863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b23522cd470243453a299fa9e77237716103abc11a1df38855ed6f2ee187e9c582ba6)",
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
@@ -2973,6 +3010,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
         VerifyMerkleProof => make_for_special(&VERIFY_MERKLE_PROOF_API, function),
         GetBitcoinTxOutput => make_for_special(&GET_BITCOIN_TX_OUTPUT_API, function),
+        Ed25519Verify => make_for_special(&ED25519VERIFY_API, function),
+        Secp256k1Decompress => make_for_special(&SECP256K1DECOMPRESS_API, function),
     }
 }
 

@@ -132,18 +132,14 @@ pub mod tenure_extend;
 pub mod tx_replay;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
-    /// Run the test until the epoch 3 boundary
-    pub fn boot_to_epoch_3(&self) {
-        TEST_MINE_SKIP.set(true);
-        boot_to_epoch_3_reward_set(
-            &self.running_nodes.conf,
-            &self.running_nodes.counters.blocks_processed,
-            &self.signer_stacks_private_keys,
-            &self.signer_stacks_private_keys,
-            &self.running_nodes.btc_regtest_controller,
-            Some(self.num_stacking_cycles),
-        );
-
+    /// Poll until the reward set for the next reward cycle is available.
+    ///
+    /// If the coordinator hasn't yet determined the PoX anchor block and the
+    /// burn chain is still short of the next cycle boundary, mine another
+    /// burn block to give it the nudge it needs. Once past the boundary,
+    /// just wait — the anchor block had to be chosen from blocks before the
+    /// boundary, so mining more won't help.
+    pub fn wait_for_next_reward_set_calculation(&self) {
         info!("Waiting for signer set calculation.");
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
@@ -188,8 +184,22 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             }
         })
         .expect("Timed out waiting for reward set calculation");
-
         info!("Signer set calculated");
+    }
+
+    /// Run the test until the epoch 3 boundary
+    pub fn boot_to_epoch_3(&self) {
+        TEST_MINE_SKIP.set(true);
+        boot_to_epoch_3_reward_set(
+            &self.running_nodes.conf,
+            &self.running_nodes.counters.blocks_processed,
+            &self.signer_stacks_private_keys,
+            &self.signer_stacks_private_keys,
+            &self.running_nodes.btc_regtest_controller,
+            Some(self.num_stacking_cycles),
+        );
+
+        self.wait_for_next_reward_set_calculation();
 
         // Manually consume one more block to ensure signers refresh their state
         info!("Waiting for signers to initialize.");
@@ -397,6 +407,12 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// account reports zero locked balance and has its full
     /// `POX_DEFAULT_STACKER_BALANCE` available to lock under pox-5.
     ///
+    /// This helper mines no bitcoin blocks: all three steps are mined into
+    /// intermediate nakamoto blocks of the current tenure, so the stake's
+    /// `start-burn-ht` always matches its execution burn height. The tenure
+    /// must not already be in a PoX prepare phase (pox-5 rejects `stake`
+    /// there), but that is fixed by config geometry, not runtime drift.
+    ///
     /// # Panics
     /// - If a publish/register/stake transaction fails to confirm.
     /// - If the resulting on-chain `locked` balance does not match
@@ -470,7 +486,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             ));
             contract_principals.push((signer_addr, per_signer_name, principal));
         }
-        self.mine_nakamoto_block(Duration::from_secs(60), true);
+        // The running miner picks these up into an intermediate nakamoto
+        // block of the current tenure; no bitcoin block is needed. The
+        // publishes must confirm before register-self is submitted, since
+        // mempool admission rejects calls to not-yet-instantiated contracts.
         wait_for(120, || {
             Ok(signer_addrs
                 .iter()
@@ -519,7 +538,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             );
             submit_tx(&http_origin, &tx);
         }
-        self.mine_nakamoto_block(Duration::from_secs(60), true);
         wait_for(120, || {
             Ok(signer_addrs
                 .iter()
@@ -529,6 +547,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         .expect("Timed out waiting for register-self confirmations");
 
         // Step 3: each signer locks `stake_amount` for `lock_cycles` cycles.
+        // Since no bitcoin block is mined before inclusion, this burn height
+        // is the one the stake executes under, satisfying pox-5's
+        // same-cycle assert on start-burn-ht.
         let start_burn_ht = u128::from(get_chain_info(conf).burn_block_height);
         for (i, signer_sk) in self.signer_stacks_private_keys.iter().enumerate() {
             let (_, _, principal) = &contract_principals[i];
@@ -550,7 +571,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             );
             submit_tx(&http_origin, &tx);
         }
-        self.mine_nakamoto_block(Duration::from_secs(60), true);
         wait_for(120, || {
             Ok(signer_addrs
                 .iter()
@@ -579,10 +599,10 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
 }
 
 /// Source for the per-signer signer-manager contract published by
-/// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`]. `validate-stake!` and
-/// `checkpoint-staker` are no-ops (always ok); `register-self` forwards a
-/// signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
-fn pox5_signer_manager_source() -> &'static str {
+/// [`SignerTest::boot_to_epoch_4_with_pox5_lockups`] and by the pox-5
+/// regtest lifecycle tests in `nakamoto_integrations`. `validate-stake!` is a no-op;
+/// `register-self` forwards a signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
+pub(crate) fn pox5_signer_manager_source() -> &'static str {
     r#"
 (impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
@@ -595,15 +615,6 @@ fn pox5_signer_manager_source() -> &'static str {
         (amount-sats uint)
         (is-bond bool)
         (signer-calldata (optional (buff 500)))
-    )
-    (ok true)
-)
-
-(define-public (checkpoint-staker
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (is-bond bool)
     )
     (ok true)
 )
@@ -621,6 +632,25 @@ fn pox5_signer_manager_source() -> &'static str {
     (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
       signer-manager signer-key
     ))
+  )
+)
+
+(define-public (claim-rewards
+    (bond-periods (list 6 uint))
+    (reward-cycle uint)
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
+    bond-periods reward-cycle
+  )
+)
+
+(define-read-only (get-earned-staker-rewards
+    (staker principal)
+    (reward-cycle uint)
+    (bond-index (optional uint))
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
+    current-contract reward-cycle bond-index staker
   )
 )
 "#
@@ -766,31 +796,7 @@ impl SignerTest<SpawnedSigner> {
             target_height,
             &self.running_nodes.conf,
         );
-        debug!("Waiting for signer set calculation.");
-        // Make sure the signer set is calculated before continuing or signers may not
-        // recognize that they are registered signers in the subsequent burn block event
-        let reward_cycle = self.get_current_reward_cycle().wrapping_add(1);
-        wait_for(60, || {
-            match self.stacks_client.get_reward_set_signers(reward_cycle) {
-                Ok(Some(reward_set)) => {
-                    debug!("Signer set: {reward_set:?}");
-                    Ok(true)
-                }
-                Ok(None) => Ok(false),
-                Err(e) => {
-                    // The node may return a 400 PoXAnchorBlockRequired while
-                    // the coordinator is still processing the prepare phase.
-                    // All prepare phase burn blocks have been mined; just wait
-                    // for the coordinator to catch up.
-                    debug!(
-                        "Reward set not yet available: {e}. Waiting for coordinator to catch up."
-                    );
-                    Ok(false)
-                }
-            }
-        })
-        .expect("Failed to calculate reward set");
-        debug!("Signer set calculated");
+        self.wait_for_next_reward_set_calculation();
         // Manually consume one more block to ensure signers refresh their state
         debug!("Waiting for signers to initialize.");
         info!("Advancing to the first full Epoch 2.5 reward cycle boundary...");
@@ -1414,9 +1420,9 @@ impl MultipleMinerTest {
     /// `pox-5::stake` on the running chain so the first PoX-5 prepare phase
     /// reads a real on-chain signer set instead of a test override.
     ///
-    /// All txs are submitted to node 1; each step then mines one bitcoin
-    /// block (after waiting for both miners to commit) and waits for both
-    /// nodes' `/v2/accounts` views to reflect it.
+    /// All txs are submitted to node 1 and mined into intermediate
+    /// nakamoto blocks of the current tenure (no bitcoin blocks); each
+    /// step waits for both nodes' `/v2/accounts` views to reflect it.
     ///
     /// The signer Stacks keys are reused as stakers. PoX-4 locks created
     /// during `boot_to_epoch_3` are auto-released at the Epoch 4.0 boundary
@@ -1488,22 +1494,10 @@ impl MultipleMinerTest {
             ));
             contract_principals.push((signer_addr, per_signer_name, principal));
         }
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .expect("settle before per-signer publish");
-        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
-            .expect("mine bitcoin block to include per-signer publishes");
-        // mine_bitcoin_blocks_and_confirm only waits for signers to see the
-        // new burn block, not to promote it as the active tenure. Without
-        // this wait the next mine can drive a fresh sortition before signers
-        // approve any blocks under the current one, and miner 2 starts
-        // proposing under a tenure id the signers still treat as inactive.
-        let tenure_id = self.get_peer_info().pox_consensus;
-        wait_for_state_machine_update_by_miner_tenure_id(
-            180,
-            &tenure_id,
-            &self.signer_test.signer_addresses_versions(),
-        )
-        .expect("signers did not promote per-signer-publish tenure");
+        // The active miner picks these up into an intermediate nakamoto
+        // block of the current tenure; no bitcoin block is needed. The
+        // publishes must confirm before register-self is submitted, since
+        // mempool admission rejects calls to not-yet-instantiated contracts.
         wait_for(300, || {
             Ok(signer_addrs
                 .iter()
@@ -1557,17 +1551,6 @@ impl MultipleMinerTest {
             );
             submit_tx(&http_origin_1, &tx);
         }
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .expect("settle before register-self");
-        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
-            .expect("mine bitcoin block to include register-self");
-        let tenure_id = self.get_peer_info().pox_consensus;
-        wait_for_state_machine_update_by_miner_tenure_id(
-            180,
-            &tenure_id,
-            &self.signer_test.signer_addresses_versions(),
-        )
-        .expect("signers did not promote register-self tenure");
         wait_for(300, || {
             Ok(signer_addrs
                 .iter()
@@ -1579,10 +1562,9 @@ impl MultipleMinerTest {
         })
         .expect("Timed out waiting for register-self on both nodes");
 
-        // Step 3: stake. Same cycle-alignment caveat as SignerTest's
-        // version: pox-5 asserts start-burn-ht is in the current reward
-        // cycle, so the one bitcoin block we mine below must not cross a
-        // cycle boundary.
+        // Step 3: stake. Since no bitcoin block is mined before inclusion,
+        // this burn height is the one the stake executes under, satisfying
+        // pox-5's same-cycle assert on start-burn-ht.
         let start_burn_ht = u128::from(self.get_peer_info().burn_block_height);
         for (i, signer_sk) in signer_keys.iter().enumerate() {
             let (_, _, principal) = &contract_principals[i];
@@ -1604,17 +1586,6 @@ impl MultipleMinerTest {
             );
             submit_tx(&http_origin_1, &tx);
         }
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .expect("settle before stake");
-        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
-            .expect("mine bitcoin block to include stake");
-        let tenure_id = self.get_peer_info().pox_consensus;
-        wait_for_state_machine_update_by_miner_tenure_id(
-            180,
-            &tenure_id,
-            &self.signer_test.signer_addresses_versions(),
-        )
-        .expect("signers did not promote stake tenure");
         wait_for(300, || {
             Ok(signer_addrs
                 .iter()
@@ -1783,6 +1754,10 @@ impl MultipleMinerTest {
         )
     }
 
+    fn node_2_http(&self) -> String {
+        format!("http://{}", &self.conf_node_2.node.rpc_bind)
+    }
+
     /// Sends a transfer tx to the stacks node and waits for the stacks node to mine it
     /// Returns the txid of the transfer tx.
     pub fn send_and_mine_transfer_tx(&mut self, timeout_secs: u64) -> Result<String, String> {
@@ -1801,7 +1776,31 @@ impl MultipleMinerTest {
         contract_name: &str,
         contract_src: &str,
     ) -> String {
-        let http_origin = self.node_http();
+        self.send_contract_publish_to(&self.node_http(), sender_nonce, contract_name, contract_src)
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node.
+    pub fn send_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
+        self.send_contract_publish_to(
+            &self.node_2_http(),
+            sender_nonce,
+            contract_name,
+            contract_src,
+        )
+    }
+
+    fn send_contract_publish_to(
+        &self,
+        http_origin: &str,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
         let contract_tx = make_contract_publish(
             &self.sender_sk,
             sender_nonce,
@@ -1810,7 +1809,7 @@ impl MultipleMinerTest {
             contract_name,
             contract_src,
         );
-        submit_tx(&http_origin, &contract_tx)
+        submit_tx(http_origin, &contract_tx)
     }
 
     /// Sends a contract publish tx to the stacks node and waits for the stacks node to mine it
@@ -1825,6 +1824,34 @@ impl MultipleMinerTest {
         let stacks_height_before = self.get_peer_stacks_tip_height();
 
         let txid = self.send_contract_publish(sender_nonce, contract_name, contract_src);
+
+        // wait for the new block to be mined
+        wait_for(timeout_secs, || {
+            Ok(self.get_peer_stacks_tip_height() > stacks_height_before)
+        })
+        .unwrap();
+
+        // wait for the observer to see it
+        self.wait_for_test_observer_blocks(timeout_secs);
+
+        if last_block_contains_txid(&txid) {
+            Ok(txid)
+        } else {
+            Err(txid)
+        }
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node and waits for it to be mined.
+    pub fn send_and_mine_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+        timeout_secs: u64,
+    ) -> Result<String, String> {
+        let stacks_height_before = self.get_peer_stacks_tip_height();
+
+        let txid = self.send_contract_publish_to_node_2(sender_nonce, contract_name, contract_src);
 
         // wait for the new block to be mined
         wait_for(timeout_secs, || {

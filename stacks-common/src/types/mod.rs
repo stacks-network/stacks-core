@@ -495,7 +495,7 @@ impl StacksEpochId {
     /// Highest epoch enabled in release builds.
     /// Keep this in sync with `versions.toml` and `PEER_NETWORK_EPOCH`
     /// (validated in tests and `validate_epochs()`)
-    pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch34;
+    pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
 
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
@@ -806,6 +806,22 @@ impl StacksEpochId {
             .expect("epoch not found in ALL");
 
         &Self::ALL[idx..]
+    }
+
+    /// Returns all [`StacksEpochId`] from `start` to `end`, both inclusive.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn between(start: StacksEpochId, end: StacksEpochId) -> &'static [StacksEpochId] {
+        let start_idx = Self::ALL
+            .iter()
+            .position(|&e| e == start)
+            .expect("start epoch not found in ALL");
+        let end_idx = Self::ALL
+            .iter()
+            .position(|&e| e == end)
+            .expect("end epoch not found in ALL");
+        assert!(start_idx <= end_idx, "start epoch must be <= end epoch");
+
+        &Self::ALL[start_idx..=end_idx]
     }
 }
 

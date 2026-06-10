@@ -1,0 +1,1 @@
+Restructure the pox-5 L1 BTC lockup witness script: the early-exit branch now requires revealing the 32-byte `sha256(to-consensus-buff? staker)` preimage alongside the early-unlock signature.

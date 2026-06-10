@@ -294,9 +294,6 @@ pub struct RawPox5Entry {
 
 /// Walks the pox-5 per-cycle signer-set linked list, yielding one
 /// `RawPox5Entry` per registered signer for the cycle.
-///
-/// Note: The list's `staker` field is misleadingly named:
-///    entries are signer principals, written by `pox-5.add-staker-to-set-for-cycle`
 pub struct StakeEntryIteratorPox5<'a, 'b, 'c> {
     current_signer: Option<PrincipalData>,
     pox_contract: QualifiedContractIdentifier,
@@ -714,6 +711,11 @@ impl NakamotoSigners {
             pox_ustx_threshold,
         } = Self::pox_5_make_signer_set(&mut entries, pox_constants)?;
 
+        if signer_set.is_empty() {
+            error!("Fatal network condition: reward set computed with an empty signer set. Cannot continue producing blocks");
+            return Err(ChainstateError::PoxNoRewardCycle);
+        }
+
         let events = Self::update_signers(
             clarity,
             reward_cycle,
@@ -804,25 +806,72 @@ impl NakamotoSigners {
                 .or_insert_with(|| entry.amount_ustx);
         }
 
-        // set threshold to the ceil of (total/reward_slots) to guarantee that we don't assign
-        //  more total weight than reward_slots, and set the minimum return to 1 to avoid a div by zero
-        //  in the unlikely event of a 0 stacked amount.
-        let threshold = std::cmp::max(
-            1,
-            total_ustx_locked.div_ceil(u128::from(pox_constants.reward_slots())),
-        );
+        // Allocate `reward_slots` weight across signers in proportion to stake using the
+        // a largest-remainder method:
+        //
+        // The threshold is `ceil(total / reward_slots)`.
+        //
+        // Flooring each signer's `stacked / threshold` assigns a base weight where the sum is `<= reward_slots`
+        // (the ceil makes `total/threshold <= reward_slots`).
+        //
+        // This leaves some unassigned ("leftover") slots, which are handed out one-per-signer
+        //  in descending fractional-remainder order (ties broken by pubkey-sort order).
+        //
+        // This avoids degenerate modes of the floor-and-drop scheme: when more than
+        // `reward_slots` distinct signers hold roughly equal stake, every base weight floors to
+        // 0, and without the leftover round the entire signer set could be dropped.
+        let reward_slots = u128::from(pox_constants.reward_slots());
+        let threshold = std::cmp::max(1, total_ustx_locked.div_ceil(reward_slots));
 
-        let mut signer_set: Vec<_> = signer_set
+        struct Apportionment {
+            signing_key: [u8; SIGNERS_PK_LEN],
+            stacked_amt: u128,
+            weight: u128,
+            remainder: u128,
+        }
+
+        let mut apportioned: Vec<Apportionment> = signer_set
             .into_iter()
-            .filter_map(|(signing_key, stacked_amt)| {
-                let weight = u32::try_from(stacked_amt / threshold)
-                    .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
-                if weight == 0 {
+            .map(|(signing_key, stacked_amt)| Apportionment {
+                signing_key,
+                stacked_amt,
+                weight: stacked_amt / threshold,
+                remainder: stacked_amt % threshold,
+            })
+            .collect();
+
+        // Guaranteed `<= reward_slots` by the ceil quota, so leftover does not underflow.
+        let assigned: u128 = apportioned.iter().map(|entry| entry.weight).sum();
+        let mut leftover = reward_slots.saturating_sub(assigned);
+
+        if leftover > 0 {
+            // Largest fractional remainder wins the next slot; ties broken by signing_key
+            // ascending so the apportionment is deterministic (and matches the final sort).
+            apportioned.sort_by(|a, b| {
+                b.remainder
+                    .cmp(&a.remainder)
+                    .then_with(|| a.signing_key.cmp(&b.signing_key))
+            });
+            for entry in apportioned.iter_mut() {
+                if leftover == 0 {
+                    break;
+                }
+                entry.weight += 1;
+                leftover -= 1;
+            }
+        }
+
+        let mut signer_set: Vec<_> = apportioned
+            .into_iter()
+            .filter_map(|entry| {
+                if entry.weight == 0 {
                     return None;
                 }
+                let weight = u32::try_from(entry.weight)
+                    .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
                 Some(NakamotoSignerEntry {
-                    signing_key,
-                    stacked_amt,
+                    signing_key: entry.signing_key,
+                    stacked_amt: entry.stacked_amt,
                     weight,
                 })
             })
@@ -870,7 +919,13 @@ impl NakamotoSigners {
             return Ok(None);
         };
 
-        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height.into());
+        // Dispatch must be cycle-stable: every block of this prepare phase
+        // must agree on which pox contract supplies cycle_of_prepare_phase's
+        // signer set, regardless of which block first triggers the update.
+        // Tip-keyed `active_pox_contract` is wrong here -- it can flip
+        // mid-prepare-phase if pox_5_activation_height falls inside it.
+        let active_pox_contract =
+            pox_constants.active_pox_contract_for_cycle(first_block_height, cycle_of_prepare_phase);
 
         let Some(current_pox_version) = PoxVersions::lookup_by_name(active_pox_contract) else {
             debug!("Active PoX contract is not a recognized version, skipping .signers updates");

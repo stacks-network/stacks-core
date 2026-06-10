@@ -15,6 +15,7 @@ if (!process.env.SHOW_CONTRACT_PRINTS) {
       if (args[0].includes('sbtc-registry:280')) return;
       if (args[0].includes('add-to-allowlist')) return;
       if (args[0].includes('transformMode')) return;
+      if (printLine.test(args[0])) return;
     }
     origLog(...args);
   };

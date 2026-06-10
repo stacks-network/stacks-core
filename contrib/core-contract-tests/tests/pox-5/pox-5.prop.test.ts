@@ -42,18 +42,18 @@ it('should construct the unlock script', () => {
       fc.integer({ min: 1, max: 0x7fffff }),
       fc.uint8Array({ minLength: 1, maxLength: 255 }),
       fc.uint8Array({ minLength: 1, maxLength: 255 }),
-      (stacker, unlockBurnHeight, unlockBytes, earlyUnlockBytes) => {
+      (stacker, unlockBurnHeight, stakerUnlockBytes, earlyUnlockBytes) => {
         const expected = serializeLockupScript({
           stacker,
           unlockBurnHeight: BigInt(unlockBurnHeight),
-          unlockBytes,
+          stakerUnlockBytes,
           earlyUnlockBytes,
         });
         const actual = rov(
           pox5.constructLockupScript(
             stacker,
             unlockBurnHeight,
-            unlockBytes,
+            stakerUnlockBytes,
             earlyUnlockBytes,
           ),
         );

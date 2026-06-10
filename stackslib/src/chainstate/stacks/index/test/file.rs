@@ -75,6 +75,38 @@ fn test_load_store_trie_blob() {
 }
 
 #[test]
+fn test_migrate_tables_readonly_succeeds_when_current() {
+    let mut db = setup_db(function_name!());
+    // First migrate in writable mode to bring schema to current version
+    let previous_version = trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+    assert_eq!(previous_version, 1);
+    // Now a read-only migration check should succeed
+    trie_sql::ensure_no_migration_necessary::<BlockHeaderHash>(&mut db).unwrap();
+}
+
+#[test]
+fn test_migrate_tables_readonly_fails_when_outdated() {
+    let path = db_path("test_migrate_tables_readonly_fail");
+    if fs::metadata(&path).is_ok() {
+        fs::remove_file(&path).unwrap();
+    }
+    let mut db = sqlite_open(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+        true,
+    )
+    .unwrap();
+    trie_sql::create_tables_if_needed(&mut db).unwrap();
+    // Don't migrate - schema is at version 1.
+    // A read-only open should fail because the schema is outdated.
+    let err = trie_sql::ensure_no_migration_necessary::<BlockHeaderHash>(&mut db).unwrap_err();
+    assert!(
+        matches!(&err, crate::chainstate::stacks::index::Error::CorruptionError(msg) if msg.contains("not compatible with read-only")),
+        "instead got: {err}"
+    );
+}
+
+#[test]
 fn test_migrate_existing_trie_blobs() {
     let test_file = "/tmp/test_migrate_existing_trie_blobs.sqlite";
     let test_blobs_file = "/tmp/test_migrate_existing_trie_blobs.sqlite.blobs";
@@ -157,4 +189,86 @@ fn test_migrate_existing_trie_blobs() {
             assert_eq!(leaf.data.to_vec(), marf_leaf.data.to_vec());
         }
     }
+}
+
+#[test]
+fn test_bulk_read_block_entries_rejects_negative_external_offset() {
+    let mut db = setup_db("test_bulk_read_block_entries_rejects_negative_external_offset");
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+
+    let block_hash = BlockHeaderHash([0x11; 32]);
+    db.execute(
+        "INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) \
+         VALUES (?1, ?2, 0, ?3, ?4)",
+        rusqlite::params![block_hash.to_string(), Vec::<u8>::new(), -1i64, 0i64],
+    )
+    .unwrap();
+
+    let err = trie_sql::bulk_read_block_entries::<BlockHeaderHash>(&db).unwrap_err();
+    assert!(
+        matches!(err, crate::chainstate::stacks::index::Error::OverflowError),
+        "instead got: {err:?}"
+    );
+}
+
+#[test]
+fn test_update_squash_root_node_hash_requires_existing_row() {
+    let mut db = setup_db("test_update_squash_root_node_hash_requires_existing_row");
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+    let hash = TrieHash::from_data(b"squash-root");
+
+    let err = trie_sql::update_squash_root_node_hash(&db, &hash).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            crate::chainstate::stacks::index::Error::CorruptionError(ref msg)
+                if msg.contains("no marf_squash_info row exists")
+        ),
+        "instead got: {err:?}"
+    );
+}
+
+#[test]
+fn test_migrate_schema_3_creates_squash_tables_on_v2_db() {
+    let mut db = setup_db(function_name!());
+
+    // Bring schema to current first, then rewrite the version and drop the
+    // schema-3 tables to simulate a pre-squash schema-v2 DB.
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+    db.execute_batch(
+        "DROP TABLE IF EXISTS marf_squash_info; \
+         DROP TABLE IF EXISTS marf_squashed_blocks; \
+         UPDATE schema_version SET version = 2; \
+         UPDATE migrated_version SET version = 2;",
+    )
+    .unwrap();
+
+    let count_squash_tables = |db: &rusqlite::Connection| -> i64 {
+        db.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' \
+             AND name IN ('marf_squash_info', 'marf_squashed_blocks')",
+            crate::types::sqlite::NO_PARAMS,
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        count_squash_tables(&db),
+        0,
+        "squash tables should be absent on simulated legacy v2 DB"
+    );
+
+    // Migrating from schema 2 to 3 must create the squash tables.
+    let previous_version = trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+    assert_eq!(previous_version, 2);
+    assert_eq!(
+        count_squash_tables(&db),
+        2,
+        "migrate_tables_if_needed must add both squash tables to a v2 DB"
+    );
+    trie_sql::ensure_no_migration_necessary::<BlockHeaderHash>(&mut db).unwrap();
+
+    // re-running again is a no-op.
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+    assert_eq!(count_squash_tables(&db), 2);
 }
