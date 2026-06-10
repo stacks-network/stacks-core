@@ -598,7 +598,6 @@ fn check_pox_5_register_for_bond_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -611,14 +610,11 @@ fn check_pox_5_register_for_bond_lifecycle() {
 
     // 2) Mint `2 * SBTC_AMT` sBTC to the staker so `register-for-bond`'s sBTC
     // branch (`(err sbtc-amount)`) can pull `SBTC_AMT` sats from `tx-sender`
-    // into pox-5. We mint enough for two calls because step (4) below
-    // exercises a *second* `register-for-bond` from the same staker that
-    // must reach the `ERR_ALREADY_REGISTERED` (u9) assertion in the contract
-    // body. `register-for-bond` performs the sBTC `ft-transfer?` inside its
-    // `let` binding before the duplicate-membership check, so the staker
-    // needs a balance for that attempted lock; the assert then rolls back
-    // the transfer along with the rest of the failed tx. The sBTC stub's
-    // `mint` has no caller restriction.
+    // into pox-5. Only `SBTC_AMT` is actually consumed — the duplicate
+    // `register-for-bond` in step (4) now fails on the membership gate
+    // *before* `roll-sbtc` runs, so no second transfer is attempted. We
+    // keep the 2× headroom for safety. The sBTC stub's `mint` has no
+    // caller restriction.
     let mint_tx = make_contract_call(
         &staker_sk,
         0,
@@ -793,6 +789,605 @@ fn check_pox_5_register_for_bond_lifecycle() {
 
 #[test]
 #[ignore]
+/// Verify a pox-5 staker can roll directly from bond index 0 into bond index 6
+/// (the next contiguous bond — bond 6 starts the exact cycle bond 0 ends) with
+/// no gap in the STX lock and no gap in signer participation. The second
+/// `register-for-bond` happens during bond 0's tail gap window, so the
+/// contract gate must permit the non-overlapping later bond and the node-side
+/// `pox-locking` handler must carry the STX lock forward (extend) rather than
+/// reject it as `PoxAlreadyLocked`. The sBTC is rolled forward via the new
+/// netting path: with equal new/old amounts no FT transfer fires and
+/// `total-sbtc-staked` is unchanged.
+fn check_pox_5_register_for_second_bond_no_downtime() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    enable_epoch_4_0(&mut naka_conf);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let signer_sk = signers.signer_keys[0].clone();
+    let signer_pk = StacksPublicKey::from_private(&signer_sk);
+    let sender_signer_sk = signer_sk.clone();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    let sender_addr = tests::to_addr(&sender_sk);
+    let deploy_fee = 3000;
+    let call_fee = 400;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + call_fee * 10,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // sBTC stubs — both must be deployed before the epoch 4.0 transition so
+    // pox-5's static analysis at boot finds the referenced contracts.
+    let sbtc_deployer_sk = Secp256k1PrivateKey::random();
+    let sbtc_deployer_addr = tests::to_addr(&sbtc_deployer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sbtc_deployer_addr.clone()).to_string(),
+        2 * deploy_fee,
+    );
+    let sbtc_token_id = QualifiedContractIdentifier::new(
+        sbtc_deployer_addr.clone().into(),
+        clarity::vm::ContractName::try_from("sbtc-token").unwrap(),
+    );
+    let sbtc_registry_id = QualifiedContractIdentifier::new(
+        sbtc_deployer_addr.clone().into(),
+        clarity::vm::ContractName::try_from("sbtc-registry").unwrap(),
+    );
+    naka_conf.node.pox_5_sbtc_contract = Some(sbtc_token_id.clone());
+    naka_conf.node.pox_5_sbtc_registry_contract = Some(sbtc_registry_id.clone());
+
+    // Override the bond-admin so `setup-bond` is callable from the test.
+    let bond_admin_sk = Secp256k1PrivateKey::random();
+    let bond_admin_addr = tests::to_addr(&bond_admin_sk);
+    // Two `setup-bond` calls (bond 0 and bond 6) each carry a 683-byte buffer
+    // and a 1-entry allowlist; price each accordingly.
+    let setup_bond_fee = 5000u64;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(bond_admin_addr.clone()).to_string(),
+        2 * setup_bond_fee + 1000,
+    );
+    naka_conf.node.pox_5_bond_admin = Some(PrincipalData::from(bond_admin_addr.clone()));
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+    let staker_sk = setup_stacker(&mut naka_conf);
+    let staker_addr = tests::to_addr(&staker_sk);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    let pubkey_bytes: [u8; 33] = signer_pk
+        .to_bytes_compressed()
+        .try_into()
+        .expect("compressed secp256k1 pubkey should be 33 bytes");
+    boot_to_epoch_4_0(
+        &naka_conf,
+        &blocks_processed,
+        &counters,
+        &coord_channel,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &[signer_sk.clone()],
+        &sbtc_deployer_sk,
+        Some(&pubkey_bytes),
+        deploy_fee,
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+    info!("Reached Epoch-4.0 boundary, deploying signer-manager and registering signer");
+
+    let mut sender_nonce = 0;
+
+    // Deploy the signer-manager contract.
+    let signer_contract = pox5_signer_manager_source();
+    let signer_deploy_tx = make_contract_publish(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "test-signer",
+        signer_contract,
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &signer_deploy_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for test-signer deploy");
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
+        sender_addr.clone().into(),
+        clarity::vm::ContractName::try_from("test-signer").unwrap(),
+    ));
+    let auth_id: u128 = 1;
+    let signer_grant_sig =
+        stacks::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature(
+            &test_signer_principal,
+            auth_id,
+            naka_conf.burnchain.chain_id,
+            &signer_sk,
+        )
+        .expect("Failed to generate signer grant signature");
+    let register_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        "test-signer",
+        "register-self",
+        &[
+            Value::Principal(test_signer_principal.clone()),
+            Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            Value::UInt(auth_id),
+            Value::buff_from(signer_grant_sig.to_rsv()).unwrap(),
+        ],
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &register_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for register-self");
+
+    let pox_5_id = boot_code_id("pox-5", false);
+    let pox_5_addr: StacksAddress = pox_5_id.issuer.clone().into();
+
+    // 1) `setup-bond(0)` from the configured bond admin. The staker's allowlist
+    // entry sets the max sats they can register with.
+    const SBTC_AMT: u128 = 1_000_000;
+    let allowlist_entry = |staker: &StacksAddress, max_sats: u128| -> Value {
+        Value::Tuple(
+            clarity::vm::types::TupleData::from_data(vec![
+                (
+                    ClarityName::try_from("staker").unwrap(),
+                    Value::Principal(staker.clone().into()),
+                ),
+                (
+                    ClarityName::try_from("max-sats").unwrap(),
+                    Value::UInt(max_sats),
+                ),
+            ])
+            .unwrap(),
+        )
+    };
+    let allowlist_value_bond0 =
+        Value::cons_list_unsanitized(vec![allowlist_entry(&staker_addr, SBTC_AMT)]).unwrap();
+    let setup_bond0_tx = make_contract_call(
+        &bond_admin_sk,
+        0,
+        setup_bond_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "setup-bond",
+        &[
+            Value::UInt(0),
+            Value::UInt(1000),
+            Value::UInt(100),
+            Value::UInt(10000),
+            Value::buff_from(vec![0u8; 683]).unwrap(),
+            allowlist_value_bond0,
+        ],
+    );
+    submit_tx(&http_origin, &setup_bond0_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 1)
+    })
+    .expect("Timed out waiting for setup-bond(0)");
+
+    // 2) Mint exactly `SBTC_AMT` sBTC: the rollover into bond 6 nets against
+    // bond 0's custodied sBTC, so equal amounts means zero additional sBTC is
+    // pulled from the staker.
+    let mint_tx = make_contract_call(
+        &staker_sk,
+        0,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sbtc_deployer_addr,
+        "sbtc-token",
+        "mint",
+        &[
+            Value::UInt(SBTC_AMT),
+            Value::Principal(staker_addr.clone().into()),
+        ],
+    );
+    submit_tx(&http_origin, &mint_tx);
+    wait_for(
+        60,
+        || Ok(get_account(&http_origin, &staker_addr).nonce == 1),
+    )
+    .expect("Timed out waiting for sbtc mint");
+
+    // 3) `register-for-bond(0)` via the sBTC path.
+    let bond_amount = POX_DEFAULT_STACKER_STX_AMT;
+    let staker_balance_before = get_account(&http_origin, &staker_addr).balance;
+    assert!(staker_balance_before >= bond_amount + call_fee as u128 * 2);
+
+    test_observer::clear();
+    let register0_tx = make_contract_call(
+        &staker_sk,
+        1,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "register-for-bond",
+        &[
+            Value::UInt(0),
+            Value::Principal(test_signer_principal.clone()),
+            Value::UInt(bond_amount),
+            Value::error(Value::UInt(SBTC_AMT)).unwrap(),
+            Value::none(),
+        ],
+    );
+    let register0_txid = submit_tx(&http_origin, &register0_tx);
+    info!("Submitted pox-5 register-for-bond(0) txid: {register0_txid}");
+    wait_for(
+        60,
+        || Ok(get_account(&http_origin, &staker_addr).nonce == 2),
+    )
+    .expect("Timed out waiting for register-for-bond(0)");
+
+    let parsed = get_tx_result_by_id(&register0_txid)
+        .expect("did not observe register-for-bond(0) txid in test_observer");
+    let response = parsed
+        .expect_result()
+        .expect("register-for-bond(0) response should be a clarity response");
+    let ok_value = response.expect("register-for-bond(0) should have returned ok");
+    let tuple = ok_value
+        .expect_tuple()
+        .expect("register-for-bond(0) ok payload should be a tuple");
+    let bond0_unlock_height = tuple
+        .get("unlock-burn-height")
+        .expect("response missing unlock-burn-height")
+        .clone()
+        .expect_u128()
+        .expect("unlock-burn-height should be a uint") as u64;
+
+    let after_register0 = get_account(&http_origin, &staker_addr);
+    assert_eq!(
+        after_register0.locked, bond_amount,
+        "register-for-bond(0) should have locked exactly {bond_amount} ustx"
+    );
+    assert_eq!(
+        after_register0.unlock_height, bond0_unlock_height,
+        "pox-locking should have applied bond 0's unlock-burn-height"
+    );
+
+    // Read the actual burn heights for bond 0 and bond 6 from the contract so
+    // the test stays correct regardless of the boot-time cycle math.
+    let read_bond_burn_height = |bond_index: u128| -> u64 {
+        let resp = call_read_only(
+            &naka_conf,
+            &pox_5_addr,
+            "pox-5",
+            "bond-period-to-burn-height",
+            vec![&Value::UInt(bond_index)],
+        );
+        resp.result()
+            .expect("bond-period-to-burn-height read-only failed")
+            .expect_u128()
+            .expect("bond-period-to-burn-height should return a uint") as u64
+    };
+    let bond0_start = read_bond_burn_height(0);
+    let bond6_start = read_bond_burn_height(6);
+    let bond12_start = read_bond_burn_height(12);
+    assert_eq!(
+        bond0_unlock_height, bond6_start,
+        "bond 0's STX unlock height should equal bond 6's start (the contiguous next bond)"
+    );
+
+    // Read bond 0's L1 unlock height: with the new rollover-window gate the
+    // staker can't register for bond 6 until `burn >= get-bond-l1-unlock-height(0)`,
+    // matching the window an L1 bond holder has to redirect their BTC.
+    let bond0_l1_unlock = {
+        let resp = call_read_only(
+            &naka_conf,
+            &pox_5_addr,
+            "pox-5",
+            "get-bond-l1-unlock-height",
+            vec![&Value::UInt(0)],
+        );
+        resp.result()
+            .expect("get-bond-l1-unlock-height read-only failed")
+            .expect_u128()
+            .expect("get-bond-l1-unlock-height returns uint") as u64
+    };
+    assert!(
+        bond0_l1_unlock < bond6_start,
+        "L1 unlock must precede bond 6's start so a window exists"
+    );
+
+    // 4) Mine forward into bond 6's gap window AND past bond 0's L1 unlock.
+    // The STX lock must stay live throughout — every block's `locked` reads
+    // `bond_amount`.
+    let target_register_height = bond0_l1_unlock;
+    info!(
+        "Mining from bond0_start={bond0_start} to bond0_l1_unlock={bond0_l1_unlock} (rollover window opens; bond6_start={bond6_start})"
+    );
+    loop {
+        let blocks_before = test_observer::get_blocks().len();
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+        wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
+            .expect("Timed out waiting for observer to process new block");
+        let mid_account = get_account(&http_origin, &staker_addr);
+        assert_eq!(
+            mid_account.locked, bond_amount,
+            "STX lock must remain in place through bond 0's full term (no unlock before rollover)"
+        );
+        let burn_height = get_chain_info_result(&naka_conf).unwrap().burn_block_height;
+        if burn_height >= target_register_height {
+            assert!(
+                burn_height < bond6_start,
+                "must register for bond 6 before bond 6 starts (burn={burn_height}, bond6_start={bond6_start})"
+            );
+            break;
+        }
+    }
+
+    // 5) `setup-bond(6)` from the admin, then `register-for-bond(6)`. Same
+    // sBTC amount: `roll-sbtc` should be a no-op (no FT transfer), and the
+    // STX lock should be carried forward to bond 6's unlock height.
+    let allowlist_value_bond6 =
+        Value::cons_list_unsanitized(vec![allowlist_entry(&staker_addr, SBTC_AMT)]).unwrap();
+    let setup_bond6_tx = make_contract_call(
+        &bond_admin_sk,
+        1,
+        setup_bond_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "setup-bond",
+        &[
+            Value::UInt(6),
+            Value::UInt(1000),
+            Value::UInt(100),
+            Value::UInt(10000),
+            Value::buff_from(vec![0u8; 683]).unwrap(),
+            allowlist_value_bond6,
+        ],
+    );
+    submit_tx(&http_origin, &setup_bond6_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 2)
+    })
+    .expect("Timed out waiting for setup-bond(6)");
+
+    let sbtc_staked_before_roll = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-total-sbtc-staked",
+        vec![],
+    )
+    .result()
+    .expect("get-total-sbtc-staked failed")
+    .expect_u128()
+    .expect("get-total-sbtc-staked returns uint");
+    assert_eq!(
+        sbtc_staked_before_roll, SBTC_AMT,
+        "bond 0's sBTC should be the only custodied sBTC before the roll"
+    );
+
+    test_observer::clear();
+    let register6_tx = make_contract_call(
+        &staker_sk,
+        2,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "register-for-bond",
+        &[
+            Value::UInt(6),
+            Value::Principal(test_signer_principal.clone()),
+            Value::UInt(bond_amount),
+            Value::error(Value::UInt(SBTC_AMT)).unwrap(),
+            Value::none(),
+        ],
+    );
+    let register6_txid = submit_tx(&http_origin, &register6_tx);
+    info!("Submitted pox-5 register-for-bond(6) txid: {register6_txid}");
+    wait_for(
+        60,
+        || Ok(get_account(&http_origin, &staker_addr).nonce == 3),
+    )
+    .expect("Timed out waiting for register-for-bond(6)");
+
+    let parsed = get_tx_result_by_id(&register6_txid)
+        .expect("did not observe register-for-bond(6) txid in test_observer");
+    let response = parsed
+        .expect_result()
+        .expect("register-for-bond(6) response should be a clarity response");
+    let ok_value = response.expect("register-for-bond(6) should have returned ok");
+    let tuple = ok_value
+        .expect_tuple()
+        .expect("register-for-bond(6) ok payload should be a tuple");
+    let bond6_unlock_height = tuple
+        .get("unlock-burn-height")
+        .expect("response missing unlock-burn-height")
+        .clone()
+        .expect_u128()
+        .expect("unlock-burn-height should be a uint") as u64;
+    assert_eq!(
+        bond6_unlock_height, bond12_start,
+        "bond 6's STX unlock height should equal bond 12's start"
+    );
+
+    let after_register6 = get_account(&http_origin, &staker_addr);
+    assert_eq!(
+        after_register6.locked, bond_amount,
+        "register-for-bond(6) must keep the STX locked (no release during rollover)"
+    );
+    assert_eq!(
+        after_register6.unlock_height, bond6_unlock_height,
+        "pox-locking should have extended the lock to bond 6's unlock height"
+    );
+
+    // sBTC: equal amounts → no net transfer; `total-sbtc-staked` unchanged.
+    let sbtc_staked_after_roll = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-total-sbtc-staked",
+        vec![],
+    )
+    .result()
+    .expect("get-total-sbtc-staked failed")
+    .expect_u128()
+    .expect("get-total-sbtc-staked returns uint");
+    assert_eq!(
+        sbtc_staked_after_roll, SBTC_AMT,
+        "equal-amount rollover must not change total-sbtc-staked"
+    );
+    let staker_sbtc_after = call_read_only(
+        &naka_conf,
+        &sbtc_deployer_addr,
+        "sbtc-token",
+        "get-balance",
+        vec![&Value::Principal(staker_addr.clone().into())],
+    )
+    .result()
+    .expect("sbtc get-balance failed")
+    .expect_result_ok()
+    .expect("sbtc get-balance should be (ok uint)")
+    .expect_u128()
+    .expect("sbtc get-balance returns uint");
+    assert_eq!(
+        staker_sbtc_after, 0,
+        "equal-amount rollover should leave the staker's sBTC balance unchanged at 0"
+    );
+
+    // Membership is now bond 6.
+    let membership_value = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-bond-membership",
+        vec![&Value::Principal(staker_addr.clone().into())],
+    )
+    .result()
+    .expect("get-bond-membership failed")
+    .expect_optional()
+    .expect("get-bond-membership returns optional")
+    .expect("membership should be Some after registration");
+    let membership_tuple = membership_value
+        .expect_tuple()
+        .expect("membership should be a tuple");
+    let current_bond_index = membership_tuple
+        .get("bond-index")
+        .expect("missing bond-index")
+        .clone()
+        .expect_u128()
+        .expect("bond-index uint");
+    assert_eq!(
+        current_bond_index, 6,
+        "post-rollover membership should point at bond 6"
+    );
+
+    // Continuous signer participation across the bond boundary: the staker is
+    // in the signer set for cycles C+11 (last of bond 0) and C+12 (first of
+    // bond 6).
+    let bond6_first_cycle = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "bond-period-to-reward-cycle",
+        vec![&Value::UInt(6)],
+    )
+    .result()
+    .expect("bond-period-to-reward-cycle failed")
+    .expect_u128()
+    .expect("cycle uint");
+    let last_bond0_cycle = bond6_first_cycle - 1;
+
+    // Bond 0's reward shares are preserved (the staker still earns through
+    // bond 0's term).
+    let bond0_shares = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-staker-shares-staked-for-cycle",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::UInt(last_bond0_cycle),
+            &Value::some(Value::UInt(0)).unwrap(),
+            &Value::Principal(test_signer_principal.clone()),
+        ],
+    )
+    .result()
+    .expect("get-staker-shares-staked-for-cycle failed")
+    .expect_u128()
+    .expect("shares uint");
+    assert_eq!(
+        bond0_shares, SBTC_AMT,
+        "bond 0's reward shares must be preserved through the roll-over"
+    );
+
+    for cycle in [last_bond0_cycle, bond6_first_cycle] {
+        let cycle_member = call_read_only(
+            &naka_conf,
+            &pox_5_addr,
+            "pox-5",
+            "get-signer-cycle-membership",
+            vec![
+                &Value::Principal(staker_addr.clone().into()),
+                &Value::UInt(cycle),
+            ],
+        )
+        .result()
+        .expect("get-signer-cycle-membership failed")
+        .expect_optional()
+        .expect("get-signer-cycle-membership returns optional");
+        assert!(
+            cycle_member.is_some(),
+            "staker must be a signer-set member in cycle {cycle} (no participation gap)"
+        );
+    }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
 /// Verify the pox-5 bond lifecycle end-to-end using the L1 BTC lockup path.
 ///
 /// The test broadcasts a *real* Bitcoin transaction that locks
@@ -815,6 +1410,12 @@ fn check_pox_5_register_for_bond_lifecycle() {
 ///      `register-for-bond`.
 ///
 /// Assertions:
+/// - submitting the same lockup outpoint three times in the L1 proof list
+///   is rejected with `ERR_DUPLICATE_LOCKUP_OUTPOINT` (u46) — the per-output
+///   dedup inside `validate-l1-lockup` trips before the post-fold sum check,
+///   and the failure leaves the staker with no bond membership and no STX lock
+/// - the honest single-output proof still registers (guards against
+///   too-aggressive dedup)
 /// - STX is locked, with unlock height set to the bond's unlock-burn-height
 /// - the bond membership records `is-l1-lock: true` (the membership reads
 ///   `(is-ok btc-lockup)`)
@@ -1059,7 +1660,6 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(early_unlock_bytes.clone()).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -1071,9 +1671,9 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     .expect("Timed out waiting for setup-bond");
 
     // 2) Build a real L1 lockup proof for `register-for-bond`'s
-    // `(ok { outputs, unlock-bytes })` branch.
+    // `(ok { outputs, staker-unlock-bytes })` branch.
     //
-    // `unlock-bytes` is the Bitcoin Script subscript the OP_IF
+    // `staker-unlock-bytes` is the Bitcoin Script subscript the OP_IF
     // (timelock-matured) branch of `construct-lockup-script` executes
     // after CLTV. We make it a `<pubkey> OP_CHECKSIG` fragment so the
     // spend is gated on a real signature from `staker_unlock_sk`. The
@@ -1286,10 +1886,10 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         clarity::vm::types::TupleData::from_data(vec![
             (
                 ClarityName::try_from("outputs").unwrap(),
-                Value::cons_list_unsanitized(vec![lockup_output]).unwrap(),
+                Value::cons_list_unsanitized(vec![lockup_output.clone()]).unwrap(),
             ),
             (
-                ClarityName::try_from("unlock-bytes").unwrap(),
+                ClarityName::try_from("staker-unlock-bytes").unwrap(),
                 Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
             ),
         ])
@@ -1297,18 +1897,106 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     );
     let l1_lockup_arg = Value::okay(lockup_tuple).expect("failed to wrap lockup tuple in (ok ...)");
 
-    // 3) `register-for-bond` via the L1 lockup branch.
     let register_fee = 2000u64;
     let bond_amount = POX_DEFAULT_STACKER_STX_AMT;
     let staker_balance_before = get_account(&http_origin, &staker_addr).balance;
-    assert!(staker_balance_before >= bond_amount + register_fee as u128 * 2);
+    // 3 register attempts: dup-outpoint rejection, happy path, ERR_ALREADY_REGISTERED.
+    assert!(staker_balance_before >= bond_amount + register_fee as u128 * 3);
 
     let sbtc_balance_before = sbtc_balance(&naka_conf, &sbtc_deployer_addr, &staker_addr);
 
+    // 3) Submitting the same lockup outpoint multiple times in the L1 proof
+    //    list must be rejected by `validate-l1-lockup`'s per-output dedup
+    //    with `ERR_DUPLICATE_LOCKUP_OUTPOINT` (u46). The dedup check sits
+    //    *inside* the fold, so it trips before the post-fold sum check
+    //    would otherwise notice that 3 * BTC_LOCKUP_SATS exceeds the
+    //    allowlist's `max-sats`. Asserting `u46` (not the sum error `u10`)
+    //    proves the dedup is what caught the attack.
+    let dup_lockup_tuple = clarity::vm::Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                ClarityName::try_from("outputs").unwrap(),
+                Value::cons_list_unsanitized(vec![
+                    lockup_output.clone(),
+                    lockup_output.clone(),
+                    lockup_output,
+                ])
+                .unwrap(),
+            ),
+            (
+                ClarityName::try_from("staker-unlock-bytes").unwrap(),
+                Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
+            ),
+        ])
+        .unwrap(),
+    );
+    let l1_dup_lockup_arg =
+        Value::okay(dup_lockup_tuple).expect("failed to wrap dup lockup tuple in (ok ...)");
+
+    test_observer::clear();
+    let dup_outpoint_tx = make_contract_call(
+        &staker_sk,
+        0,
+        register_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "register-for-bond",
+        &[
+            Value::UInt(0),
+            Value::Principal(test_signer_principal.clone()),
+            Value::UInt(bond_amount),
+            l1_dup_lockup_arg,
+            Value::none(),
+        ],
+    );
+    let dup_outpoint_txid = submit_tx(&http_origin, &dup_outpoint_tx);
+    info!("Submitted triplicate-outpoint pox-5 register-for-bond (L1) txid: {dup_outpoint_txid}");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &staker_addr).nonce == 1
+            && get_tx_result_by_id(&dup_outpoint_txid).is_some())
+    })
+    .expect("Timed out waiting for triplicate-outpoint register-for-bond (L1)");
+
+    let parsed = get_tx_result_by_id(&dup_outpoint_txid)
+        .expect("Did not observe triplicate-outpoint register-for-bond txid in test_observer");
+    assert_eq!(
+        parsed,
+        Value::error(Value::UInt(46)).unwrap(),
+        "triplicate-outpoint register-for-bond (L1) should fail with \
+         ERR_DUPLICATE_LOCKUP_OUTPOINT (u46), not the post-fold sum error",
+    );
+
+    // The failed call must not have produced any bond state: no membership
+    // row, no STX lock.
+    let no_membership = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-bond-membership",
+        vec![&Value::Principal(staker_addr.clone().into())],
+    )
+    .result()
+    .expect("get-bond-membership read failed")
+    .expect_optional()
+    .expect("get-bond-membership response should be (optional ...)");
+    assert!(
+        no_membership.is_none(),
+        "triplicate-outpoint failure must not create a bond membership; got {no_membership:?}"
+    );
+    let after_dup_outpoint = get_account(&http_origin, &staker_addr);
+    assert_eq!(
+        after_dup_outpoint.locked, 0,
+        "triplicate-outpoint failure must not lock staker STX"
+    );
+
+    // 4) `register-for-bond` via the L1 lockup branch — the honest
+    //    single-output proof must still succeed. This guards against a
+    //    too-aggressive dedup that would also break the happy path.
     test_observer::clear();
     let register_tx = make_contract_call(
         &staker_sk,
-        0,
+        1,
         register_fee,
         naka_conf.burnchain.chain_id,
         &pox_5_addr,
@@ -1325,7 +2013,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     let register_txid = submit_tx(&http_origin, &register_tx);
     info!("Submitted pox-5 register-for-bond (L1 lockup) txid: {register_txid}");
     wait_for(60, || {
-        Ok(get_account(&http_origin, &staker_addr).nonce == 1
+        Ok(get_account(&http_origin, &staker_addr).nonce == 2
             && get_tx_result_by_id(&register_txid).is_some())
     })
     .expect("Timed out waiting for register-for-bond (L1)");
@@ -1396,13 +2084,13 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         "bond membership must record `is-l1-lock: true` for the L1 lockup branch",
     );
 
-    // 4) A second `register-for-bond` from the same staker via the L1 path
+    // 5) A second `register-for-bond` from the same staker via the L1 path
     // must still fail with `ERR_ALREADY_REGISTERED` (u9) — the duplicate
     // check sits after `verify-l1-lockups` runs.
     test_observer::clear();
     let dup_tx = make_contract_call(
         &staker_sk,
-        1,
+        2,
         register_fee,
         naka_conf.burnchain.chain_id,
         &pox_5_addr,
@@ -1419,7 +2107,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     let dup_txid = submit_tx(&http_origin, &dup_tx);
     info!("Submitted duplicate pox-5 register-for-bond (L1) txid: {dup_txid}");
     wait_for(60, || {
-        Ok(get_account(&http_origin, &staker_addr).nonce == 2
+        Ok(get_account(&http_origin, &staker_addr).nonce == 3
             && get_tx_result_by_id(&dup_txid).is_some())
     })
     .expect("Timed out waiting for duplicate register-for-bond (L1)");
@@ -1443,7 +2131,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         "failed duplicate register-for-bond must not change unlock-burn-height"
     );
 
-    // 5) Spend the L1 lockup once the on-chain timelock matures.
+    // 6) Spend the L1 lockup once the on-chain timelock matures.
     //
     // The previous steps put `BTC_LOCKUP_SATS` into the canonical
     // timelock P2WSH whose witness program is
@@ -1454,9 +2142,10 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     //     `OP_CHECKLOCKTIMEVERIFY` in the OP_IF branch passes),
     //   - the spending block's height is also `>= nLockTime` (mempool's
     //     non-final-tx check), AND
-    //   - the OP_IF branch's `<staker_unlock_pk> OP_CHECKSIG` (the
-    //     inlined `unlock_bytes`) accepts a witness signature for the
-    //     spend's BIP-143 sighash.
+    //   - the shared-tail `<staker_unlock_pk> OP_CHECKSIG` (the
+    //     `staker-unlock-bytes` subscript that runs after the OP_IF branch's
+    //     CLTV leaves its value for the shared OP_VERIFY) accepts a
+    //     witness signature for the spend's BIP-143 sighash.
     //
     // We test both halves of that owner check:
     //   (a) an *interloper* signs the spend with a fresh, random key
@@ -1684,32 +2373,45 @@ fn sbtc_balance(conf: &Config, deployer: &StacksAddress, who: &StacksAddress) ->
 #[test]
 #[ignore]
 /// Verify the OP_ELSE (early-exit) branch of pox-5's L1 lockup script is
-/// only spendable when the caller supplies a properly shaped
-/// `unlock-bytes` and `early-unlock-bytes` subscripts.
+/// only spendable when the caller reveals the staker-principal preimage and
+/// supplies valid early-unlock and staker signatures.
 ///
-/// `construct-lockup-script`'s OP_ELSE branch concatenates
-/// `<early-unlock-bytes> <unlock-bytes>` and ends with OP_ENDIF.
+/// `construct-lockup-script`'s OP_ELSE branch is
+/// `OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <H> OP_EQUALVERIFY <early-unlock-bytes>`,
+/// followed (after OP_ENDIF) by the shared `OP_VERIFY <staker-unlock-bytes>` tail.
+/// `<H>` is `sha256(sha256(to-consensus-buff? staker))`, so spending the
+/// early-exit branch requires revealing the 32-byte
+/// `sha256(to-consensus-buff? staker)` preimage.
 ///
 /// This test demonstrates the realistic script shapes:
 ///
-///   - `unlock-bytes  = <unlock_pk>  OP_CHECKSIG` (35 bytes, ends 0xac)
-///   - `early-unlock-bytes = <early_pk> OP_CHECKSIGVERIFY` (35 bytes, ends 0xad)
+///   - `staker-unlock-bytes = <unlock_pk> OP_CHECKSIG` (35 bytes, ends 0xac)
+///   - `early-unlock-bytes  = <early_pk>  OP_CHECKSIG` (35 bytes, ends 0xac)
 ///   - Lock 1_000_000 sats into the canonical timelock P2WSH and
 ///     `register-for-bond` with the lockup tuple.
 ///
-/// All four sweep attempts run *before* `unlock-burn-height`, so the
+/// The test also accrues rewards, announces the early exit, claims signer
+/// rewards, then asserts that `announce-l1-early-exit` did not erase the
+/// staker's already accrued rewards.
+///
+/// All five sweep attempts run *before* `unlock-burn-height`, so the
 /// OP_IF branch is unavailable (its CLTV would fail) and the only path
 /// the BTC can move is the OP_ELSE branch:
 ///
-///   1. Both sigs from random keys → mempool rejects (one of the
-///      CHECKSIG/CHECKSIGVERIFY opcodes returns false).
-///   2. Only the owner sig (early sig from a random key) → rejects:
-///      OP_CHECKSIGVERIFY fails the script outright.
-///   3. Only the early sig (owner sig from a random key) → rejects:
-///      the closing OP_CHECKSIG returns false.
-///   4. Both sigs from the correct keys, branch flag empty (selects
-///      OP_ELSE) → confirms; the BTC moves to a bondholder-controlled
-///      address before the timelock matures.
+///   1. Both sigs from random keys (correct preimage) → mempool rejects
+///      (the early-unlock CHECKSIG's OP_VERIFY or the closing CHECKSIG
+///      returns false).
+///   2. Only the owner sig (early sig from a random key, correct preimage)
+///      → rejects: the early-unlock CHECKSIG result fails the shared
+///      OP_VERIFY.
+///   3. Only the early sig (owner sig from a random key, correct preimage)
+///      → rejects: the closing OP_CHECKSIG returns false.
+///   4. Both sigs correct, but a wrong (still 32-byte) principal preimage
+///      → rejects: `OP_SHA256 <H> OP_EQUALVERIFY` fails before the
+///      CHECKSIGs run.
+///   5. Both sigs from the correct keys, correct preimage, branch flag
+///      empty (selects OP_ELSE) → confirms; the BTC moves to a
+///      bondholder-controlled address before the timelock matures.
 fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -1732,7 +2434,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let call_fee = 400;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + call_fee * 10,
+        deploy_fee + call_fee * 20 + 10_000,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -1906,11 +2608,12 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let pox_5_addr: StacksAddress = pox_5_id.issuer.clone().into();
 
     // Two keypairs gate the lockup:
-    //   - `staker_unlock_sk` (owner) closes both branches of the witness
-    //     script via `<unlock_pk> OP_CHECKSIG`.
+    //   - `staker_unlock_sk` (owner) closes the shared tail of the witness
+    //     script via `<unlock_pk> OP_CHECKSIG`; it is required on both
+    //     branches.
     //   - `early_unlock_sk` is the early-exit signer; its sig is
-    //     consumed by OP_CHECKSIGVERIFY at the head of the OP_ELSE
-    //     branch (subscript ending `0xad`).
+    //     consumed by `<early_pk> OP_CHECKSIG` inside the OP_ELSE
+    //     branch.
     let staker_unlock_sk = Secp256k1PrivateKey::random();
     let staker_unlock_pk = Secp256k1PublicKey::from_private(&staker_unlock_sk);
     let staker_unlock_pk_bytes = staker_unlock_pk.to_bytes_compressed();
@@ -1928,22 +2631,37 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "compressed secp pubkey should be 33 bytes"
     );
 
-    // `unlock-bytes` = `<unlock_pk> OP_CHECKSIG`
+    // `staker-unlock-bytes` = `<unlock_pk> OP_CHECKSIG` (shared tail).
     let mut lockup_unlock_bytes = Vec::with_capacity(1 + 33 + 1);
     lockup_unlock_bytes.push(0x21); // OP_PUSHBYTES_33
     lockup_unlock_bytes.extend_from_slice(&staker_unlock_pk_bytes);
     lockup_unlock_bytes.push(0xac); // OP_CHECKSIG
 
-    // `early-unlock-bytes` = `<early_pk> OP_CHECKSIGVERIFY`
-    // The OP_ELSE branch is `<early-unlock-bytes> <unlock-bytes>`
+    // `early-unlock-bytes` = `<early_pk> OP_CHECKSIG`. It guards the OP_ELSE
+    // branch and MUST leave a boolean (it is consumed by the shared
+    // OP_VERIFY), so it ends in OP_CHECKSIG (0xac), not OP_CHECKSIGVERIFY.
     let mut early_unlock_bytes = Vec::with_capacity(1 + 33 + 1);
     early_unlock_bytes.push(0x21); // OP_PUSHBYTES_33
     early_unlock_bytes.extend_from_slice(&early_unlock_pk_bytes);
-    early_unlock_bytes.push(0xad); // OP_CHECKSIGVERIFY
+    early_unlock_bytes.push(0xac); // OP_CHECKSIG
+
+    // The OP_ELSE branch requires revealing the 32-byte
+    // `sha256(to-consensus-buff? staker)` preimage of the committed hash
+    // `<H> = sha256(sha256(to-consensus-buff? staker))`. Compute it here so
+    // the early-exit witness can present it. `serialize_to_vec` produces the
+    // exact bytes `to-consensus-buff?` does.
+    let staker_principal_consensus_buff = Value::Principal(staker_addr.clone().into())
+        .serialize_to_vec()
+        .expect("serialize staker principal to consensus buff");
+    let staker_principal_preimage =
+        stacks_common::util::hash::Sha256Sum::from_data(&staker_principal_consensus_buff)
+            .0
+            .to_vec();
 
     // 1) `setup-bond` from the configured bond admin, with the
-    // CHECKSIGVERIFY-terminated early-unlock subscript.
+    // CHECKSIG-terminated early-unlock subscript.
     const BTC_LOCKUP_SATS: u128 = 1_000_000;
+    const BOND_TARGET_RATE: u128 = 1_000;
     let allowlist_entry = clarity::vm::Value::Tuple(
         clarity::vm::types::TupleData::from_data(vec![
             (
@@ -1968,11 +2686,10 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "setup-bond",
         &[
             Value::UInt(0),
-            Value::UInt(1000),
+            Value::UInt(BOND_TARGET_RATE),
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(early_unlock_bytes.clone()).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );
@@ -2155,7 +2872,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
                 Value::cons_list_unsanitized(vec![lockup_output]).unwrap(),
             ),
             (
-                ClarityName::try_from("unlock-bytes").unwrap(),
+                ClarityName::try_from("staker-unlock-bytes").unwrap(),
                 Value::buff_from(lockup_unlock_bytes.clone()).unwrap(),
             ),
         ])
@@ -2192,6 +2909,104 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
             && get_tx_result_by_id(&register_txid).is_some())
     })
     .expect("Timed out waiting for register-for-bond (L1 early-unlock test)");
+
+    // Accrue one bond reward distribution before the early-exit announcement.
+    // `announce-l1-early-exit` settles staker rewards before zeroing L1 bond
+    // shares; after that, claim signer rewards and check the staker's already
+    // accrued rewards survived that state transition.
+    let reward_mint = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sbtc_deployer_addr,
+        "sbtc-token",
+        "mint",
+        &[
+            Value::UInt(2_000),
+            Value::Principal(PrincipalData::Contract(pox_5_id.clone())),
+        ],
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &reward_mint);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for reward mint");
+
+    let bond_start_cycle = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "bond-period-to-reward-cycle",
+        vec![&Value::UInt(bond_index)],
+    )
+    .result()
+    .expect("bond-period-to-reward-cycle failed")
+    .expect_u128()
+    .expect("bond-period-to-reward-cycle should return a uint");
+    let reward_cycle = bond_start_cycle + 1;
+    let reward_cycle_start = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "reward-cycle-to-burn-height",
+        vec![&Value::UInt(reward_cycle)],
+    )
+    .result()
+    .expect("reward-cycle-to-burn-height failed")
+    .expect_u128()
+    .expect("reward-cycle-to-burn-height should return a uint");
+    let next_reward_cycle_start = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "reward-cycle-to-burn-height",
+        vec![&Value::UInt(reward_cycle + 1)],
+    )
+    .result()
+    .expect("reward-cycle-to-burn-height failed")
+    .expect_u128()
+    .expect("reward-cycle-to-burn-height should return a uint");
+    let reward_calculation_burn_height =
+        reward_cycle_start + ((next_reward_cycle_start - reward_cycle_start) / 2);
+    while u128::from(get_chain_info_result(&naka_conf).unwrap().burn_block_height)
+        < reward_calculation_burn_height
+    {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+            .unwrap();
+    }
+
+    test_observer::clear();
+    let calculate_rewards_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        2_000,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "calculate-rewards",
+        &[Value::cons_list_unsanitized(vec![Value::UInt(bond_index)]).unwrap()],
+    );
+    sender_nonce += 1;
+    let calculate_rewards_txid = submit_tx(&http_origin, &calculate_rewards_tx);
+    wait_for(60, || {
+        Ok(
+            get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce
+                && get_tx_result_by_id(&calculate_rewards_txid).is_some(),
+        )
+    })
+    .expect("Timed out waiting for calculate-rewards");
+    assert!(
+        get_tx_result_by_id(&calculate_rewards_txid)
+            .expect("missing calculate-rewards result")
+            .expect_result()
+            .expect("calculate-rewards should return a response")
+            .is_ok(),
+        "calculate-rewards should succeed"
+    );
+
+    let expected_staker_rewards = ((BTC_LOCKUP_SATS * BOND_TARGET_RATE) / 10_000) / 50;
 
     // 4) Sweep the lockup via the OP_ELSE (early-exit) branch *before*
     //    `unlock-burn-height`. OP_IF's CLTV will reject any spend
@@ -2255,20 +3070,27 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let sweep_value = lockup_output_amount - SWEEP_FEE_SATS;
 
     // Build a sweep tx signed by two arbitrary keys, configured for the
-    // OP_ELSE branch. The witness stack is laid out so OP_ELSE's
-    // `<early_pk> OP_CHECKSIGVERIFY  <unlock_pk> OP_CHECKSIG` sees
-    // `sig_early` on top of `sig_owner`:
+    // OP_ELSE branch. The witness stack is laid out (bottom-to-top) as
+    // `[sig_owner, sig_early, principal_preimage, <empty branch flag>]`
+    // so the OP_ELSE body
+    // `OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <H> OP_EQUALVERIFY
+    //  <early_pk> OP_CHECKSIG` (then `OP_ENDIF OP_VERIFY
+    //  <unlock_pk> OP_CHECKSIG`) sees what it needs:
     //   - witness items are pushed left-to-right; the first item ends
     //     up at the *bottom* of the stack;
     //   - after OP_IF pops the (empty) branch flag, the stack is
+    //     [sig_owner, sig_early, principal_preimage];
+    //   - OP_SIZE/OP_EQUALVERIFY checks the preimage is 32 bytes;
+    //   - OP_SHA256/<H>/OP_EQUALVERIFY checks sha256(preimage) == H, leaving
     //     [sig_owner, sig_early];
-    //   - CHECKSIGVERIFY pops `<early_pk>` and `sig_early`, fails the
-    //     script if invalid, leaves [sig_owner];
-    //   - CHECKSIG pops `<unlock_pk>` and `sig_owner`, pushes 1;
-    //   - final stack: [1] — one item, OP_ENDIF, script succeeds.
+    //   - `<early_pk> OP_CHECKSIG` pops `sig_early`, pushes a bool;
+    //   - OP_ENDIF, then OP_VERIFY consumes that bool, leaving [sig_owner];
+    //   - `<unlock_pk> OP_CHECKSIG` pops `sig_owner`, pushes 1 — the final
+    //     result.
     let build_joint_sweep =
         |owner_sk: &Secp256k1PrivateKey,
-         early_sk: &Secp256k1PrivateKey|
+         early_sk: &Secp256k1PrivateKey,
+         preimage: &[u8]|
          -> stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction {
             let mut tx = stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction {
                 version: 2,
@@ -2324,10 +3146,15 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
 
             tx.input[0].witness = vec![
                 // First witness item -> bottom of stack: the sig the closing
-                // OP_CHECKSIG will consume.
+                // `<unlock_pk> OP_CHECKSIG` (shared tail) will consume.
                 sig_owner,
-                // Above it: the sig that OP_CHECKSIGVERIFY consumes first.
+                // Above it: the sig that the OP_ELSE `<early_pk>
+                // OP_CHECKSIG` consumes.
                 sig_early,
+                // Above that: the 32-byte sha256(to-consensus-buff? staker)
+                // preimage that OP_SIZE/OP_SHA256 in the OP_ELSE branch
+                // consume.
+                preimage.to_vec(),
                 // Empty buffer = false (MINIMALIF-compliant): OP_IF takes
                 // the OP_ELSE branch.
                 vec![],
@@ -2339,10 +3166,11 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
             tx
         };
 
-    // (a) Both sigs from random keys.
+    // (a) Both sigs from random keys (correct preimage).
     let tx_both_wrong = build_joint_sweep(
         &Secp256k1PrivateKey::random(),
         &Secp256k1PrivateKey::random(),
+        &staker_principal_preimage,
     );
     let res_both_wrong =
         bondholder_rpc.send_raw_transaction(&tx_both_wrong, Some(0.0), Some(1_000_000));
@@ -2351,20 +3179,28 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         .expect("both-wrong-sigs early-exit sweep must be rejected by the script's CHECKSIGs");
     info!("Both-wrong-sigs early-exit sweep rejected as expected: {err_both_wrong:?}");
 
-    // (b) Owner sig correct, early sig from a random key.
-    let tx_no_early = build_joint_sweep(&staker_unlock_sk, &Secp256k1PrivateKey::random());
+    // (b) Owner sig correct, early sig from a random key (correct preimage).
+    let tx_no_early = build_joint_sweep(
+        &staker_unlock_sk,
+        &Secp256k1PrivateKey::random(),
+        &staker_principal_preimage,
+    );
     let res_no_early =
         bondholder_rpc.send_raw_transaction(&tx_no_early, Some(0.0), Some(1_000_000));
     let err_no_early = res_no_early
         .err()
-        .expect("missing-early-sig sweep must be rejected by OP_CHECKSIGVERIFY");
+        .expect("missing-early-sig sweep must be rejected: early-unlock CHECKSIG fails OP_VERIFY");
     info!(
-        "Owner-only early-exit sweep rejected (CHECKSIGVERIFY on the early sig fails): \
+        "Owner-only early-exit sweep rejected (early-unlock CHECKSIG fails the shared OP_VERIFY): \
          {err_no_early:?}"
     );
 
-    // (c) Early sig correct, owner sig from a random key.
-    let tx_no_owner = build_joint_sweep(&Secp256k1PrivateKey::random(), &early_unlock_sk);
+    // (c) Early sig correct, owner sig from a random key (correct preimage).
+    let tx_no_owner = build_joint_sweep(
+        &Secp256k1PrivateKey::random(),
+        &early_unlock_sk,
+        &staker_principal_preimage,
+    );
     let res_no_owner =
         bondholder_rpc.send_raw_transaction(&tx_no_owner, Some(0.0), Some(1_000_000));
     let err_no_owner = res_no_owner
@@ -2375,8 +3211,29 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
          {err_no_owner:?}"
     );
 
-    // (d) Both sigs from the correct keys -> confirms.
-    let joint_sweep_tx = build_joint_sweep(&staker_unlock_sk, &early_unlock_sk);
+    // (d) Both sigs correct, but a wrong (still 32-byte) principal preimage.
+    // OP_SIZE passes, but `OP_SHA256 <H> OP_EQUALVERIFY` fails because
+    // sha256(wrong_preimage) != H, so the OP_ELSE branch aborts before the
+    // CHECKSIGs ever run.
+    let mut wrong_preimage = staker_principal_preimage.clone();
+    wrong_preimage[0] ^= 0xff;
+    let tx_wrong_preimage = build_joint_sweep(&staker_unlock_sk, &early_unlock_sk, &wrong_preimage);
+    let res_wrong_preimage =
+        bondholder_rpc.send_raw_transaction(&tx_wrong_preimage, Some(0.0), Some(1_000_000));
+    let err_wrong_preimage = res_wrong_preimage
+        .err()
+        .expect("wrong-preimage sweep must be rejected by OP_SHA256 <H> OP_EQUALVERIFY");
+    info!(
+        "Wrong-preimage early-exit sweep rejected (sha256(preimage) != H fails OP_EQUALVERIFY): \
+         {err_wrong_preimage:?}"
+    );
+
+    // (e) Both sigs from the correct keys, correct preimage -> confirms.
+    let joint_sweep_tx = build_joint_sweep(
+        &staker_unlock_sk,
+        &early_unlock_sk,
+        &staker_principal_preimage,
+    );
     let sweep_txid = bondholder_rpc
         .send_raw_transaction(&joint_sweep_tx, Some(0.0), Some(1_000_000))
         .expect("send_raw_transaction(joint early-exit sweep)");
@@ -2420,8 +3277,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-staker-shares-staked-for-cycle",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
             &Value::Principal(test_signer_principal.clone()),
         ],
     )
@@ -2434,9 +3291,81 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "staker should have {BTC_LOCKUP_SATS} bond shares from the L1 lockup before announce-l1-early-exit"
     );
 
+    let pre_announce_flag = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "has-announced-l1-early-exit",
+        vec![
+            &Value::UInt(bond_index),
+            &Value::Principal(staker_addr.clone().into()),
+        ],
+    )
+    .result()
+    .expect("has-announced-l1-early-exit failed")
+    .expect_bool()
+    .expect("has-announced-l1-early-exit should return a bool");
+    assert!(
+        !pre_announce_flag,
+        "has-announced-l1-early-exit must be false before the staker announces"
+    );
+
+    // No one, including the bond admin, can announce an early exit for a
+    // bondholder. So the call below to `announce-l1-early-exit` should
+    // fail.
+    test_observer::clear();
+    let unauthorized_announce_tx = make_contract_call(
+        &bond_admin_sk,
+        1,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "announce-l1-early-exit",
+        &[
+            Value::Principal(staker_addr.clone().into()),
+            Value::Principal(test_signer_principal.clone()),
+        ],
+    );
+    let unauthorized_announce_txid = submit_tx(&http_origin, &unauthorized_announce_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 2
+            && get_tx_result_by_id(&unauthorized_announce_txid).is_some())
+    })
+    .expect("Timed out waiting for unauthorized announce-l1-early-exit");
+    let unauthorized_result = get_tx_result_by_id(&unauthorized_announce_txid)
+        .expect("did not observe unauthorized announce-l1-early-exit txid");
+    assert_eq!(
+        unauthorized_result,
+        Value::err_uint(1),
+        "non-staker callers must hit ERR_UNAUTHORIZED (u1); got {unauthorized_result:?}"
+    );
+    // The staker's shares must still match the pre-announce snapshot — the
+    // unauthorized attempt should not have mutated any of the share maps.
+    let shares_after_unauthorized = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-staker-shares-staked-for-cycle",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
+            &Value::Principal(test_signer_principal.clone()),
+        ],
+    )
+    .result()
+    .expect("get-staker-shares-staked-for-cycle failed")
+    .expect_u128()
+    .expect("get-staker-shares-staked-for-cycle should return a uint");
+    assert_eq!(
+        shares_after_unauthorized, BTC_LOCKUP_SATS,
+        "unauthorized announce-l1-early-exit must not zero the staker's shares"
+    );
+
     test_observer::clear();
     let announce_tx = make_contract_call(
-        &bond_admin_sk,
+        &staker_sk,
         1,
         call_fee,
         naka_conf.burnchain.chain_id,
@@ -2452,17 +3381,94 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     info!("Submitted pox-5 announce-l1-early-exit txid: {announce_txid}");
 
     wait_for(60, || {
-        Ok(get_account(&http_origin, &bond_admin_addr).nonce == 2
+        Ok(get_account(&http_origin, &staker_addr).nonce == 2
             && get_tx_result_by_id(&announce_txid).is_some())
     })
     .expect("Timed out waiting for announce-l1-early-exit");
 
     let announce_result = get_tx_result_by_id(&announce_txid)
         .expect("did not observe announce-l1-early-exit txid in test_observer");
+    assert!(
+        matches!(&announce_result, Value::Response(r) if r.committed),
+        "announce-l1-early-exit should return (ok ...) when called by the staker themselves; got {announce_result:?}"
+    );
+
+    let expected_announce_result = Value::okay(Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                ClarityName::try_from("amount-sats-released").unwrap(),
+                Value::UInt(BTC_LOCKUP_SATS),
+            ),
+            (
+                ClarityName::try_from("bond-index").unwrap(),
+                Value::UInt(bond_index),
+            ),
+            (
+                ClarityName::try_from("signer").unwrap(),
+                Value::Principal(test_signer_principal.clone()),
+            ),
+            (
+                ClarityName::try_from("staker").unwrap(),
+                Value::Principal(staker_addr.clone().into()),
+            ),
+        ])
+        .unwrap(),
+    ))
+    .unwrap();
     assert_eq!(
-        announce_result,
-        Value::okay_true(),
-        "announce-l1-early-exit should return (ok true) when called by the early-unlock admin with the matching signer-manager"
+        announce_result, expected_announce_result,
+        "announce-l1-early-exit should return (ok {{ released bond details }}) when called by the staker themselves with the matching signer-manager"
+    );
+
+    let claim_rewards_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        "test-signer",
+        "claim-rewards",
+        &[
+            Value::cons_list_unsanitized(vec![Value::UInt(bond_index)]).unwrap(),
+            Value::UInt(reward_cycle),
+        ],
+    );
+    sender_nonce += 1;
+    let claim_rewards_txid = submit_tx(&http_origin, &claim_rewards_tx);
+    wait_for(60, || {
+        Ok(
+            get_account(&http_origin, &to_addr(&sender_sk)).nonce == sender_nonce
+                && get_tx_result_by_id(&claim_rewards_txid).is_some(),
+        )
+    })
+    .expect("Timed out waiting for claim-rewards");
+    assert!(
+        get_tx_result_by_id(&claim_rewards_txid)
+            .expect("missing claim-rewards result")
+            .expect_result()
+            .expect("claim-rewards should return a response")
+            .is_ok(),
+        "claim-rewards should succeed"
+    );
+
+    let staker_rewards_after_announce = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        "test-signer",
+        "get-earned-staker-rewards",
+        vec![
+            &Value::Principal(staker_addr.clone().into()),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
+        ],
+    )
+    .result()
+    .expect("get-earned-staker-rewards failed")
+    .expect_u128()
+    .expect("get-earned-staker-rewards should return a uint");
+    assert_eq!(
+        staker_rewards_after_announce, expected_staker_rewards,
+        "announce-l1-early-exit must not erase already accrued staker rewards"
     );
 
     let post_announce_shares = call_read_only(
@@ -2472,8 +3478,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "get-staker-shares-staked-for-cycle",
         vec![
             &Value::Principal(staker_addr.clone().into()),
-            &Value::Bool(true),
-            &Value::UInt(bond_index),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
             &Value::Principal(test_signer_principal.clone()),
         ],
     )
@@ -2484,6 +3490,52 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     assert_eq!(
         post_announce_shares, 0,
         "announce-l1-early-exit should zero out the staker's bond shares"
+    );
+
+    let post_announce_flag = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "has-announced-l1-early-exit",
+        vec![
+            &Value::UInt(bond_index),
+            &Value::Principal(staker_addr.clone().into()),
+        ],
+    )
+    .result()
+    .expect("has-announced-l1-early-exit failed")
+    .expect_bool()
+    .expect("has-announced-l1-early-exit should return a bool");
+    assert!(
+        post_announce_flag,
+        "has-announced-l1-early-exit must be true after the staker announces"
+    );
+
+    // The second announcement attempt must hit the idempotency guard.
+    let second_announce_tx = make_contract_call(
+        &staker_sk,
+        2,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &pox_5_addr,
+        "pox-5",
+        "announce-l1-early-exit",
+        &[
+            Value::Principal(staker_addr.clone().into()),
+            Value::Principal(test_signer_principal.clone()),
+        ],
+    );
+    let second_announce_txid = submit_tx(&http_origin, &second_announce_tx);
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &staker_addr).nonce == 3
+            && get_tx_result_by_id(&second_announce_txid).is_some())
+    })
+    .expect("Timed out waiting for second announce-l1-early-exit");
+    let second_announce_result = get_tx_result_by_id(&second_announce_txid)
+        .expect("did not observe second announce-l1-early-exit txid");
+    assert!(
+        matches!(&second_announce_result, Value::Response(r) if !r.committed),
+        "a second announce-l1-early-exit from the same staker must return an error; got {second_announce_result:?}"
     );
 
     coord_channel
@@ -3324,7 +4376,6 @@ fn check_with_stacking_allowances_register_for_bond() {
             Value::UInt(100),
             Value::UInt(10000),
             Value::buff_from(vec![0u8; 683]).unwrap(),
-            Value::Principal(bond_admin_addr.clone().into()),
             allowlist_value,
         ],
     );

@@ -113,6 +113,31 @@ fn test_try_make_response() {
     assert_eq!(preamble.status_code, 404);
 }
 
+/// Guard test against forgetting to surface a new PoX contract on `/v2/pox`.
+#[test]
+fn test_getpoxinfo_reports_newest_pox_contract() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let request = StacksHttpRequest::new_getpoxinfo(addr.into(), TipRequest::UseLatestAnchoredTip);
+
+    let rpc = TestRPC::setup(function_name!());
+    let pox_constants = rpc.peer_1.network.burnchain.pox_constants.clone();
+    let mut responses = rpc.run(vec![request]);
+    let info = decode_pox_info(responses.remove(0));
+
+    let newest_contract = pox_constants.active_pox_contract(u64::MAX);
+    assert!(
+        info.contract_versions
+            .iter()
+            .any(|v| v.contract_id.ends_with(&format!(".{newest_contract}"))),
+        "newest PoX contract `{newest_contract}` is not reported in /v2/pox `contract_versions`; \
+         add it to `RPCPoxInfoData::from_db`. Reported: {:?}",
+        info.contract_versions
+            .iter()
+            .map(|v| v.contract_id.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
 fn make_transfer_tx(
     key: &StacksPrivateKey,
     nonce: u64,

@@ -1512,9 +1512,12 @@ impl StacksChainState {
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
         let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
+        // Cycle-keyed query: derive the contract from the cycle itself rather
+        // than from a tip-height comparison, so the boundary semantics match
+        // `first_pox_waterfall_block` and the signer-set dispatch.
         let pox_contract_name = burnchain
             .pox_constants
-            .active_pox_contract(reward_cycle_start_height);
+            .active_pox_contract_for_cycle(burnchain.first_block_height, reward_cycle);
 
         info!(
             "Active PoX contract at {} (cycle start height {}): {}",

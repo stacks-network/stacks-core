@@ -20,6 +20,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { concatBytes } from '@noble/hashes/utils.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { expect } from 'vitest';
+import { randomPoxAddress } from '../test-helpers';
 
 const contracts = projectFactory(project, 'simnet');
 // clarinet-sdk applies STX locking only to the boot pox-5 (ST0…AMW42H.pox-5),
@@ -60,36 +61,45 @@ export function toWitnessOutput(script: Uint8Array) {
 export function serializeLockupScript({
   stacker,
   unlockBurnHeight,
-  unlockBytes,
+  stakerUnlockBytes,
   earlyUnlockBytes,
 }: {
   stacker: string;
   unlockBurnHeight: bigint;
-  unlockBytes: Uint8Array;
+  stakerUnlockBytes: Uint8Array;
   earlyUnlockBytes: Uint8Array;
 }) {
-  // `unlockBytes` and `earlyUnlockBytes` are caller-supplied Bitcoin
+  // `stakerUnlockBytes` and `earlyUnlockBytes` are caller-supplied Bitcoin
   // subscripts (e.g. `<pubkey> OP_CHECKSIG`) that the contract splices
   // in raw — they must NOT go through `Script.encode` as Uint8Array
   // elements, which would wrap them in an OP_PUSHBYTES_N push.
+  //
+  // The staker principal is committed as a hashed value and checked in the
+  // OP_ELSE branch, so the shape is:
+  //   OP_IF <unlock-burn-height> OP_CHECKLOCKTIMEVERIFY
+  //   OP_ELSE OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <H> OP_EQUALVERIFY
+  //           <earlyUnlockBytes>
+  //   OP_ENDIF OP_VERIFY <stakerUnlockBytes>
   const stackerEncoded = serializeCV(principalCV(stacker));
-  const prefix = BTC.Script.encode([
-    hex.decode(stackerEncoded),
-    'DROP',
+  const principalHash = sha256(sha256(hex.decode(stackerEncoded)));
+  const ifElsePrefix = BTC.Script.encode([
     'IF',
     Number(unlockBurnHeight),
     'CHECKLOCKTIMEVERIFY',
-    'DROP',
+    'ELSE',
+    'SIZE',
+    32,
+    'EQUALVERIFY',
+    'SHA256',
+    principalHash,
+    'EQUALVERIFY',
   ]);
-  const OP_ELSE = new Uint8Array([0x67]);
-  const OP_ENDIF = new Uint8Array([0x68]);
+  const endifVerify = BTC.Script.encode(['ENDIF', 'VERIFY']);
   return concatBytes(
-    prefix,
-    unlockBytes,
-    OP_ELSE,
+    ifElsePrefix,
     earlyUnlockBytes,
-    unlockBytes,
-    OP_ENDIF,
+    endifVerify,
+    stakerUnlockBytes,
   );
 }
 
@@ -103,20 +113,20 @@ export function buildL1Lockup({
   staker,
   sats,
   bondIndex,
-  unlockBytes = new Uint8Array(),
+  stakerUnlockBytes = new Uint8Array(),
   earlyUnlockBytes = new Uint8Array(),
 }: {
   staker: string;
   sats: bigint;
   bondIndex: bigint;
-  unlockBytes?: Uint8Array;
+  stakerUnlockBytes?: Uint8Array;
   earlyUnlockBytes?: Uint8Array;
 }) {
   const unlockBurnHeight = rov(pox5.getBondL1UnlockHeight(bondIndex));
   const lockupScript = serializeLockupScript({
     stacker: staker,
     unlockBurnHeight,
-    unlockBytes,
+    stakerUnlockBytes,
     earlyUnlockBytes,
   });
   const outputScript = toWitnessOutput(lockupScript);
@@ -478,4 +488,41 @@ export function initBootPox5() {
     }),
     deployer,
   );
+}
+
+export function sbtcTransfer(
+  amount: bigint,
+  sender: string,
+  recipient: string,
+) {
+  txOk(
+    sbtc.transfer({
+      recipient,
+      amount,
+      sender,
+      memo: null,
+    }),
+    sender,
+  );
+}
+
+export function makePoxAddrCalldata(
+  { maxFee }: { maxFee: bigint } = { maxFee: 100n },
+) {
+  const poxAddr = randomPoxAddress();
+  return {
+    poxAddr,
+    maxFee,
+    calldata: hex.decode(
+      serializeCV(
+        Cl.tuple({
+          'pox-addr': Cl.tuple({
+            version: Cl.buffer(poxAddr.version),
+            hashbytes: Cl.buffer(poxAddr.hashbytes),
+          }),
+          'max-fee': Cl.uint(maxFee),
+        }),
+      ),
+    ),
+  };
 }

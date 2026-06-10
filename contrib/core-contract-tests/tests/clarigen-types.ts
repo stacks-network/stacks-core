@@ -3685,6 +3685,120 @@ export const contracts = {
           bigint
         >
       >,
+      addStakerToBondCycles: {
+        name: 'add-staker-to-bond-cycles',
+        access: 'private',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'signer', type: 'principal' },
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'first-reward-cycle', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'amount-sats', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-sats', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          signer: TypedAbiArg<string, 'signer'>,
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          firstRewardCycle: TypedAbiArg<number | bigint, 'firstRewardCycle'>,
+          numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
+          amountSats: TypedAbiArg<number | bigint, 'amountSats'>,
+        ],
+        Response<
+          {
+            amountSats: bigint;
+            bondIndex: bigint;
+            firstRewardCycle: bigint;
+            signer: string;
+            staker: string;
+          },
+          bigint
+        >
+      >,
+      addStakerToBondForCycle: {
+        name: 'add-staker-to-bond-for-cycle',
+        access: 'private',
+        args: [
+          { name: 'cycle-index', type: 'uint128' },
+          {
+            name: 'accumulator-res',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    { name: 'amount-sats', type: 'uint128' },
+                    { name: 'bond-index', type: 'uint128' },
+                    { name: 'first-reward-cycle', type: 'uint128' },
+                    { name: 'signer', type: 'principal' },
+                    { name: 'staker', type: 'principal' },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-sats', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          cycleIndex: TypedAbiArg<number | bigint, 'cycleIndex'>,
+          accumulatorRes: TypedAbiArg<
+            Response<
+              {
+                amountSats: number | bigint;
+                bondIndex: number | bigint;
+                firstRewardCycle: number | bigint;
+                signer: string;
+                staker: string;
+              },
+              number | bigint
+            >,
+            'accumulatorRes'
+          >,
+        ],
+        Response<
+          {
+            amountSats: bigint;
+            bondIndex: bigint;
+            firstRewardCycle: bigint;
+            signer: string;
+            staker: string;
+          },
+          bigint
+        >
+      >,
       addStakerToSignerCycles: {
         name: 'add-staker-to-signer-cycles',
         access: 'private',
@@ -3882,6 +3996,7 @@ export const contracts = {
                       name: 'last-bond-stx-value-ratio',
                       type: { optional: 'uint128' },
                     },
+                    { name: 'reward-cycle', type: 'uint128' },
                   ],
                 },
                 error: 'uint128',
@@ -3901,6 +4016,7 @@ export const contracts = {
                     name: 'last-bond-stx-value-ratio',
                     type: { optional: 'uint128' },
                   },
+                  { name: 'reward-cycle', type: 'uint128' },
                 ],
               },
               error: 'uint128',
@@ -3917,6 +4033,7 @@ export const contracts = {
                 calculationHeight: number | bigint;
                 lastBondIndex: number | bigint | null;
                 lastBondStxValueRatio: number | bigint | null;
+                rewardCycle: number | bigint;
               },
               number | bigint
             >,
@@ -3929,57 +4046,10 @@ export const contracts = {
             calculationHeight: bigint;
             lastBondIndex: bigint | null;
             lastBondStxValueRatio: bigint | null;
+            rewardCycle: bigint;
           },
           bigint
         >
-      >,
-      getBitcoinTxOutput_q: {
-        name: 'get-bitcoin-tx-output?',
-        access: 'private',
-        args: [
-          { name: 'tx-bytes', type: { buffer: { length: 100000 } } },
-          { name: 'output-index', type: 'uint128' },
-          { name: 'amount', type: 'uint128' },
-          { name: 'script', type: { buffer: { length: 34 } } },
-        ],
-        outputs: {
-          type: {
-            response: {
-              ok: {
-                tuple: [
-                  { name: 'amount', type: 'uint128' },
-                  { name: 'script', type: { buffer: { length: 34 } } },
-                  { name: 'txid', type: { buffer: { length: 32 } } },
-                ],
-              },
-              error: 'uint128',
-            },
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          txBytes: TypedAbiArg<Uint8Array, 'txBytes'>,
-          outputIndex: TypedAbiArg<number | bigint, 'outputIndex'>,
-          amount: TypedAbiArg<number | bigint, 'amount'>,
-          script: TypedAbiArg<Uint8Array, 'script'>,
-        ],
-        Response<
-          {
-            amount: bigint;
-            script: Uint8Array;
-            txid: Uint8Array;
-          },
-          bigint
-        >
-      >,
-      lockSbtc: {
-        name: 'lock-sbtc',
-        access: 'private',
-        args: [{ name: 'amount', type: 'uint128' }],
-        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [amount: TypedAbiArg<number | bigint, 'amount'>],
-        Response<bigint, bigint>
       >,
       matchUintInList: {
         name: 'match-uint-in-list',
@@ -4019,6 +4089,120 @@ export const contracts = {
           found: boolean;
           needle: bigint;
         }
+      >,
+      removeStakerFromBondCycles: {
+        name: 'remove-staker-from-bond-cycles',
+        access: 'private',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'signer', type: 'principal' },
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'first-reward-cycle', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'amount-sats', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-sats', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          signer: TypedAbiArg<string, 'signer'>,
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          firstRewardCycle: TypedAbiArg<number | bigint, 'firstRewardCycle'>,
+          numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
+          amountSats: TypedAbiArg<number | bigint, 'amountSats'>,
+        ],
+        Response<
+          {
+            amountSats: bigint;
+            bondIndex: bigint;
+            firstRewardCycle: bigint;
+            signer: string;
+            staker: string;
+          },
+          bigint
+        >
+      >,
+      removeStakerFromBondForCycle: {
+        name: 'remove-staker-from-bond-for-cycle',
+        access: 'private',
+        args: [
+          { name: 'cycle-index', type: 'uint128' },
+          {
+            name: 'accumulator-res',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    { name: 'amount-sats', type: 'uint128' },
+                    { name: 'bond-index', type: 'uint128' },
+                    { name: 'first-reward-cycle', type: 'uint128' },
+                    { name: 'signer', type: 'principal' },
+                    { name: 'staker', type: 'principal' },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-sats', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          cycleIndex: TypedAbiArg<number | bigint, 'cycleIndex'>,
+          accumulatorRes: TypedAbiArg<
+            Response<
+              {
+                amountSats: number | bigint;
+                bondIndex: number | bigint;
+                firstRewardCycle: number | bigint;
+                signer: string;
+                staker: string;
+              },
+              number | bigint
+            >,
+            'accumulatorRes'
+          >,
+        ],
+        Response<
+          {
+            amountSats: bigint;
+            bondIndex: bigint;
+            firstRewardCycle: bigint;
+            signer: string;
+            staker: string;
+          },
+          bigint
+        >
       >,
       removeStakerFromCycles: {
         name: 'remove-staker-from-cycles',
@@ -4142,13 +4326,30 @@ export const contracts = {
         [input: TypedAbiArg<Uint8Array, 'input'>],
         Uint8Array
       >,
+      rollSbtc: {
+        name: 'roll-sbtc',
+        access: 'private',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'old-sbtc', type: 'uint128' },
+          { name: 'new-sbtc', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          oldSbtc: TypedAbiArg<number | bigint, 'oldSbtc'>,
+          newSbtc: TypedAbiArg<number | bigint, 'newSbtc'>,
+        ],
+        Response<boolean, bigint>
+      >,
       settleRewards: {
         name: 'settle-rewards',
         access: 'private',
         args: [
           { name: 'signer', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: {
           type: {
@@ -4161,13 +4362,87 @@ export const contracts = {
       } as TypedAbiFunction<
         [
           signer: TypedAbiArg<string, 'signer'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         {
           earned: bigint;
           rewardsPerToken: bigint;
         }
+      >,
+      settleStakerRewards: {
+        name: 'settle-staker-rewards',
+        access: 'private',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+          { name: 'staker', type: 'principal' },
+        ],
+        outputs: {
+          type: {
+            tuple: [
+              { name: 'earned', type: 'uint128' },
+              { name: 'rewards-per-token', type: 'uint128' },
+            ],
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+          staker: TypedAbiArg<string, 'staker'>,
+        ],
+        {
+          earned: bigint;
+          rewardsPerToken: bigint;
+        }
+      >,
+      signerManagerValidateStake: {
+        name: 'signer-manager-validate-stake',
+        access: 'private',
+        args: [
+          { name: 'signer-manager', type: 'trait_reference' },
+          { name: 'staker', type: 'principal' },
+          { name: 'first-index', type: 'uint128' },
+          { name: 'num-indexes', type: 'uint128' },
+          { name: 'amount-ustx', type: 'uint128' },
+          { name: 'amount-sats', type: 'uint128' },
+          { name: 'is-bond', type: 'bool' },
+          {
+            name: 'signer-calldata',
+            type: { optional: { buffer: { length: 500 } } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          signerManager: TypedAbiArg<string, 'signerManager'>,
+          staker: TypedAbiArg<string, 'staker'>,
+          firstIndex: TypedAbiArg<number | bigint, 'firstIndex'>,
+          numIndexes: TypedAbiArg<number | bigint, 'numIndexes'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          amountSats: TypedAbiArg<number | bigint, 'amountSats'>,
+          isBond: TypedAbiArg<boolean, 'isBond'>,
+          signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      transferFromReserve: {
+        name: 'transfer-from-reserve',
+        access: 'private',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+        ],
+        Response<boolean, bigint>
       >,
       updateClaimableBondRewards: {
         name: 'update-claimable-bond-rewards',
@@ -4193,6 +4468,7 @@ export const contracts = {
                     },
                   },
                 },
+                { name: 'reward-cycle', type: 'uint128' },
                 { name: 'signer', type: 'principal' },
                 { name: 'total', type: 'uint128' },
               ],
@@ -4217,6 +4493,7 @@ export const contracts = {
                   },
                 },
               },
+              { name: 'reward-cycle', type: 'uint128' },
               { name: 'signer', type: 'principal' },
               { name: 'total', type: 'uint128' },
             ],
@@ -4232,6 +4509,7 @@ export const contracts = {
                 earned: number | bigint;
                 rewardsPerToken: number | bigint;
               }[];
+              rewardCycle: number | bigint;
               signer: string;
               total: number | bigint;
             },
@@ -4244,6 +4522,7 @@ export const contracts = {
             earned: bigint;
             rewardsPerToken: bigint;
           }[];
+          rewardCycle: bigint;
           signer: string;
           total: bigint;
         }
@@ -4253,8 +4532,8 @@ export const contracts = {
         access: 'private',
         args: [
           { name: 'signer', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: {
           type: {
@@ -4267,8 +4546,8 @@ export const contracts = {
       } as TypedAbiFunction<
         [
           signer: TypedAbiArg<string, 'signer'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         {
           earned: bigint;
@@ -4309,6 +4588,23 @@ export const contracts = {
                       name: 'expected-script-hash',
                       type: { buffer: { length: 34 } },
                     },
+                    {
+                      name: 'seen-outpoints',
+                      type: {
+                        list: {
+                          type: {
+                            tuple: [
+                              { name: 'output-index', type: 'uint128' },
+                              {
+                                name: 'txid',
+                                type: { buffer: { length: 32 } },
+                              },
+                            ],
+                          },
+                          length: 10,
+                        },
+                      },
+                    },
                     { name: 'sum', type: 'uint128' },
                   ],
                 },
@@ -4325,6 +4621,20 @@ export const contracts = {
                   {
                     name: 'expected-script-hash',
                     type: { buffer: { length: 34 } },
+                  },
+                  {
+                    name: 'seen-outpoints',
+                    type: {
+                      list: {
+                        type: {
+                          tuple: [
+                            { name: 'output-index', type: 'uint128' },
+                            { name: 'txid', type: { buffer: { length: 32 } } },
+                          ],
+                        },
+                        length: 10,
+                      },
+                    },
                   },
                   { name: 'sum', type: 'uint128' },
                 ],
@@ -4352,6 +4662,10 @@ export const contracts = {
             Response<
               {
                 expectedScriptHash: Uint8Array;
+                seenOutpoints: {
+                  outputIndex: number | bigint;
+                  txid: Uint8Array;
+                }[];
                 sum: number | bigint;
               },
               number | bigint
@@ -4362,10 +4676,55 @@ export const contracts = {
         Response<
           {
             expectedScriptHash: Uint8Array;
+            seenOutpoints: {
+              outputIndex: bigint;
+              txid: Uint8Array;
+            }[];
             sum: bigint;
           },
           bigint
         >
+      >,
+      validateNoReentrancy: {
+        name: 'validate-no-reentrancy',
+        access: 'private',
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
+      verifyBondRolloverWindow: {
+        name: 'verify-bond-rollover-window',
+        access: 'private',
+        args: [
+          {
+            name: 'existing-membership',
+            type: {
+              optional: {
+                tuple: [
+                  { name: 'amount-sats', type: 'uint128' },
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'is-l1-lock', type: 'bool' },
+                  { name: 'signer', type: 'principal' },
+                ],
+              },
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          existingMembership: TypedAbiArg<
+            {
+              amountSats: number | bigint;
+              amountUstx: number | bigint;
+              bondIndex: number | bigint;
+              isL1Lock: boolean;
+              signer: string;
+            } | null,
+            'existingMembership'
+          >,
+        ],
+        Response<boolean, bigint>
       >,
       verifyL1Lockups: {
         name: 'verify-l1-lockups',
@@ -4405,7 +4764,10 @@ export const contracts = {
                     },
                   },
                 },
-                { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                {
+                  name: 'staker-unlock-bytes',
+                  type: { buffer: { length: 683 } },
+                },
               ],
             },
           },
@@ -4427,37 +4789,19 @@ export const contracts = {
                 txCount: number | bigint;
                 txIndex: number | bigint;
               }[];
-              unlockBytes: Uint8Array;
+              stakerUnlockBytes: Uint8Array;
             },
             'lockups'
           >,
         ],
         Response<bigint, bigint>
       >,
-      verifyMerkleProof: {
-        name: 'verify-merkle-proof',
+      verifyNotPreparePhase: {
+        name: 'verify-not-prepare-phase',
         access: 'private',
-        args: [
-          { name: 'leaf-hash', type: { buffer: { length: 32 } } },
-          { name: 'root-hash', type: { buffer: { length: 32 } } },
-          { name: 'tx-index', type: 'uint128' },
-          { name: 'tx-count', type: 'uint128' },
-          {
-            name: 'leaf-hashes',
-            type: { list: { type: { buffer: { length: 32 } }, length: 14 } },
-          },
-        ],
-        outputs: { type: 'bool' },
-      } as TypedAbiFunction<
-        [
-          leafHash: TypedAbiArg<Uint8Array, 'leafHash'>,
-          rootHash: TypedAbiArg<Uint8Array, 'rootHash'>,
-          txIndex: TypedAbiArg<number | bigint, 'txIndex'>,
-          txCount: TypedAbiArg<number | bigint, 'txCount'>,
-          leafHashes: TypedAbiArg<Uint8Array[], 'leafHashes'>,
-        ],
-        boolean
-      >,
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
       allowContractCaller: {
         name: 'allow-contract-caller',
         access: 'public',
@@ -4480,13 +4824,35 @@ export const contracts = {
           { name: 'staker', type: 'principal' },
           { name: 'old-signer-manager', type: 'trait_reference' },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-sats-released', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
           oldSignerManager: TypedAbiArg<string, 'oldSignerManager'>,
         ],
-        Response<boolean, bigint>
+        Response<
+          {
+            amountSatsReleased: bigint;
+            bondIndex: bigint;
+            signer: string;
+            staker: string;
+          },
+          bigint
+        >
       >,
       calculateRewards: {
         name: 'calculate-rewards',
@@ -4497,10 +4863,49 @@ export const contracts = {
             type: { list: { type: 'uint128', length: 6 } },
           },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'accrued-rewards-per-ustx', type: 'uint128' },
+                  {
+                    name: 'bond-periods',
+                    type: { list: { type: 'uint128', length: 6 } },
+                  },
+                  { name: 'calculation-height', type: 'uint128' },
+                  { name: 'cumulative-rewards-per-ustx', type: 'uint128' },
+                  { name: 'cycle-staked-ustx', type: 'uint128' },
+                  { name: 'gross-accrued-rewards', type: 'uint128' },
+                  { name: 'reserve-balance', type: 'uint128' },
+                  { name: 'reserve-deposit', type: 'uint128' },
+                  { name: 'stx-cycle', type: 'uint128' },
+                  { name: 'total-bond-rewards', type: 'uint128' },
+                  { name: 'total-stx-staker-rewards', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [bondPeriods: TypedAbiArg<number | bigint[], 'bondPeriods'>],
-        Response<boolean, bigint>
+        Response<
+          {
+            accruedRewardsPerUstx: bigint;
+            bondPeriods: bigint[];
+            calculationHeight: bigint;
+            cumulativeRewardsPerUstx: bigint;
+            cycleStakedUstx: bigint;
+            grossAccruedRewards: bigint;
+            reserveBalance: bigint;
+            reserveDeposit: bigint;
+            stxCycle: bigint;
+            totalBondRewards: bigint;
+            totalStxStakerRewards: bigint;
+          },
+          bigint
+        >
       >,
       claimRewards: {
         name: 'claim-rewards',
@@ -4571,6 +4976,41 @@ export const contracts = {
           bigint
         >
       >,
+      claimStakerRewardsForSigner: {
+        name: 'claim-staker-rewards-for-signer',
+        access: 'public',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'earned', type: 'uint128' },
+                  { name: 'rewards-per-token', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        Response<
+          {
+            earned: bigint;
+            rewardsPerToken: bigint;
+          },
+          bigint
+        >
+      >,
       disallowContractCaller: {
         name: 'disallow-contract-caller',
         access: 'public',
@@ -4589,7 +5029,20 @@ export const contracts = {
           { name: 'auth-id', type: 'uint128' },
           { name: 'signer-sig', type: { buffer: { length: 65 } } },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'auth-id', type: 'uint128' },
+                  { name: 'signer-key', type: { buffer: { length: 33 } } },
+                  { name: 'signer-manager', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [
           signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
@@ -4597,7 +5050,14 @@ export const contracts = {
           authId: TypedAbiArg<number | bigint, 'authId'>,
           signerSig: TypedAbiArg<Uint8Array, 'signerSig'>,
         ],
-        Response<boolean, bigint>
+        Response<
+          {
+            authId: bigint;
+            signerKey: Uint8Array;
+            signerManager: string;
+          },
+          bigint
+        >
       >,
       registerForBond: {
         name: 'register-for-bond',
@@ -4646,7 +5106,10 @@ export const contracts = {
                         },
                       },
                     },
-                    { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                    {
+                      name: 'staker-unlock-bytes',
+                      type: { buffer: { length: 683 } },
+                    },
                   ],
                 },
                 error: 'uint128',
@@ -4666,6 +5129,8 @@ export const contracts = {
                   { name: 'amount-ustx', type: 'uint128' },
                   { name: 'bond-index', type: 'uint128' },
                   { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'is-l1-lock', type: 'bool' },
+                  { name: 'sats-total', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
@@ -4694,7 +5159,7 @@ export const contracts = {
                   txCount: number | bigint;
                   txIndex: number | bigint;
                 }[];
-                unlockBytes: Uint8Array;
+                stakerUnlockBytes: Uint8Array;
               },
               number | bigint
             >,
@@ -4707,6 +5172,8 @@ export const contracts = {
             amountUstx: bigint;
             bondIndex: bigint;
             firstRewardCycle: bigint;
+            isL1Lock: boolean;
+            satsTotal: bigint;
             signer: string;
             staker: string;
             unlockBurnHeight: bigint;
@@ -4755,22 +5222,60 @@ export const contracts = {
           { name: 'signer-manager', type: 'principal' },
           { name: 'signer-key', type: { buffer: { length: 33 } } },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'existed', type: 'bool' },
+                  { name: 'signer-key', type: { buffer: { length: 33 } } },
+                  { name: 'signer-manager', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [
           signerManager: TypedAbiArg<string, 'signerManager'>,
           signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
         ],
-        Response<boolean, bigint>
+        Response<
+          {
+            existed: boolean;
+            signerKey: Uint8Array;
+            signerManager: string;
+          },
+          bigint
+        >
       >,
       setBondAdmin: {
         name: 'set-bond-admin',
         access: 'public',
         args: [{ name: 'new-admin', type: 'principal' }],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'new-admin', type: 'principal' },
+                  { name: 'old-admin', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [newAdmin: TypedAbiArg<string, 'newAdmin'>],
-        Response<boolean, bigint>
+        Response<
+          {
+            newAdmin: string;
+            oldAdmin: string;
+          },
+          bigint
+        >
       >,
       setBurnchainParameters: {
         name: 'set-burnchain-parameters',
@@ -4806,7 +5311,6 @@ export const contracts = {
           { name: 'stx-value-ratio', type: 'uint128' },
           { name: 'min-ustx-ratio', type: 'uint128' },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
-          { name: 'early-unlock-admin', type: 'principal' },
           {
             name: 'allowlist',
             type: {
@@ -4849,7 +5353,6 @@ export const contracts = {
           stxValueRatio: TypedAbiArg<number | bigint, 'stxValueRatio'>,
           minUstxRatio: TypedAbiArg<number | bigint, 'minUstxRatio'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
-          earlyUnlockAdmin: TypedAbiArg<string, 'earlyUnlockAdmin'>,
           allowlist: TypedAbiArg<
             {
               maxSats: number | bigint;
@@ -4890,7 +5393,7 @@ export const contracts = {
                 tuple: [
                   { name: 'amount-ustx', type: 'uint128' },
                   { name: 'first-reward-cycle', type: 'uint128' },
-                  { name: 'num-cycle', type: 'uint128' },
+                  { name: 'num-cycles', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
@@ -4913,7 +5416,7 @@ export const contracts = {
           {
             amountUstx: bigint;
             firstRewardCycle: bigint;
-            numCycle: bigint;
+            numCycles: bigint;
             signer: string;
             staker: string;
             unlockBurnHeight: bigint;
@@ -4940,8 +5443,11 @@ export const contracts = {
             response: {
               ok: {
                 tuple: [
+                  { name: 'amount-increase', type: 'uint128' },
                   { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'cycles-to-extend', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
+                  { name: 'old-signer', type: 'principal' },
                   { name: 'prev-unlock-height', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
@@ -4963,8 +5469,11 @@ export const contracts = {
         ],
         Response<
           {
+            amountIncrease: bigint;
             amountUstx: bigint;
+            cyclesToExtend: bigint;
             numCycles: bigint;
+            oldSigner: string;
             prevUnlockHeight: bigint;
             signer: string;
             staker: string;
@@ -4985,6 +5494,7 @@ export const contracts = {
                 tuple: [
                   { name: 'amount-ustx', type: 'uint128' },
                   { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
                   { name: 'unlock-cycle', type: 'uint128' },
@@ -5000,6 +5510,7 @@ export const contracts = {
           {
             amountUstx: bigint;
             firstRewardCycle: bigint;
+            signer: string;
             staker: string;
             unlockBurnHeight: bigint;
             unlockCycle: bigint;
@@ -5019,6 +5530,8 @@ export const contracts = {
             response: {
               ok: {
                 tuple: [
+                  { name: 'amount-withdrawn-sats', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
                   { name: 'new-amount-sats', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
@@ -5038,6 +5551,8 @@ export const contracts = {
         ],
         Response<
           {
+            amountWithdrawnSats: bigint;
+            bondIndex: bigint;
             newAmountSats: bigint;
             signer: string;
             staker: string;
@@ -5056,14 +5571,46 @@ export const contracts = {
             type: { optional: { buffer: { length: 500 } } },
           },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-sats', type: 'uint128' },
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'is-l1-lock', type: 'bool' },
+                  { name: 'num-cycles', type: 'uint128' },
+                  { name: 'old-signer', type: 'principal' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [
           signerManager: TypedAbiArg<string, 'signerManager'>,
           oldSignerManager: TypedAbiArg<string, 'oldSignerManager'>,
           signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
         ],
-        Response<boolean, bigint>
+        Response<
+          {
+            amountSats: bigint;
+            amountUstx: bigint;
+            bondIndex: bigint;
+            firstRewardCycle: bigint;
+            isL1Lock: boolean;
+            numCycles: bigint;
+            oldSigner: string;
+            signer: string;
+            staker: string;
+          },
+          bigint
+        >
       >,
       assertAllActiveBondsIncluded: {
         name: 'assert-all-active-bonds-included',
@@ -5082,6 +5629,46 @@ export const contracts = {
           calculationHeight: TypedAbiArg<number | bigint, 'calculationHeight'>,
         ],
         Response<boolean, bigint>
+      >,
+      bondOverlapsNewPosition_q: {
+        name: 'bond-overlaps-new-position?',
+        access: 'read_only',
+        args: [
+          {
+            name: 'existing-membership',
+            type: {
+              optional: {
+                tuple: [
+                  { name: 'amount-sats', type: 'uint128' },
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'is-l1-lock', type: 'bool' },
+                  { name: 'signer', type: 'principal' },
+                ],
+              },
+            },
+          },
+          { name: 'new-first-reward-cycle', type: 'uint128' },
+        ],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<
+        [
+          existingMembership: TypedAbiArg<
+            {
+              amountSats: number | bigint;
+              amountUstx: number | bigint;
+              bondIndex: number | bigint;
+              isL1Lock: boolean;
+              signer: string;
+            } | null,
+            'existingMembership'
+          >,
+          newFirstRewardCycle: TypedAbiArg<
+            number | bigint,
+            'newFirstRewardCycle'
+          >,
+        ],
+        boolean
       >,
       bondPeriodToBurnHeight: {
         name: 'bond-period-to-burn-height',
@@ -5134,13 +5721,49 @@ export const contracts = {
         [lockPeriod: TypedAbiArg<number | bigint, 'lockPeriod'>],
         boolean
       >,
+      clamp: {
+        name: 'clamp',
+        access: 'read_only',
+        args: [
+          { name: 'value', type: 'uint128' },
+          { name: 'min', type: 'uint128' },
+          { name: 'max', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          value: TypedAbiArg<number | bigint, 'value'>,
+          min: TypedAbiArg<number | bigint, 'min'>,
+          max: TypedAbiArg<number | bigint, 'max'>,
+        ],
+        bigint
+      >,
+      computeEarnedRewards: {
+        name: 'compute-earned-rewards',
+        access: 'read_only',
+        args: [
+          { name: 'shares', type: 'uint128' },
+          { name: 'rpt-current', type: 'uint128' },
+          { name: 'rpt-paid', type: 'uint128' },
+          { name: 'pending', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          shares: TypedAbiArg<number | bigint, 'shares'>,
+          rptCurrent: TypedAbiArg<number | bigint, 'rptCurrent'>,
+          rptPaid: TypedAbiArg<number | bigint, 'rptPaid'>,
+          pending: TypedAbiArg<number | bigint, 'pending'>,
+        ],
+        bigint
+      >,
       constructLockupOutputScript: {
         name: 'construct-lockup-output-script',
         access: 'read_only',
         args: [
           { name: 'staker', type: 'principal' },
           { name: 'unlock-burn-height', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+          { name: 'staker-unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
         outputs: { type: { buffer: { length: 34 } } },
@@ -5148,7 +5771,7 @@ export const contracts = {
         [
           staker: TypedAbiArg<string, 'staker'>,
           unlockBurnHeight: TypedAbiArg<number | bigint, 'unlockBurnHeight'>,
-          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+          stakerUnlockBytes: TypedAbiArg<Uint8Array, 'stakerUnlockBytes'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
         ],
         Uint8Array
@@ -5159,15 +5782,15 @@ export const contracts = {
         args: [
           { name: 'staker', type: 'principal' },
           { name: 'unlock-burn-height', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+          { name: 'staker-unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
-        outputs: { type: { buffer: { length: 5141 } } },
+        outputs: { type: { buffer: { length: 2437 } } },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
           unlockBurnHeight: TypedAbiArg<number | bigint, 'unlockBurnHeight'>,
-          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+          stakerUnlockBytes: TypedAbiArg<Uint8Array, 'stakerUnlockBytes'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
         ],
         Uint8Array
@@ -5249,6 +5872,7 @@ export const contracts = {
           type: {
             optional: {
               tuple: [
+                { name: 'amount-sats', type: 'uint128' },
                 { name: 'amount-ustx', type: 'uint128' },
                 { name: 'bond-index', type: 'uint128' },
                 { name: 'is-l1-lock', type: 'bool' },
@@ -5260,6 +5884,7 @@ export const contracts = {
       } as TypedAbiFunction<
         [staker: TypedAbiArg<string, 'staker'>],
         {
+          amountSats: bigint;
           amountUstx: bigint;
           bondIndex: bigint;
           isL1Lock: boolean;
@@ -5271,15 +5896,34 @@ export const contracts = {
         access: 'read_only',
         args: [
           { name: 'signer', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
           signer: TypedAbiArg<string, 'signer'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        bigint
+      >,
+      getEarnedStakerRewards: {
+        name: 'get-earned-staker-rewards',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+          { name: 'staker', type: 'principal' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+          staker: TypedAbiArg<string, 'staker'>,
         ],
         bigint
       >,
@@ -5350,7 +5994,6 @@ export const contracts = {
           type: {
             optional: {
               tuple: [
-                { name: 'early-unlock-admin', type: 'principal' },
                 {
                   name: 'early-unlock-bytes',
                   type: { buffer: { length: 683 } },
@@ -5365,7 +6008,6 @@ export const contracts = {
       } as TypedAbiFunction<
         [bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>],
         {
-          earlyUnlockAdmin: string;
           earlyUnlockBytes: Uint8Array;
           minUstxRatio: bigint;
           stxValueRatio: bigint;
@@ -5394,14 +6036,14 @@ export const contracts = {
         name: 'get-rewards-per-token-for-cycle',
         access: 'read_only',
         args: [
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         bigint
       >,
@@ -5471,20 +6113,37 @@ export const contracts = {
         ],
         bigint
       >,
-      getSignerRewardsPerTokenSettledForCycle: {
-        name: 'get-signer-rewards-per-token-settled-for-cycle',
+      getSignerRewardsPerTokenForCycle: {
+        name: 'get-signer-rewards-per-token-for-cycle',
         access: 'read_only',
         args: [
           { name: 'signer', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
           signer: TypedAbiArg<string, 'signer'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        bigint
+      >,
+      getSignerRewardsPerTokenSettledForCycle: {
+        name: 'get-signer-rewards-per-token-settled-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         bigint
       >,
@@ -5568,15 +6227,15 @@ export const contracts = {
         access: 'read_only',
         args: [
           { name: 'signer', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
           signer: TypedAbiArg<string, 'signer'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         bigint
       >,
@@ -5585,18 +6244,24 @@ export const contracts = {
         access: 'read_only',
         args: [
           { name: 'signer', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
           signer: TypedAbiArg<string, 'signer'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         bigint
       >,
+      getStakerCustodiedSbtc: {
+        name: 'get-staker-custodied-sbtc',
+        access: 'read_only',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[staker: TypedAbiArg<string, 'staker'>], bigint>,
       getStakerInfo: {
         name: 'get-staker-info',
         access: 'read_only',
@@ -5622,22 +6287,60 @@ export const contracts = {
           signer: string;
         } | null
       >,
+      getStakerRewardsPerTokenSettledForCycle: {
+        name: 'get-staker-rewards-per-token-settled-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+          { name: 'staker', type: 'principal' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+          staker: TypedAbiArg<string, 'staker'>,
+        ],
+        bigint
+      >,
       getStakerSharesStakedForCycle: {
         name: 'get-staker-shares-staked-for-cycle',
         access: 'read_only',
         args: [
           { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
           { name: 'signer', type: 'principal' },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
           signer: TypedAbiArg<string, 'signer'>,
+        ],
+        bigint
+      >,
+      getStakerUnclaimedRewardsForCycle: {
+        name: 'get-staker-unclaimed-rewards-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'signer', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+          { name: 'staker', type: 'principal' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          signer: TypedAbiArg<string, 'signer'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+          staker: TypedAbiArg<string, 'staker'>,
         ],
         bigint
       >,
@@ -5660,14 +6363,14 @@ export const contracts = {
         name: 'get-total-shares-staked-for-cycle',
         access: 'read_only',
         args: [
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         bigint
       >,
@@ -5688,6 +6391,21 @@ export const contracts = {
       } as TypedAbiFunction<
         [rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>],
         bigint
+      >,
+      hasAnnouncedL1EarlyExit: {
+        name: 'has-announced-l1-early-exit',
+        access: 'read_only',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'staker', type: 'principal' },
+        ],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          staker: TypedAbiArg<string, 'staker'>,
+        ],
+        boolean
       >,
       isBondActiveAtHeight: {
         name: 'is-bond-active-at-height',
@@ -5910,15 +6628,6 @@ export const contracts = {
         [cycle: TypedAbiArg<number | bigint, 'cycle'>],
         bigint
       >,
-      rewardCycleToUnlockHeight: {
-        name: 'reward-cycle-to-unlock-height',
-        access: 'read_only',
-        args: [{ name: 'cycle', type: 'uint128' }],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
-        bigint
-      >,
       serializeCScriptNum: {
         name: 'serialize-c-script-num',
         access: 'read_only',
@@ -6013,11 +6722,28 @@ export const contracts = {
         },
         bigint
       >,
+      protocolBondL1EarlyExitAnnounced: {
+        name: 'protocol-bond-l1-early-exit-announced',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: 'uint128' },
+            { name: 'staker', type: 'principal' },
+          ],
+        },
+        value: 'bool',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint;
+          staker: string;
+        },
+        boolean
+      >,
       protocolBondMemberships: {
         name: 'protocol-bond-memberships',
         key: 'principal',
         value: {
           tuple: [
+            { name: 'amount-sats', type: 'uint128' },
             { name: 'amount-ustx', type: 'uint128' },
             { name: 'bond-index', type: 'uint128' },
             { name: 'is-l1-lock', type: 'bool' },
@@ -6027,6 +6753,7 @@ export const contracts = {
       } as TypedAbiMap<
         string,
         {
+          amountSats: bigint;
           amountUstx: bigint;
           bondIndex: bigint;
           isL1Lock: boolean;
@@ -6038,7 +6765,6 @@ export const contracts = {
         key: 'uint128',
         value: {
           tuple: [
-            { name: 'early-unlock-admin', type: 'principal' },
             { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
             { name: 'min-ustx-ratio', type: 'uint128' },
             { name: 'stx-value-ratio', type: 'uint128' },
@@ -6048,7 +6774,6 @@ export const contracts = {
       } as TypedAbiMap<
         number | bigint,
         {
-          earlyUnlockAdmin: string;
           earlyUnlockBytes: Uint8Array;
           minUstxRatio: bigint;
           stxValueRatio: bigint;
@@ -6064,15 +6789,15 @@ export const contracts = {
         name: 'rewards-per-token-for-cycle',
         key: {
           tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
           ],
         },
         value: 'uint128',
       } as TypedAbiMap<
         {
-          index: number | bigint;
-          isBond: boolean;
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
         },
         bigint
       >,
@@ -6124,20 +6849,38 @@ export const contracts = {
         },
         bigint
       >,
-      signerRewardsPerTokenSettledForCycle: {
-        name: 'signer-rewards-per-token-settled-for-cycle',
+      signerRewardsPerTokenForCycle: {
+        name: 'signer-rewards-per-token-for-cycle',
         key: {
           tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
             { name: 'signer', type: 'principal' },
           ],
         },
         value: 'uint128',
       } as TypedAbiMap<
         {
-          index: number | bigint;
-          isBond: boolean;
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
+          signer: string;
+        },
+        bigint
+      >,
+      signerRewardsPerTokenSettledForCycle: {
+        name: 'signer-rewards-per-token-settled-for-cycle',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
+            { name: 'signer', type: 'principal' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
           signer: string;
         },
         bigint
@@ -6180,16 +6923,16 @@ export const contracts = {
         name: 'signer-shares-staked-for-cycle',
         key: {
           tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
             { name: 'signer', type: 'principal' },
           ],
         },
         value: 'uint128',
       } as TypedAbiMap<
         {
-          index: number | bigint;
-          isBond: boolean;
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
           signer: string;
         },
         bigint
@@ -6198,16 +6941,16 @@ export const contracts = {
         name: 'signer-unclaimed-rewards-for-cycle',
         key: {
           tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
             { name: 'signer', type: 'principal' },
           ],
         },
         value: 'uint128',
       } as TypedAbiMap<
         {
-          index: number | bigint;
-          isBond: boolean;
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
           signer: string;
         },
         bigint
@@ -6237,12 +6980,12 @@ export const contracts = {
           signer: string;
         }
       >,
-      stakerSharesStakedForCycle: {
-        name: 'staker-shares-staked-for-cycle',
+      stakerRewardsPerTokenSettledForCycle: {
+        name: 'staker-rewards-per-token-settled-for-cycle',
         key: {
           tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
             { name: 'signer', type: 'principal' },
             { name: 'staker', type: 'principal' },
           ],
@@ -6250,8 +6993,28 @@ export const contracts = {
         value: 'uint128',
       } as TypedAbiMap<
         {
-          index: number | bigint;
-          isBond: boolean;
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
+          signer: string;
+          staker: string;
+        },
+        bigint
+      >,
+      stakerSharesStakedForCycle: {
+        name: 'staker-shares-staked-for-cycle',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
+            { name: 'signer', type: 'principal' },
+            { name: 'staker', type: 'principal' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
           signer: string;
           staker: string;
         },
@@ -6281,19 +7044,39 @@ export const contracts = {
           signer: string;
         }
       >,
-      totalSharesStakedForCycle: {
-        name: 'total-shares-staked-for-cycle',
+      stakerUnclaimedRewardsForCycle: {
+        name: 'staker-unclaimed-rewards-for-cycle',
         key: {
           tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
+            { name: 'signer', type: 'principal' },
+            { name: 'staker', type: 'principal' },
           ],
         },
         value: 'uint128',
       } as TypedAbiMap<
         {
-          index: number | bigint;
-          isBond: boolean;
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
+          signer: string;
+          staker: string;
+        },
+        bigint
+      >,
+      totalSharesStakedForCycle: {
+        name: 'total-shares-staked-for-cycle',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
         },
         bigint
       >,
@@ -6452,6 +7235,26 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_DUPLICATE_LOCKUP_OUTPOINT: {
+        name: 'ERR_DUPLICATE_LOCKUP_OUTPOINT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INSUFFICIENT_RESERVE_BALANCE: {
+        name: 'ERR_INSUFFICIENT_RESERVE_BALANCE',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INSUFFICIENT_STX: {
         name: 'ERR_INSUFFICIENT_STX',
         type: {
@@ -6474,6 +7277,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_BTC_HEADER: {
         name: 'ERR_INVALID_BTC_HEADER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_LOCKUP_AMOUNT: {
+        name: 'ERR_INVALID_LOCKUP_AMOUNT',
         type: {
           response: {
             ok: 'none',
@@ -6562,6 +7375,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      eRR_L1_EARLY_EXIT_ALREADY_ANNOUNCED: {
+        name: 'ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NOT_ALLOWLISTED: {
         name: 'ERR_NOT_ALLOWLISTED',
         type: {
@@ -6612,6 +7435,26 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_REENTRANT_CALL: {
+        name: 'ERR_REENTRANT_CALL',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_ROLLOVER_TOO_EARLY: {
+        name: 'ERR_ROLLOVER_TOO_EARLY',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_SIGNER_KEY_GRANT_NOT_FOUND: {
         name: 'ERR_SIGNER_KEY_GRANT_NOT_FOUND',
         type: {
@@ -6644,6 +7487,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_STAKER_ALREADY_ADDED: {
         name: 'ERR_STAKER_ALREADY_ADDED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_STAKE_IN_PREPARE_PHASE: {
+        name: 'ERR_STAKE_IN_PREPARE_PHASE',
         type: {
           response: {
             ok: 'none',
@@ -6841,6 +7694,11 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      signerManagerCallActive: {
+        name: 'signer-manager-call-active',
+        type: 'bool',
+        access: 'variable',
+      } as TypedAbiVariable<boolean>,
       totalSbtcStaked: {
         name: 'total-sbtc-staked',
         type: 'uint128',
@@ -6898,6 +7756,14 @@ export const contracts = {
         isOk: false,
         value: 30n,
       },
+      ERR_DUPLICATE_LOCKUP_OUTPOINT: {
+        isOk: false,
+        value: 46n,
+      },
+      ERR_INSUFFICIENT_RESERVE_BALANCE: {
+        isOk: false,
+        value: 51n,
+      },
       ERR_INSUFFICIENT_STX: {
         isOk: false,
         value: 8n,
@@ -6909,6 +7775,10 @@ export const contracts = {
       ERR_INVALID_BTC_HEADER: {
         isOk: false,
         value: 40n,
+      },
+      ERR_INVALID_LOCKUP_AMOUNT: {
+        isOk: false,
+        value: 45n,
       },
       ERR_INVALID_LOCKUP_SCRIPT: {
         isOk: false,
@@ -6942,6 +7812,10 @@ export const contracts = {
         isOk: false,
         value: 37n,
       },
+      eRR_L1_EARLY_EXIT_ALREADY_ANNOUNCED: {
+        isOk: false,
+        value: 50n,
+      },
       ERR_NOT_ALLOWLISTED: {
         isOk: false,
         value: 11n,
@@ -6962,6 +7836,14 @@ export const contracts = {
         isOk: false,
         value: 39n,
       },
+      ERR_REENTRANT_CALL: {
+        isOk: false,
+        value: 49n,
+      },
+      ERR_ROLLOVER_TOO_EARLY: {
+        isOk: false,
+        value: 48n,
+      },
       ERR_SIGNER_KEY_GRANT_NOT_FOUND: {
         isOk: false,
         value: 17n,
@@ -6977,6 +7859,10 @@ export const contracts = {
       ERR_STAKER_ALREADY_ADDED: {
         isOk: false,
         value: 5n,
+      },
+      ERR_STAKE_IN_PREPARE_PHASE: {
+        isOk: false,
+        value: 47n,
       },
       ERR_TOO_MUCH_SATS: {
         isOk: false,
@@ -7024,12 +7910,13 @@ export const contracts = {
       poxPrepareCycleLength: 50n,
       poxRewardCycleLength: 1_050n,
       reserveBalance: 0n,
+      signerManagerCallActive: false,
       totalSbtcStaked: 0n,
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'pox-5',
   },
   pox_4_test: {
@@ -8827,96 +9714,14 @@ export const contracts = {
         args: [],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<[], Response<boolean, bigint>>,
-      checkpointStakerForIndex: {
-        name: 'checkpoint-staker-for-index',
+      authorizePox5: {
+        name: 'authorize-pox-5',
         access: 'private',
-        args: [
-          { name: 'index-offset', type: 'uint128' },
-          {
-            name: 'acc-res',
-            type: {
-              response: {
-                ok: {
-                  tuple: [
-                    { name: 'first-index', type: 'uint128' },
-                    { name: 'is-bond', type: 'bool' },
-                    { name: 'staker', type: 'principal' },
-                  ],
-                },
-                error: 'uint128',
-              },
-            },
-          },
-        ],
-        outputs: {
-          type: {
-            response: {
-              ok: {
-                tuple: [
-                  { name: 'first-index', type: 'uint128' },
-                  { name: 'is-bond', type: 'bool' },
-                  { name: 'staker', type: 'principal' },
-                ],
-              },
-              error: 'uint128',
-            },
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          indexOffset: TypedAbiArg<number | bigint, 'indexOffset'>,
-          accRes: TypedAbiArg<
-            Response<
-              {
-                firstIndex: number | bigint;
-                isBond: boolean;
-                staker: string;
-              },
-              number | bigint
-            >,
-            'accRes'
-          >,
-        ],
-        Response<
-          {
-            firstIndex: bigint;
-            isBond: boolean;
-            staker: string;
-          },
-          bigint
-        >
-      >,
-      settleStakerRewards: {
-        name: 'settle-staker-rewards',
-        access: 'private',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: {
-          type: {
-            tuple: [
-              { name: 'earned', type: 'uint128' },
-              { name: 'fees', type: 'uint128' },
-              { name: 'rewards-per-token', type: 'uint128' },
-            ],
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        {
-          earned: bigint;
-          fees: bigint;
-          rewardsPerToken: bigint;
-        }
-      >,
-      updateBondRewardsInfo: {
-        name: 'update-bond-rewards-info',
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
+      snapshotBondFee: {
+        name: 'snapshot-bond-fee',
         access: 'private',
         args: [
           {
@@ -8929,9 +9734,9 @@ export const contracts = {
               ],
             },
           },
-          { name: 'acc', type: 'bool' },
+          { name: 'reward-cycle', type: 'uint128' },
         ],
-        outputs: { type: 'bool' },
+        outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
           bondInfo: TypedAbiArg<
@@ -8942,45 +9747,9 @@ export const contracts = {
             },
             'bondInfo'
           >,
-          acc: TypedAbiArg<boolean, 'acc'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
         ],
-        boolean
-      >,
-      updateRewardsInfo: {
-        name: 'update-rewards-info',
-        access: 'private',
-        args: [
-          { name: 'rewards-per-share', type: 'uint128' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: { type: 'bool' },
-      } as TypedAbiFunction<
-        [
-          rewardsPerShare: TypedAbiArg<number | bigint, 'rewardsPerShare'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        boolean
-      >,
-      checkpointStaker: {
-        name: 'checkpoint-staker',
-        access: 'public',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'first-index', type: 'uint128' },
-          { name: 'num-indexes', type: 'uint128' },
-          { name: 'is-bond', type: 'bool' },
-        ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          firstIndex: TypedAbiArg<number | bigint, 'firstIndex'>,
-          numIndexes: TypedAbiArg<number | bigint, 'numIndexes'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-        ],
-        Response<boolean, bigint>
+        bigint
       >,
       claimRewards: {
         name: 'claim-rewards',
@@ -9056,17 +9825,26 @@ export const contracts = {
         access: 'public',
         args: [
           { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         Response<bigint, bigint>
+      >,
+      reclaimFailedWithdrawal: {
+        name: 'reclaim-failed-withdrawal',
+        access: 'public',
+        args: [{ name: 'request-id', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [requestId: TypedAbiArg<number | bigint, 'requestId'>],
+        Response<boolean, bigint>
       >,
       registerSelf: {
         name: 'register-self',
@@ -9104,6 +9882,24 @@ export const contracts = {
           },
           bigint
         >
+      >,
+      settleAcceptedWithdrawal: {
+        name: 'settle-accepted-withdrawal',
+        access: 'public',
+        args: [{ name: 'request-id', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [requestId: TypedAbiArg<number | bigint, 'requestId'>],
+        Response<boolean, bigint>
+      >,
+      sweepFeeRefunds: {
+        name: 'sweep-fee-refunds',
+        access: 'public',
+        args: [{ name: 'recipient', type: 'principal' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [recipient: TypedAbiArg<string, 'recipient'>],
+        Response<bigint, bigint>
       >,
       updateAdmin: {
         name: 'update-admin',
@@ -9157,6 +9953,21 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      withdrawFees: {
+        name: 'withdraw-fees',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+        ],
+        Response<bigint, bigint>
+      >,
       checkPoxAddr: {
         name: 'check-pox-addr',
         access: 'read_only',
@@ -9184,13 +9995,19 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      getEarnedFees: {
+        name: 'get-earned-fees',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       getEarnedStakerRewards: {
         name: 'get-earned-staker-rewards',
         access: 'read_only',
         args: [
           { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: {
           type: {
@@ -9203,13 +10020,28 @@ export const contracts = {
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         {
           earned: bigint;
           fees: bigint;
         }
+      >,
+      getFeeBipsForCycle: {
+        name: 'get-fee-bips-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        bigint
       >,
       getPoxAddr: {
         name: 'get-pox-addr',
@@ -9243,55 +10075,18 @@ export const contracts = {
           };
         } | null
       >,
-      getRewardsPerTokenForCycle: {
-        name: 'get-rewards-per-token-for-cycle',
+      getUnclaimedStakerRewards: {
+        name: 'get-unclaimed-staker-rewards',
         access: 'read_only',
-        args: [
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
+        args: [],
         outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        bigint
-      >,
-      getStakerRewardsPerTokenPaidForCycle: {
-        name: 'get-staker-rewards-per-token-paid-for-cycle',
+      } as TypedAbiFunction<[], bigint>,
+      getWithdrawalLiability: {
+        name: 'get-withdrawal-liability',
         access: 'read_only',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
+        args: [],
         outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        bigint
-      >,
-      getStakerUnclaimedRewardsForCycle: {
-        name: 'get-staker-unclaimed-rewards-for-cycle',
-        access: 'read_only',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        bigint
-      >,
+      } as TypedAbiFunction<[], bigint>,
       getWithdrawalRequestStaker: {
         name: 'get-withdrawal-request-staker',
         access: 'read_only',
@@ -9314,6 +10109,22 @@ export const contracts = {
         key: 'principal',
         value: 'bool',
       } as TypedAbiMap<string, boolean>,
+      feeBipsForCycle: {
+        name: 'fee-bips-for-cycle',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
+        },
+        bigint
+      >,
       poxAddrs: {
         name: 'pox-addrs',
         key: 'principal',
@@ -9341,58 +10152,6 @@ export const contracts = {
           };
         }
       >,
-      rewardsPerTokenForCycle: {
-        name: 'rewards-per-token-for-cycle',
-        key: {
-          tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
-          ],
-        },
-        value: 'uint128',
-      } as TypedAbiMap<
-        {
-          index: number | bigint;
-          isBond: boolean;
-        },
-        bigint
-      >,
-      stakerRewardsPerTokenSettledForCycle: {
-        name: 'staker-rewards-per-token-settled-for-cycle',
-        key: {
-          tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
-            { name: 'staker', type: 'principal' },
-          ],
-        },
-        value: 'uint128',
-      } as TypedAbiMap<
-        {
-          index: number | bigint;
-          isBond: boolean;
-          staker: string;
-        },
-        bigint
-      >,
-      stakerUnclaimedRewardsForCycle: {
-        name: 'staker-unclaimed-rewards-for-cycle',
-        key: {
-          tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
-            { name: 'staker', type: 'principal' },
-          ],
-        },
-        value: 'uint128',
-      } as TypedAbiMap<
-        {
-          index: number | bigint;
-          isBond: boolean;
-          staker: string;
-        },
-        bigint
-      >,
       withdrawalRequests: {
         name: 'withdrawal-requests',
         key: 'uint128',
@@ -9400,6 +10159,16 @@ export const contracts = {
       } as TypedAbiMap<number | bigint, string>,
     },
     variables: {
+      ERR_INSUFFICIENT_FEES: {
+        name: 'ERR_INSUFFICIENT_FEES',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_CALLDATA: {
         name: 'ERR_INVALID_CALLDATA',
         type: {
@@ -9440,8 +10209,58 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NO_REFUNDS: {
+        name: 'ERR_NO_REFUNDS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_UNAUTHORIZED_ADMIN: {
         name: 'ERR_UNAUTHORIZED_ADMIN',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNAUTHORIZED_CALLER: {
+        name: 'ERR_UNAUTHORIZED_CALLER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNKNOWN_WITHDRAWAL_REQUEST: {
+        name: 'ERR_UNKNOWN_WITHDRAWAL_REQUEST',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_WITHDRAWAL_NOT_ACCEPTED: {
+        name: 'ERR_WITHDRAWAL_NOT_ACCEPTED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_WITHDRAWAL_NOT_REJECTED: {
+        name: 'ERR_WITHDRAWAL_NOT_REJECTED',
         type: {
           response: {
             ok: 'none',
@@ -9465,11 +10284,6 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
-      PRECISION: {
-        name: 'PRECISION',
-        type: 'uint128',
-        access: 'constant',
-      } as TypedAbiVariable<bigint>,
       earnedFees: {
         name: 'earned-fees',
         type: 'uint128',
@@ -9480,8 +10294,22 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      unclaimedStakerRewards: {
+        name: 'unclaimed-staker-rewards',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      withdrawalLiability: {
+        name: 'withdrawal-liability',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
     },
     constants: {
+      ERR_INSUFFICIENT_FEES: {
+        isOk: false,
+        value: 1_007n,
+      },
       ERR_INVALID_CALLDATA: {
         isOk: false,
         value: 1_003n,
@@ -9498,21 +10326,42 @@ export const contracts = {
         isOk: false,
         value: 1_001n,
       },
+      ERR_NO_REFUNDS: {
+        isOk: false,
+        value: 1_010n,
+      },
       ERR_UNAUTHORIZED_ADMIN: {
         isOk: false,
         value: 1_002n,
       },
+      ERR_UNAUTHORIZED_CALLER: {
+        isOk: false,
+        value: 1_006n,
+      },
+      ERR_UNKNOWN_WITHDRAWAL_REQUEST: {
+        isOk: false,
+        value: 1_008n,
+      },
+      ERR_WITHDRAWAL_NOT_ACCEPTED: {
+        isOk: false,
+        value: 1_011n,
+      },
+      ERR_WITHDRAWAL_NOT_REJECTED: {
+        isOk: false,
+        value: 1_009n,
+      },
       MAX_ADDRESS_VERSION: 6n,
       mAX_ADDRESS_VERSION_BUFF_20: 4n,
       MAX_BIPS: 10_000n,
-      PRECISION: 1_000_000_000_000_000_000n,
       earnedFees: 0n,
       feesBips: 0n,
+      unclaimedStakerRewards: 0n,
+      withdrawalLiability: 0n,
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'signer-manager',
   },
   signers: {
@@ -10512,159 +11361,6 @@ export const contracts = {
   },
   testPox5Signer: {
     functions: {
-      checkpointStakerForIndex: {
-        name: 'checkpoint-staker-for-index',
-        access: 'private',
-        args: [
-          { name: 'index-offset', type: 'uint128' },
-          {
-            name: 'acc-res',
-            type: {
-              response: {
-                ok: {
-                  tuple: [
-                    { name: 'first-index', type: 'uint128' },
-                    { name: 'is-bond', type: 'bool' },
-                    { name: 'staker', type: 'principal' },
-                  ],
-                },
-                error: 'uint128',
-              },
-            },
-          },
-        ],
-        outputs: {
-          type: {
-            response: {
-              ok: {
-                tuple: [
-                  { name: 'first-index', type: 'uint128' },
-                  { name: 'is-bond', type: 'bool' },
-                  { name: 'staker', type: 'principal' },
-                ],
-              },
-              error: 'uint128',
-            },
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          indexOffset: TypedAbiArg<number | bigint, 'indexOffset'>,
-          accRes: TypedAbiArg<
-            Response<
-              {
-                firstIndex: number | bigint;
-                isBond: boolean;
-                staker: string;
-              },
-              number | bigint
-            >,
-            'accRes'
-          >,
-        ],
-        Response<
-          {
-            firstIndex: bigint;
-            isBond: boolean;
-            staker: string;
-          },
-          bigint
-        >
-      >,
-      settleStakerRewards: {
-        name: 'settle-staker-rewards',
-        access: 'private',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: {
-          type: {
-            tuple: [
-              { name: 'earned', type: 'uint128' },
-              { name: 'rewards-per-token', type: 'uint128' },
-            ],
-          },
-        },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        {
-          earned: bigint;
-          rewardsPerToken: bigint;
-        }
-      >,
-      updateBondRewardsInfo: {
-        name: 'update-bond-rewards-info',
-        access: 'private',
-        args: [
-          {
-            name: 'bond-info',
-            type: {
-              tuple: [
-                { name: 'bond-index', type: 'uint128' },
-                { name: 'earned', type: 'uint128' },
-                { name: 'rewards-per-token', type: 'uint128' },
-              ],
-            },
-          },
-          { name: 'acc', type: 'bool' },
-        ],
-        outputs: { type: 'bool' },
-      } as TypedAbiFunction<
-        [
-          bondInfo: TypedAbiArg<
-            {
-              bondIndex: number | bigint;
-              earned: number | bigint;
-              rewardsPerToken: number | bigint;
-            },
-            'bondInfo'
-          >,
-          acc: TypedAbiArg<boolean, 'acc'>,
-        ],
-        boolean
-      >,
-      updateRewardsInfo: {
-        name: 'update-rewards-info',
-        access: 'private',
-        args: [
-          { name: 'rewards-per-share', type: 'uint128' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: { type: 'bool' },
-      } as TypedAbiFunction<
-        [
-          rewardsPerShare: TypedAbiArg<number | bigint, 'rewardsPerShare'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        boolean
-      >,
-      checkpointStaker: {
-        name: 'checkpoint-staker',
-        access: 'public',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'first-index', type: 'uint128' },
-          { name: 'num-indexes', type: 'uint128' },
-          { name: 'is-bond', type: 'bool' },
-        ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          firstIndex: TypedAbiArg<number | bigint, 'firstIndex'>,
-          numIndexes: TypedAbiArg<number | bigint, 'numIndexes'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-        ],
-        Response<boolean, bigint>
-      >,
       claimRewards: {
         name: 'claim-rewards',
         access: 'public',
@@ -10738,14 +11434,14 @@ export const contracts = {
         name: 'claim-staker-rewards',
         access: 'public',
         args: [
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
       } as TypedAbiFunction<
         [
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         Response<bigint, bigint>
       >,
@@ -10819,122 +11515,20 @@ export const contracts = {
         access: 'read_only',
         args: [
           { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
         ],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        bigint
-      >,
-      getRewardsPerTokenForCycle: {
-        name: 'get-rewards-per-token-for-cycle',
-        access: 'read_only',
-        args: [
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        bigint
-      >,
-      getStakerRewardsPerTokenSettledForCycle: {
-        name: 'get-staker-rewards-per-token-settled-for-cycle',
-        access: 'read_only',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
-        ],
-        bigint
-      >,
-      getStakerUnclaimedRewardsForCycle: {
-        name: 'get-staker-unclaimed-rewards-for-cycle',
-        access: 'read_only',
-        args: [
-          { name: 'staker', type: 'principal' },
-          { name: 'is-bond', type: 'bool' },
-          { name: 'index', type: 'uint128' },
-        ],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [
-          staker: TypedAbiArg<string, 'staker'>,
-          isBond: TypedAbiArg<boolean, 'isBond'>,
-          index: TypedAbiArg<number | bigint, 'index'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         bigint
       >,
     },
-    maps: {
-      rewardsPerTokenForCycle: {
-        name: 'rewards-per-token-for-cycle',
-        key: {
-          tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
-          ],
-        },
-        value: 'uint128',
-      } as TypedAbiMap<
-        {
-          index: number | bigint;
-          isBond: boolean;
-        },
-        bigint
-      >,
-      stakerRewardsPerTokenSettledForCycle: {
-        name: 'staker-rewards-per-token-settled-for-cycle',
-        key: {
-          tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
-            { name: 'staker', type: 'principal' },
-          ],
-        },
-        value: 'uint128',
-      } as TypedAbiMap<
-        {
-          index: number | bigint;
-          isBond: boolean;
-          staker: string;
-        },
-        bigint
-      >,
-      stakerUnclaimedRewardsForCycle: {
-        name: 'staker-unclaimed-rewards-for-cycle',
-        key: {
-          tuple: [
-            { name: 'index', type: 'uint128' },
-            { name: 'is-bond', type: 'bool' },
-            { name: 'staker', type: 'principal' },
-          ],
-        },
-        value: 'uint128',
-      } as TypedAbiMap<
-        {
-          index: number | bigint;
-          isBond: boolean;
-          staker: string;
-        },
-        bigint
-      >,
-    },
+    maps: {},
     variables: {
       ERR_NO_CLAIMABLE_REWARDS: {
         name: 'ERR_NO_CLAIMABLE_REWARDS',
@@ -10946,23 +11540,17 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      PRECISION: {
-        name: 'PRECISION',
-        type: 'uint128',
-        access: 'constant',
-      } as TypedAbiVariable<bigint>,
     },
     constants: {
       ERR_NO_CLAIMABLE_REWARDS: {
         isOk: false,
         value: 1_001n,
       },
-      PRECISION: 1_000_000_000_000_000_000n,
     },
     non_fungible_tokens: [],
     fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
     contractName: 'test-pox-5-signer',
   },
 } as const;

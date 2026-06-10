@@ -359,8 +359,8 @@ export function assertStakerSharesForCycle(
     rov(
       real.contracts.pox5.getStakerSharesStakedForCycle(
         staker,
-        false,
         cycle,
+        null,
         signer,
       ),
     ),
