@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::types::{SequenceData, TupleData, Value};
+use clarity::vm::ClarityName;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use stacks_common::address::{b58, AddressHashMode};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
@@ -69,6 +70,61 @@ pub enum PoxAddress {
     /// representation.  This includes Bitcoin p2wsh and p2tr.
     /// Fields are (mainnet, address type ID, bytes)
     Addr32(bool, PoxAddressType32, [u8; 32]),
+}
+
+/// Serde serialization module for converting a PoxAddress
+/// to and from base58.
+///
+/// Example:
+///
+/// ```rust
+/// #[derive(Serialize, Deserialize)]
+/// struct MyStruct {
+///     #[serde(with = "pox_addr_b58_serde")]
+///     pox_address: PoxAddress,
+/// }
+/// ```
+pub mod pox_addr_b58_serde {
+    pub fn serialize<S: serde::Serializer>(
+        val: &super::PoxAddress,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        super::pox_addr_b58_serialize(val, s)
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deser: D,
+    ) -> Result<super::PoxAddress, D::Error> {
+        super::pox_addr_b58_deser(deser)
+    }
+}
+
+pub mod pox_addr_vec_b58_serde {
+    pub fn serialize<S: serde::Serializer>(
+        input: &Vec<super::PoxAddress>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = s.serialize_seq(Some(input.len()))?;
+        for addr in input {
+            seq.serialize_element(&addr.clone().to_b58())?;
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deser: D,
+    ) -> Result<Vec<super::PoxAddress>, D::Error> {
+        let strings: Vec<String> = serde::Deserialize::deserialize(deser)?;
+        strings
+            .into_iter()
+            .map(|s| {
+                super::PoxAddress::from_b58(&s).ok_or_else(|| {
+                    serde::de::Error::custom("Failed to decode PoxAddress from string")
+                })
+            })
+            .collect()
+    }
 }
 
 /// Serializes a PoxAddress as a B58 check encoded address or a bech32 address
@@ -315,8 +371,8 @@ impl PoxAddress {
                     .expect("FATAL: hash160 does not fit into a Clarity value");
 
                 let tuple_data = TupleData::from_data(vec![
-                    ("version".into(), version),
-                    ("hashbytes".into(), hashbytes),
+                    (ClarityName::from_literal("version"), version),
+                    (ClarityName::from_literal("hashbytes"), hashbytes),
                 ])
                 .expect("FATAL: cannot encode PoxAddress::Standard as a Clarity tuple");
 
@@ -328,8 +384,8 @@ impl PoxAddress {
                     .expect("FATAL: could not create a 20-byte buffer");
 
                 let tuple_data = TupleData::from_data(vec![
-                    ("version".into(), version),
-                    ("hashbytes".into(), hashbytes),
+                    (ClarityName::from_literal("version"), version),
+                    (ClarityName::from_literal("hashbytes"), hashbytes),
                 ])
                 .expect("FATAL: Cannot fit PoxAddress::Addr20 as a Clarity tuple");
 
@@ -341,8 +397,8 @@ impl PoxAddress {
                     .expect("FATAL: could not create a 32-byte buffer");
 
                 let tuple_data = TupleData::from_data(vec![
-                    ("version".into(), version),
-                    ("hashbytes".into(), hashbytes),
+                    (ClarityName::from_literal("version"), version),
+                    (ClarityName::from_literal("hashbytes"), hashbytes),
                 ])
                 .expect("FATAL: Cannot fit PoxAddress::Addr32 as a Clarity tuple");
 

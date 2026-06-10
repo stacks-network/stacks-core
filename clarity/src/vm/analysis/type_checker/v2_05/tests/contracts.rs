@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,17 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use assert_json_diff::assert_json_eq;
+use assert_json_diff::{self, assert_json_eq};
+use serde_json;
 use stacks_common::types::StacksEpochId;
-use {assert_json_diff, serde_json};
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::{mem_type_check, type_check};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::errors::StaticCheckErrorKind;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
@@ -492,7 +492,7 @@ fn test_names_tokens_contracts_bad() {
             )
         })
         .unwrap_err();
-    assert!(matches!(*err.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(*err.err, StaticCheckErrorKind::TypeError(_, _)));
 }
 
 #[test]
@@ -534,7 +534,7 @@ fn test_bad_map_usage() {
     for contract in tests.iter() {
         let err = mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
             .unwrap_err();
-        assert!(matches!(*err.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(*err.err, StaticCheckErrorKind::TypeError(_, _)));
     }
 
     assert!(matches!(
@@ -545,7 +545,7 @@ fn test_bad_map_usage() {
         )
         .unwrap_err()
         .err,
-        CheckErrors::UnionTypeError(_, _)
+        StaticCheckErrorKind::UnionTypeError(_, _)
     ));
 }
 
@@ -662,8 +662,11 @@ fn test_expects() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        eprintln!("unmatched_return_types returned check error: {err}");
-        assert!(matches!(*err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
+        eprintln!("unmatched_return_types returned: {err}");
+        assert!(matches!(
+            *err.err,
+            StaticCheckErrorKind::ReturnTypesMustMatch(_, _)
+        ));
     }
 
     let err = mem_type_check(
@@ -672,8 +675,11 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("bad_default_types returned check error: {err}");
-    assert!(matches!(*err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
+    eprintln!("bad_default_types returned: {err}");
+    assert!(matches!(
+        *err.err,
+        StaticCheckErrorKind::DefaultTypesMustMatch(_, _)
+    ));
 
     let err = mem_type_check(
         notype_response_type,
@@ -681,10 +687,10 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("notype_response_type returned check error: {err}");
+    eprintln!("notype_response_type returned: {err}");
     assert!(matches!(
         *err.err,
-        CheckErrors::CouldNotDetermineResponseErrType
+        StaticCheckErrorKind::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(
@@ -693,9 +699,9 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("notype_response_type_2 returned check error: {err}");
+    eprintln!("notype_response_type_2 returned: {err}");
     assert!(matches!(
         *err.err,
-        CheckErrors::CouldNotDetermineResponseOkType
+        StaticCheckErrorKind::CouldNotDetermineResponseOkType
     ));
 }

@@ -37,6 +37,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::core::*;
 #[cfg(test)]
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -51,13 +52,7 @@ pub mod indexer;
 #[cfg(test)]
 pub mod tests;
 
-pub struct Txid(pub [u8; 32]);
-impl_array_newtype!(Txid, u8, 32);
-impl_array_hexstring_fmt!(Txid);
-impl_byte_array_newtype!(Txid, u8, 32);
-impl_byte_array_message_codec!(Txid, 32);
-impl_byte_array_serde!(Txid);
-pub const TXID_ENCODED_SIZE: u32 = 32;
+pub use stacks_common::types::chainstate::{Txid, TXID_ENCODED_SIZE};
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
@@ -255,7 +250,7 @@ pub struct BurnchainBlockHeader {
     pub timestamp: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Burnchain {
     pub peer_version: u32,
     pub network_id: u32,
@@ -269,9 +264,10 @@ pub struct Burnchain {
     pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
     pub initial_reward_start_block: u64,
+    pub marf_opts: Option<MARFOpenOpts>,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,

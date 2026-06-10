@@ -1,4 +1,7 @@
 {
-  "message": "Could not process block proposal request: Proposal currently being evaluated",
-  "result": "Error"
+    "summary": "Block proposal rate limit error",
+    "value": {
+        "message": "Could not process block proposal request: Proposal currently being evaluated",
+        "result": "Error"
+    }
 }

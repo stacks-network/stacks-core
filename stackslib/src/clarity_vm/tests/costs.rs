@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,17 +24,19 @@ use clarity::vm::costs::{
     COSTS_4_NAME,
 };
 use clarity::vm::database::MemoryBackingStore;
-use clarity::vm::errors::Error;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{
-    execute, execute_on_network, symbols_from_values, TEST_BURN_STATE_DB, TEST_BURN_STATE_DB_21,
-    TEST_HEADER_DB,
+    execute, execute_on_network, generate_test_burn_state_db, symbols_from_values,
+    TEST_BURN_STATE_DB, TEST_BURN_STATE_DB_21, TEST_HEADER_DB,
 };
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
-use clarity::vm::{ClarityVersion, ContractName};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName};
 use lazy_static::lazy_static;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
@@ -86,7 +88,9 @@ pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
         BuffToUIntBe => "(buff-to-uint-be 0x00000000000000000000000000000001)",
         IsStandard => "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
         PrincipalDestruct => "(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
-        PrincipalConstruct => "(principal-construct? 0x1a 0x164247d6f2b425ac5771423ae6c80c754f7172b0)",
+        PrincipalConstruct => {
+            "(principal-construct? 0x1a 0x164247d6f2b425ac5771423ae6c80c754f7172b0)"
+        }
         StringToInt => r#"(string-to-int? "-1")"#,
         StringToUInt => r#"(string-to-uint? "1")"#,
         IntToAscii => r#"(int-to-ascii 1)"#,
@@ -114,12 +118,18 @@ pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
         Sha512 => "(sha512 1)",
         Sha512Trunc256 => "(sha512/256 1)",
         Keccak256 => "(keccak256 1)",
-        Secp256k1Recover => "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)",
-        Secp256k1Verify => "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        Secp256k1Recover => {
+            "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)"
+        }
+        Secp256k1Verify => {
+            "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)"
+        }
         Print => "(print 1)",
         ContractCall => "(contract-call? .contract-other foo-exec 1)",
         ContractOf => "(contract-of contract)",
-        PrincipalOf => "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        PrincipalOf => {
+            "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)"
+        }
         AsContract => "(as-contract 1)",
         GetBlockInfo => "(get-block-info? time u1)",
         GetBurnBlockInfo => "(get-burn-block-info? header-hash u1)",
@@ -142,15 +152,25 @@ pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
         MintToken => "(nft-mint? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         GetTokenBalance => "(ft-get-balance ft-foo 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         GetAssetOwner => "(nft-get-owner? nft-foo 1)",
-        TransferToken => "(ft-transfer? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        TransferAsset => "(nft-transfer? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        TransferToken => {
+            "(ft-transfer? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
+        }
+        TransferAsset => {
+            "(nft-transfer? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
+        }
         BurnToken => "(ft-burn? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         BurnAsset => "(nft-burn? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         GetTokenSupply => "(ft-get-supply ft-foo)",
-        AtBlock => "(at-block 0x55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee 1)",   // first stacksblockid
+        AtBlock => {
+            "(at-block 0x55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee 1)"
+        } // first stacksblockid
         GetStxBalance => "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        StxTransfer => r#"(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
-        StxTransferMemo => r#"(stx-transfer-memo? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x89995432)"#,
+        StxTransfer => {
+            r#"(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#
+        }
+        StxTransferMemo => {
+            r#"(stx-transfer-memo? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x89995432)"#
+        }
         StxBurn => "(stx-burn? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxGetAccount => "(stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         BitwiseAnd => "(bit-and 2 3)",
@@ -169,9 +189,14 @@ pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
         ToAscii => "(to-ascii? 65)",
         RestrictAssets => "(restrict-assets? tx-sender () (+ u1 u2))",
         AsContractSafe => "(as-contract? () (+ u1 u2))",
+        Secp256r1Verify => "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8 0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd310eac59293c23e6d6aa8b0c5d9e4e48fa4c4fdf1ace2ba618dc0263b5e90a0903 0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e)",
         // These expressions are not usable in this context, since they are
         // only allowed within `restrict-assets?` or `as-contract?`
-        AllowanceWithStx | AllowanceWithFt | AllowanceWithNft | AllowanceWithStacking | AllowanceAll => return None,
+        AllowanceWithStx
+        | AllowanceWithFt
+        | AllowanceWithNft
+        | AllowanceWithStacking
+        | AllowanceAll => return None,
     };
     Some(s)
 }
@@ -182,7 +207,7 @@ fn execute_transaction(
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
     args: &[SymbolicExpression],
-) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
@@ -207,36 +232,40 @@ where
     let mut tip = first_block.clone();
 
     if epoch >= StacksEpochId::Epoch2_05 {
+        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch2_05);
         let next_block = StacksBlockId([1; 32]);
         let mut clarity_conn =
-            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
         clarity_conn.initialize_epoch_2_05().unwrap();
         clarity_conn.commit_block();
         tip = next_block.clone();
     }
 
     if epoch >= StacksEpochId::Epoch21 {
+        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch21);
         let next_block = StacksBlockId([2; 32]);
         let mut clarity_conn =
-            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
         clarity_conn.initialize_epoch_2_1().unwrap();
         clarity_conn.commit_block();
         tip = next_block.clone();
     }
 
     if epoch >= StacksEpochId::Epoch30 {
+        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch30);
         let next_block = StacksBlockId([3; 32]);
         let mut clarity_conn =
-            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
         clarity_conn.initialize_epoch_3_0().unwrap();
         clarity_conn.commit_block();
         tip = next_block.clone();
     }
 
     if epoch >= StacksEpochId::Epoch33 {
+        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch33);
         let next_block = StacksBlockId([4; 32]);
         let mut clarity_conn =
-            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
         clarity_conn.initialize_epoch_3_3().unwrap();
         clarity_conn.commit_block();
         tip = next_block.clone();
@@ -244,10 +273,11 @@ where
 
     let mut marf_kv = clarity_instance.destroy();
 
+    let burn_state_db = generate_test_burn_state_db(epoch);
     let mut store = marf_kv.begin(&tip, &StacksBlockId([5; 32]));
 
     to_do(OwnedEnvironment::new_max_limit(
-        store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+        store.as_clarity_db(&TEST_HEADER_DB, &burn_state_db),
         epoch,
         use_mainnet,
     ))
@@ -258,7 +288,8 @@ fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> Executi
     let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
         panic!("Expected a standard principal data");
     };
-    let contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
+    let contract_id =
+        QualifiedContractIdentifier::new(p1_principal.clone(), ContractName::from_literal("self"));
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
@@ -883,9 +914,14 @@ fn setup_cost_tracked_test_with_db(
         panic!("Expected a principal data");
     };
 
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
+    let other_contract_id = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("contract-other"),
+    );
+    let trait_contract_id = QualifiedContractIdentifier::new(
+        p1_principal,
+        ContractName::from_literal("contract-trait"),
+    );
 
     owned_env
         .initialize_versioned_contract_with_db(
@@ -1036,7 +1072,10 @@ fn test_program_cost_with_db(
         p1_principal.clone(),
         ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
     );
-    let other_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-other".into());
+    let other_contract_id = QualifiedContractIdentifier::new(
+        p1_principal,
+        ContractName::from_literal("contract-other"),
+    );
 
     owned_env
         .initialize_versioned_contract_with_db(
@@ -1328,10 +1367,16 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         panic!("Expected a principal data");
     };
 
-    let cost_definer =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".into());
-    let intercepted = QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".into());
-    let caller = QualifiedContractIdentifier::new(p1_principal, "caller".into());
+    let cost_definer = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("cost-definer"),
+    );
+    let intercepted = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("intercepted"),
+    );
+    let caller =
+        QualifiedContractIdentifier::new(p1_principal, ContractName::from_literal("caller"));
 
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
@@ -1572,14 +1617,26 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         panic!("Expected a principal data");
     };
 
-    let cost_definer =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".into());
-    let bad_cost_definer =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "bad-cost-definer".into());
-    let bad_cost_args_definer =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "bad-cost-args-definer".into());
-    let intercepted = QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".into());
-    let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
+    let cost_definer = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("cost-definer"),
+    );
+    let bad_cost_definer = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("bad-cost-definer"),
+    );
+    let bad_cost_args_definer = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("bad-cost-args-definer"),
+    );
+    let intercepted = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("intercepted"),
+    );
+    let caller = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("caller"),
+    );
 
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
@@ -1917,8 +1974,14 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         let circuits = tracker.contract_call_circuits();
         assert_eq!(circuits.len(), 2);
 
-        let circuit1 = circuits.get(&(intercepted.clone(), "intercepted-function".into()));
-        let circuit2 = circuits.get(&(intercepted, "intercepted-function2".into()));
+        let circuit1 = circuits.get(&(
+            intercepted.clone(),
+            ClarityName::from_literal("intercepted-function"),
+        ));
+        let circuit2 = circuits.get(&(
+            intercepted,
+            ClarityName::from_literal("intercepted-function2"),
+        ));
 
         assert!(circuit1.is_some());
         assert!(circuit2.is_some());
@@ -1962,4 +2025,177 @@ fn test_cost_voting_integration_mainnet() {
 fn test_cost_voting_integration_testnet() {
     test_cost_voting_integration(false, ClarityVersion::Clarity1);
     test_cost_voting_integration(false, ClarityVersion::Clarity2);
+}
+
+#[test]
+fn test_cost_change() {
+    let use_mainnet = false;
+
+    let result_32_small = with_owned_env(StacksEpochId::Epoch32, use_mainnet, |mut owned_env| {
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity3,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let contract = "(define-read-only (execute (bytes (buff 4096))) bytes)";
+
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        owned_env
+            .initialize_versioned_contract(
+                contract_id.clone(),
+                ClarityVersion::Clarity4,
+                &contract,
+                None,
+            )
+            .unwrap();
+
+        let start = owned_env.get_cost_total();
+
+        execute_transaction(
+            &mut owned_env,
+            StandardPrincipalData::transient().into(),
+            &contract_id,
+            "execute",
+            &symbols_from_values(vec![Value::buff_from_byte(0)]),
+        )
+        .unwrap();
+
+        let mut result = owned_env.get_cost_total();
+        result.sub(&start).unwrap();
+        result
+    });
+
+    let result_32_large = with_owned_env(StacksEpochId::Epoch32, use_mainnet, |mut owned_env| {
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity3,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let contract = "(define-read-only (execute (bytes (buff 8192))) bytes)";
+
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        owned_env
+            .initialize_versioned_contract(
+                contract_id.clone(),
+                ClarityVersion::Clarity4,
+                &contract,
+                None,
+            )
+            .unwrap();
+
+        let start = owned_env.get_cost_total();
+
+        execute_transaction(
+            &mut owned_env,
+            StandardPrincipalData::transient().into(),
+            &contract_id,
+            "execute",
+            &symbols_from_values(vec![Value::buff_from_byte(0)]),
+        )
+        .unwrap();
+
+        let mut result = owned_env.get_cost_total();
+        result.sub(&start).unwrap();
+        result
+    });
+
+    assert!(result_32_large.exceeds(&result_32_small));
+
+    let result_33_small = with_owned_env(StacksEpochId::Epoch33, use_mainnet, |mut owned_env| {
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity4,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let contract = "(define-read-only (execute (bytes (buff 4096))) bytes)";
+
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        owned_env
+            .initialize_versioned_contract(
+                contract_id.clone(),
+                ClarityVersion::Clarity4,
+                &contract,
+                None,
+            )
+            .unwrap();
+
+        let start = owned_env.get_cost_total();
+
+        execute_transaction(
+            &mut owned_env,
+            StandardPrincipalData::transient().into(),
+            &contract_id,
+            "execute",
+            &symbols_from_values(vec![Value::buff_from_byte(0)]),
+        )
+        .unwrap();
+
+        let mut result = owned_env.get_cost_total();
+        result.sub(&start).unwrap();
+        result
+    });
+
+    let result_33_large = with_owned_env(StacksEpochId::Epoch33, use_mainnet, |mut owned_env| {
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity4,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let contract = "(define-read-only (execute (bytes (buff 8192))) bytes)";
+
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        owned_env
+            .initialize_versioned_contract(
+                contract_id.clone(),
+                ClarityVersion::Clarity4,
+                &contract,
+                None,
+            )
+            .unwrap();
+
+        let start = owned_env.get_cost_total();
+
+        execute_transaction(
+            &mut owned_env,
+            StandardPrincipalData::transient().into(),
+            &contract_id,
+            "execute",
+            &symbols_from_values(vec![Value::buff_from_byte(0)]),
+        )
+        .unwrap();
+
+        let mut result = owned_env.get_cost_total();
+        result.sub(&start).unwrap();
+        result
+    });
+
+    assert_eq!(result_33_large, result_33_small);
 }

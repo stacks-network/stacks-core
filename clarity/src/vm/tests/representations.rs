@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,11 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::ClarityTypeError;
+use pinny::tag;
 use proptest::prelude::*;
 use proptest::string::string_regex;
 use stacks_common::codec::StacksMessageCodec;
 
-use crate::vm::errors::RuntimeErrorType;
 use crate::vm::representations::{
     CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
     CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN,
@@ -67,6 +68,7 @@ fn any_valid_clarity_name() -> impl Strategy<Value = String> {
     prop_oneof![letter_names, single_ops, comparison_ops]
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_clarity_name_valid_patterns() {
     proptest!(|(name in any_valid_clarity_name())| {
@@ -157,18 +159,20 @@ fn any_invalid_clarity_name() -> impl Strategy<Value = String> {
     ]
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_clarity_name_invalid_patterns() {
     proptest!(|(name in any_invalid_clarity_name())| {
         let result = ClarityName::try_from(name.clone());
-        prop_assert!(result.is_err(), "Expected invalid name '{}' to be rejected", name);
+        prop_assert!(result.is_err(), "Expected invalid name '{name}' to be rejected");
         prop_assert!(matches!(
             result.unwrap_err(),
-            RuntimeErrorType::BadNameValue(_, _)
-        ), "Expected BadNameValue error for invalid name '{}'", name);
+            ClarityTypeError::InvalidClarityName(_)
+        ), "Expected BadNameValue error for invalid name '{name}'");
     });
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_clarity_name_roundtrip() {
     proptest!(|(s in any_valid_clarity_name())| {
@@ -217,6 +221,7 @@ fn any_valid_contract_name() -> impl Strategy<Value = String> {
     ]
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_contract_name_valid_patterns() {
     proptest!(|(name in any_valid_contract_name())| {
@@ -295,18 +300,20 @@ fn any_invalid_contract_name() -> impl Strategy<Value = String> {
     ]
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_contract_name_invalid_patterns() {
     proptest!(|(name in any_invalid_contract_name())| {
         let result = ContractName::try_from(name.clone());
-        prop_assert!(result.is_err(), "Expected invalid contract name '{}' to be rejected", name);
+        prop_assert!(result.is_err(), "Expected invalid contract name '{name}' to be rejected");
         prop_assert!(matches!(
             result.unwrap_err(),
-            RuntimeErrorType::BadNameValue(_, _)
-        ), "Expected BadNameValue error for invalid contract name '{}'", name);
+            ClarityTypeError::InvalidContractName(_)
+        ), "Expected BadNameValue error for invalid contract name '{name}'");
     });
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_contract_name_roundtrip() {
     proptest!(|(s in any_valid_contract_name())| {
@@ -323,6 +330,7 @@ fn prop_contract_name_roundtrip() {
     });
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_contract_name_length_bounds() {
     proptest!(|(extra in 0usize..3)| {

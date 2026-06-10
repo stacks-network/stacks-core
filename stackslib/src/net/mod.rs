@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::{error, fmt, io};
 
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::{ClarityTypeError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::{Error as libstackerdb_error, StackerDBChunkData};
 use p2p::{DropReason, DropSource};
@@ -34,7 +34,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use {rusqlite, url};
+use url;
 
 use self::dns::*;
 use crate::burnchains::{Error as burnchain_error, Txid};
@@ -48,7 +48,7 @@ use crate::chainstate::stacks::{
     Error as chainstate_error, Error as chain_error, StacksBlock, StacksMicroblock,
     StacksPublicKey, StacksTransaction,
 };
-use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::clarity_vm::clarity::ClarityError;
 use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
@@ -203,7 +203,9 @@ pub enum Error {
     /// MARF error, percolated up from chainstate
     MARFError(marf_error),
     /// Clarity VM error, percolated up from chainstate
-    ClarityError(clarity_error),
+    ClarityError(ClarityError),
+    /// Clarity type manipulation error that occurred outside of VM execution
+    ClarityTypeError(ClarityTypeError),
     /// Catch-all for chainstate errors that don't map cleanly into network errors
     ChainstateError(String),
     /// Coordinator hung up
@@ -261,6 +263,19 @@ impl From<libstackerdb_error> for Error {
         match e {
             libstackerdb_error::SigningError(s) => Error::SigningError(s),
             libstackerdb_error::VerifyingError(s) => Error::VerifyingError(s),
+        }
+    }
+}
+
+impl From<stacks_codec::transaction::AuthError> for Error {
+    fn from(e: stacks_codec::transaction::AuthError) -> Self {
+        use stacks_codec::transaction::AuthError;
+        match e {
+            AuthError::SigningError(s) => Error::SigningError(s),
+            AuthError::VerifyingError(s) => Error::VerifyingError(s),
+            AuthError::IncompatibleSpendingConditionError => Error::SerializeError(
+                "Spending condition is incompatible with this operation".to_string(),
+            ),
         }
     }
 }
@@ -347,6 +362,7 @@ impl fmt::Display for Error {
             Error::LookupError(ref s) => fmt::Display::fmt(s, f),
             Error::ChainstateError(ref s) => fmt::Display::fmt(s, f),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
+            Error::ClarityTypeError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
             Error::StaleView => write!(f, "State view is stale"),
@@ -457,6 +473,7 @@ impl error::Error for Error {
             Error::LookupError(ref _s) => None,
             Error::ChainstateError(ref _s) => None,
             Error::ClarityError(ref e) => Some(e),
+            Error::ClarityTypeError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
             Error::CoordinatorClosed => None,
             Error::StaleView => None,
@@ -527,14 +544,20 @@ impl From<burnchain_error> for Error {
     }
 }
 
-impl From<clarity_error> for Error {
-    fn from(e: clarity_error) -> Self {
+impl From<ClarityError> for Error {
+    fn from(e: ClarityError) -> Self {
         Error::ClarityError(e)
     }
 }
 
-impl From<InterpreterError> for Error {
-    fn from(e: InterpreterError) -> Self {
+impl From<ClarityTypeError> for Error {
+    fn from(e: ClarityTypeError) -> Self {
+        Error::ClarityTypeError(e)
+    }
+}
+
+impl From<VmExecutionError> for Error {
+    fn from(e: VmExecutionError) -> Self {
         Error::ClarityError(e.into())
     }
 }
@@ -2240,14 +2263,14 @@ pub mod test {
     use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::*;
-    use rand::RngCore;
+    use mio;
+    use rand::{self, RngCore};
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
     use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::vrf::*;
-    use {mio, rand};
 
     use super::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -2533,6 +2556,7 @@ pub mod test {
             _burn_block_height: u64,
             _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
+            _pox_transactions: Vec<crate::chainstate::coordinator::PoxTransactionReward>,
             _reward_recipients: Vec<PoxAddress>,
             _consensus_hash: &ConsensusHash,
             _parent_burn_block_hash: &BurnchainHeaderHash,
@@ -2657,7 +2681,7 @@ pub mod test {
                 org: 0,
                 allowed: 0,
                 denied: 0,
-                data_url: "".into(),
+                data_url: UrlString::from_literal(""),
                 setup_code: "".into(),
                 check_pox_invariants: None,
                 stacker_db_configs: vec![],
@@ -4516,10 +4540,6 @@ pub mod test {
             assert_eq!(
                 migrated_epoch2_chain_tips.last().unwrap(),
                 expected_epoch2_chain_tips.last().unwrap()
-            );
-            assert_eq!(
-                migrated_epoch2_chain_tips.len(),
-                expected_epoch2_chain_tips.len()
             );
 
             // restore

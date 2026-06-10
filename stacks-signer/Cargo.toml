@@ -8,7 +8,6 @@ repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Stacker signer binary"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
-resolver = "2"
 edition = "2021"
 
 [lib]
@@ -24,9 +23,9 @@ backoff = "0.4"
 clarity = { path = "../clarity" }
 clap = { version = "4.1.1", features = ["derive", "env"] }
 hashbrown = { workspace = true }
+lazy_static = "1.4.0"
 libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
-lazy_static = "1.4.0"
 prometheus = { version = "0.9", optional = true }
 rand_core = "0.6"
 reqwest = { version = "0.11.22", default-features = false, features = ["blocking", "json", "rustls-tls"] }
@@ -60,10 +59,6 @@ features = ["blob", "serde_json", "i128_blob", "bundled", "trace", "functions"]
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
-
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
 
 [features]
 default = []

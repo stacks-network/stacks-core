@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2024-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Bound::Included;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -34,6 +34,7 @@ use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+use stacks::types::MinerDiagnosticData;
 use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
@@ -75,6 +76,34 @@ pub struct SignerCoordinator {
     block_rejection_timeout_steps: BTreeMap<u32, Duration>,
 }
 
+/// Helper function to build block_rejection_timeout_steps BTreeMap from config.
+///
+/// When multiple percentages truncate to the same rejections_amount
+/// (common with small total_weight), keeps the longest timeout.
+fn build_block_rejection_timeout_steps(
+    total_weight: u32,
+    config_steps: &HashMap<u32, Duration>,
+) -> BTreeMap<u32, Duration> {
+    let mut block_rejection_timeout_steps = BTreeMap::<u32, Duration>::new();
+    for (percentage, duration) in config_steps.iter() {
+        let rejections_amount = ((f64::from(total_weight) / 100.0) * f64::from(*percentage)) as u32;
+        // If multiple percentages collapse to the same weight, keep the longest timeout.
+        if let Some(existing) = block_rejection_timeout_steps.get_mut(&rejections_amount) {
+            warn!(
+                "block_rejection_timeout_steps collision: percentages map to same rejection weight";
+                "rejections_amount" => rejections_amount,
+                "existing_timeout_secs" => existing.as_secs(),
+                "new_timeout_secs" => duration.as_secs(),
+            );
+            *existing = (*existing).max(*duration);
+        } else {
+            block_rejection_timeout_steps.insert(rejections_amount, *duration);
+        }
+    }
+
+    block_rejection_timeout_steps
+}
+
 impl SignerCoordinator {
     /// Create a new `SignerCoordinator` instance.
     /// This will spawn a new thread to listen for messages from the signer DB.
@@ -114,12 +143,10 @@ impl SignerCoordinator {
         );
 
         // build a BTreeMap of the various timeout steps
-        let mut block_rejection_timeout_steps = BTreeMap::<u32, Duration>::new();
-        for (percentage, duration) in config.miner.block_rejection_timeout_steps.iter() {
-            let rejections_amount =
-                ((f64::from(listener.total_weight) / 100.0) * f64::from(*percentage)) as u32;
-            block_rejection_timeout_steps.insert(rejections_amount, *duration);
-        }
+        let block_rejection_timeout_steps = build_block_rejection_timeout_steps(
+            listener.total_weight,
+            &config.miner.block_rejection_timeout_steps,
+        );
 
         let mut sc = Self {
             message_key,
@@ -255,6 +282,7 @@ impl SignerCoordinator {
         counters: &Counters,
         election_sortition: &BlockSnapshot,
         miner_db: &MinerDB,
+        miner_diagnostic_data: MinerDiagnosticData,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         // Add this block to the block status map.
         self.stackerdb_comms.insert_block(&block.header);
@@ -267,7 +295,7 @@ impl SignerCoordinator {
             block: block.clone(),
             burn_height: election_sortition.block_height,
             reward_cycle: reward_cycle_id,
-            block_proposal_data: BlockProposalData::from_current_version(),
+            block_proposal_data: BlockProposalData::from_current_version(miner_diagnostic_data),
         };
 
         let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);
@@ -485,7 +513,27 @@ impl SignerCoordinator {
                     "signer_signature_hash" => %block_signer_sighash,
                 );
                 counters.bump_naka_rejected_blocks();
-                return Err(NakamotoNodeError::SignersRejected);
+
+                // Only act on failed txids that a blocking minority (>30% weight) agrees on
+                let blocking_minority = self.total_weight.saturating_sub(self.weight_threshold);
+                let mut temporarily_excluded_txids = HashSet::new();
+                let mut permanently_excluded_txids = HashSet::new();
+                for (txid, info) in &block_status.failed_txids {
+                    if info.total_weight > blocking_minority {
+                        // Do not perma ban txids that only a small minority of signers reported as problematic
+                        // But make sure its removed from the next block proposal
+                        if info.problematic_weight > blocking_minority {
+                            permanently_excluded_txids.insert(txid.clone());
+                        } else {
+                            temporarily_excluded_txids.insert(txid.clone());
+                        }
+                    }
+                }
+
+                return Err(NakamotoNodeError::SignersRejected {
+                    temporarily_excluded_txids,
+                    permanently_excluded_txids,
+                });
             } else if block_status.total_weight_approved >= self.weight_threshold {
                 info!("Received enough signatures, block accepted";
                     "signer_signature_hash" => %block_signer_sighash,
@@ -516,6 +564,13 @@ impl SignerCoordinator {
             .get_tenure_extend_timestamp(self.weight_threshold)
     }
 
+    /// Get the timestamp at which at least 70% of the signing power should be
+    /// willing to accept a time-based read-count extension.
+    pub fn get_read_count_extend_timestamp(&self) -> u64 {
+        self.stackerdb_comms
+            .get_read_count_extend_timestamp(self.weight_threshold)
+    }
+
     /// Get the signer global state view if there is one
     pub fn get_signer_global_state(&self) -> Option<SignerStateMachine> {
         self.stackerdb_comms.get_signer_global_state()
@@ -544,5 +599,43 @@ impl SignerCoordinator {
             }
             debug!("SignerCoordinator: stacker db listener thread has shut down");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    use super::build_block_rejection_timeout_steps;
+
+    #[test]
+    fn timeout_steps_keep_longest_on_collisions() {
+        let mut steps = HashMap::new();
+        steps.insert(0, Duration::from_secs(180));
+        steps.insert(10, Duration::from_secs(90));
+        steps.insert(20, Duration::from_secs(45));
+        steps.insert(30, Duration::from_secs(0));
+
+        let built = build_block_rejection_timeout_steps(3, &steps);
+
+        assert_eq!(built.len(), 1);
+        assert_eq!(built.get(&0), Some(&Duration::from_secs(180)));
+    }
+
+    #[test]
+    fn timeout_steps_distinct_with_normal_weight() {
+        let mut steps = HashMap::new();
+        steps.insert(0, Duration::from_secs(180));
+        steps.insert(10, Duration::from_secs(90));
+        steps.insert(20, Duration::from_secs(45));
+        steps.insert(30, Duration::from_secs(0));
+
+        let built = build_block_rejection_timeout_steps(100, &steps);
+
+        assert_eq!(built.get(&0), Some(&Duration::from_secs(180)));
+        assert_eq!(built.get(&10), Some(&Duration::from_secs(90)));
+        assert_eq!(built.get(&20), Some(&Duration::from_secs(45)));
+        assert_eq!(built.get(&30), Some(&Duration::from_secs(0)));
     }
 }

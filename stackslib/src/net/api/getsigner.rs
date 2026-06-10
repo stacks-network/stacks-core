@@ -21,10 +21,8 @@ use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
-use crate::net::{Error as NetError, StacksNodeState, TipRequest};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone, Default)]
 pub struct GetSignerRequestHandler {
@@ -171,13 +169,12 @@ impl StacksHttpRequest {
         host: PeerHost,
         signer_pubkey: &Secp256k1PublicKey,
         cycle_num: u64,
-        tip_req: TipRequest,
     ) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
             format!("/v3/signer/{}/{cycle_num}", signer_pubkey.to_hex()),
-            HttpRequestContents::new().for_tip(tip_req),
+            HttpRequestContents::new(),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }

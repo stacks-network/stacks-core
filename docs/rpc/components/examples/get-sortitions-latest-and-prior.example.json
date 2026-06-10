@@ -1,28 +1,31 @@
-[
-  {
-    "burn_block_hash": "0x046f54cd1924a5d80fc3b8186d0334b7521acae90f9e136e2bee680c720d0e83",
-    "burn_block_height": 231,
-    "burn_header_timestamp": 1726797570,
-    "sortition_id": "0x8a5116b7b4306dc4f6db290d1adfff9e1347f3e921bb793fc4c33e2ff05056e2",
-    "parent_sortition_id": "0xdaf479110cf859e58c56b6ae941f8a14e7c7992c57027183dfbda4a4b820897c",
-    "consensus_hash": "0x8d2c51db737597a93191f49bcdc9c7bb44b90892",
-    "was_sortition": true,
-    "miner_pk_hash160": "0x6bc51b33e9f3626944eb879147e18111581f8f9b",
-    "stacks_parent_ch": "0x697357c72da55b759b1d6b721676c92c69f0b490",
-    "last_sortition_ch": "0x697357c72da55b759b1d6b721676c92c69f0b490",
-    "committed_block_hash": "0xeea47d6d639c565027110e192e308fb11656183d5c077bcd718d830652800183"
-  },
-  {
-    "burn_block_hash": "0x496ff02cb63a4850d0bdee5fab69284b6eb0392b4538e1c462f82362c5becfa4",
-    "burn_block_height": 230,
-    "burn_header_timestamp": 1726797570,
-    "sortition_id": "0xdaf479110cf859e58c56b6ae941f8a14e7c7992c57027183dfbda4a4b820897c",
-    "parent_sortition_id": "0xf9058692055cbd879d7f71e566e44b905a887b2b182407ed596b5d6499ceae2a",
-    "consensus_hash": "0x697357c72da55b759b1d6b721676c92c69f0b490",
-    "was_sortition": true,
-    "miner_pk_hash160": "0x6bc51b33e9f3626944eb879147e18111581f8f9b",
-    "stacks_parent_ch": "0xf7d1bd7d9d5c5a5c368402b6ef9510bd014d70f7",
-    "last_sortition_ch": "0xf7d1bd7d9d5c5a5c368402b6ef9510bd014d70f7",
-    "committed_block_hash": "0x36ee5f7f7271de1c1d4cd830e36320b51e01605547621267ae6e9b4e9b10f95e"
-  }
-]
+{
+    "summary": "Latest and prior sortitions",
+    "value": [
+        {
+            "burn_block_hash": "0x046f54cd1924a5d80fc3b8186d0334b7521acae90f9e136e2bee680c720d0e83",
+            "burn_block_height": 231,
+            "burn_header_timestamp": 1726797570,
+            "sortition_id": "0x8a5116b7b4306dc4f6db290d1adfff9e1347f3e921bb793fc4c33e2ff05056e2",
+            "parent_sortition_id": "0xdaf479110cf859e58c56b6ae941f8a14e7c7992c57027183dfbda4a4b820897c",
+            "consensus_hash": "0x8d2c51db737597a93191f49bcdc9c7bb44b90892",
+            "was_sortition": true,
+            "miner_pk_hash160": "0x6bc51b33e9f3626944eb879147e18111581f8f9b",
+            "stacks_parent_ch": "0x697357c72da55b759b1d6b721676c92c69f0b490",
+            "last_sortition_ch": "0x697357c72da55b759b1d6b721676c92c69f0b490",
+            "committed_block_hash": "0xeea47d6d639c565027110e192e308fb11656183d5c077bcd718d830652800183"
+        },
+        {
+            "burn_block_hash": "0x496ff02cb63a4850d0bdee5fab69284b6eb0392b4538e1c462f82362c5becfa4",
+            "burn_block_height": 230,
+            "burn_header_timestamp": 1726797570,
+            "sortition_id": "0xdaf479110cf859e58c56b6ae941f8a14e7c7992c57027183dfbda4a4b820897c",
+            "parent_sortition_id": "0xf9058692055cbd879d7f71e566e44b905a887b2b182407ed596b5d6499ceae2a",
+            "consensus_hash": "0x697357c72da55b759b1d6b721676c92c69f0b490",
+            "was_sortition": true,
+            "miner_pk_hash160": "0x6bc51b33e9f3626944eb879147e18111581f8f9b",
+            "stacks_parent_ch": "0xf7d1bd7d9d5c5a5c368402b6ef9510bd014d70f7",
+            "last_sortition_ch": "0xf7d1bd7d9d5c5a5c368402b6ef9510bd014d70f7",
+            "committed_block_hash": "0x36ee5f7f7271de1c1d4cd830e36320b51e01605547621267ae6e9b4e9b10f95e"
+        }
+    ]
+}

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@ use std::fs;
 
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::{ClarityName, ContractName};
+use pinny::tag;
 use proptest::prelude::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -27,7 +28,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::Address;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
@@ -43,6 +44,7 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::database::ClarityBackingStore;
 use crate::clarity_vm::clarity::ClarityMarfStoreTransaction;
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::test::TestEventObserver;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peer_from_invs;
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};
@@ -329,10 +331,13 @@ fn replay_block(
         .txs
         .iter()
         .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-    let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-        TransactionPayload::TenureChange(tc) => Some(tc.cause),
-        _ => None,
-    });
+    let tenure_cause = tenure_change
+        .and_then(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
+            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        })
+        .unwrap_or(MinerTenureInfoCause::NoTenureChange);
+
     let mut builder = NakamotoBlockBuilder::new(
         &parent_stacks_header,
         &original_block.header.consensus_hash,
@@ -342,6 +347,8 @@ fn replay_block(
         original_block.header.pox_treatment.len(),
         None,
         Some(100),
+        Some(original_block.header.timestamp),
+        u64::from(DEFAULT_MAX_TENURE_BYTES),
     )
     .unwrap();
 
@@ -354,16 +361,16 @@ fn replay_block(
         .unwrap();
 
     let mut receipts = vec![];
-
+    let mut total_receipts = 0;
     for (i, tx) in original_block.txs.iter().enumerate() {
         let tx_len = tx.tx_len();
-
         let tx_result = builder.try_mine_tx_with_len(
             &mut tenure_tx,
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             None,
+            &mut total_receipts,
         );
         let err = match &tx_result {
             TransactionResult::Success(_) => Ok(()),
@@ -760,6 +767,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
     }
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_ephemeral_tip_height_matches_current() {
     proptest!(|(n in 1usize..=12)| {

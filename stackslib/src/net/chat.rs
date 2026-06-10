@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,8 +20,7 @@ use std::net::SocketAddr;
 use std::{cmp, mem};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rand;
-use rand::{thread_rng, Rng};
+use rand::{self, thread_rng, Rng};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
@@ -33,7 +32,10 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::{EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3};
+use crate::core::{
+    EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_3_2,
+    PEER_VERSION_EPOCH_3_3,
+};
 use crate::monitoring;
 use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
 use crate::net::db::{PeerDB, *};
@@ -782,6 +784,17 @@ impl ConversationP2P {
             return true;
         }
 
+        // be permissive with epochs 3.3 and 3.2. a prior 3.3 release accidentally reported
+        //  PEER_VERSION_EPOCH_3_2.
+        if cur_epoch == PEER_VERSION_EPOCH_3_3 && remote_epoch == PEER_VERSION_EPOCH_3_2 {
+            debug!(
+                "Remote peer has epoch {} and current epoch is {}, but we're permissive about 3.2/3.3 boundary",
+                remote_epoch,
+                cur_epoch
+            );
+            return true;
+        }
+
         return false;
     }
 
@@ -1257,7 +1270,7 @@ impl ConversationP2P {
              "supports_mempool_query" => Self::supports_mempool_query(handshake_data.services),
         );
 
-        if updated {
+        if updated && self.stats.outbound {
             // save the new key
             let tx = network.peerdb_tx_begin().map_err(net_error::DBError)?;
             let (mut neighbor, _) = Neighbor::load_and_update(
@@ -3032,8 +3045,8 @@ mod test {
     use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
     use stacks_common::util::pipe::*;
     use stacks_common::util::secp256k1::*;
-    use stacks_common::util::sleep_ms;
     use stacks_common::util::uint::*;
+    use stacks_common::util::*;
 
     use super::*;
     use crate::burnchains::db::BurnchainDB;
@@ -3103,6 +3116,7 @@ mod test {
             burnchain.pox_constants.clone(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -3304,6 +3318,7 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
             first_block_timestamp: 0,
             pox_constants: PoxConstants::test_default(),
+            marf_opts: None,
         }
     }
 
@@ -3350,7 +3365,7 @@ mod test {
                     &burnchain_1,
                     0x9abcdef0,
                     12350,
-                    "http://peer1.com".into(),
+                    UrlString::from_literal("http://peer1.com"),
                     &[],
                     &[],
                     peer_1_services,
@@ -3361,7 +3376,7 @@ mod test {
                     &burnchain_2,
                     0x9abcdef0,
                     12351,
-                    "http://peer2.com".into(),
+                    UrlString::from_literal("http://peer2.com"),
                     &[],
                     &[],
                     peer_2_services,
@@ -3519,7 +3534,10 @@ mod test {
                     data.handshake.expire_block_height,
                     local_peer_2.private_key_expire
                 );
-                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(
+                    data.handshake.data_url,
+                    UrlString::from_literal("http://peer2.com")
+                );
                 assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
 
                 if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
@@ -3576,7 +3594,10 @@ mod test {
                     data.handshake.expire_block_height,
                     local_peer_2.private_key_expire
                 );
-                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(
+                    data.handshake.data_url,
+                    UrlString::from_literal("http://peer2.com")
+                );
                 assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
             }
 
@@ -3586,7 +3607,10 @@ mod test {
                 convo_2.connection.get_public_key().unwrap(),
                 Secp256k1PublicKey::from_private(&local_peer_1.private_key)
             );
-            assert_eq!(convo_2.data_url, "http://peer1.com".into());
+            assert_eq!(
+                convo_2.data_url,
+                UrlString::from_literal("http://peer1.com")
+            );
 
             // convo_1 got updated with convo_2's peer info, as well as heartbeat
             assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
@@ -3594,7 +3618,10 @@ mod test {
                 convo_1.connection.get_public_key().unwrap(),
                 Secp256k1PublicKey::from_private(&local_peer_2.private_key)
             );
-            assert_eq!(convo_1.data_url, "http://peer2.com".into());
+            assert_eq!(
+                convo_1.data_url,
+                UrlString::from_literal("http://peer2.com")
+            );
 
             assert_eq!(convo_1.peer_services, peer_2_services);
             assert_eq!(convo_2.peer_services, peer_1_services);
@@ -3664,7 +3691,7 @@ mod test {
                     &burnchain_1,
                     0x9abcdef0,
                     12350,
-                    "http://peer1.com".into(),
+                    UrlString::from_literal("http://peer1.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -3675,7 +3702,7 @@ mod test {
                     &burnchain_2,
                     0x9abcdef0,
                     12351,
-                    "http://peer2.com".into(),
+                    UrlString::from_literal("http://peer2.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -3781,7 +3808,10 @@ mod test {
                     data.handshake.expire_block_height,
                     local_peer_2.private_key_expire
                 );
-                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(
+                    data.handshake.data_url,
+                    UrlString::from_literal("http://peer2.com")
+                );
                 assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
             } else {
                 panic!("Unexpected payload message type");
@@ -3793,7 +3823,10 @@ mod test {
                 convo_2.connection.get_public_key().unwrap(),
                 Secp256k1PublicKey::from_private(&local_peer_1.private_key)
             );
-            assert_eq!(convo_2.data_url, "http://peer1.com".into());
+            assert_eq!(
+                convo_2.data_url,
+                UrlString::from_literal("http://peer1.com")
+            );
 
             // convo_1 got updated with convo_2's peer info, as well as heartbeat
             assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
@@ -3801,7 +3834,10 @@ mod test {
                 convo_1.connection.get_public_key().unwrap(),
                 Secp256k1PublicKey::from_private(&local_peer_2.private_key)
             );
-            assert_eq!(convo_1.data_url, "http://peer2.com".into());
+            assert_eq!(
+                convo_1.data_url,
+                UrlString::from_literal("http://peer2.com")
+            );
         })
     }
 
@@ -3838,7 +3874,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -3849,7 +3885,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -3981,7 +4017,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -3992,7 +4028,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4124,7 +4160,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4135,7 +4171,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4279,7 +4315,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4290,7 +4326,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4476,7 +4512,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4487,7 +4523,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4618,7 +4654,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4629,7 +4665,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4788,7 +4824,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4799,7 +4835,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5009,7 +5045,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5020,7 +5056,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5156,7 +5192,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5167,7 +5203,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5327,7 +5363,7 @@ mod test {
                     &burnchain_1,
                     0x9abcdef0,
                     12350,
-                    "http://peer1.com".into(),
+                    UrlString::from_literal("http://peer1.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -5338,7 +5374,7 @@ mod test {
                     &burnchain_2,
                     0x9abcdef0,
                     12351,
-                    "http://peer2.com".into(),
+                    UrlString::from_literal("http://peer2.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -5446,7 +5482,10 @@ mod test {
                         data.handshake.expire_block_height,
                         local_peer_2.private_key_expire
                     );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                    assert_eq!(
+                        data.handshake.data_url,
+                        UrlString::from_literal("http://peer2.com")
+                    );
                     assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
                 }
                 _ => {
@@ -5599,7 +5638,7 @@ mod test {
                     &burnchain_1,
                     0x9abcdef0,
                     12350,
-                    "http://peer1.com".into(),
+                    UrlString::from_literal("http://peer1.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -5610,7 +5649,7 @@ mod test {
                     &burnchain_2,
                     0x9abcdef0,
                     12351,
-                    "http://peer2.com".into(),
+                    UrlString::from_literal("http://peer2.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -5718,7 +5757,10 @@ mod test {
                         data.handshake.expire_block_height,
                         local_peer_2.private_key_expire
                     );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                    assert_eq!(
+                        data.handshake.data_url,
+                        UrlString::from_literal("http://peer2.com")
+                    );
                     assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
                 }
                 _ => {
@@ -5869,7 +5911,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12352,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5880,7 +5922,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12353,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -6001,7 +6043,7 @@ mod test {
                 &burnchain,
                 0x9abcdef0,
                 12352,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -6249,6 +6291,58 @@ mod test {
             assert_eq!(
                 convo_bad.is_preamble_valid(&ping_old, &old_chain_view),
                 Ok(true)
+            );
+        }
+
+        // 3.3/3.2 compatibility: allow peers that still report 3.2 in epoch 3.3.
+        {
+            let epochs = StacksEpoch::unit_test_3_3(chain_view.burn_block_height - 40);
+            let cur_epoch = epochs
+                .epoch_at_height(chain_view.burn_block_height)
+                .unwrap();
+            assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch33);
+
+            let local_version = 0x18000000 | PEER_VERSION_EPOCH_3_3 as u32;
+            let mut convo_compat = ConversationP2P::new(
+                123,
+                local_version,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                epochs,
+            );
+            let ping_data = PingData::new();
+
+            // Remote peer reports 3.2 in epoch 3.3: allowed.
+            convo_compat.version = 0x18000000 | PEER_VERSION_EPOCH_3_2 as u32;
+            let ping_32 = convo_compat
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data.clone()),
+                )
+                .unwrap();
+            convo_compat.version = local_version;
+            assert_eq!(
+                convo_compat.is_preamble_valid(&ping_32, &chain_view),
+                Ok(true)
+            );
+
+            // Remote peer reports 3.1 in epoch 3.3: still too old.
+            convo_compat.version = 0x18000000 | PEER_VERSION_EPOCH_3_1 as u32;
+            let ping_31 = convo_compat
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data),
+                )
+                .unwrap();
+            convo_compat.version = local_version;
+            assert_eq!(
+                convo_compat.is_preamble_valid(&ping_31, &chain_view),
+                Err(net_error::InvalidMessage)
             );
         }
     }
@@ -6669,7 +6763,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -6783,7 +6877,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -6850,7 +6944,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -6977,7 +7071,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -7104,7 +7198,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -7231,7 +7325,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,

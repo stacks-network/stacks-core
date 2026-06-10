@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,8 +21,7 @@ use std::io::Read;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
-use rand;
-use rand::Rng;
+use rand::{self, Rng};
 use sha2::{Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -617,8 +616,7 @@ impl HandshakeData {
             local_peer.data_url.clone()
         } else if let Some(data_port) = local_peer.data_url.get_port() {
             // deduce from public IP
-            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(data_port)).as_str())
-                .unwrap()
+            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(data_port))).unwrap()
         } else {
             // unroutable, so don't bother
             UrlString::try_from("").unwrap()

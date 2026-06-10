@@ -6,11 +6,11 @@ you should make sure to add the following config fields to your [config file](..
 ```toml
 [node]
 # Run as a miner
-miner = True
+miner = true
 # Bitcoin private key to spend
 seed = "YOUR PRIVATE KEY"
-# Run as a mock-miner, to test mining without spending BTC. Needs miner=True.
-#mock_mining = True
+# Enable stacker support (required for signer coordination)
+stacker = true
 
 [miner]
 # Time to spend mining a Nakamoto block, in milliseconds.
@@ -25,7 +25,44 @@ satoshis_per_byte = 50
 rbf_fee_increment = 5
 # Maximum percentage of satoshis_per_byte to allow in RBF fee (default: 150)
 max_rbf = 150
+
+[connection_options]
+# Must match signer's auth_password
+auth_token = "your-secret-token"
+
+[[events_observer]]
+# Must match signer's endpoint
+endpoint = "127.0.0.1:30000"
+events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
 ```
+
+> To test mining without spending BTC, add `mock_mining = true` to the `[node]`
+> section. See also [`mainnet-mockminer-conf.toml`](../sample/conf/mainnet-mockminer-conf.toml).
+
+For a comprehensive reference of **all** miner settings including signer coordination
+timeouts, tenure management, mempool configuration, and cost limits, see
+[`mainnet-miner-conf.toml`](../sample/conf/mainnet-miner-conf.toml).
+
+## Signer Setup
+
+Nakamoto mining requires a co-located signer. See [signing.md](signing.md) for
+signer configuration and the critical miner-signer coordination settings.
+
+## Configuration Files
+
+| File                                                                         | Purpose                                                 |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------- |
+| [`mainnet-miner-conf.toml`](../sample/conf/mainnet-miner-conf.toml)          | Comprehensive miner reference (all settings documented) |
+| [`mainnet-signer-conf.toml`](../sample/conf/signer/mainnet-signer-conf.toml) | Signer binary config reference                          |
+| [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)                  | Node-side signer config                                 |
+| [`testnet-miner-conf.toml`](../sample/conf/testnet-miner-conf.toml)          | Testnet miner config                                    |
+| [`mainnet-mockminer-conf.toml`](../sample/conf/mainnet-mockminer-conf.toml)  | Mock miner (test mining without spending BTC)           |
+| [`mainnet-follower-conf.toml`](../sample/conf/mainnet-follower-conf.toml)    | Mainnet follower (read-only node)                       |
+| [`testnet-follower-conf.toml`](../sample/conf/testnet-follower-conf.toml)    | Testnet follower                                        |
+| [`testnet-signer.toml`](../sample/conf/testnet-signer.toml)                  | Testnet node-side signer config                         |
+| [`mocknet.toml`](../sample/conf/mocknet.toml)                                | Local mocknet development                               |
+
+## RBF Configuration
 
 NOTE: Ensuring that your miner can successfully use RBF (Replace-by-Fee) is
 critical for reliable block production. If a miner fails to replace an outdated
@@ -81,5 +118,7 @@ Estimates are then randomly "fuzzed" using uniform random fuzz of size up to
 
 ## Further Reading
 
+- [Signing documentation](signing.md)
+- [Follower documentation](follower.md)
 - [stacksfoundation/miner-docs](https://github.com/stacksfoundation/miner-docs)
 - [Mining Documentation](https://docs.stacks.co/stacks-in-depth/nodes-and-miners/mine-mainnet-stacks-tokens)

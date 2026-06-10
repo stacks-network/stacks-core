@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,15 +13,15 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use crate::vm::types::{TupleData, Value};
-#[cfg(test)]
-use crate::vm::{
-    errors::{CheckErrors, ShortReturnType, SyntaxBindingError},
-    types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
-};
-use crate::vm::{execute, ClarityName, Error};
+use clarity_types::errors::ClarityTypeError;
 
-fn assert_executes(expected: Result<Value, Error>, input: &str) {
+use crate::vm::errors::{
+    ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError, VmExecutionError,
+};
+use crate::vm::types::{ListData, SequenceData, TupleData, Value};
+use crate::vm::{ClarityName, execute};
+
+fn assert_executes(expected: Result<Value, ClarityTypeError>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
 }
 
@@ -254,22 +254,22 @@ fn test_set_tuple_variable() {
     let expected = Value::list_from(vec![
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(1)),
-                ("v1".into(), Value::Int(1)),
+                (ClarityName::from_literal("k1"), Value::Int(1)),
+                (ClarityName::from_literal("v1"), Value::Int(1)),
             ])
             .unwrap(),
         ),
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(2)),
-                ("v1".into(), Value::Int(0)),
+                (ClarityName::from_literal("k1"), Value::Int(2)),
+                (ClarityName::from_literal("v1"), Value::Int(0)),
             ])
             .unwrap(),
         ),
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(2)),
-                ("v1".into(), Value::Int(0)),
+                (ClarityName::from_literal("k1"), Value::Int(2)),
+                (ClarityName::from_literal("v1"), Value::Int(0)),
             ])
             .unwrap(),
         ),
@@ -296,7 +296,9 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(ShortReturnType::ExpectedValue(Box::new(Value::Int(5))).into()),
+        Err(ClarityEvalError::Vm(
+            EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()
+        )),
         execute(&contract_src)
     );
 }
@@ -474,7 +476,7 @@ fn datamap_errors() {
     for program in tests.iter() {
         assert_eq!(
             execute(program).unwrap_err(),
-            CheckErrors::NoSuchMap("non-existent".to_string()).into()
+            RuntimeCheckErrorKind::Unreachable("No such map: non-existent".to_string()).into()
         );
     }
 }
@@ -495,7 +497,9 @@ fn lists_system_2() {
 
     matches!(
         execute(test),
-        Err(Error::Unchecked(CheckErrors::TypeError(_, _)))
+        Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeError(_, _)
+        )))
     );
 }
 
@@ -560,7 +564,9 @@ fn lists_system() {
         println!("{test:#?}");
         assert!(matches!(
             test,
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _)))
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeValueError(_, _)
+            )))
         ));
     }
 }
@@ -623,7 +629,9 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeValueError(_, _),
+            ))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -643,12 +651,19 @@ fn bad_define_maps() {
         "(define-map lists { name: int } contents 5)",
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
-    let expected: Vec<Error> = vec![
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)).into(),
-        CheckErrors::UnknownTypeName("contents".to_string()).into(),
-        CheckErrors::ExpectedName.into(),
-        CheckErrors::IncorrectArgumentCount(3, 4).into(),
-        CheckErrors::InvalidTypeDescription.into(),
+    let expected: Vec<ClarityEvalError> = vec![
+        RuntimeCheckErrorKind::Unreachable(format!(
+            "Bad syntax binding: {}",
+            SyntaxBindingError::tuple_cons_invalid_length(0)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::Unreachable("Unknown type name: contents".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 4).into(),
+        RuntimeCheckErrorKind::Unreachable(
+            "Unexpected error type during runtime analysis: InvalidTypeDescription".to_string(),
+        )
+        .into(),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -668,15 +683,12 @@ fn bad_tuples() {
         "(get 1234 (tuple (name 1)))",
     ];
     let expected = vec![
-        CheckErrors::NameAlreadyUsed("name".into()),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(1)),
-        CheckErrors::NoSuchTupleField(
-            "value".into(),
-            TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap(),
-        ),
-        CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::ExpectedName,
+        RuntimeCheckErrorKind::NameAlreadyUsed("name".into()),
+        RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_not_list(0))),
+        RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_invalid_length(1))),
+        RuntimeCheckErrorKind::Unreachable("Unexpected error type during runtime analysis: NoSuchTupleField(\"value\", TupleTypeSignature { \"name\": int,})".to_string()),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
+        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -701,31 +713,34 @@ fn test_combines_tuples() {
 
     let expected = [
         make_tuple(vec![
-            ("a".into(), Value::Int(5)),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (ClarityName::from_literal("a"), Value::Int(5)),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), make_tuple(vec![("x".into(), Value::Int(5))])),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (
+                ClarityName::from_literal("a"),
+                make_tuple(vec![(ClarityName::from_literal("x"), Value::Int(5))]),
+            ),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::none()),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (ClarityName::from_literal("a"), Value::none()),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(4)),
-            ("b".into(), Value::Int(5)),
-            ("c".into(), Value::Int(6)),
+            (ClarityName::from_literal("a"), Value::Int(4)),
+            (ClarityName::from_literal("b"), Value::Int(5)),
+            (ClarityName::from_literal("c"), Value::Int(6)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(4)),
-            ("d".into(), Value::Int(5)),
-            ("e".into(), Value::Int(6)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(4)),
+            (ClarityName::from_literal("d"), Value::Int(5)),
+            (ClarityName::from_literal("e"), Value::Int(6)),
         ]),
     ];
 
@@ -769,7 +784,9 @@ fn test_non_tuple_map_get_set() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeValueError(_, _),
+            ))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false

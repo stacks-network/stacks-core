@@ -126,7 +126,7 @@ export class Stub {
               burnBlockHeight,
         );
 
-        // Get the operator's pool stackers that no longer have partially commited
+        // Get the operator's pool stackers that no longer have partially committed
         // STX for the next reward cycle by comparing their unlock height to
         // the next reward cycle's first block (only if the wallet is an operator).
         const stackersToRemoveAmountToCommit = wallet.lockedAddresses.filter((
@@ -167,7 +167,7 @@ export class Stub {
           wallet.lockedAddresses.splice(expStackerIndex, 1);
         });
 
-        // For each pool stacker that no longer have partially commited STX for
+        // For each pool stacker that no longer have partially committed STX for
         // the next reward cycle, decrement the operator's amountToCommit
         // (partial-stacked) by the stacker's amountLocked.
         stackersToRemoveAmountToCommit.forEach((expStacker) => {

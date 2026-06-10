@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::tests::symbols_from_values;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityName, ContractName, Value};
@@ -155,18 +156,24 @@ fn signers_get_config() {
         readonly_call(
             &mut peer,
             &latest_block,
-            "signers".into(),
-            STACKERDB_CONFIG_FUNCTION.into(),
+            ContractName::from_literal("signers"),
+            ClarityName::from_literal(STACKERDB_CONFIG_FUNCTION),
             vec![],
         ),
         Value::okay(Value::Tuple(
             TupleData::from_data(vec![
-                ("chunk-size".into(), Value::UInt(2 * 1024 * 1024)),
-                ("write-freq".into(), Value::UInt(0)),
-                ("max-writes".into(), Value::UInt(u32::MAX.into())),
-                ("max-neighbors".into(), Value::UInt(32)),
                 (
-                    "hint-replicas".into(),
+                    ClarityName::from_literal("chunk-size"),
+                    Value::UInt(2 * 1024 * 1024)
+                ),
+                (ClarityName::from_literal("write-freq"), Value::UInt(0)),
+                (
+                    ClarityName::from_literal("max-writes"),
+                    Value::UInt(u32::MAX.into())
+                ),
+                (ClarityName::from_literal("max-neighbors"), Value::UInt(32)),
+                (
+                    ClarityName::from_literal("hint-replicas"),
                     Value::cons_list_unsanitized(vec![]).unwrap()
                 )
             ])
@@ -181,20 +188,26 @@ fn signers_get_config() {
             let config = readonly_call(
                 &mut peer,
                 &latest_block,
-                contract_name.as_str().into(),
-                STACKERDB_CONFIG_FUNCTION.into(),
+                contract_name.try_into().unwrap(),
+                ClarityName::from_literal(STACKERDB_CONFIG_FUNCTION),
                 vec![],
             );
             assert_eq!(
                 config,
                 Value::okay(Value::Tuple(
                     TupleData::from_data(vec![
-                        ("chunk-size".into(), Value::UInt(2 * 1024 * 1024)),
-                        ("write-freq".into(), Value::UInt(0)),
-                        ("max-writes".into(), Value::UInt(u32::MAX.into())),
-                        ("max-neighbors".into(), Value::UInt(32)),
                         (
-                            "hint-replicas".into(),
+                            ClarityName::from_literal("chunk-size"),
+                            Value::UInt(2 * 1024 * 1024)
+                        ),
+                        (ClarityName::from_literal("write-freq"), Value::UInt(0)),
+                        (
+                            ClarityName::from_literal("max-writes"),
+                            Value::UInt(u32::MAX.into())
+                        ),
+                        (ClarityName::from_literal("max-neighbors"), Value::UInt(32)),
+                        (
+                            ClarityName::from_literal("hint-replicas"),
                             Value::cons_list_unsanitized(vec![]).unwrap()
                         )
                     ])
@@ -228,8 +241,11 @@ fn signers_get_signer_keys_from_stackerdb() {
                 let pk_bytes = pk.to_bytes_compressed();
                 let signer_addr = StacksAddress::p2pkh(false, &pk);
                 let stackerdb_entry = TupleData::from_data(vec![
-                    ("signer".into(), PrincipalData::from(signer_addr).into()),
-                    ("num-slots".into(), Value::UInt(1)),
+                    (
+                        ClarityName::from_literal("signer"),
+                        PrincipalData::from(signer_addr).into(),
+                    ),
+                    (ClarityName::from_literal("num-slots"), Value::UInt(1)),
                 ])
                 .unwrap();
                 (pk_bytes, stackerdb_entry)
@@ -248,8 +264,8 @@ fn signers_get_signer_keys_from_stackerdb() {
     let signers = readonly_call(
         &mut peer,
         &latest_block_id,
-        "signers".into(),
-        "stackerdb-get-signer-slots-page".into(),
+        ContractName::from_literal("signers"),
+        ClarityName::from_literal("stackerdb-get-signer-slots-page"),
         vec![Value::UInt(1)],
     )
     .expect_result_ok()
@@ -280,8 +296,11 @@ fn signers_db_get_slots() {
                 let pk_bytes = pk.to_bytes_compressed();
                 let signer_addr = StacksAddress::p2pkh(false, &pk);
                 let stackerdb_entry = TupleData::from_data(vec![
-                    ("signer".into(), PrincipalData::from(signer_addr).into()),
-                    ("num-slots".into(), Value::UInt(1)),
+                    (
+                        ClarityName::from_literal("signer"),
+                        PrincipalData::from(signer_addr).into(),
+                    ),
+                    (ClarityName::from_literal("num-slots"), Value::UInt(1)),
                 ])
                 .unwrap();
                 (pk_bytes, stackerdb_entry)
@@ -300,18 +319,19 @@ fn signers_db_get_slots() {
 
     for signer_set in 0..2 {
         for message_id in 0..SIGNER_SLOTS_PER_USER {
-            let contract_name = format!("signers-{}-{}", &signer_set, &message_id);
+            let contract_name =
+                ContractName::try_from(format!("signers-{}-{}", &signer_set, &message_id)).unwrap();
             let signers = readonly_call(
                 &mut peer,
                 &latest_block_id,
-                contract_name.as_str().into(),
-                "stackerdb-get-signer-slots".into(),
+                contract_name.clone(),
+                ClarityName::from_literal("stackerdb-get-signer-slots"),
                 vec![],
             )
             .expect_result_ok()
             .unwrap();
 
-            debug!("Check .{}", &contract_name);
+            debug!("Check .{}", contract_name);
             if signer_set == 0 {
                 assert_eq!(signers.expect_list().unwrap(), vec![]);
             } else {
@@ -364,8 +384,8 @@ pub fn prepare_signers_test<'a>(
     let current_reward_cycle = readonly_call(
         &mut peer,
         &latest_block_id,
-        SIGNERS_VOTING_NAME.into(),
-        "current-reward-cycle".into(),
+        ContractName::from_literal(SIGNERS_VOTING_NAME),
+        ClarityName::from_literal("current-reward-cycle"),
         vec![],
     )
     .expect_u128()
@@ -376,8 +396,8 @@ pub fn prepare_signers_test<'a>(
     let last_set_cycle = readonly_call(
         &mut peer,
         &latest_block_id,
-        SIGNERS_NAME.into(),
-        "get-last-set-cycle".into(),
+        ContractName::from_literal(SIGNERS_NAME),
+        ClarityName::from_literal("get-last-set-cycle"),
         vec![],
     )
     .expect_result_ok()
@@ -472,13 +492,16 @@ pub fn readonly_call_with_sortdb(
                         PrincipalData::from(boot_code_addr(false)),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| {
-                            env.execute_contract_allow_private(
-                                &boot_code_id(&boot_contract, false),
-                                &function_name,
-                                &symbols_from_values(args),
-                                true,
-                            )
+                        |exec_state, invoke_ctx| {
+                            exec_state
+                                .execute_contract_allow_private(
+                                    &invoke_ctx,
+                                    &boot_code_id(&boot_contract, false),
+                                    &function_name,
+                                    &symbols_from_values(args),
+                                    true,
+                                )
+                                .map_err(ClarityEvalError::from)
                         },
                     )
                     .unwrap()
@@ -497,8 +520,8 @@ pub fn get_signer_index(
     let signers = readonly_call(
         peer,
         latest_block_id,
-        "signers".into(),
-        "stackerdb-get-signer-slots-page".into(),
+        ContractName::from_literal("signers"),
+        ClarityName::from_literal("stackerdb-get-signer-slots-page"),
         vec![Value::UInt(cycle_mod)],
     )
     .expect_result_ok()

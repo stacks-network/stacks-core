@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@ use clarity::types::chainstate::{SortitionId, StacksBlockId};
 use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, ContractName, Value};
 use libstackerdb::StackerDBChunkData;
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng, RngCore};
@@ -668,6 +668,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_timestamp: 1000,
         anchored_block_size: 12345,
         burn_view: None,
+        total_tenure_size: 0,
     };
 
     let epoch2_execution_cost = ExecutionCost {
@@ -801,6 +802,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
         burn_view: Some(nakamoto_header.consensus_hash.clone()),
+        total_tenure_size: 0,
     };
 
     let epoch2_block = StacksBlock {
@@ -847,6 +849,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
         burn_view: Some(nakamoto_header_2.consensus_hash.clone()),
+        total_tenure_size: 0,
     };
 
     let nakamoto_block_2 = NakamotoBlock {
@@ -888,6 +891,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
         burn_view: Some(nakamoto_header_3.consensus_hash.clone()),
+        total_tenure_size: 0,
     };
 
     let nakamoto_block_3 = NakamotoBlock {
@@ -921,6 +925,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
         burn_view: Some(nakamoto_header_3.consensus_hash.clone()),
+        total_tenure_size: 0,
     };
 
     let nakamoto_block_3_weight_2 = NakamotoBlock {
@@ -954,6 +959,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
         burn_view: Some(nakamoto_header_4.consensus_hash.clone()),
+        total_tenure_size: 0,
     };
 
     let nakamoto_block_4 = NakamotoBlock {
@@ -2213,7 +2219,7 @@ fn test_make_miners_stackerdb_config() {
             )
             .unwrap();
         tx.test_update_canonical_stacks_tip(
-            &snapshot.sortition_id,
+            &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.canonical_stacks_tip_hash,
             snapshot.canonical_stacks_tip_height,
@@ -2337,6 +2343,82 @@ fn test_make_miners_stackerdb_config() {
 }
 
 #[test]
+fn test_get_highest_canonical_block_header_from_candidates_epoch2_deterministic() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
+    let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    let canonical_ch = tip_snapshot.consensus_hash.clone();
+
+    let epoch2_proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+    let epoch2_proof = VRFProof::from_bytes(&epoch2_proof_bytes[..]).unwrap();
+
+    let mut candidates = Vec::new();
+    // Make the middle candidate the canonical one.
+    let canonical_index = 5;
+    for i in 0..10 {
+        let work = 110u64.saturating_sub(i as u64);
+        let header = StacksBlockHeader {
+            version: 0,
+            total_work: StacksWorkScore { burn: 1, work },
+            proof: epoch2_proof.clone(),
+            parent_block: BlockHeaderHash([(0x11 + i as u8); 32]),
+            parent_microblock: BlockHeaderHash([0x00; 32]),
+            parent_microblock_sequence: 0,
+            tx_merkle_root: Sha512Trunc256Sum([(0x22 + i as u8); 32]),
+            state_index_root: TrieHash([(0x33 + i as u8); 32]),
+            microblock_pubkey_hash: Hash160([(0x44 + i as u8); 20]),
+        };
+
+        // Make sure the candidate with the correct consensus hash is selected based on the first in the list (i.e.
+        // the one with the highest stacks block height as well as correct consensus hash)
+        let consensus_hash = if i >= canonical_index {
+            canonical_ch.clone()
+        } else {
+            ConsensusHash([(0x50 + i as u8); 20])
+        };
+
+        let candidate = StacksHeaderInfo {
+            anchored_header: StacksBlockHeaderTypes::Epoch2(header),
+            microblock_tail: None,
+            // Make the stacks block height decrease with each candidate, since get_highest_canonical_block_header_from_candidates
+            // expects a height-ordered list of candidates
+            stacks_block_height: work,
+            index_root: TrieHash([(0x60 + i as u8); 32]),
+            consensus_hash,
+            burn_header_hash: tip_snapshot.burn_header_hash.clone(),
+            burn_header_height: tip_snapshot.block_height as u32,
+            burn_header_timestamp: tip_snapshot.burn_header_timestamp,
+            anchored_block_size: 120 + i as u64,
+            burn_view: None,
+            total_tenure_size: 0,
+        };
+        candidates.push(candidate);
+    }
+    let canonical_candidate = candidates[canonical_index].clone();
+    let selected =
+        NakamotoChainState::get_highest_canonical_block_header_from_candidates(sort_db, candidates)
+            .unwrap()
+            .expect("Expected a canonical epoch2 header");
+
+    assert_eq!(
+        selected.anchored_header.block_hash(),
+        canonical_candidate.anchored_header.block_hash()
+    );
+    assert_eq!(
+        selected.stacks_block_height,
+        canonical_candidate.stacks_block_height
+    );
+}
+
+#[test]
 fn parse_vote_for_aggregate_public_key_valid() {
     let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
@@ -2375,7 +2457,7 @@ fn parse_vote_for_aggregate_public_key_valid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2428,7 +2510,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
                 &StacksPublicKey::from_private(&signer_private_key),
             ),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2443,8 +2525,8 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
-            contract_name: "bad-signers-contract-name".into(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            contract_name: ContractName::from_literal("bad-signers-contract-name"),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2460,7 +2542,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: "some-other-function".into(),
+            function_name: ClarityName::from_literal("some-other-function"),
             function_args: valid_function_args,
         }),
     };
@@ -2476,7 +2558,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 aggregate_key_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2497,7 +2579,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 signer_index_arg.clone(),
@@ -2518,7 +2600,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2539,7 +2621,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg,
                 aggregate_key_arg.clone(),
@@ -2609,7 +2691,7 @@ fn valid_vote_transaction() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2662,7 +2744,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_conditions: vec![],
         payload: TransactionPayload::SmartContract(
             TransactionSmartContract {
-                name: "test-contract".into(),
+                name: ContractName::from_literal("test-contract"),
                 code_body: StacksString::from_str("(/ 1 0)").unwrap(),
             },
             None,
@@ -2683,7 +2765,7 @@ fn valid_vote_transaction_malformed_transactions() {
                 &StacksPublicKey::from_private(&signer_private_key),
             ),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2698,8 +2780,8 @@ fn valid_vote_transaction_malformed_transactions() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
-            contract_name: "bad-signers-contract-name".into(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            contract_name: ContractName::from_literal("bad-signers-contract-name"),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2715,7 +2797,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2731,7 +2813,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: "some-other-function".into(),
+            function_name: ClarityName::from_literal("some-other-function"),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2747,7 +2829,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 aggregate_key_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2768,7 +2850,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 signer_index_arg.clone(),
@@ -2789,7 +2871,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2810,7 +2892,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg,
                 aggregate_key_arg.clone(),
@@ -2831,7 +2913,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2900,7 +2982,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -2916,7 +2998,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -2932,7 +3014,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -2948,7 +3030,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -2964,7 +3046,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args,
         }),
     };
@@ -3031,7 +3113,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3047,7 +3129,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3063,7 +3145,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args,
         }),
     };

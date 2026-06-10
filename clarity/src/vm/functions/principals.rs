@@ -1,23 +1,38 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use clarity_types::ClarityName;
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-use crate::vm::contexts::GlobalContext;
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
-    InterpreterError, InterpreterResult as Result,
+    RuntimeCheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least, check_arguments_at_most,
 };
 use crate::vm::representations::{
-    SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
+    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, SymbolicExpression,
 };
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
-use crate::vm::{eval, ContractName, Environment, LocalContext};
+use crate::vm::{ContractName, LocalContext, eval};
 
 pub enum PrincipalConstructErrorCode {
     VERSION_BYTE = 0,
@@ -50,26 +65,27 @@ fn version_matches_current_network(version: u8, global_context: &GlobalContext) 
 
 pub fn special_is_standard(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
-    runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;
-    let owner = eval(&args[0], env, context)?;
+    runtime_cost(ClarityCostFunction::IsStandard, exec_state, 0)?;
+    let owner = eval(&args[0], exec_state, invoke_ctx, context)?;
 
-    let version = if let Value::Principal(ref p) = owner {
+    let version = if let Value::Principal(p) = owner.as_ref() {
         p.version()
     } else {
-        return Err(CheckErrors::TypeValueError(
+        return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner),
+            owner.as_ref().to_error_string(),
         )
         .into());
     };
 
     Ok(Value::Bool(version_matches_current_network(
         version,
-        env.global_context,
+        exec_state.global_context,
     )))
 }
 
@@ -79,29 +95,29 @@ fn create_principal_destruct_tuple(
     version: u8,
     hash_bytes: &[u8; 20],
     name_opt: Option<ContractName>,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     Ok(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "version".into(),
+                ClarityName::from_literal("version"),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: vec![version],
                 })),
             ),
             (
-                "hash-bytes".into(),
+                ClarityName::from_literal("hash-bytes"),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hash_bytes.to_vec(),
                 })),
             ),
             (
-                "name".into(),
+                ClarityName::from_literal("name"),
                 Value::Optional(OptionalData {
                     data: name_opt.map(|name| Box::new(Value::from(ASCIIData::from(name)))),
                 }),
             ),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
 }
 
@@ -109,16 +125,21 @@ fn create_principal_destruct_tuple(
 ///
 /// The response is an error Response, where the `err` value is a tuple `{error_code, parse_tuple}`.
 /// `error_int` is of type `UInt`, `parse_tuple` is None.
-fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) -> Result<Value> {
+fn create_principal_true_error_response(
+    error_int: PrincipalConstructErrorCode,
+) -> Result<Value, VmExecutionError> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
-            ("error_code".into(), Value::UInt(error_int as u128)),
-            ("value".into(), Value::none()),
+            (
+                ClarityName::from_literal("error_code"),
+                Value::UInt(error_int as u128),
+            ),
+            (ClarityName::from_literal("value"), Value::none()),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
     .map_err(|_| {
-        InterpreterError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
+        VmInternalError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
     })
 }
 
@@ -130,33 +151,37 @@ fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) 
 fn create_principal_value_error_response(
     error_int: PrincipalConstructErrorCode,
     value: Value,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
-            ("error_code".into(), Value::UInt(error_int as u128)),
             (
-                "value".into(),
+                ClarityName::from_literal("error_code"),
+                Value::UInt(error_int as u128),
+            ),
+            (
+                ClarityName::from_literal("value"),
                 Value::some(value).map_err(|_| {
-                    InterpreterError::Expect("Unexpected problem creating Value.".into())
+                    VmInternalError::Expect("Unexpected problem creating Value.".into())
                 })?,
             ),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
     .map_err(|_| {
-        InterpreterError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
+        VmInternalError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
     })
 }
 
 pub fn special_principal_destruct(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
-    runtime_cost(ClarityCostFunction::PrincipalDestruct, env, 0)?;
+    runtime_cost(ClarityCostFunction::PrincipalDestruct, exec_state, 0)?;
 
-    let principal = eval(&args[0], env, context)?;
+    let principal = eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
 
     let (version_byte, hash_bytes, name_opt) = match principal {
         Value::Principal(PrincipalData::Standard(p)) => {
@@ -168,9 +193,9 @@ pub fn special_principal_destruct(
             (issuer.0, issuer.1, Some(name))
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::PrincipalType),
-                Box::new(principal),
+                principal.to_error_string(),
             )
             .into());
         }
@@ -178,7 +203,8 @@ pub fn special_principal_destruct(
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
-    let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
+    let version_byte_is_valid =
+        version_matches_current_network(version_byte, exec_state.global_context);
 
     let tuple = create_principal_destruct_tuple(version_byte, &hash_bytes, name_opt)?;
     Ok(Value::Response(ResponseData {
@@ -189,30 +215,31 @@ pub fn special_principal_destruct(
 
 pub fn special_principal_construct(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;
-    runtime_cost(ClarityCostFunction::PrincipalConstruct, env, 0)?;
+    runtime_cost(ClarityCostFunction::PrincipalConstruct, exec_state, 0)?;
 
-    let version = eval(&args[0], env, context)?;
-    let hash_bytes = eval(&args[1], env, context)?;
+    let version = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let hash_bytes = eval(&args[1], exec_state, invoke_ctx, context)?;
     let name_opt = if args.len() > 2 {
-        Some(eval(&args[2], env, context)?)
+        Some(eval(&args[2], exec_state, invoke_ctx, context)?)
     } else {
         None
     };
 
     // Check the version byte.
-    let verified_version = match version {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
+    let verified_version = match version.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => data,
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
-                Err(CheckErrors::TypeValueError(
+                Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_1),
-                    Box::new(version),
+                    version.as_ref().to_error_string(),
                 )
                 .into())
             };
@@ -221,9 +248,9 @@ pub fn special_principal_construct(
 
     let version_byte = if verified_version.len() > 1 {
         // should have been caught by the type-checker
-        return Err(CheckErrors::TypeValueError(
+        return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(version),
+            version.as_ref().to_error_string(),
         )
         .into());
     } else if verified_version.is_empty() {
@@ -242,27 +269,28 @@ pub fn special_principal_construct(
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
-    let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
+    let version_byte_is_valid =
+        version_matches_current_network(version_byte, exec_state.global_context);
 
     // Check the hash bytes -- they must be a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
-    let verified_hash_bytes = match hash_bytes {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
+    let verified_hash_bytes = match hash_bytes.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => data,
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_20),
-                Box::new(hash_bytes),
+                hash_bytes.as_ref().to_error_string(),
             )
-            .into())
+            .into());
         }
     };
 
     // This must have been a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_hash_bytes.len() > 20 {
-        return Err(CheckErrors::TypeValueError(
+        return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_20),
-            Box::new(hash_bytes),
+            hash_bytes.as_ref().to_error_string(),
         )
         .into());
     }
@@ -276,19 +304,20 @@ pub fn special_principal_construct(
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
     transfer_buffer.copy_from_slice(verified_hash_bytes);
-    let principal_data = StandardPrincipalData::new(version_byte, transfer_buffer)?;
+    let principal_data = StandardPrincipalData::new(version_byte, transfer_buffer)
+        .map_err(|_| VmInternalError::Expect("Unexpected principal data".into()))?;
 
     let principal = if let Some(name) = name_opt {
         // requested a contract principal.  Verify that the `name` is a valid ContractName.
         // The type-checker will have verified that it's (string-ascii 40), but not long enough.
-        let name_bytes = match name {
+        let name_bytes = match name.clone_with_cost(exec_state)? {
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
-            _ => {
-                return Err(CheckErrors::TypeValueError(
+            name => {
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
-                    Box::new(name),
+                    name.to_error_string(),
                 )
-                .into())
+                .into());
             }
         };
 
@@ -301,9 +330,9 @@ pub fn special_principal_construct(
 
         // if it's too long, then this should have been caught by the type-checker
         if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
-            return Err(CheckErrors::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
-                Box::new(Value::from(name_bytes)),
+                Value::from(name_bytes).to_error_string(),
             )
             .into());
         }
@@ -312,7 +341,7 @@ pub fn special_principal_construct(
         // it here at runtime.  If it's not valid, then it warrants this function evaluating to
         // (err ..).
         let name_string = String::from_utf8(name_bytes.data).map_err(|_| {
-            InterpreterError::Expect(
+            VmInternalError::Expect(
                 "FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string"
                     .into(),
             )
@@ -339,7 +368,7 @@ pub fn special_principal_construct(
 
     if version_byte_is_valid {
         Ok(Value::okay(principal).map_err(|_| {
-            InterpreterError::Expect("FAIL: failed to build an (ok ..) response".into())
+            VmInternalError::Expect("FAIL: failed to build an (ok ..) response".into())
         })?)
     } else {
         create_principal_value_error_response(PrincipalConstructErrorCode::VERSION_BYTE, principal)

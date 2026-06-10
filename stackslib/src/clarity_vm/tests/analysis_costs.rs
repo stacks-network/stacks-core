@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
+use clarity::vm::clarity::{ClarityError, TransactionConnection};
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::errors::CheckErrors;
+use clarity::vm::errors::StaticCheckErrorKind;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::test_util::TEST_HEADER_DB;
 use clarity::vm::tests::{test_only_mainnet_to_chain_id, UnitTestBurnStateDB};
@@ -55,9 +55,14 @@ fn setup_tracked_cost_test(
                           (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
+    let other_contract_id = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("contract-other"),
+    );
+    let trait_contract_id = QualifiedContractIdentifier::new(
+        p1_principal,
+        ContractName::from_literal("contract-trait"),
+    );
 
     let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
     clarity_instance
@@ -320,11 +325,11 @@ fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: Stacks
                 ClarityVersion::Clarity1,
                 &contract_self,
             );
-            let Err(ClarityError::Analysis(check_error)) = analysis_result else {
+            let Err(ClarityError::StaticCheck(static_check_error)) = analysis_result else {
                 panic!("Bad analysis result: {analysis_result:?}");
             };
-            let CheckErrors::UndefinedVariable(var_name) = *check_error.err else {
-                panic!("Bad analysis error: {check_error:?}");
+            let StaticCheckErrorKind::UndefinedVariable(var_name) = *static_check_error.err else {
+                panic!("Bad analysis error: {static_check_error:?}");
             };
             assert_eq!(var_name, "foo".to_string());
         });

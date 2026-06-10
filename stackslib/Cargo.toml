@@ -9,18 +9,11 @@ homepage = "https://github.com/blockstack/stacks-blockchain"
 repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Reference implementation of the Stacks 2.0 Blockchain"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
-readme = "README.md"
-resolver = "2"
 edition = "2021"
-rust-version = "1.80"
 
 [lib]
 name = "blockstack_lib"
 path = "src/lib.rs"
-
-[[bin]]
-name = "clarity-cli"
-path = "src/clarity_cli_main.rs"
 
 [dependencies]
 rand = { workspace = true }
@@ -40,13 +33,14 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 chrono = { version = "0.4.19", optional = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
+stacks-codec = { path = "../stacks-codec" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 rusqlite = { workspace = true }
 time = { version = "0.3.41", features = ["std"] }
 toml = { workspace = true }
-clar2wasm = { git = "https://github.com/stx-labs/clarity-wasm.git", branch = "sync-wasm-develop"}
+clar2wasm = { git = "https://github.com/stx-labs/clarity-wasm.git"}
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -60,10 +54,6 @@ winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
-
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
 
 [dependencies.ed25519-dalek]
 workspace = true
@@ -80,7 +70,9 @@ mutants = "0.0.3"
 rlimit = "0.10.2"
 chrono = "0.4.19"
 tempfile = "3.3"
+pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+madhouse = { workspace = true }
 insta = { version = "1.37.0", features = ["ron"] }
 
 [features]
@@ -92,9 +84,16 @@ monitoring_prom = ["prometheus"]
 slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
 clarity-wasm = []
 testing = ["chrono", "stacks-common/testing", "clarity/testing"]
+profiler = ["perf-event2"]
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+perf-event2 = { version = "0.7.4", optional = true }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
 sha2 = { version = "0.10" }
+
+[package.metadata.pinny]
+allowed = ["t_prop"]

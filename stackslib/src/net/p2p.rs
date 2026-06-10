@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendE
 use std::thread::JoinHandle;
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use mio::net as mio_net;
+use mio::{self, net as mio_net};
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
@@ -31,7 +31,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
-use {mio, url};
+use url;
 
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Burnchain, BurnchainView};
@@ -587,7 +587,7 @@ pub struct PeerNetwork {
     public_ip_reply_handle: Option<ReplyHandleP2P>,
     public_ip_retries: u64,
 
-    // how many loops of the state-machine have occured?
+    // how many loops of the state-machine have occurred?
     // Used to coordinate with the chain synchronization logic to ensure that the node has at least
     // begun to download blocks after fetching the next reward cycles' sortitions.
     pub num_state_machine_passes: u64,
@@ -4924,7 +4924,6 @@ impl PeerNetwork {
                 sortdb,
                 chainstate,
                 buffered_messages,
-                ibd,
                 false,
             );
             ret.extend(unhandled);
@@ -5035,7 +5034,6 @@ impl PeerNetwork {
             sortdb,
             chainstate,
             unhandled_messages,
-            ibd,
             true,
         );
         let unhandled_messages =
@@ -5568,8 +5566,7 @@ mod test {
     use std::{thread, time};
 
     use clarity::util::sleep_ms;
-    use rand;
-    use rand::RngCore;
+    use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
@@ -5638,6 +5635,7 @@ mod test {
             first_block_height: 50,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
         };
 
         let mut burnchain_view = BurnchainView {
@@ -5654,7 +5652,7 @@ mod test {
             0x9abcdef0,
             0,
             23456,
-            "http://test-p2p.com".into(),
+            UrlString::from_literal("http://test-p2p.com"),
             &[],
             initial_neighbors,
         )
@@ -5782,7 +5780,7 @@ mod test {
                     thread::sleep(time::Duration::from_millis(500));
                 }
 
-                // peer_2 had better have recieved that ping
+                // peer_2 had better have received that ping
                 let mut got_ping = false;
                 for (_, convo) in peer_2.network.peers.iter() {
                     got_ping = got_ping

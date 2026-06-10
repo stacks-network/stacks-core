@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -135,7 +151,7 @@ pub struct Counters {
     pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
 
     #[cfg(test)]
-    pub naka_skip_commit_op: TestFlag<bool>,
+    pub skip_commit_op: TestFlag<bool>,
 }
 
 impl Counters {
@@ -314,11 +330,13 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new(Some(config.get_working_dir()));
+        let mut event_dispatcher = EventDispatcher::new_with_custom_queue_size(
+            config.get_working_dir(),
+            config.node.effective_event_dispatcher_queue_size(),
+        );
         for observer in config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }
-        event_dispatcher.process_pending_payloads();
 
         Self {
             config,
@@ -908,7 +926,7 @@ impl RunLoop {
                 let peer_network = node.join();
 
                 // Data that will be passed to Nakamoto run loop
-                // Only gets transfered on clean shutdown of neon run loop
+                // Only gets transferred on clean shutdown of neon run loop
                 let data_to_naka = Neon2NakaData::new(globals, peer_network);
 
                 info!("Exiting stacks-node");
@@ -1031,7 +1049,7 @@ impl RunLoop {
                                 let peer_network = node.join();
 
                                 // Data that will be passed to Nakamoto run loop
-                                // Only gets transfered on clean shutdown of neon run loop
+                                // Only gets transferred on clean shutdown of neon run loop
                                 let data_to_naka = Neon2NakaData::new(globals, peer_network);
 
                                 info!("Exiting stacks-node");
@@ -1083,9 +1101,15 @@ impl RunLoop {
 
                     // at tip, and not downloading. proceed to mine.
                     if last_tenure_sortition_height != sortition_db_height {
-                        info!(
-                            "Runloop: Synchronized full burnchain up to height {sortition_db_height}. Proceeding to mine blocks"
-                        );
+                        if is_miner {
+                            info!(
+                                "Runloop: Synchronized full burnchain up to height {sortition_db_height}. Proceeding to mine blocks"
+                            );
+                        } else {
+                            info!(
+                                "Runloop: Synchronized full burnchain up to height {sortition_db_height}."
+                            );
+                        }
                         last_tenure_sortition_height = sortition_db_height;
                     }
 
@@ -1103,7 +1127,7 @@ impl RunLoop {
                             let peer_network = node.join();
 
                             // Data that will be passed to Nakamoto run loop
-                            // Only gets transfered on clean shutdown of neon run loop
+                            // Only gets transferred on clean shutdown of neon run loop
                             let data_to_naka = Neon2NakaData::new(globals, peer_network);
 
                             info!("Exiting stacks-node");

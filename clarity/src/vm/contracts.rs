@@ -14,25 +14,36 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use stacks_common::types::StacksEpochId;
+use std::ops::Deref;
+use std::sync::Arc;
 
 use super::analysis::ContractAnalysis;
 use crate::vm::ast::ContractAST;
 #[cfg(feature = "clarity-wasm")]
 use crate::vm::clarity_wasm::initialize_contract;
 use crate::vm::contexts::{ContractContext, GlobalContext};
-use crate::vm::errors::InterpreterResult as Result;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::eval_all;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::version::ClarityVersion;
 
-#[derive(Serialize, Deserialize)]
+/// A parsed, shared contract.
+// TODO: We could clean this up more; maybe rename to `SharedContract` to make the inner `Arc` more
+// explicit, move the `initialize_from_ast` logic to a constructor on `ContractContext` and locate
+// this type in the `contexts` module, etc.
+#[derive(Clone)]
 pub struct Contract {
-    pub contract_context: ContractContext,
+    contract_context: Arc<ContractContext>,
 }
 
-// AARON: this is an increasingly useless wrapper around a ContractContext struct.
-//          will probably be removed soon.
+impl Deref for Contract {
+    type Target = ContractContext;
+
+    fn deref(&self) -> &ContractContext {
+        &self.contract_context
+    }
+}
+
 impl Contract {
     pub fn initialize_from_ast(
         contract_identifier: QualifiedContractIdentifier,
@@ -41,8 +52,9 @@ impl Contract {
         sponsor: Option<PrincipalData>,
         global_context: &mut GlobalContext,
         version: ClarityVersion,
-    ) -> Result<Contract> {
+    ) -> Result<Contract, VmExecutionError> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
+        contract_context.is_deploying = true;
 
         #[cfg(feature = "clarity-wasm")]
         if let Some(wasm_module) = contract.wasm_module.take() {
@@ -75,10 +87,17 @@ impl Contract {
             sponsor,
         )?;
 
-        Ok(Contract { contract_context })
+        contract_context.is_deploying = false;
+        Ok(Contract {
+            contract_context: Arc::new(contract_context),
+        })
     }
+}
 
-    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
-        self.contract_context.canonicalize_types(epoch);
+impl From<ContractContext> for Contract {
+    fn from(contract_context: ContractContext) -> Self {
+        Self {
+            contract_context: Arc::new(contract_context),
+        }
     }
 }

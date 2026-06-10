@@ -1,0 +1,177 @@
+# Github workflow to create reusable caches
+name: Build Release Binaries
+
+on:
+  workflow_call:
+    inputs:
+      node_tag:
+        description: "Node Release Tag"
+        required: true
+        type: string
+      signer_tag:
+        description: "Signer Release Tag"
+        required: true
+        type: string
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default shell
+defaults:
+  run:
+    shell: bash
+
+# Configure concurrency
+concurrency:
+  group: release-build-${{ github.head_ref || github.ref }}
+  # Always cancel duplicate jobs
+  cancel-in-progress: true
+
+run-name: Build Release Binaries
+
+# Set default env vars
+env:
+  # Set a default command to build. we'll define specific build config options later per arch.
+  CMD: "cargo build --features monitoring_prom,slog_json --profile release --workspace"
+
+jobs:
+  build-binaries:
+    name: Build Binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Run a maximum of 10 builds concurrently
+      max-parallel: 10
+      matrix:
+        arch:
+          - linux-glibc
+          - linux-musl
+          - macos
+          - windows
+        cpu:
+          - x86-64
+          - arm64
+        os:
+          - ubuntu-latest
+          - macos-latest-large
+        # Only run for macos-arm64 and windows-x64 if this run from stacks-network
+        is_fork:
+          - ${{ github.repository_owner != 'stacks-network' }}
+        exclude:
+          # exclude linux-musl on macos
+          - arch: linux-musl
+            os: macos-latest-large
+          # exclude linux-glibc on macos
+          - arch: linux-glibc
+            os: macos-latest-large
+          # excludes macos on ubuntu
+          - arch: macos
+            os: ubuntu-latest
+          # excludes windows on macos
+          - arch: windows
+            os: macos-latest-large
+          # excludes windows-arm64
+          - arch: windows
+            cpu: arm64
+          # excludes macos-x64 (always)
+          - arch: macos
+            cpu: x86-64
+          # excludes macos-arm64 (fork only)
+          - arch: macos
+            cpu: arm64
+            is_fork: true
+          # excludes windows-x64 (fork only)
+          - arch: windows
+            cpu: x86-64
+            is_fork: true
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      # Checkout the code
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Configure target platform, install Rust toolchain, and build binaries
+      - name: Build Binaries
+        id: build-binaries
+        env:
+          MATRIX_CPU: ${{ matrix.cpu }}
+          MATRIX_ARCH: ${{ matrix.arch }}
+          CMD: ${{ env.CMD }}
+          # SIGNER_ONLY: true when only building signer (no node release)
+          SIGNER_ONLY: ${{ inputs.node_tag == '' }}
+        run: bash ./.github/scripts/build_binaries.sh
+
+      # For macOS,install the GNU version of sed used in compress_artifacts_stacks_node
+      #  - Included BSD version of sed returns an error: `sed: first RE may not be empty`
+      - name: Install GNU sed on macOS
+        if: |
+          runner.os == 'macOS'
+        run: |
+          brew install gnu-sed
+          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix)/opt/gnu-sed/libexec/gnubin" >> $GITHUB_PATH
+
+      # Stacks core release artifact steps
+      #  - binary archive includes stacks-signer binary
+      #  - all steps are conditional on if a node_tag input is provided (will not run for signer releases)
+      #
+      # Compress the binaries in the target directory
+      - name: Compress binaries (stacks-core)
+        if: |
+          inputs.node_tag != ''
+        run: |
+          # compress all binaries in the target directory for any architecture
+          file -0 ./target/${{ steps.build-binaries.outputs.target }}/release/* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths  ${{ steps.build-binaries.outputs.zipfile_name }}.zip -@
+
+      # Upload the binary archive using the commit sha as the key
+      - name: Upload Artifact (stacks-core)
+        if: |
+          inputs.node_tag != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ github.sha }}-stacks-core-${{ steps.build-binaries.outputs.zipfile_name }}
+          path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
+
+      # Attest the binary archive
+      - name: Attest Artifact (stacks-core)
+        if: |
+          inputs.node_tag != ''
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
+
+      # Stacks signer release artifact steps
+      #   - all steps are conditional on if a signer_tag input is provided
+      #
+      # Compress the stacks-signer binary in the target directory
+      - name: Compress binaries (stacks-signer)
+        if: |
+          inputs.signer_tag != ''
+        run: |
+          # since the archives are named generically and identically for both stacks-core and stacks-signer:
+          #   - remove the stacks-core zipfile and recreate for the signer
+          [ -e "${{ steps.build-binaries.outputs.zipfile_name }}.zip" ] && rm -f "${{ steps.build-binaries.outputs.zipfile_name }}.zip"
+          # compress all binaries in the target directory for any architecture
+          file -0 ./target/${{ steps.build-binaries.outputs.target }}/release/stacks-signer* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{ steps.build-binaries.outputs.zipfile_name }}.zip -@
+
+      # Upload the binary archive using the commit sha as the key
+      - name: Upload Artifact (stacks-signer)
+        if: |
+          inputs.signer_tag != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ github.sha }}-stacks-signer-${{ steps.build-binaries.outputs.zipfile_name }}
+          path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
+
+      # Attest the binary archive
+      - name: Attest Artifact (stacks-signer)
+        if: |
+          inputs.signer_tag != ''
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip

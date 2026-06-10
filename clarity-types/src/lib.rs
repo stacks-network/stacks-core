@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,40 +24,29 @@ pub use stacks_common::{
     impl_byte_array_serde, types as stacks_types, util,
 };
 
-pub mod diagnostic;
 pub mod errors;
-pub mod execution_cost;
 pub mod representations;
-pub mod token;
 pub mod types;
+pub mod version;
 
-pub use errors::Error;
+pub use errors::{ClarityTypeError, IncomparableError};
 pub use representations::{ClarityName, ContractName};
+use stacks_common::types::StacksEpochId;
 pub use types::Value;
+pub use version::ClarityVersion;
 
-pub const MAX_CALL_STACK_DEPTH: usize = 64;
+/// Max call stack depth for Epoch 3.4+.
+const MAX_CALL_STACK_DEPTH: u64 = 128;
+/// Max call stack depth for pre‑3.4 epochs.
+const MAX_CALL_STACK_DEPTH_LEGACY: u64 = 64;
+
+pub fn max_call_stack_depth_for_epoch(epoch_id: StacksEpochId) -> u64 {
+    if epoch_id >= StacksEpochId::Epoch34 {
+        MAX_CALL_STACK_DEPTH
+    } else {
+        MAX_CALL_STACK_DEPTH_LEGACY
+    }
+}
 
 #[cfg(test)]
 pub mod tests;
-
-// set via _compile-time_ envars
-const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
-const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
-const GIT_TREE_CLEAN: Option<&'static str> = option_env!("GIT_TREE_CLEAN");
-
-#[cfg(debug_assertions)]
-const BUILD_TYPE: &str = "debug";
-#[cfg(not(debug_assertions))]
-const BUILD_TYPE: &str = "release";
-
-pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
-    let git_branch = GIT_BRANCH.unwrap_or("");
-    let git_commit = GIT_COMMIT.unwrap_or("");
-    let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
-
-    format!(
-        "{pkg_name} {pkg_version} ({git_branch}:{git_commit}{git_tree_clean}, {BUILD_TYPE} build, {} [{}])",
-        std::env::consts::OS,
-        std::env::consts::ARCH
-    )
-}

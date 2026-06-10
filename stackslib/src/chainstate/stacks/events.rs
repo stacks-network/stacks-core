@@ -3,13 +3,17 @@ use clarity::vm::costs::ExecutionCost;
 pub use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{QualifiedContractIdentifier, Value};
 use libstackerdb::StackerDBChunkData;
+use serde::{Deserialize, Serialize};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash};
 use stacks_common::util::hash::to_hex;
+use stacks_common::util::serde_serializers::prefix_hex;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::coordinator::PoxTransactionReward;
 use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::stacks::address::{pox_addr_b58_serde, pox_addr_vec_b58_serde, PoxAddress};
 use crate::chainstate::stacks::{StacksBlock, StacksMicroblockHeader, StacksTransaction};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,7 +56,7 @@ pub struct StacksTransactionReceipt {
     pub execution_cost: ExecutionCost,
     pub microblock_header: Option<StacksMicroblockHeader>,
     pub tx_index: u32,
-    /// This is really a string-formatted CheckError (which can't be clone()'ed),
+    /// This is really a string-formatted RuntimeCheckErrorKind or VmExecutionError (which can't be clone()'ed),
     /// and is not consensus critical.
     pub vm_error: Option<String>,
 }
@@ -63,6 +67,19 @@ pub struct StacksBlockEventData {
     pub parent_block_hash: BlockHeaderHash,
     pub parent_microblock_hash: BlockHeaderHash,
     pub parent_microblock_sequence: u16,
+}
+
+impl StacksTransactionReceipt {
+    pub fn size(&self) -> Option<u64> {
+        let mut out = 0u64;
+        for event in self.events.iter() {
+            if let StacksTransactionEvent::SmartContractEvent(event) = event {
+                out = out.saturating_add(event.value.size().ok()?.into());
+            }
+        }
+        out = out.saturating_add(self.result.size().ok()?.into());
+        Some(out)
+    }
 }
 
 impl From<StacksBlock> for StacksBlockEventData {
@@ -94,4 +111,36 @@ pub struct StackerDBChunksEvent {
     pub contract_id: QualifiedContractIdentifier,
     /// The chunk data for newly-modified slots
     pub modified_slots: Vec<StackerDBChunkData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BurnBlockEventRewardRecipient {
+    #[serde(with = "pox_addr_b58_serde")]
+    pub recipient: PoxAddress,
+    pub amt: u64,
+}
+
+/// Burn block JSON payload from the event receiver
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BurnBlockEvent {
+    /// The hash of the burn block
+    #[serde(with = "prefix_hex")]
+    pub burn_block_hash: BurnchainHeaderHash,
+    /// The height of the burn block
+    pub burn_block_height: u64,
+    /// The reward recipients
+    pub reward_recipients: Vec<BurnBlockEventRewardRecipient>,
+    /// The reward slot holders
+    #[serde(with = "pox_addr_vec_b58_serde")]
+    pub reward_slot_holders: Vec<PoxAddress>,
+    /// The amount of burn
+    pub burn_amount: u64,
+    /// The consensus hash of the burn block
+    #[serde(with = "prefix_hex")]
+    pub consensus_hash: ConsensusHash,
+    /// The parent burn block hash
+    #[serde(with = "prefix_hex")]
+    pub parent_burn_block_hash: BurnchainHeaderHash,
+    /// The individual transaction information from signers
+    pub pox_transactions: Vec<PoxTransactionReward>,
 }

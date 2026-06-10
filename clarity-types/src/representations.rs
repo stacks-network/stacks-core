@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ use regex::Regex;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec, read_next, write_next};
 
 use crate::Value;
-use crate::errors::RuntimeErrorType;
+use crate::errors::ClarityTypeError;
 use crate::types::TraitIdentifier;
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
@@ -63,20 +63,18 @@ lazy_static! {
 
 guarded_string!(
     ClarityName,
-    "ClarityName",
     CLARITY_NAME_REGEX,
     MAX_STRING_LEN,
-    RuntimeErrorType,
-    RuntimeErrorType::BadNameValue
+    ClarityTypeError,
+    ClarityTypeError::InvalidClarityName
 );
 
 guarded_string!(
     ContractName,
-    "ContractName",
     CONTRACT_NAME_REGEX,
     MAX_STRING_LEN,
-    RuntimeErrorType,
-    RuntimeErrorType::BadNameValue
+    ClarityTypeError,
+    ClarityTypeError::InvalidContractName
 );
 
 impl StacksMessageCodec for ClarityName {
@@ -108,7 +106,7 @@ impl StacksMessageCodec for ClarityName {
         // must encode a valid string
         let s = String::from_utf8(bytes).map_err(|_e| {
             codec_error::DeserializeError(
-                "Failed to parse Clarity name: could not contruct from utf8".to_string(),
+                "Failed to parse Clarity name: could not construct from utf8".to_string(),
             )
         })?;
 
@@ -623,14 +621,14 @@ impl SymbolicExpression {
     }
 
     /// Encode this SymbolicExpression as a String suitable for logging an error (such as in
-    /// CheckErrors).  The `developer-mode` feature includes the `span`.
+    /// RuntimeCheckErrorKind).  The `developer-mode` feature includes the `span`.
     #[cfg(feature = "developer-mode")]
     pub fn as_error_string(&self) -> String {
         format!("{} at {:?}", &self.expr, &self.span)
     }
 
     /// Encode this SymbolicExpression as a String suitable for logging an error (such as in
-    /// CheckErrors).
+    /// RuntimeCheckErrorKind).
     #[cfg(not(feature = "developer-mode"))]
     pub fn as_error_string(&self) -> String {
         format!("{}", &self.expr)

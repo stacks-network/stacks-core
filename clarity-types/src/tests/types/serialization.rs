@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,13 +14,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
-use crate::Error;
-use crate::errors::{CheckErrors, InterpreterError};
+use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{
     ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
+use crate::{ClarityName, ContractName};
 
 fn test_deser_ser(v: Value) {
     assert_eq!(
@@ -183,30 +183,32 @@ fn test_string_utf8() {
 fn test_tuples() {
     let t_1 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Int(1)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(1)),
         ])
         .unwrap(),
     );
     let t_0 = Value::from(
         TupleData::from_data(vec![
-            ("b".into(), Value::Int(1)),
-            ("a".into(), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(1)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
         ])
         .unwrap(),
     );
     let t_2 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Bool(true)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Bool(true)),
         ])
         .unwrap(),
     );
-    let t_3 = Value::from(TupleData::from_data(vec![("a".into(), Value::Int(1))]).unwrap());
+    let t_3 = Value::from(
+        TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(1))]).unwrap(),
+    );
     let t_4 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("c".into(), Value::Bool(true)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("c"), Value::Bool(true)),
         ])
         .unwrap(),
     );
@@ -304,7 +306,7 @@ fn test_vectors() {
                     ],
                 )
                 .unwrap(),
-                "abcd".into(),
+                ContractName::from_literal("abcd"),
             )
             .into()),
         ),
@@ -335,8 +337,8 @@ fn test_vectors() {
             "0c000000020362617a0906666f6f62617203",
             Ok(Value::from(
                 TupleData::from_data(vec![
-                    ("baz".into(), Value::none()),
-                    ("foobar".into(), Value::Bool(true)),
+                    (ClarityName::from_literal("baz"), Value::none()),
+                    (ClarityName::from_literal("foobar"), Value::Bool(true)),
                 ])
                 .unwrap(),
             )),
@@ -374,7 +376,7 @@ fn try_deser_large_list() {
 
     assert_eq!(
         Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
-        SerializationError::DeserializationError("Illegal list type".to_string())
+        SerializationError::DeserializationFailure("Illegal list type".to_string())
     );
 }
 
@@ -386,7 +388,7 @@ fn try_deser_large_tuple() {
 
     assert_eq!(
         Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
-        SerializationError::DeserializationError("Illegal tuple type".to_string())
+        SerializationError::DeserializationFailure("Illegal tuple type".to_string())
     );
 }
 
@@ -394,7 +396,7 @@ fn try_deser_large_tuple() {
 fn try_overflow_stack() {
     let input = "08080808080808080808070707080807080808080808080708080808080708080707080707080807080808080808080708080808080708080707080708070807080808080808080708080808080708080708080808080808080807070807080808080808070808070707080807070808070808080808070808070708070807080808080808080707080708070807080708080808080808070808080808070808070808080808080808080707080708080808080807080807070708080707080807080808080807080807070807080708080808080808070708070808080808080708080707070808070708080807080807070708";
     assert_eq!(
-        Err(CheckErrors::TypeSignatureTooDeep.into()),
+        Err(ClarityTypeError::TypeSignatureTooDeep.into()),
         Value::try_deserialize_hex_untyped(input)
     );
 }
@@ -406,7 +408,8 @@ fn test_principals() {
             .unwrap();
     let standard_p = Value::from(issuer.clone());
 
-    let contract_identifier = QualifiedContractIdentifier::new(issuer, "foo".into());
+    let contract_identifier =
+        QualifiedContractIdentifier::new(issuer, ContractName::from_literal("foo"));
     let contract_p2 = Value::from(PrincipalData::Contract(contract_identifier));
 
     test_deser_ser(contract_p2.clone());
@@ -416,32 +419,26 @@ fn test_principals() {
     test_bad_expectation(standard_p, TypeSignature::BoolType);
 }
 
-/// The returned InterpreterError is consensus-critical.
 #[test]
-fn test_serialize_to_vec_returns_interpreter_error_consensus_critical() {
+fn test_serialize_to_vec_returns_serialization_failure() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
         data: vec![0; MAX_VALUE_SIZE as usize + 1],
     })));
     let err = value.serialize_to_vec().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
-            "IOError filling byte buffer.".into()
-        )),
-        err.into()
+        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
+        err
     );
 }
 
-/// The returned InterpreterError is consensus-critical.
 #[test]
-fn test_serialize_to_hex_returns_interpreter_error_consensus_critical() {
+fn test_serialize_to_hex_returns_serialization_failure() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
         data: vec![0; MAX_VALUE_SIZE as usize + 1],
     })));
     let err = value.serialize_to_hex().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
-            "IOError filling byte buffer.".into()
-        )),
-        err.into()
+        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
+        err
     );
 }

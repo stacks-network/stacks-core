@@ -16,20 +16,23 @@
 use std::collections::HashMap;
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::{
-    SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
-    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
-    TransactionVersion,
+    CoinbasePayload, SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction,
+    TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+    TransactionSpendingCondition, TransactionVersion,
 };
 use blockstack_lib::core::test_util::make_stacks_transfer_tx;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
 use clarity::types::PrivateKey;
 use clarity::util::secp256k1::Secp256k1PublicKey;
+use clarity::util::vrf::VRFProof;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
@@ -45,6 +48,7 @@ use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{function_name, info};
 
+use crate::chainstate::tests::make_parent_header_meta;
 use crate::chainstate::v2::{GlobalStateView, SortitionState};
 use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData};
 use crate::client::tests::MockServerClient;
@@ -98,6 +102,7 @@ fn setup_test_environment(
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
 
     let stacks_client = StacksClient::new(
@@ -373,39 +378,121 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
     }
 }
 
-#[test]
-fn check_proposal_tenure_extend() {
-    let (stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, sortitions_view) =
-        setup_test_environment(function_name!());
+fn check_tenure_extend<F>(make_payload: F) -> Result<(), RejectReason>
+where
+    F: Fn(&mut SortitionState, &NakamotoBlock) -> TenureChangePayload,
+{
+    let MockServerClient {
+        server,
+        client: stacks_client,
+        config: _,
+    } = MockServerClient::new();
+    let (
+        _stacks_client,
+        mut signer_db,
+        block_sk,
+        mut block,
+        mut cur_sortition,
+        _,
+        mut sortitions_view,
+    ) = setup_test_environment(function_name!());
     block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.burn_view_consensus_hash = cur_sortition.data.consensus_hash;
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
-    block.txs = vec![tx];
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect_err("Proposal should not validate");
+    let mut parent_block_header = make_parent_header_meta(&block_sk, &mut block);
+    parent_block_header.burn_view = Some(cur_sortition.data.consensus_hash.clone());
+    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
 
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
+    let mut payload = make_payload(&mut cur_sortition, &block);
+    payload.previous_tenure_end = block.header.parent_block_id.clone();
+    let tx = make_tenure_change_tx(payload);
     block.txs = vec![tx];
-    block.header.miner_signature = block_sk
-        .sign(block.header.miner_signature_hash().as_bytes())
-        .unwrap();
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect("Proposal should validate");
+    block.header.sign_miner(&block_sk).unwrap();
+
+    let exit_flag = Arc::new(AtomicBool::new(false));
+    let moved_exit_flag = exit_flag.clone();
+
+    let serve = std::thread::spawn(move || {
+        crate::client::tests::write_response_nonblockinig(
+            &server,
+            response.as_bytes(),
+            moved_exit_flag,
+        );
+    });
+
+    sortitions_view.config.read_count_idle_timeout = Duration::from_secs(0);
+    let result = sortitions_view.check_proposal(&stacks_client, &mut signer_db, &block);
+
+    exit_flag.store(true, Ordering::SeqCst);
+    serve.join().unwrap();
+    result
+}
+
+#[test]
+fn check_tenure_extend_burn_view_change() {
+    check_tenure_extend(|_, block| {
+        let mut extend_payload = make_tenure_change_payload();
+        extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
+        extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload
+    })
+    .expect("Proposal should validate");
+}
+
+#[test]
+fn check_tenure_extend_unsupported_cause() {
+    check_tenure_extend(|_, block| {
+        let mut extend_payload = make_tenure_change_payload();
+        extend_payload.cause = TenureChangeCause::ExtendedRuntime;
+        extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
+        extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload
+    })
+    .expect_err("Proposal should not validate");
+}
+
+#[test]
+fn check_tenure_extend_no_burn_change_during_read_count() {
+    check_tenure_extend(|_, block| {
+        let mut extend_payload = make_tenure_change_payload();
+        extend_payload.cause = TenureChangeCause::ExtendedRuntime;
+        extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
+        extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload
+    })
+    .expect_err("Proposal should not validate");
+}
+
+#[test]
+fn check_tenure_extend_read_count() {
+    check_tenure_extend(|view, block| {
+        let mut extend_payload = make_tenure_change_payload();
+        extend_payload.cause = TenureChangeCause::ExtendedReadCount;
+        extend_payload.burn_view_consensus_hash = view.data.consensus_hash.clone();
+        extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload
+    })
+    .expect("Proposal should validate");
 }
 
 #[test]
 fn check_proposal_with_extend_during_replay() {
-    let (stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
-        setup_test_environment(function_name!());
+    let MockServerClient {
+        server,
+        client: stacks_client,
+        config: _,
+    } = MockServerClient::new();
+
+    let rand_int = server.local_addr().unwrap().port();
+
+    let (_, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
+        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
+
+    let parent_block_header = make_parent_header_meta(&block_sk, &mut block);
+    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
+
     block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
     let mut extend_payload = make_tenure_change_payload();
     extend_payload.burn_view_consensus_hash = cur_sortition.data.consensus_hash.clone();
@@ -427,9 +514,14 @@ fn check_proposal_with_extend_during_replay() {
 
     sortitions_view.signer_state.tx_replay_set = replay_set;
 
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect("Proposal should validate");
+    let j = std::thread::spawn(move || {
+        sortitions_view
+            .check_proposal(&stacks_client, &mut signer_db, &block)
+            .expect("Proposal should validate");
+    });
+
+    crate::client::tests::write_response(server, response.as_bytes());
+    j.join().unwrap();
 }
 
 #[test]
@@ -514,7 +606,7 @@ fn check_sortition_timeout() {
     };
 
     let mut block_info = BlockInfo::from(block_proposal);
-    block_info.signed_over = true;
+    block_info.mark_pre_committed().unwrap();
     signer_db.insert_block(&block_info).unwrap();
 
     // This will no longer be timed out as we have a non-empty tenure
@@ -526,4 +618,107 @@ fn check_sortition_timeout() {
         Duration::from_secs(1),
     )
     .unwrap());
+}
+
+/// Test that a tenure change proposal is rejected when a locally-accepted
+/// (but not globally-accepted) block already exists in the same tenure.
+///
+/// This is a regression test: previously, the check used
+/// `get_last_globally_accepted_block`, which would miss blocks in
+/// `LocallyAccepted` or `PreCommitted` state and incorrectly allow
+/// a duplicate tenure change.
+#[test]
+fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
+    let MockServerClient {
+        server,
+        client: stacks_client,
+        config: _,
+    } = MockServerClient::new();
+    let rand_int = server.local_addr().unwrap().port();
+
+    let (_stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, sortitions_view) =
+        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
+
+    // Set up the block in the current tenure
+    block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
+    let parent_block_header = make_parent_header_meta(&block_sk, &mut block);
+    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
+
+    // Insert a locally-accepted block in the same tenure (same consensus_hash).
+    // This simulates a miner's first tenure-start block that the signer has
+    // locally accepted but that hasn't yet gathered enough signatures to be
+    // globally accepted. In practice this block would contain a tenure-change
+    // and coinbase tx, but we omit them here because `get_last_accepted_block`
+    // only queries by consensus_hash and block state — the block's transactions
+    // are irrelevant to the duplicate check.
+    let existing_block_proposal = BlockProposal {
+        block: NakamotoBlock {
+            header: NakamotoBlockHeader {
+                version: 1,
+                chain_length: 10,
+                burn_spent: 10,
+                consensus_hash: cur_sortition.data.consensus_hash.clone(),
+                parent_block_id: StacksBlockId([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+                state_index_root: TrieHash([0; 32]),
+                timestamp: 11,
+                miner_signature: MessageSignature::empty(),
+                signer_signature: vec![],
+                pox_treatment: BitVec::ones(1).unwrap(),
+            },
+            txs: vec![],
+        },
+        burn_height: 2,
+        reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
+    };
+    let mut existing_block_info = BlockInfo::from(existing_block_proposal);
+    existing_block_info.mark_locally_accepted(false).unwrap();
+    signer_db.insert_block(&existing_block_info).unwrap();
+
+    // Now build a *second* tenure-start block proposal for the same tenure.
+    // This simulates the miner attempting to replace their first block (e.g.,
+    // with different transactions). The tenure change tx must have
+    // cause=BlockFound with a coinbase to be recognized as a tenure-start block.
+    let tenure_change_payload = TenureChangePayload {
+        tenure_consensus_hash: cur_sortition.data.consensus_hash.clone(),
+        prev_tenure_consensus_hash: cur_sortition.data.parent_tenure_id.clone(),
+        burn_view_consensus_hash: cur_sortition.data.consensus_hash.clone(),
+        previous_tenure_end: block.header.parent_block_id.clone(),
+        previous_tenure_blocks: 1,
+        cause: TenureChangeCause::BlockFound,
+        pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_sk)),
+    };
+    let tenure_change_tx = make_tenure_change_tx(tenure_change_payload);
+    let coinbase_tx = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
+        TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(VRFProof::empty())),
+    );
+    block.txs = vec![tenure_change_tx, coinbase_tx];
+    block.header.sign_miner(&block_sk).unwrap();
+
+    let exit_flag = Arc::new(AtomicBool::new(false));
+    let moved_exit_flag = exit_flag.clone();
+
+    let serve = std::thread::spawn(move || {
+        crate::client::tests::write_response_nonblockinig(
+            &server,
+            response.as_bytes(),
+            moved_exit_flag,
+        );
+    });
+
+    let result = sortitions_view.check_proposal(&stacks_client, &mut signer_db, &block);
+
+    exit_flag.store(true, Ordering::SeqCst);
+    serve.join().unwrap();
+
+    // The proposal should be rejected because there's already a locally-accepted
+    // block in this tenure. Before the fix, this would have incorrectly passed
+    // because get_last_globally_accepted_block would not find the locally-accepted block.
+    assert!(
+        matches!(result, Err(RejectReason::DuplicateBlockFound)),
+        "Expected DuplicateBlockFound rejection when a locally-accepted block exists in the tenure, got: {result:?}"
+    );
 }

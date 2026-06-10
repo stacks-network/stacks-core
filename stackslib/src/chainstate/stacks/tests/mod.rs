@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@ use crate::net::test::*;
 pub mod accounting;
 pub mod block_construction;
 pub mod chain_histories;
+pub mod reward_set;
 
 pub const COINBASE: u128 = 500 * 1_000_000;
 
@@ -790,7 +791,7 @@ pub fn check_block_state_index_root(
     let index_block_hash =
         StacksBlockHeader::make_index_block_hash(consensus_hash, &stacks_header.block_hash());
     let mut state_root_index =
-        StacksChainState::open_index(&chainstate.clarity_state_index_path).unwrap();
+        StacksChainState::open_index(&chainstate.clarity_state_index_path, None).unwrap();
     let state_root = state_root_index
         .borrow_storage_backend()
         .read_block_root_hash(&index_block_hash)
@@ -1137,7 +1138,7 @@ pub fn make_user_contract_publish(
     contract_name: &str,
     contract_content: &str,
 ) -> StacksTransaction {
-    let name = ContractName::from(contract_name);
+    let name = ContractName::try_from(contract_name).expect("invalid contract name");
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload = TransactionSmartContract { name, code_body };
@@ -1153,7 +1154,7 @@ pub fn make_versioned_user_contract_publish(
     contract_content: &str,
     version: ClarityVersion,
 ) -> StacksTransaction {
-    let name = ContractName::from(contract_name);
+    let name = ContractName::try_from(contract_name).unwrap();
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload = TransactionPayload::SmartContract(

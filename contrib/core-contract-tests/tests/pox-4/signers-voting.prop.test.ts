@@ -18,9 +18,9 @@ it("should return correct reward-cycle-to-burn-height", () => {
         assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
         assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          pox_4_info.value.data["first-burnchain-block-height"];
+          pox_4_info.value.value["first-burnchain-block-height"];
         const reward_cycle_length =
-          pox_4_info.value.data["reward-cycle-length"];
+          pox_4_info.value.value["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(
@@ -58,9 +58,9 @@ it("should return correct burn-height-to-reward-cycle", () => {
         assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
         assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          pox_4_info.value.data["first-burnchain-block-height"];
+          pox_4_info.value.value["first-burnchain-block-height"];
         const reward_cycle_length =
-          pox_4_info.value.data["reward-cycle-length"];
+          pox_4_info.value.value["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(
@@ -100,11 +100,11 @@ it("should return correct is-in-prepare-phase", () => {
         assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
         assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
         const first_burnchain_block_height =
-          pox_4_info.value.data["first-burnchain-block-height"];
+          pox_4_info.value.value["first-burnchain-block-height"];
         const prepare_cycle_length =
-          pox_4_info.value.data["prepare-cycle-length"];
+          pox_4_info.value.value["prepare-cycle-length"];
         const reward_cycle_length =
-          pox_4_info.value.data["reward-cycle-length"];
+          pox_4_info.value.value["reward-cycle-length"];
 
         // Act
         const { result: actual } = simnet.callReadOnlyFn(

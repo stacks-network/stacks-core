@@ -22,18 +22,19 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use libsigner::v0::messages::{
-    BlockAccepted, BlockResponse, MessageSlotID, SignerMessage as SignerMessageV0,
+    BlockAccepted, BlockResponse, MessageSlotID, RejectCode, SignerMessage as SignerMessageV0,
     StateMachineUpdate,
 };
 use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
 use libsigner::{SignerEntries, SignerEvent, SignerSession, StackerDBSession};
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::nakamoto::NakamotoBlockHeader;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, SIGNERS_NAME};
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
+use stacks::net::api::postblock_proposal::ValidateRejectCode;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -55,6 +56,16 @@ pub static TEST_IGNORE_SIGNERS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFla
 /// waking up to check timeouts?
 pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
+/// Tracks per-txid rejection data from signers
+#[derive(Debug, Clone, Default)]
+pub struct FailedTxInfo {
+    /// The total weight of signers who reported this txid as failed
+    pub total_weight: u32,
+    /// The weight of signers who specifically reported this txid as
+    /// genuinely problematic (e.g. DDoS vector, parse error, Clarity crash)
+    pub problematic_weight: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockStatus {
     /// Set of the slot ids of signers who have responded
@@ -65,6 +76,8 @@ pub struct BlockStatus {
     pub total_weight_approved: u32,
     /// Total weight of signers who have rejected the block
     pub total_weight_rejected: u32,
+    /// Per-txid rejection tracking from signers
+    pub failed_txids: HashMap<Txid, FailedTxInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +114,11 @@ pub struct StackerDBListener {
     ///  - key: StacksPublicKey
     ///  - value: TimestampInfo
     pub(crate) signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+    /// Tracks the timestamps from signers to decide when they should be
+    /// willing to accept time-based read-count extensions
+    ///  - key: StacksPublicKey
+    ///  - value: TimestampInfo
+    pub(crate) signer_read_count_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
     /// Tracks the signer's global state machine through signer state machine update messages
     pub(crate) global_state_evaluator: Arc<Mutex<GlobalStateEvaluator>>,
     /// Wehther we are operating on mainnet
@@ -118,6 +136,11 @@ pub struct StackerDBListenerComms {
     ///  - key: StacksPublicKey
     ///  - value: TimestampInfo
     signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+    /// Tracks the timestamps from signers to decide when they should be
+    /// willing to accept time-based read-count extensions
+    ///  - key: StacksPublicKey
+    ///  - value: TimestampInfo
+    signer_read_count_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
     /// Tracks the signer's global state machine through signer state machine update messages
     global_state_evaluator: Arc<Mutex<GlobalStateEvaluator>>,
 }
@@ -226,6 +249,7 @@ impl StackerDBListener {
             signer_idle_timestamps: Arc::new(Mutex::new(HashMap::new())),
             global_state_evaluator: Arc::new(Mutex::new(global_state_evaluator)),
             is_mainnet: config.is_mainnet(),
+            signer_read_count_timestamps: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -234,6 +258,7 @@ impl StackerDBListener {
             blocks: self.blocks.clone(),
             signer_idle_timestamps: self.signer_idle_timestamps.clone(),
             global_state_evaluator: self.global_state_evaluator.clone(),
+            signer_read_count_timestamps: self.signer_read_count_timestamps.clone(),
         }
     }
 
@@ -315,7 +340,7 @@ impl StackerDBListener {
                 "slot_ids" => ?slot_ids,
             );
 
-            for ((_, message), slot_id) in messages.into_iter().zip(slot_ids) {
+            for (slot_id, _pk, message) in messages.into_iter() {
                 let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
                     return Err(NakamotoNodeError::SignerSignatureError(
                         "Signer entry not found".into(),
@@ -337,6 +362,8 @@ impl StackerDBListener {
                             response_data,
                         } = accepted;
                         let tenure_extend_timestamp = response_data.tenure_extend_timestamp;
+                        let read_count_extend_timestamp =
+                            response_data.tenure_extend_read_count_timestamp;
 
                         let (lock, cvar) = &*self.blocks;
                         let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
@@ -387,8 +414,7 @@ impl StackerDBListener {
                         if !block.gathered_signatures.contains_key(&slot_id) {
                             block.total_weight_approved = block
                                 .total_weight_approved
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight signed exceeds u32::MAX");
+                                .saturating_add(signer_entry.weight);
 
                             info!("StackerDBListener: Signature Added to block";
                                 "signer_signature_hash" => %block_sighash,
@@ -402,6 +428,7 @@ impl StackerDBListener {
                                 "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
                                 "weight_threshold" => self.weight_threshold,
                                 "tenure_extend_timestamp" => tenure_extend_timestamp,
+                                "read_count_extend_timestamp" => read_count_extend_timestamp,
                                 "server_version" => metadata.server_version,
                             );
                         }
@@ -415,8 +442,15 @@ impl StackerDBListener {
 
                         // Update the idle timestamp for this signer
                         self.update_idle_timestamp(
-                            signer_pubkey,
+                            signer_pubkey.clone(),
                             tenure_extend_timestamp,
+                            signer_entry.weight,
+                        );
+
+                        // Update the read-count timestamp for this signer
+                        self.update_read_count_timestamp(
+                            signer_pubkey,
+                            read_count_extend_timestamp,
                             signer_entry.weight,
                         );
                     }
@@ -452,8 +486,35 @@ impl StackerDBListener {
                         if block.responded_signers.insert(slot_id) {
                             block.total_weight_rejected = block
                                 .total_weight_rejected
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight rejected exceeds u32::MAX");
+                                .saturating_add(signer_entry.weight);
+
+                            // Track transactions that failed validation, accumulating
+                            // per-txid signer weight and whether any signer flagged
+                            // the tx as genuinely problematic.
+                            if let Some(txid) = &rejected_data.response_data.failed_txid {
+                                match &rejected_data.reason_code {
+                                    RejectCode::ValidationFailed(
+                                        ValidateRejectCode::BadTransaction
+                                        | ValidateRejectCode::ProblematicTransaction,
+                                    ) => {
+                                        let info =
+                                            block.failed_txids.entry(txid.clone()).or_default();
+                                        info.total_weight =
+                                            info.total_weight.saturating_add(signer_entry.weight);
+                                        if matches!(
+                                            rejected_data.reason_code,
+                                            RejectCode::ValidationFailed(
+                                                ValidateRejectCode::ProblematicTransaction
+                                            )
+                                        ) {
+                                            info.problematic_weight = info
+                                                .problematic_weight
+                                                .saturating_add(signer_entry.weight);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
 
                             info!("StackerDBListener: Signer rejected block";
                                 "signer_signature_hash" => %rejected_data.signer_signature_hash,
@@ -469,6 +530,7 @@ impl StackerDBListener {
                                 "reason" => rejected_data.reason,
                                 "reason_code" => ?rejected_data.reason_code,
                                 "tenure_extend_timestamp" => rejected_data.response_data.tenure_extend_timestamp,
+                                "failed_txid" => ?rejected_data.response_data.failed_txid,
                                 "server_version" => rejected_data.metadata.server_version,
                             );
                         }
@@ -484,8 +546,17 @@ impl StackerDBListener {
 
                         // Update the idle timestamp for this signer
                         self.update_idle_timestamp(
-                            signer_pubkey,
+                            signer_pubkey.clone(),
                             rejected_data.response_data.tenure_extend_timestamp,
+                            signer_entry.weight,
+                        );
+
+                        // Update the read-count timestamp for this signer
+                        self.update_read_count_timestamp(
+                            signer_pubkey,
+                            rejected_data
+                                .response_data
+                                .tenure_extend_read_count_timestamp,
                             signer_entry.weight,
                         );
                     }
@@ -528,6 +599,30 @@ impl StackerDBListener {
         // Update the map with the new timestamp and weight
         let timestamp_info = TimestampInfo { timestamp, weight };
         idle_timestamps.insert(signer_pubkey, timestamp_info);
+    }
+
+    fn update_read_count_timestamp(
+        &self,
+        signer_pubkey: StacksPublicKey,
+        timestamp: u64,
+        weight: u32,
+    ) {
+        let mut timestamps = self
+            .signer_read_count_timestamps
+            .lock()
+            .expect("FATAL: failed to lock idle timestamps");
+
+        // Check the current timestamp for the given signer_pubkey
+        if let Some(existing_info) = timestamps.get(&signer_pubkey) {
+            // Only update if the new timestamp is greater
+            if timestamp <= existing_info.timestamp {
+                return; // Exit early if the new timestamp is not greater
+            }
+        }
+
+        // Update the map with the new timestamp and weight
+        let timestamp_info = TimestampInfo { timestamp, weight };
+        timestamps.insert(signer_pubkey, timestamp_info);
     }
 
     fn update_global_state_evaluator(&self, pubkey: &StacksPublicKey, update: StateMachineUpdate) {
@@ -574,6 +669,7 @@ impl StackerDBListenerComms {
             gathered_signatures: BTreeMap::new(),
             total_weight_approved: 0,
             total_weight_rejected: 0,
+            failed_txids: HashMap::new(),
         };
         blocks.insert(block.signer_signature_hash(), block_status);
     }
@@ -646,21 +742,46 @@ impl StackerDBListenerComms {
             .lock()
             .expect("FATAL: failed to lock signer idle timestamps");
         debug!("SignerCoordinator: signer_idle_timestamps: {signer_idle_timestamps:?}");
-        let mut idle_timestamps = signer_idle_timestamps.values().collect::<Vec<_>>();
-        idle_timestamps.sort_by_key(|info| info.timestamp);
+        Self::find_weighted_timestamp_by_threshold(
+            weight_threshold,
+            signer_idle_timestamps.values(),
+        )
+    }
+
+    /// Get the timestamp at which at least 70% of the signing power should be
+    /// willing to accept a time-based tenure extension.
+    pub fn get_read_count_extend_timestamp(&self, weight_threshold: u32) -> u64 {
+        let signer_read_count_timestamps = self
+            .signer_read_count_timestamps
+            .lock()
+            .expect("FATAL: failed to lock signer idle timestamps");
+        debug!("SignerCoordinator: signer_read_count_timestamps: {signer_read_count_timestamps:?}");
+        Self::find_weighted_timestamp_by_threshold(
+            weight_threshold,
+            signer_read_count_timestamps.values(),
+        )
+    }
+
+    fn find_weighted_timestamp_by_threshold<'a, T: Iterator<Item = &'a TimestampInfo>>(
+        weight_threshold: u32,
+        timestamps: T,
+    ) -> u64 {
+        let mut timestamps: Vec<_> = timestamps.collect();
+        timestamps.sort_by_key(|info| info.timestamp);
         let mut weight_sum = 0;
-        for info in idle_timestamps {
+        for info in timestamps {
             weight_sum += info.weight;
             if weight_sum >= weight_threshold {
-                debug!("SignerCoordinator: 70% threshold reached for tenure extension timestamp";
-                    "tenure_extend_timestamp" => info.timestamp,
-                    "tenure_extend_in" => (info.timestamp as i64 - get_epoch_time_secs() as i64)
+                debug!("SignerCoordinator: threshold reached for tenure extension timestamp";
+                       "weight_threshold" => weight_threshold,
+                       "tenure_extend_timestamp" => info.timestamp,
+                       "tenure_extend_in" => (info.timestamp as i64 - get_epoch_time_secs() as i64)
                 );
                 return info.timestamp;
             }
         }
 
-        // We don't have enough information to reach a 70% threshold at any
+        // We don't have enough information to reach a threshold at any
         // time, so return u64::MAX to indicate that we should not extend the
         // tenure.
         u64::MAX

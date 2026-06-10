@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,22 +16,25 @@
 
 use std::time::Duration;
 
+use clarity_types::ClarityName;
 use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
 use crate::vm::callables::DefinedFunction;
-use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::contexts::{ExecutionState, InvocationContext, OwnedEnvironment};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
+use crate::vm::errors::{
+    ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError,
+};
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
 use crate::vm::types::{
@@ -39,10 +42,10 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, CostErrors, GlobalContext, LocalContext, Value,
+    ValueRef, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
-    execute_with_parameters, CallStack, ClarityVersion, ContractContext, CostErrors, Environment,
-    GlobalContext, LocalContext, Value,
+    execute_with_parameters,
 };
 
 #[test]
@@ -51,11 +54,12 @@ fn test_doubly_defined_persisted_vars() {
         "(define-non-fungible-token cursor uint) (define-non-fungible-token cursor uint)",
         "(define-fungible-token cursor) (define-fungible-token cursor)",
         "(define-data-var cursor int 0) (define-data-var cursor int 0)",
-        "(define-map cursor { cursor: int } { place: uint }) (define-map cursor { cursor: int } { place: uint })" ];
+        "(define-map cursor { cursor: int } { place: uint }) (define-map cursor { cursor: int } { place: uint })",
+    ];
     for p in tests.iter() {
         assert_eq!(
             vm_execute(p).unwrap_err(),
-            CheckErrors::NameAlreadyUsed("cursor".into()).into()
+            RuntimeCheckErrorKind::NameAlreadyUsed("cursor".into()).into()
         );
     }
 }
@@ -77,20 +81,17 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
                              (+ z y))
                         x))";
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
     if let Ok(parsed_program) = parse(&contract_id, program, version, epoch) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
-
+        let (mut exec_state, invoke_ctx) =
+            env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
-            Ok(Value::Int(7)),
-            eval(
-                &parsed_program[0],
-                &mut env.get_exec_environment(None, None, &mut placeholder_context),
-                &context
-            )
+            Ok(ValueRef::Owned(Value::Int(7))),
+            eval(&parsed_program[0], &mut exec_state, &invoke_ctx, &context)
         );
     } else {
         panic!("Failed to parse program.");
@@ -141,7 +142,7 @@ fn test_sha512() {
     let expectations = [
         "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
         "0b6cbac838dfe7f47ea1bd0df00ec282fdf45510c92161072ccfb84035390c4da743d9c3b954eaa1b0f86fc9861b23cc6c8667ab232c11c686432ebb5c8c3f27",
-        "07e547d9586f6a73f73fbac0435ed76951218fb7d0c8d788a309d785436bbb642e93a252a954f23912547d1e8a3b5ed6e1bfd7097821233fa0538f3db854fee6"
+        "07e547d9586f6a73f73fbac0435ed76951218fb7d0c8d788a309d785436bbb642e93a252a954f23912547d1e8a3b5ed6e1bfd7097821233fa0538f3db854fee6",
     ];
 
     sha512_evals
@@ -300,15 +301,15 @@ fn test_from_consensus_buff_type_checks() {
     let vectors = [
         (
             "(from-consensus-buff? uint 0x10 0x00)",
-            "Unchecked(IncorrectArgumentCount(2, 3))",
+            "RuntimeCheck(IncorrectArgumentCount(2, 3))",
         ),
         (
             "(from-consensus-buff? uint 1)",
-            "Unchecked(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), Int(1)))",
+            "RuntimeCheck(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), \"Int(1)\"))",
         ),
         (
             "(from-consensus-buff? 2 0x10)",
-            "Unchecked(InvalidTypeDescription)",
+            "RuntimeCheck(Unreachable(\"Unexpected error type during runtime analysis: InvalidTypeDescription\"))",
         ),
     ];
 
@@ -332,12 +333,23 @@ fn test_from_consensus_buff_missed_expectations() {
         ("0x0200000004deadbeef", "(string-ascii 8)"),
         ("0x03", "uint"),
         ("0x04", "(optional int)"),
-        ("0x0700ffffffffffffffffffffffffffffffff", "(response uint int)"),
-        ("0x0800ffffffffffffffffffffffffffffffff", "(response int uint)"),
+        (
+            "0x0700ffffffffffffffffffffffffffffffff",
+            "(response uint int)",
+        ),
+        (
+            "0x0800ffffffffffffffffffffffffffffffff",
+            "(response int uint)",
+        ),
         ("0x09", "(response int int)"),
-        ("0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
-         "(list 3 int)"),
-        ("0x0c000000020362617a0906666f6f62617203", "{ bat: (optional int), foobar: bool }"),
+        (
+            "0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
+            "(list 3 int)",
+        ),
+        (
+            "0x0c000000020362617a0906666f6f62617203",
+            "{ bat: (optional int), foobar: bool }",
+        ),
         ("0xff", "int"),
     ];
 
@@ -365,15 +377,42 @@ fn test_to_from_consensus_buff_vectors() {
         ("0x0200000004deadbeef", "0xdeadbeef", "(buff 8)"),
         ("0x03", "true", "bool"),
         ("0x04", "false", "bool"),
-        ("0x050011deadbeef11ababffff11deadbeef11ababffff", "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S", "principal"),
-        ("0x060011deadbeef11ababffff11deadbeef11ababffff0461626364", "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S.abcd", "principal"),
-        ("0x0700ffffffffffffffffffffffffffffffff", "(ok -1)", "(response int int)"),
-        ("0x0800ffffffffffffffffffffffffffffffff", "(err -1)", "(response int int)"),
+        (
+            "0x050011deadbeef11ababffff11deadbeef11ababffff",
+            "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S",
+            "principal",
+        ),
+        (
+            "0x060011deadbeef11ababffff11deadbeef11ababffff0461626364",
+            "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S.abcd",
+            "principal",
+        ),
+        (
+            "0x0700ffffffffffffffffffffffffffffffff",
+            "(ok -1)",
+            "(response int int)",
+        ),
+        (
+            "0x0800ffffffffffffffffffffffffffffffff",
+            "(err -1)",
+            "(response int int)",
+        ),
         ("0x09", "none", "(optional int)"),
-        ("0x0a00ffffffffffffffffffffffffffffffff", "(some -1)", "(optional int)"),
-        ("0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
-         "(list 1 2 3 -4)", "(list 4 int)"),
-        ("0x0c000000020362617a0906666f6f62617203", "{ baz: none, foobar: true }", "{ baz: (optional int), foobar: bool }"),
+        (
+            "0x0a00ffffffffffffffffffffffffffffffff",
+            "(some -1)",
+            "(optional int)",
+        ),
+        (
+            "0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
+            "(list 1 2 3 -4)",
+            "(list 4 int)",
+        ),
+        (
+            "0x0c000000020362617a0906666f6f62617203",
+            "{ baz: none, foobar: true }",
+            "{ baz: (optional int), foobar: bool }",
+        ),
     ];
 
     // do `from-consensus-buff?` tests
@@ -441,10 +480,12 @@ fn test_secp256k1() {
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
-        &vec![StacksPublicKey::from_hex(
-            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
-        )
-        .unwrap()],
+        &vec![
+            StacksPublicKey::from_hex(
+                "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+            )
+            .unwrap(),
+        ],
     )
     .unwrap();
     eprintln!("addr from hex {addr:?}");
@@ -480,17 +521,18 @@ fn test_principal_of_fix() {
     // So, we need to test that:
     //   1) In Clarity1, the returned address is always a testnet address.
     //   2) In Clarity2, the returned address is a function of the network type.
-    let principal_of_program =
-        "(unwrap! (principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) 4)";
+    let principal_of_program = "(unwrap! (principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) 4)";
 
     let mainnet_principal = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
-        &vec![StacksPublicKey::from_hex(
-            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
-        )
-        .unwrap()],
+        &vec![
+            StacksPublicKey::from_hex(
+                "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+            )
+            .unwrap(),
+        ],
     )
     .unwrap()
     .into();
@@ -498,10 +540,12 @@ fn test_principal_of_fix() {
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
-        &vec![StacksPublicKey::from_hex(
-            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
-        )
-        .unwrap()],
+        &vec![
+            StacksPublicKey::from_hex(
+                "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+            )
+            .unwrap(),
+        ],
     )
     .unwrap()
     .into();
@@ -566,29 +610,27 @@ fn test_secp256k1_errors() {
         "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100)",
         "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04)",
         "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 3)",
-
         "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7)",
         "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)",
-
         "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba77861 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba77861)",
         "(principal-of?)",
     ];
 
-    let expectations: &[Error] = &[
-        CheckErrors::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        CheckErrors::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::IncorrectArgumentCount(2, 3).into(),
+    let expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
 
-        CheckErrors::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        CheckErrors::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
-        CheckErrors::TypeValueError(Box::new(TypeSignature::BUFFER_33), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
-        CheckErrors::IncorrectArgumentCount(3, 2).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_33), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
 
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
     ];
 
     for (program, expectation) in secp256k1_evals.iter().zip(expectations.iter()) {
@@ -618,7 +660,8 @@ fn test_principal_equality() {
     let tests = [
         "(is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(not (is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
-                   'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))"];
+                   'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))",
+    ];
     let expectations = [Value::Bool(true), Value::Bool(true)];
 
     tests
@@ -661,13 +704,13 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
     );
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".into(), TypeSignature::IntType)];
-        let func_args2 = vec![("x".into(), TypeSignature::IntType)];
+        let func_args1 = vec![(ClarityName::from_literal("x"), TypeSignature::IntType)];
+        let func_args2 = vec![(ClarityName::from_literal("x"), TypeSignature::IntType)];
         let user_function1 = DefinedFunction::new(
             func_args1,
             parsed_bodies[0].clone(),
             Private,
-            &"with_else".into(),
+            &ClarityName::from_literal("with_else"),
             "",
             Some(TypeSignature::IntType),
         );
@@ -676,7 +719,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             func_args2,
             parsed_bodies[1].clone(),
             Private,
-            &"without_else".into(),
+            &ClarityName::from_literal("without_else"),
             "",
             Some(TypeSignature::IntType),
         );
@@ -697,25 +740,36 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         contract_context
             .functions
-            .insert("with_else".into(), user_function1);
+            .insert(ClarityName::from_literal("with_else"), user_function1);
         contract_context
             .functions
-            .insert("without_else".into(), user_function2);
+            .insert(ClarityName::from_literal("without_else"), user_function2);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
         if let Ok(tests) = evals {
-            assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
-            assert_eq!(Ok(Value::Int(3)), eval(&tests[1], &mut env, &context));
-            assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(1))),
+                eval(&tests[0], &mut exec_state, &invoke_ctx, &context)
+            );
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(3))),
+                eval(&tests[1], &mut exec_state, &invoke_ctx, &context)
+            );
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(0))),
+                eval(&tests[2], &mut exec_state, &invoke_ctx, &context)
+            );
         } else {
             panic!("Failed to parse function bodies.");
         }
@@ -875,41 +929,37 @@ fn test_sequence_comparisons_clarity1() {
         "(>= \"baa\" \"aaa\")",
         "(<= \"baa\" \"aaa\")",
     ];
-    let error_expectations: &[Error] = &[
-        CheckErrors::UnionTypeValueError(
+    let error_expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
     ];
@@ -986,15 +1036,15 @@ fn test_sequence_comparisons_clarity2() {
 fn test_sequence_comparisons_mismatched_types() {
     // Tests that comparing objects of different types results in an error in Clarity1.
     let error_tests = ["(> 0 u1)", "(< 0 u1)"];
-    let v1_error_expectations: &[Error] = &[
-        CheckErrors::UnionTypeValueError(
+    let v1_error_expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
     ];
@@ -1007,8 +1057,8 @@ fn test_sequence_comparisons_mismatched_types() {
             assert_eq!(*expectation, vm_execute(program).unwrap_err())
         });
 
-    let v2_error_expectations: &[Error] = &[
-        CheckErrors::UnionTypeValueError(
+    let v2_error_expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1016,10 +1066,10 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1027,7 +1077,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
     ];
@@ -1041,8 +1091,8 @@ fn test_sequence_comparisons_mismatched_types() {
 
     // Tests that comparing objects of different types results in an error in Clarity2.
     let error_tests = ["(> \"baa\" u\"aaa\")", "(> \"baa\" 0x0001)"];
-    let error_expectations: &[Error] = &[
-        CheckErrors::UnionTypeValueError(
+    let error_expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1050,14 +1100,13 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1065,11 +1114,10 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
     ];
@@ -1110,39 +1158,35 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
         "(is-eq (some 1) (some true))",
     ];
 
-    let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::TypeValueError(
+    let expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::IntType),
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
-        RuntimeErrorType::DivisionByZero.into(),
-        RuntimeErrorType::DivisionByZero.into(),
-        RuntimeErrorType::ArithmeticOverflow.into(),
-        RuntimeErrorType::ArithmeticOverflow.into(),
-        RuntimeErrorType::ArithmeticOverflow.into(),
-        RuntimeErrorType::ArithmeticUnderflow.into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        RuntimeErrorType::Arithmetic("sqrti must be passed a positive integer".to_string()).into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()).into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        RuntimeErrorType::Arithmetic(
-            "Power argument to (pow ...) must be a u32 integer".to_string(),
-        )
-        .into(),
-        RuntimeErrorType::Arithmetic(
-            "Power argument to (pow ...) must be a u32 integer".to_string(),
-        )
-        .into(),
-        CheckErrors::TypeError(
+        RuntimeError::DivisionByZero.into(),
+        RuntimeError::DivisionByZero.into(),
+        RuntimeError::ArithmeticOverflow.into(),
+        RuntimeError::ArithmeticOverflow.into(),
+        RuntimeError::ArithmeticOverflow.into(),
+        RuntimeError::ArithmeticUnderflow.into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeError::Arithmetic("sqrti must be passed a positive integer".to_string()).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeError::Arithmetic("log2 must be passed a positive integer".to_string()).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeError::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
+            .into(),
+        RuntimeError::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
+            .into(),
+        RuntimeCheckErrorKind::TypeError(
             Box::new(TypeSignature::from_string("bool", version, epoch)),
             Box::new(TypeSignature::from_string("int", version, epoch)),
         )
@@ -1165,18 +1209,21 @@ fn test_unsigned_arithmetic() {
         "(to-int (pow u2 u127))",
     ];
 
-    let expectations: &[Error] = &[
-        RuntimeErrorType::ArithmeticUnderflow.into(),
-        RuntimeErrorType::ArithmeticUnderflow.into(),
-        CheckErrors::UnionTypeValueError(
+    let expectations: &[ClarityEvalError] = &[
+        RuntimeError::ArithmeticUnderflow.into(),
+        RuntimeError::ArithmeticUnderflow.into(),
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::UInt(10)),
+            Value::UInt(10).to_error_string(),
         )
         .into(),
-        CheckErrors::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(Value::Int(80)))
-            .into(),
-        RuntimeErrorType::ArithmeticUnderflow.into(),
-        RuntimeErrorType::ArithmeticOverflow.into(),
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Value::Int(80).to_error_string(),
+        )
+        .into(),
+        RuntimeError::ArithmeticUnderflow.into(),
+        RuntimeError::ArithmeticOverflow.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1204,22 +1251,35 @@ fn test_options_errors() {
         "(get field-0 1)",
     ];
 
-    let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(2, 3).into(),
-        CheckErrors::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
-        CheckErrors::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
+    let expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
+            .into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected response value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected response value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
+            .into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
+        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
+            .into(),
+        RuntimeCheckErrorKind::Unreachable(format!("Expected tuple: {}", TypeSignature::IntType))
+            .into(),
+        RuntimeCheckErrorKind::Unreachable(format!("Expected tuple: {}", TypeSignature::IntType))
+            .into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1242,17 +1302,17 @@ fn test_stx_ops_errors() {
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     ];
 
-    let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(3, 2).into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::IncorrectArgumentCount(4, 3).into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::BadTransferSTXArguments.into(),
+    let expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(4, 3).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1315,7 +1375,7 @@ fn test_bitwise() {
         "(bit-shift-left -64 u121)",        // -170141183460469231731687303715884105728
     ];
 
-    let expectations: &[Result<Value, Error>] = &[
+    let expectations: &[Result<Value, ClarityEvalError>] = &[
         Ok(Value::Int(16)),                                       // (bit-and 24 16)
         Ok(Value::UInt(16)),                                      // (bit-and u24 u16)
         Ok(Value::Int(28)),                                       // (bit-xor 24 4)y
@@ -1420,33 +1480,57 @@ fn test_option_destructs() {
         "(try! 1)",
     ];
 
-    let expectations: &[Result<Value, Error>] = &[
+    let expectations: &[Result<Value, ClarityEvalError>] = &[
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
+        Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected response value: {}",
+            Value::some(Value::Int(2)).unwrap()
+        ))
+        .into()),
+        Ok(Value::Int(3)),
         Err(
-            CheckErrors::ExpectedResponseValue(Box::new(Value::some(Value::Int(2)).unwrap()))
+            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Int(2))))
                 .into(),
         ),
         Ok(Value::Int(3)),
-        Err(ShortReturnType::ExpectedValue(Box::new(Value::Int(2))).into()),
         Ok(Value::Int(3)),
         Ok(Value::Int(3)),
-        Ok(Value::Int(3)),
-        Err(RuntimeErrorType::UnwrapFailure.into()),
-        Err(RuntimeErrorType::UnwrapFailure.into()),
-        Err(RuntimeErrorType::UnwrapFailure.into()),
+        Err(RuntimeError::UnwrapFailure.into()),
+        Err(RuntimeError::UnwrapFailure.into()),
+        Err(RuntimeError::UnwrapFailure.into()),
         Ok(Value::Int(2)),
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),
         Ok(Value::Int(8)),
-        Err(CheckErrors::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
-        Err(CheckErrors::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
-        Err(ShortReturnType::ExpectedValue(Box::new(Value::error(Value::UInt(1)).unwrap())).into()),
+        Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Bad match input: {}",
+            TypeSignature::IntType
+        ))
+        .into()),
+        Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Bad match input: {}",
+            TypeSignature::IntType
+        ))
+        .into()),
+        Err(
+            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(
+                Value::error(Value::UInt(1)).unwrap(),
+            )))
+            .into(),
+        ),
         Ok(Value::Int(3)),
-        Err(ShortReturnType::ExpectedValue(Box::new(Value::none())).into()),
+        Err(
+            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::none())))
+                .into(),
+        ),
         Ok(Value::Bool(true)),
-        Err(CheckErrors::IncorrectArgumentCount(1, 2).into()),
-        Err(CheckErrors::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))).into()),
+        Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()),
+        Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected optional or response value: {}",
+            Value::Int(1)
+        ))
+        .into()),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1469,57 +1553,57 @@ fn test_hash_errors() {
         "(sha512/256 1 2)",
     ];
 
-    let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(
+    let expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1570,13 +1654,13 @@ fn test_bad_lets() {
         "(let ((false 1)) false)",
     ];
 
-    let expectations: &[Error] = &[
-        CheckErrors::NameAlreadyUsed("tx-sender".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("*".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("a".to_string()).into(),
-        CheckErrors::NoSuchDataVariable("cursor".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("true".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("false".to_string()).into(),
+    let expectations: &[ClarityEvalError] = &[
+        RuntimeCheckErrorKind::NameAlreadyUsed("tx-sender".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("*".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("a".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("No such data variable: cursor".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("true".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("false".to_string()).into(),
     ];
 
     tests
@@ -1591,7 +1675,8 @@ fn test_bad_lets() {
 fn test_lets() {
     let tests = [
         "(let ((a 1) (b 2)) (+ a b))",
-        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (var-get cursor))"];
+        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (var-get cursor))",
+    ];
 
     let expectations = [Value::Int(3), Value::Int(3)];
 
@@ -1671,13 +1756,13 @@ fn test_asserts_short_circuit() {
         "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 1) (err 1)) (ok 2))",
     ];
 
-    let expectations: &[Error] = &[
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Box::new(
-            Value::error(Value::Int(0)).unwrap(),
-        ))),
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Box::new(
-            Value::error(Value::Int(1)).unwrap(),
-        ))),
+    let expectations: &[ClarityEvalError] = &[
+        ClarityEvalError::Vm(VmExecutionError::EarlyReturn(
+            EarlyReturnError::AssertionFailed(Box::new(Value::error(Value::Int(0)).unwrap())),
+        )),
+        ClarityEvalError::Vm(VmExecutionError::EarlyReturn(
+            EarlyReturnError::AssertionFailed(Box::new(Value::error(Value::Int(1)).unwrap())),
+        )),
     ];
 
     tests
@@ -1783,6 +1868,36 @@ fn test_execution_time_expiration() {
         vm_execute_with_limited_execution_time("(+ 1 1)", Duration::from_secs(0))
             .err()
             .unwrap(),
-        CostErrors::ExecutionTimeExpired.into()
+        ClarityEvalError::Vm(CostErrors::ExecutionTimeExpired.into())
     );
+}
+
+#[test]
+fn test_abort_callback_stops_execution() {
+    use crate::vm::contexts::AbortCallback;
+    use crate::vm::execute_with_parameters_and_call_in_global_context;
+    let abort_msg = "abort callback fired";
+
+    // An abort callback that always fires
+    let result = execute_with_parameters_and_call_in_global_context(
+        "(+ 1 1)",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch20,
+        false,
+        clarity_types::types::StandardPrincipalData::transient(),
+        |g| {
+            g.abort_callback = AbortCallback::AlwaysAbort(abort_msg.into());
+            Ok(())
+        },
+        |_| Ok(()),
+    );
+    match result {
+        Err(ClarityEvalError::Vm(e)) => {
+            let expected = VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::AbortedByExecutionHook(abort_msg.into()),
+            );
+            assert_eq!(e, expected);
+        }
+        other => panic!("Expected aborted-by-execution-hook error, got: {other:?}"),
+    }
 }

@@ -27,6 +27,7 @@ use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
@@ -42,25 +43,23 @@ impl_byte_array_serde!(TrieHash);
 pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
 impl TrieHash {
+    /// SHA2-512/256 hash of an empty string.
+    pub const EMPTY: TrieHash = TrieHash([
+        0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c, 0x51, 0x14,
+        0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0, 0xc0, 0x1e, 0xce, 0xf0,
+        0x96, 0x7a,
+    ]);
+
+    #[inline]
     pub fn from_key(k: &str) -> Self {
         Self::from_data(k.as_bytes())
     }
 
-    /// TrieHash of zero bytes
-    pub fn from_empty_data() -> TrieHash {
-        // sha2-512/256 hash of empty string.
-        // this is used so frequently it helps performance if we just have a constant for it.
-        TrieHash([
-            0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c, 0x51,
-            0x14, 0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0, 0xc0, 0x1e,
-            0xce, 0xf0, 0x96, 0x7a,
-        ])
-    }
-
-    /// TrieHash from bytes
+    /// Create a `TrieHash` from a slice of bytes.
+    #[inline] // sha2's new(), update() and finalize() fn's are inlined; ensure we don't break the inlining boundary.
     pub fn from_data(data: &[u8]) -> TrieHash {
         if data.is_empty() {
-            return TrieHash::from_empty_data();
+            return TrieHash::EMPTY;
         }
 
         let mut hasher = Sha512_256::new();
@@ -69,9 +68,11 @@ impl TrieHash {
         TrieHash(out)
     }
 
+    /// Create a `TrieHash` from an array of byte slices.
+    #[inline] // sha2's new(), update() and finalize() fn's are inlined; ensure we don't break the inlining boundary.
     pub fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash {
         if data.is_empty() {
-            return TrieHash::from_empty_data();
+            return TrieHash::EMPTY;
         }
 
         let mut hasher = Sha512_256::new();
@@ -82,24 +83,6 @@ impl TrieHash {
         let out = hasher.finalize().into();
         TrieHash(out)
     }
-
-    /// Convert to a String that can be used in e.g. sqlite
-    /// If we did not implement this seperate from Display,
-    /// we would use the stacks_common::util::hash::to_hex function
-    /// which is the unrolled version of this function.
-    #[allow(clippy::inherent_to_string_shadow_display)]
-    pub fn to_string(&self) -> String {
-        let s = format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                          self.0[0],     self.0[1],       self.0[2],       self.0[3],
-                          self.0[4],     self.0[5],       self.0[6],       self.0[7],
-                          self.0[8],     self.0[9],       self.0[10],      self.0[11],
-                          self.0[12],    self.0[13],      self.0[14],      self.0[15],
-                          self.0[16],    self.0[17],      self.0[18],      self.0[19],
-                          self.0[20],    self.0[21],      self.0[22],      self.0[23],
-                          self.0[24],    self.0[25],      self.0[26],      self.0[27],
-                          self.0[28],    self.0[29],      self.0[30],      self.0[31]);
-        s
-    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -107,6 +90,65 @@ pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
+
+pub struct Txid(pub [u8; 32]);
+impl_array_newtype!(Txid, u8, 32);
+impl_array_hexstring_fmt!(Txid);
+impl_byte_array_newtype!(Txid, u8, 32);
+impl_byte_array_serde!(Txid);
+pub const TXID_ENCODED_SIZE: u32 = 32;
+
+impl Txid {
+    /// A Stacks transaction ID is a sha512/256 hash (not a double-sha256 hash)
+    pub fn from_stacks_tx(txdata: &[u8]) -> Txid {
+        let h = Sha512Trunc256Sum::from_data(txdata);
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(h.as_bytes());
+        Txid(bytes)
+    }
+
+    /// A sighash is calculated the same way as a txid
+    pub fn from_sighash_bytes(txdata: &[u8]) -> Txid {
+        Txid::from_stacks_tx(txdata)
+    }
+
+    /// Create a [`Txid`] from the tx hash bytes used in bitcoin.
+    /// This just reverses the inner bytes of the input.
+    pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
+        let mut txid_bytes = tx_hash.0;
+        txid_bytes.reverse();
+        Self(txid_bytes)
+    }
+
+    /// Create a [`Sha256dHash`] from a [`Txid`]
+    /// This assumes the inner bytes are stored in "big-endian" (following the hex bitcoin string),
+    /// so just reverse them to properly create a tx hash.
+    pub fn to_bitcoin_tx_hash(txid: &Txid) -> Sha256dHash {
+        let mut txid_bytes = txid.0;
+        txid_bytes.reverse();
+        Sha256dHash(txid_bytes)
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn from_test_data(
+        block_height: u64,
+        vtxindex: u32,
+        burn_header_hash: &BurnchainHeaderHash,
+        noise: u64,
+    ) -> Txid {
+        use crate::util::hash::DoubleSha256;
+        let mut bytes = vec![];
+        bytes.extend_from_slice(&block_height.to_be_bytes());
+        bytes.extend_from_slice(&vtxindex.to_be_bytes());
+        bytes.extend_from_slice(burn_header_hash.as_bytes());
+        bytes.extend_from_slice(&noise.to_be_bytes());
+        let h = DoubleSha256::from_data(&bytes[..]);
+        let mut hb = [0u8; 32];
+        hb.copy_from_slice(h.as_bytes());
+
+        Txid(hb)
+    }
+}
 
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
@@ -141,6 +183,7 @@ impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
 impl_byte_array_serde!(VRFSeed);
+pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
 
 /// Identifier used to identify Proof-of-Transfer forks
 ///  (or Rewards Cycle forks). These identifiers are opaque
@@ -418,6 +461,23 @@ impl StacksWorkScore {
     }
 }
 
+impl StacksMessageCodec for VRFProof {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        fd.write_all(&self.to_bytes())
+            .map_err(CodecError::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, CodecError> {
+        let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
+        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
+        let res = VRFProof::from_slice(&bytes).ok_or(CodecError::DeserializeError(
+            "Failed to parse VRF proof".to_string(),
+        ))?;
+
+        Ok(res)
+    }
+}
+
 impl StacksMessageCodec for StacksWorkScore {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.burn)?;
@@ -441,6 +501,7 @@ impl_byte_array_message_codec!(Hash160, 20);
 impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
 impl_byte_array_message_codec!(BlockHeaderHash, 32);
 impl_byte_array_message_codec!(StacksBlockId, 32);
+impl_byte_array_message_codec!(Txid, 32);
 impl_byte_array_message_codec!(MessageSignature, 65);
 
 impl BlockHeaderHash {
@@ -499,18 +560,22 @@ impl BurnchainHeaderHash {
     }
 }
 
-impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.0)?;
-        write_next(fd, &self.1)?;
-        Ok(())
+impl VRFSeed {
+    /// First-ever VRF seed from the genesis block.  It's all 0's
+    pub fn initial() -> VRFSeed {
+        VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+            .unwrap()
     }
 
-    fn consensus_deserialize<R: Read>(
-        fd: &mut R,
-    ) -> Result<(ConsensusHash, BurnchainHeaderHash), CodecError> {
-        let consensus_hash: ConsensusHash = read_next(fd)?;
-        let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
-        Ok((consensus_hash, burn_header_hash))
+    pub fn from_proof(proof: &VRFProof) -> VRFSeed {
+        let h = Sha512Trunc256Sum::from_data(&proof.to_bytes());
+        VRFSeed(h.0)
+    }
+
+    pub fn is_from_proof(&self, proof: &VRFProof) -> bool {
+        self.as_bytes().to_vec() == VRFSeed::from_proof(proof).as_bytes().to_vec()
     }
 }
+
+// The (ConsensusHash, BurnchainHeaderHash) codec impl is provided by the
+// generic (A, B) impl in `crate::codec`.

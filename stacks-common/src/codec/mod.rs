@@ -1,10 +1,23 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::io::{Read, Write};
 use std::{error, fmt, io, mem};
 
-// use crate::types::chainstate::MARFValue;
 use crate::types::chainstate::SortitionId;
-use crate::util::hash::HASH160_ENCODED_SIZE;
-use crate::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 #[macro_use]
 pub mod macros;
@@ -86,14 +99,23 @@ pub trait StacksMessageCodec {
     }
 }
 
-// impl_byte_array_message_codec!(MARFValue, 40);
-impl_byte_array_message_codec!(SortitionId, 32);
-
 impl_stacks_message_codec_for_int!(u8; [0; 1]);
 impl_stacks_message_codec_for_int!(u16; [0; 2]);
 impl_stacks_message_codec_for_int!(u32; [0; 4]);
 impl_stacks_message_codec_for_int!(u64; [0; 8]);
 impl_stacks_message_codec_for_int!(i64; [0; 8]);
+
+impl StacksMessageCodec for [u8; 4] {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
+        fd.write_all(self).map_err(Error::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<[u8; 4], Error> {
+        let mut buf = [0u8; 4];
+        fd.read_exact(&mut buf).map_err(Error::ReadError)?;
+        Ok(buf)
+    }
+}
 
 impl StacksMessageCodec for [u8; 20] {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
@@ -181,6 +203,24 @@ pub fn read_next_exact<R: Read, T: StacksMessageCodec + Sized>(
     read_next_vec::<T, R>(fd, num_items, 0)
 }
 
+impl<A, B> StacksMessageCodec for (A, B)
+where
+    A: StacksMessageCodec + Sized,
+    B: StacksMessageCodec + Sized,
+{
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
+        write_next(fd, &self.0)?;
+        write_next(fd, &self.1)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<(A, B), Error> {
+        let a: A = read_next(fd)?;
+        let b: B = read_next(fd)?;
+        Ok((a, b))
+    }
+}
+
 impl<T> StacksMessageCodec for Vec<T>
 where
     T: StacksMessageCodec + Sized,
@@ -225,3 +265,9 @@ pub const RELAY_DATA_ENCODED_SIZE: u32 = NEIGHBOR_ADDRESS_ENCODED_SIZE + 4;
 
 pub const NEIGHBOR_ADDRESS_ENCODED_SIZE: u32 = PEER_ADDRESS_ENCODED_SIZE + 2 + HASH160_ENCODED_SIZE;
 pub const PEER_ADDRESS_ENCODED_SIZE: u32 = 16;
+
+pub const HASH160_ENCODED_SIZE: u32 = 20;
+pub const MESSAGE_SIGNATURE_ENCODED_SIZE: u32 = 65;
+
+// Stacks-specific codec impls that depend on types defined in this crate.
+impl_byte_array_message_codec!(SortitionId, 32);

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,18 +18,18 @@ use std::collections::{HashMap, HashSet};
 
 use clarity_types::representations::ClarityName;
 
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ClarityVersion;
+use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostTracker};
-use crate::vm::functions::define::DefineFunctions;
+use crate::vm::costs::{CostTracker, runtime_cost};
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctions;
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, AtomValue, Comment, FieldIdentifier, List, Placeholder, SugaredContractIdentifier,
     SugaredFieldIdentifier, TraitReference, Tuple,
 };
-use crate::vm::ClarityVersion;
 
 #[cfg(test)]
 mod tests;
@@ -90,7 +90,7 @@ impl DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph);
 
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let functions_names = deps
+            let mut function_names = deps
                 .into_iter()
                 .filter_map(|i| {
                     let exp = &contract_ast.pre_expressions[i];
@@ -99,7 +99,10 @@ impl DefinitionSorter {
                 .map(|i| i.0.to_string())
                 .collect::<Vec<_>>();
 
-            let error = ParseError::new(ParseErrors::CircularReference(functions_names));
+            // Sorting function names to make the error contents deterministic
+            function_names.sort();
+
+            let error = ParseError::new(ParseErrorKind::CircularReference(function_names));
             return Err(error);
         }
 
@@ -115,18 +118,18 @@ impl DefinitionSorter {
     ) -> ParseResult<()> {
         match expr.pre_expr {
             Atom(ref name) => {
-                if let Some(dep) = self.top_level_expressions_map.get(name) {
-                    if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
-                    }
+                if let Some(dep) = self.top_level_expressions_map.get(name)
+                    && dep.atom_index != expr.id
+                {
+                    self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                 }
                 Ok(())
             }
             TraitReference(ref name) => {
-                if let Some(dep) = self.top_level_expressions_map.get(name) {
-                    if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
-                    }
+                if let Some(dep) = self.top_level_expressions_map.get(name)
+                    && dep.atom_index != expr.id
+                {
+                    self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                 }
                 Ok(())
             }
@@ -195,26 +198,26 @@ impl DefinitionSorter {
                                     }
                                     if let Some(trait_sig) = function_args[1].match_list() {
                                         for func_sig in trait_sig.iter() {
-                                            if let Some(func_sig) = func_sig.match_list() {
-                                                if func_sig.len() == 3 {
-                                                    self.probe_for_dependencies(
-                                                        &func_sig[1],
-                                                        tle_index,
-                                                        version,
-                                                    )?;
-                                                    self.probe_for_dependencies(
-                                                        &func_sig[2],
-                                                        tle_index,
-                                                        version,
-                                                    )?;
-                                                }
+                                            if let Some(func_sig) = func_sig.match_list()
+                                                && func_sig.len() == 3
+                                            {
+                                                self.probe_for_dependencies(
+                                                    &func_sig[1],
+                                                    tle_index,
+                                                    version,
+                                                )?;
+                                                self.probe_for_dependencies(
+                                                    &func_sig[2],
+                                                    tle_index,
+                                                    version,
+                                                )?;
                                             }
                                         }
                                     }
                                     return Ok(());
                                 }
                                 DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
-                                    return Ok(())
+                                    return Ok(());
                                 }
                                 DefineFunctions::NonFungibleToken => return Ok(()),
                                 DefineFunctions::FungibleToken => {
@@ -421,7 +424,7 @@ impl Graph {
         let list = self
             .adjacency_list
             .get_mut(src_expr_index)
-            .ok_or(ParseErrors::InterpreterFailure)?;
+            .ok_or(ParseErrorKind::InterpreterFailure)?;
         list.push(dst_expr_index);
         Ok(())
     }
@@ -443,7 +446,7 @@ impl Graph {
         for node in self.adjacency_list.iter() {
             total = total
                 .checked_add(node.len() as u64)
-                .ok_or(ParseErrors::CostOverflow)?;
+                .ok_or(ParseErrorKind::CostOverflow)?;
         }
         Ok(total)
     }
@@ -464,28 +467,39 @@ impl GraphWalker {
     fn get_sorted_dependencies(&mut self, graph: &Graph) -> Vec<usize> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
-            self.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);
+            if !self.seen.contains(&expr_index) {
+                self.sort_dependencies(expr_index, graph, &mut sorted_indexes);
+            }
         }
         sorted_indexes
     }
 
-    fn sort_dependencies_recursion(
-        &mut self,
-        tle_index: usize,
-        graph: &Graph,
-        branch: &mut Vec<usize>,
-    ) {
-        if self.seen.contains(&tle_index) {
-            return;
-        }
+    fn sort_dependencies(&mut self, expr_index: usize, graph: &Graph, branch: &mut Vec<usize>) {
+        let mut stack = vec![(expr_index, false)];
 
-        self.seen.insert(tle_index);
-        if let Some(list) = graph.adjacency_list.get(tle_index) {
-            for neighbor in list.iter() {
-                self.sort_dependencies_recursion(*neighbor, graph, branch);
+        while let Some((tle_index, processed)) = stack.pop() {
+            if processed {
+                branch.push(tle_index);
+                continue;
+            }
+
+            if self.seen.contains(&tle_index) {
+                continue;
+            }
+
+            self.seen.insert(tle_index);
+
+            stack.push((tle_index, true));
+
+            if let Some(list) = graph.adjacency_list.get(tle_index) {
+                // reverse iteration to keep a recursive-like result
+                for node_index in list.iter().rev() {
+                    if !self.seen.contains(node_index) {
+                        stack.push((*node_index, false));
+                    }
+                }
             }
         }
-        branch.push(tle_index);
     }
 
     fn get_cycling_dependencies(

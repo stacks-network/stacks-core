@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,17 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use clarity::util::get_epoch_time_secs;
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::errors::ParseErrorKind;
+use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::HeadersDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::{StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::test_util::*;
 use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use clarity::vm::types::{
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value as ClarityValue,
+    Value,
+};
 use clarity::vm::version::ClarityVersion;
-use clarity::vm::{ast, ContractContext, MAX_CALL_STACK_DEPTH};
+use clarity::vm::ContractContext;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -35,7 +41,10 @@ use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityInstance, Error as ClarityError};
+use crate::chainstate::tests::consensus::{
+    ConsensusTest, ConsensusUtils, ExpectedResult, TestBlock,
+};
+use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityError, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::util_lib::boot::boot_code_id;
@@ -189,7 +198,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 )
                 .unwrap();
             }
-            StacksEpochId::Epoch33 => {
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => {
                 let (mut ast, analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-4", false),
@@ -558,156 +567,189 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     analysis_db.begin();
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract_with_db(contract_identifier, tokens_contract, &mut analysis_db)
+        exec_state
+            .initialize_contract_with_db(
+                &invoke_ctx,
+                contract_identifier,
+                tokens_contract,
+                &mut analysis_db,
+            )
             .unwrap();
 
         let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
-        env.initialize_contract_with_db(contract_identifier, names_contract, &mut analysis_db)
+        exec_state
+            .initialize_contract_with_db(
+                &invoke_ctx,
+                contract_identifier,
+                names_contract,
+                &mut analysis_db,
+            )
             .unwrap();
     }
 
     {
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
 
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    false
+                )
+                .unwrap(),
             1
         ));
     }
 
     {
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
+                    false
+                )
+                .unwrap(),
             2
         ));
     }
 
     {
         // shouldn't be able to register a name you didn't preorder!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    false
+                )
+                .unwrap(),
             4
         ));
     }
 
     {
         // should work!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    false
+                )
+                .unwrap()
         ));
     }
 
     {
         // try to underpay!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
+                    false
+                )
+                .unwrap(),
             4
         ));
 
         // register a cheap name!
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                    false
+                )
+                .unwrap()
         ));
 
         // preorder must exist!
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
+                    false
+                )
+                .unwrap(),
             5
         ));
     }
@@ -1187,15 +1229,12 @@ fn test_deep_tuples() {
             block.set_epoch(StacksEpochId::Epoch2_05);
         }
 
-        let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
-
         let meets_stack_depth_tuple = format!("{}u1 {}", "{ a : ".repeat(31), "} ".repeat(31));
         let exceeds_stack_depth_tuple = format!("{}u1 {}", "{ a : ".repeat(32), "} ".repeat(32));
 
         let _res = block.as_transaction(|tx| {
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
             let analysis_resp =
                 tx.analyze_smart_contract(&contract_identifier, *version, &meets_stack_depth_tuple);
             eprintln!(
@@ -1213,7 +1252,7 @@ fn test_deep_tuples() {
             }
 
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
             let analysis_resp = tx.analyze_smart_contract(
                 &contract_identifier,
                 *version,
@@ -1223,7 +1262,7 @@ fn test_deep_tuples() {
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
                 eprintln!("Runtime error: {:?}", r_e);
             }
             other => {
@@ -1265,7 +1304,7 @@ fn test_deep_tuples_ast_precheck() {
         }
 
         let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+            StackDepthLimits::for_epoch(block.get_epoch()).max_nesting_depth() as usize;
 
         // absurdly deep tuple depth
         let exceeds_stack_depth_tuple = format!(
@@ -1281,7 +1320,7 @@ fn test_deep_tuples_ast_precheck() {
                 assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
             }
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
             let analysis_resp = tx.analyze_smart_contract(
                 &contract_identifier,
                 *version,
@@ -1291,12 +1330,17 @@ fn test_deep_tuples_ast_precheck() {
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
-                eprintln!("Runtime error: {:?}", r_e);
+            ClarityError::Parse(ref parse_error) => {
+                assert!(
+                    matches!(
+                        *parse_error.err,
+                        ParseErrorKind::ExpressionStackDepthTooDeep { .. }
+                            | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. }
+                    ),
+                    "Expected a stack depth parse error, got: {error:?}"
+                );
             }
-            other => {
-                eprintln!("Other error: {:?}", other);
-            }
+            other => panic!("Expected a parse error, got: {other:?}"),
         }
 
         block.rollback_block();
@@ -1332,8 +1376,6 @@ fn test_deep_type_nesting() {
             block.set_epoch(StacksEpochId::Epoch2_05);
         }
 
-        let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
         let mut parts = vec!["(a0 { a0 : u1 })".to_string()];
         for i in 1..1024 {
             parts.push(format!("(a{} {{ a{} : (print a{}) }})", i, i, i - 1));
@@ -1355,20 +1397,133 @@ fn test_deep_type_nesting() {
                 assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
             }
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
             let analysis_resp =
                 tx.analyze_smart_contract(&contract_identifier, *version, &exceeds_type_depth);
             analysis_resp.unwrap_err()
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
-                eprintln!("Runtime error: {:?}", r_e);
+            ClarityError::StaticCheck(ref check_error) => {
+                assert!(
+                    matches!(
+                        *check_error.err,
+                        StaticCheckErrorKind::BadTupleConstruction { .. }
+                    ),
+                    "Expected a bad tuple construction error, got: {error:?}"
+                );
             }
-            other => {
-                eprintln!("Other error: {:?}", other);
-            }
+            other => panic!("Expected a static check error, got: {other:?}"),
         }
         block.rollback_block();
+    }
+}
+
+/// Tests that when `MemoryBalanceExceeded` error occurs in a block, the transactions fail, but are
+/// still committed to the block, and the "valid" transactions are still executed without errors.
+///
+/// 1. Deploy the memory-test-contract once in epoch 3.2
+/// 2. Create a second block with 21 transactions:
+///    - 20 transactions that call the contract (should fail with MemoryBalanceExceeded)
+///    - 1 transaction that is expected to succeed
+#[test]
+fn test_memory_balance_exceeded_multiple_calls() {
+    // Generate the same contract code as chainstate_error_memory_balance_exceeded_during_contract_call
+    let contract_name = "memory-test-contract";
+    let contract_code = {
+        // Procedurally generate a contract with large buffer constants and a function
+        // that creates many references to them, similar to argument_memory_test
+        let mut contract = String::new();
+
+        // Create buff-0 through buff-20 via repeated doubling: buff-20 = 1MB
+        contract.push_str("(define-constant buff-0 0x00)\n");
+        for i in 0..20 {
+            contract.push_str(&format!(
+                "(define-constant buff-{} (concat buff-{i} buff-{i}))\n",
+                i + 1
+            ));
+        }
+
+        // Create a public function that makes many references to buff-20
+        contract.push_str("\n(define-public (create-many-references)\n");
+        contract.push_str("    (ok (is-eq ");
+
+        // Create 100 references to buff-20 (1MB each = ~100MB total)
+        for _ in 0..100 {
+            contract.push_str("buff-20 ");
+        }
+
+        contract.push_str(")))\n");
+        contract.push_str("(define-public (foo) (ok 1))");
+        contract
+    };
+
+    let mut nonce = 0;
+
+    let deploy_tx = ConsensusUtils::new_deploy_tx(
+        nonce,
+        contract_name,
+        &contract_code,
+        Some(ClarityVersion::Clarity4),
+    );
+
+    let block1 = TestBlock {
+        transactions: vec![deploy_tx],
+    };
+
+    // Block 2: 50 transactions calling the contract
+    let mut call_transactions = Vec::new();
+
+    for _ in 0..20 {
+        nonce += 1;
+        let call_tx = ConsensusUtils::new_call_tx(nonce, contract_name, "create-many-references");
+        call_transactions.push(call_tx);
+    }
+    nonce += 1;
+    let call_tx = ConsensusUtils::new_call_tx(nonce, contract_name, "foo");
+    call_transactions.push(call_tx);
+
+    let block2 = TestBlock {
+        transactions: call_transactions,
+    };
+
+    // Create epoch blocks map - both blocks in the latest epoch
+    let mut epoch_blocks = HashMap::new();
+    epoch_blocks.insert(StacksEpochId::latest(), vec![block1, block2]);
+
+    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
+    if let ExpectedResult::Success(expected_block_output) = &result[0] {
+        assert_eq!(expected_block_output.transactions.len(), 1);
+        assert_eq!(
+            expected_block_output.transactions[0].return_type,
+            ClarityValue::Response(ResponseData {
+                committed: true,
+                data: Box::new(ClarityValue::Bool(true)),
+            })
+        );
+    } else {
+        panic!("First block should be successful");
+    }
+    if let ExpectedResult::Success(expected_block_output) = &result[1] {
+        assert_eq!(expected_block_output.transactions.len(), 21);
+        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)".to_string());
+        let expected_failure_return_type = ClarityValue::Response(ResponseData {
+            committed: false,
+            data: Box::new(ClarityValue::Optional(OptionalData { data: None })),
+        });
+
+        for transaction in &expected_block_output.transactions[..20] {
+            assert_eq!(transaction.return_type, expected_failure_return_type);
+            assert_eq!(transaction.vm_error, expected_vm_error);
+        }
+        assert_eq!(
+            expected_block_output.transactions[20].return_type,
+            ClarityValue::Response(ResponseData {
+                committed: true,
+                data: Box::new(ClarityValue::Int(1)),
+            })
+        );
+    } else {
+        panic!("Second block should be successful");
     }
 }

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@ pub mod pair;
 pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
+pub mod secp256r1;
 pub mod serde_serializers;
 pub mod uint;
 #[cfg(feature = "vrf")]

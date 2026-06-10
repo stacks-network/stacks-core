@@ -1,3 +1,18 @@
+// Copyright (C) 2021-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::HashMap;
 use std::{env, thread};
 
@@ -18,7 +33,7 @@ use stacks::core::test_util::{
 };
 use stacks::core::{
     self, EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
-    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
+    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
 };
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
@@ -53,6 +68,10 @@ fn test_exact_block_costs() {
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_205_transition_height + 100;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_205_transition_height + 100;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
     conf.node.mine_microblocks = true;
@@ -299,6 +318,10 @@ fn test_dynamic_db_method_costs() {
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_205_transition_height + 100;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_205_transition_height + 100;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -501,6 +524,10 @@ fn transition_empty_blocks() {
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_05 + 100;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_05 + 100;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -817,7 +844,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::SmartContract(contract, ..) => {
-                contract.name == ContractName::from("increment-contract")
+                contract.name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },
@@ -849,7 +876,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::from("increment-contract")
+                contract.contract_name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },
@@ -883,7 +910,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::from("increment-contract")
+                contract.contract_name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },

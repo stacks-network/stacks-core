@@ -22,6 +22,20 @@ disable_retries = false                 # Optional: If true, failed deliveries w
 
 The `stacks-node` will then execute HTTP POST requests with JSON payloads to the configured `endpoint` for the subscribed events.
 
+By default, when sending a payload the event dispatcher will block node operation until it has received a successful response from your observer. Your event observer should therefore be quick to respond, and offload any expensive computation to an asynchronous background task. Alternatively, you can configure the events to be delivered in a non-blocking fashion like this:
+
+```toml
+[node]
+...
+event_dispatcher_blocking = false
+# By default, up to 1,000 requests can be held in a queue before the event dispatcher will start blocking
+# again. If you expect bigger bursts than that, you can further tweak this value.
+#
+# event_dispatcher_queue_size = 1_000
+```
+
+Note that this is only meant to deal with bursts of events. If your event observer is continuously slower than the stream of incoming events, it will fall behind more and more, and the dispatcher will eventually start blocking again to catch up.
+
 ## Important Notes
 
 *   **`/new_microblocks` Endpoint Limitation:** Event delivery via the `/new_microblocks` endpoint (and by extension, events sourced from microblocks delivered to `/new_block`) is **only supported until epoch 2.5**. After this epoch, observers will no longer receive events on this path for new microblocks.
@@ -77,14 +91,14 @@ Below is a comprehensive list of valid keys and their behaviors:
 
 *   **Smart Contract Event**: Subscribes to a specific smart contract event.
     *   **Description**: Allows subscription to events emitted by a particular smart contract.
-    *   **Format**: `"{contract_address}.{contract_name}::{event_name}"`
+    *   **Format**: `"{deployer_address}.{contract_name}::{event_name}"`
     *   **Example**: `"ST0000000000000000000000000000000000000000.my-contract::my-custom-event"`
     *   **Events delivered to**: `/new_block`, `/new_microblocks` (subject to epoch 2.5 limitation).
     *   **Payload details**: The "events" array in delivered payloads will be filtered for this specific event.
 
 *   **Asset Identifier for FT/NFT Events**: Subscribes to events for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
     *   **Description**: Captures mint, burn, and transfer events for a specific token asset.
-    *   **Format**: `"{contract_address}.{contract_name}.{asset_name}"`
+    *   **Format**: `"{deployer_address}.{contract_name}.{asset_name}"`
     *   **Example (FT)**: `"ST0000000000000000000000000000000000000000.my-ft-contract.my-fungible-token"`
     *   **Events delivered to**: `/new_block`, `/new_microblocks` (subject to epoch 2.5 limitation).
     *   **Payload details**: The "events" array in delivered payloads will be filtered for events related to the specified asset.

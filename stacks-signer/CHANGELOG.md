@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.4.0.0.3.0]
+
+### Added
+
+* Added the `block_proposal_max_tx_execution_time_secs` connection option (defaulting to 30 seconds), which caps the time a single transaction is allowed to run during block proposal validation. A transaction that exceeds this per-transaction cap on its own is reported as a `ProblematicTransaction`. If the overall block proposal validation budget (`block_proposal_validation_timeout_secs`) is exhausted before a transaction is processed, the block is rejected with `InvalidBlock` and no specific transaction is flagged, so a transaction is no longer marked problematic just because earlier transactions consumed the validation budget.
+
+## [3.4.0.0.2.0]
+
+### Added
+
+* Signers now include a `failed_txid` field in block rejection messages, reporting which transaction caused block validation to fail. This allows miners to skip problematic transactions in subsequent proposals rather than repeatedly proposing blocks that will be rejected.
+
+### Fixed
+
+* Fix duplicated binary name when running `stacks-signer --version` cli command
+* Fixed an issue in the signer where it would return early if it detected a message from an unrecognized signer.
+* Fixed flakiness in `check_capitulate_miner_view` test.
+* When checking tenure change blocks, ensure there are no locally accepted blocks in the tenure, not just globally accepted blocks.
+
+## [3.4.0.0.0.0]
+
+### Fixed
+- Fixed signer database migration 19 that could leave the database in corrupted, unrecoverable state.
+
+## [3.3.0.0.6.0]
+
+### Added
+
+- Add support for tracking pending block responses for up to 3 unique untracked blocks per signer address. This improves handling of late block proposals by allowing the signer to process previously seen responses for blocks that were not being tracked.
+- Added `approved_time` column to the `blocks` database table
+
+### Changed
+
+- Database schema updated to version 19
+- Removed `signed_over` column from the `blocks` database table
+- Improved signer behaviour to ensure block proposal responses are sent more consistently, even for blocks that have already been globally accepted by the network. This increases reliability and reduces missed responses in edge cases.
+
+## [3.3.0.0.5.0]
+
+### Changed
+
+- Reduced default tenure-extend idle timer from 120 seconds to 60 seconds
+
+## [3.3.0.0.4.0]
+
+### Fixed
+
+- Correct calculation of burn-view change status using the new tip with metadata endpoint.
+
+## [3.3.0.0.3.0]
+
+### Changed
+
+- Avoid sending duplicate block acceptance messages when additional pre-commits arrive
+- Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 2.
+- Set `GLOBAL_SIGNER_STATE_ACTIVATION_VERSION` to 2, activating global signer state agreement block processing.
+
+## [3.3.0.0.2.0]
+
+### Added
+
+- Support read-count tenure extends
+  - Added `read_count_idle_timeout_secs` config option to set the amount of seconds of idle time must pass before a read-count tenure extend is allowed (defaults to 20 seconds)
+  - Send a read-count tenure extend timestamp in the block responses
+  - Approve a block with a read-count tenure extend when the appropriate amount of idle time has passed
 
 ## [3.2.0.0.2.0]
 

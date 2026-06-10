@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,15 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::types::StacksEpochId;
-use clarity::vm::clarity::Error as ClarityError;
-use clarity::vm::errors::{CheckErrors, Error};
+use clarity::vm::clarity::ClarityError;
+use clarity::vm::errors::{RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::types::SequenceData::Buffer;
 use clarity::vm::types::{
     BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     Value,
 };
-use clarity::vm::ClarityVersion;
 use clarity::vm::Value::Sequence;
+use clarity::vm::{ClarityName, ClarityVersion};
 use stacks_common::types::chainstate::StacksAddress;
 
 use crate::chainstate::stacks::boot::contract_tests::{test_sim_height_to_hash, ClarityTestSim};
@@ -48,14 +48,14 @@ fn test_get_burn_block_info_eval() {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UnknownFunction(func_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UnknownFunction(func_name) = *static_check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
-                    panic!("Bad analysis error: {:?}", &check_error);
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
-                panic!("Bad analysis result: {:?}", &res);
+                panic!("Bad analysis result: {res:?}");
             }
         });
     });
@@ -69,14 +69,14 @@ fn test_get_burn_block_info_eval() {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UnknownFunction(func_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UnknownFunction(func_name) = *static_check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
-                    panic!("Bad analysis error: {:?}", &check_error);
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
-                panic!("Bad analysis result: {:?}", &res);
+                panic!("Bad analysis result: {res:?}");
             }
         });
     });
@@ -162,14 +162,15 @@ fn test_get_block_info_eval_v210() {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::NoSuchBlockInfoProperty(name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *static_check_error.err
+                {
                     assert_eq!(name, "block-reward");
                 } else {
-                    panic!("Bad analysis error: {:?}", &check_error);
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
-                panic!("Bad analysis result: {:?}", &res);
+                panic!("Bad analysis result: {res:?}");
             }
         });
     });
@@ -183,14 +184,15 @@ fn test_get_block_info_eval_v210() {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::NoSuchBlockInfoProperty(name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *static_check_error.err
+                {
                     assert_eq!(name, "block-reward");
                 } else {
-                    panic!("Bad analysis error: {:?}", &check_error);
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
-                panic!("Bad analysis result: {:?}", &res);
+                panic!("Bad analysis result: {res:?}");
             }
         });
     });
@@ -283,7 +285,7 @@ fn publish_contract(
     contract_id: &QualifiedContractIdentifier,
     contract: &str,
     version: ClarityVersion,
-) -> Result<(), clarity::vm::clarity::Error> {
+) -> Result<(), ClarityError> {
     bc.as_transaction(|tx| {
         let (mut ast, analysis) = tx.analyze_smart_contract(contract_id, version, contract)?;
         tx.initialize_smart_contract(
@@ -346,11 +348,11 @@ fn trait_invocation_205_with_stored_principal() {
         let error = publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version)
             .unwrap_err();
         match error {
-            ClarityError::Analysis(ref e) => match *e.err {
-                CheckErrors::TypeError(..) => (),
-                _ => panic!("Unexpected error: {:?}", error),
+            ClarityError::StaticCheck(ref e) => match *e.err {
+                StaticCheckErrorKind::TypeError(..) => (),
+                _ => panic!("Unexpected error: {error:?}"),
             },
-            _ => panic!("Unexpected error: {:?}", error),
+            _ => panic!("Unexpected error: {error:?}"),
         };
     });
 }
@@ -440,10 +442,10 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(trait_ref_type, value))) = error {
+            if let ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(trait_ref_type, value))) = error {
                 assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
-                panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
+                panic!("Expected an Interpreter(RuntimeCheck(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
             };
         });
     });
@@ -464,10 +466,10 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(trait_ref_type, value))) = error {
+            if let ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(trait_ref_type, value))) = error {
                 assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
-                panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
+                panic!("Expected an Interpreter(RuntimeCheck(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
             };
         });
     });
@@ -884,14 +886,14 @@ fn test_block_heights() {
                 ClarityVersion::Clarity1,
                 contract_clarity3,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *static_check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
-                    panic!("Bad analysis error: {:?}", &check_error);
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
-                panic!("Bad analysis result: {:?}", &res);
+                panic!("Bad analysis result: {res:?}");
             }
 
             // Publish the Clarity 1 contract
@@ -919,14 +921,14 @@ fn test_block_heights() {
                 ClarityVersion::Clarity2,
                 contract_clarity3,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *static_check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
-                    panic!("Bad analysis error: {:?}", &check_error);
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
-                panic!("Bad analysis result: {:?}", &res);
+                panic!("Bad analysis result: {res:?}");
             }
 
             // analyze the contracts as Clarity 3
@@ -935,14 +937,14 @@ fn test_block_heights() {
                 ClarityVersion::Clarity3,
                 contract_clarity1,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *static_check_error.err {
                     assert_eq!(var_name, "block-height");
                 } else {
-                    panic!("Bad analysis error: {:?}", &check_error);
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
-                panic!("Bad analysis result: {:?}", &res);
+                panic!("Bad analysis result: {res:?}");
             }
 
             let (mut ast, analysis) = clarity_db.analyze_smart_contract(
@@ -969,17 +971,17 @@ fn test_block_heights() {
         let mut tx = conn.start_transaction_processing();
         assert_eq!(
             Value::Tuple(TupleData::from_data(vec![
-                ("burn-block-height".into(), Value::UInt(burn_block_height + 1)),
-                ("block-height".into(), Value::UInt(tenure_height + 1))
+                (ClarityName::from_literal("burn-block-height"), Value::UInt(burn_block_height + 1)),
+                (ClarityName::from_literal("block-height"), Value::UInt(tenure_height + 1))
             ]).unwrap()),
             tx.eval_read_only(&contract_identifier1, "(test-func)")
                 .unwrap()
         );
         assert_eq!(
             Value::Tuple(TupleData::from_data(vec![
-                ("burn-block-height".into(), Value::UInt(burn_block_height + 1)),
-                ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                ("tenure-height".into(), Value::UInt(tenure_height + 1))
+                (ClarityName::from_literal("burn-block-height"), Value::UInt(burn_block_height + 1)),
+                (ClarityName::from_literal("stacks-block-height"), Value::UInt(block_height + 1)),
+                (ClarityName::from_literal("tenure-height"), Value::UInt(tenure_height + 1))
             ]).unwrap()),
             tx.eval_read_only(&contract_identifier2, "(test-func)")
                 .unwrap()
@@ -996,10 +998,13 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height + 1)
                     ),
-                    ("block-height".into(), Value::UInt(tenure_height + 1)),
+                    (
+                        ClarityName::from_literal("block-height"),
+                        Value::UInt(tenure_height + 1)
+                    ),
                 ])
                 .unwrap()
             ),
@@ -1010,11 +1015,17 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height + 1)
                     ),
-                    ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                    ("tenure-height".into(), Value::UInt(tenure_height + 1))
+                    (
+                        ClarityName::from_literal("stacks-block-height"),
+                        Value::UInt(block_height + 1)
+                    ),
+                    (
+                        ClarityName::from_literal("tenure-height"),
+                        Value::UInt(tenure_height + 1)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1032,8 +1043,14 @@ fn test_block_heights() {
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(burn_block_height)),
-                    ("block-height".into(), Value::UInt(tenure_height))
+                    (
+                        ClarityName::from_literal("burn-block-height"),
+                        Value::UInt(burn_block_height)
+                    ),
+                    (
+                        ClarityName::from_literal("block-height"),
+                        Value::UInt(tenure_height)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1043,9 +1060,18 @@ fn test_block_heights() {
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(burn_block_height)),
-                    ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                    ("tenure-height".into(), Value::UInt(tenure_height))
+                    (
+                        ClarityName::from_literal("burn-block-height"),
+                        Value::UInt(burn_block_height)
+                    ),
+                    (
+                        ClarityName::from_literal("stacks-block-height"),
+                        Value::UInt(block_height + 1)
+                    ),
+                    (
+                        ClarityName::from_literal("tenure-height"),
+                        Value::UInt(tenure_height)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1063,8 +1089,14 @@ fn test_block_heights() {
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(burn_block_height)),
-                    ("block-height".into(), Value::UInt(tenure_height))
+                    (
+                        ClarityName::from_literal("burn-block-height"),
+                        Value::UInt(burn_block_height)
+                    ),
+                    (
+                        ClarityName::from_literal("block-height"),
+                        Value::UInt(tenure_height)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1074,9 +1106,18 @@ fn test_block_heights() {
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(burn_block_height)),
-                    ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                    ("tenure-height".into(), Value::UInt(tenure_height))
+                    (
+                        ClarityName::from_literal("burn-block-height"),
+                        Value::UInt(burn_block_height)
+                    ),
+                    (
+                        ClarityName::from_literal("stacks-block-height"),
+                        Value::UInt(block_height + 1)
+                    ),
+                    (
+                        ClarityName::from_literal("tenure-height"),
+                        Value::UInt(tenure_height)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1095,10 +1136,13 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height + 1)
                     ),
-                    ("block-height".into(), Value::UInt(tenure_height + 1))
+                    (
+                        ClarityName::from_literal("block-height"),
+                        Value::UInt(tenure_height + 1)
+                    )
                 ])
                 .unwrap()
             ),
@@ -1109,11 +1153,17 @@ fn test_block_heights() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "burn-block-height".into(),
+                        ClarityName::from_literal("burn-block-height"),
                         Value::UInt(burn_block_height + 1)
                     ),
-                    ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                    ("tenure-height".into(), Value::UInt(tenure_height + 1))
+                    (
+                        ClarityName::from_literal("stacks-block-height"),
+                        Value::UInt(block_height + 1)
+                    ),
+                    (
+                        ClarityName::from_literal("tenure-height"),
+                        Value::UInt(tenure_height + 1)
+                    )
                 ])
                 .unwrap()
             ),

@@ -61,7 +61,7 @@ use crate::cost_estimates::{CostEstimator, EstimatorError};
 use crate::monitoring::increment_stx_mempool_gc;
 use crate::net::api::postblock_proposal::{BlockValidateOk, BlockValidateReject};
 use crate::net::Error as net_error;
-use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
+use crate::util_lib::bloom::{bloom_hash_count, BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::util_lib::db::{
     query_int, query_row, query_row_columns, query_rows, sqlite_open, table_exists,
     tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error, Error, FromColumn, FromRow,
@@ -155,6 +155,26 @@ pub enum MempoolIterationStopReason {
     IteratorExited,
 }
 
+impl MempoolIterationStopReason {
+    /// Report the stop reason to Prometheus monitoring.
+    ///
+    /// `IteratorExited` is not reported here because the miner's
+    /// `iterate_candidates` callback already reports the specific reason
+    /// it returned early (Preempted, LimitReached, or DeadlineReached).
+    pub fn report_to_monitoring(&self) {
+        let reason = match self {
+            MempoolIterationStopReason::NoMoreCandidates => {
+                monitoring::MinerStopReason::NoTransactions
+            }
+            MempoolIterationStopReason::DeadlineReached => {
+                monitoring::MinerStopReason::DeadlineReached
+            }
+            MempoolIterationStopReason::IteratorExited => return,
+        };
+        monitoring::increment_miner_stop_reason(reason);
+    }
+}
+
 impl StacksMessageCodec for MemPoolSyncData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
@@ -179,6 +199,16 @@ impl StacksMessageCodec for MemPoolSyncData {
         )))? {
             MemPoolSyncDataID::BloomFilter => {
                 let bloom_filter: BloomFilter<BloomNodeHasher> = read_next(fd)?;
+
+                // hash parameters must be valid for the mempool
+                let (_, num_hashes) =
+                    bloom_hash_count(BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS);
+                if bloom_filter.num_hashes > num_hashes {
+                    return Err(codec_error::DeserializeError(format!(
+                        "Too many bloom hashers (max {})",
+                        num_hashes
+                    )));
+                }
                 Ok(MemPoolSyncData::BloomFilter(bloom_filter))
             }
             MemPoolSyncDataID::TxTags => {
@@ -569,6 +599,8 @@ pub struct MemPoolWalkSettings {
     /// further non-boot contract calls and instead consider only boot contract calls
     /// and STX transfers.
     pub contract_cost_limit_percentage: Option<u8>,
+    /// Enable logging of skipped transactions (disabled by default, generally used for tests)
+    pub log_skipped_transactions: bool,
 }
 
 impl Default for MemPoolWalkSettings {
@@ -583,6 +615,7 @@ impl Default for MemPoolWalkSettings {
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
             contract_cost_limit_percentage: None,
+            log_skipped_transactions: false,
         }
     }
 }
@@ -598,6 +631,7 @@ impl MemPoolWalkSettings {
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
             contract_cost_limit_percentage: None,
+            log_skipped_transactions: false,
         }
     }
 }
@@ -1740,9 +1774,6 @@ impl MemPoolDB {
                                                 !start_with_no_estimate,
                                             ),
                                             None => {
-                                                monitoring::increment_miner_stop_reason(
-                                                    monitoring::MinerStopReason::NoTransactions,
-                                                );
                                                 break MempoolIterationStopReason::NoMoreCandidates;
                                             }
                                         }
@@ -1759,9 +1790,6 @@ impl MemPoolDB {
                                 (tx, update_estimate)
                             }
                             None => {
-                                monitoring::increment_miner_stop_reason(
-                                    monitoring::MinerStopReason::NoTransactions,
-                                );
                                 break MempoolIterationStopReason::NoMoreCandidates;
                             }
                         }
@@ -1905,7 +1933,10 @@ impl MemPoolDB {
                                 output_events.push(tx_event);
                             }
                             TransactionEvent::Skipped(_) => {
-                                // don't push `Skipped` events to the observer
+                                // don't push `Skipped` events to the observer by default
+                                if settings.log_skipped_transactions {
+                                    output_events.push(tx_event);
+                                }
                             }
                             _ => {
                                 output_events.push(tx_event);
@@ -1963,6 +1994,8 @@ impl MemPoolDB {
 
         // Write through the nonce cache to the database
         nonce_cache.flush(&mut self.db);
+
+        stop_reason.report_to_monitoring();
 
         info!(
             "Mempool iteration finished";

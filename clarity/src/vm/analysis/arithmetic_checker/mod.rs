@@ -14,18 +14,48 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! Static-analysis pass that decides whether a contract is eligible to be
+//! installed as a *cost-function* contract under the SIP-006 cost-voting
+//! system.
+//!
+//! A cost-function contract supplies a Clarity function that the VM invokes
+//! on every call to a native operation in order to compute that operation's
+//! runtime/read/write cost. Because such functions run inside the cost
+//! accounting path itself, they must be:
+//!
+//! - **Deterministic**: no chain-state reads (`block-height`, `tx-sender`,
+//!   `contract-caller`, `chain-id`, ...), no `contract-call?`.
+//! - **Side-effect free**: no map/var/FT/NFT defines or mutations, no STX
+//!   transfers, no asset mints or burns, no `print`.
+//! - **Bounded**: no `map`/`fold`/`filter`/list-cons or other iterating
+//!   constructs whose work scales with input size — the cost function must
+//!   itself be cheap and predictable.
+//! - **Trait-free**: traits introduce dynamic dispatch that the cost
+//!   accountant cannot reason about statically.
+//! - **Cheap**: only a restricted, predictable, constant-time subset of
+//!   native forms is allowed, including arithmetic/logic and certain simple
+//!   expression-building constructs.
+//!
+//! The pass walks every top-level form and expression and rejects anything
+//! outside the set of allowed constructs. The result is stored in
+//! [`ContractAnalysis::is_cost_contract_eligible`]; the cost-voting
+//! machinery in `vm::costs` later refuses to adopt a proposal whose target
+//! contract is not eligible.
+
 use clarity_types::representations::ClarityName;
 
-pub use super::errors::{check_argument_count, check_arguments_at_least, CheckError, CheckErrors};
+pub use super::errors::{
+    RuntimeCheckErrorKind, StaticCheckError, check_argument_count, check_arguments_at_least,
+};
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::variables::NativeVariables;
-use crate::vm::ClarityVersion;
 
 #[cfg(test)]
 mod tests;
@@ -207,8 +237,8 @@ impl ArithmeticOnlyChecker<'_> {
             IntToAscii | IntToUtf8 | StringToInt | StringToUInt | ToAscii => {
                 Err(Error::FunctionNotPermitted(function))
             }
-            Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
-            | Keccak256 => Err(Error::FunctionNotPermitted(function)),
+            Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Secp256r1Verify
+            | Hash160 | Sha256 | Keccak256 => Err(Error::FunctionNotPermitted(function)),
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
             | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay

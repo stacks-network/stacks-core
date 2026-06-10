@@ -79,6 +79,8 @@ pub struct ProposalEvalConfig {
     pub tenure_last_block_proposal_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
+    /// How much idle time must pass before allowing a read-count tenure extend
+    pub read_count_idle_timeout: Duration,
     /// How much buffer to add to the tenure idle timeout sent to miners to account for clock skew
     pub tenure_idle_timeout_buffer: Duration,
     /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
@@ -102,6 +104,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time: value.proposal_wait_for_parent_time,
             reset_replay_set_after_fork_blocks: value.reset_replay_set_after_fork_blocks,
+            read_count_idle_timeout: value.read_count_idle_timeout,
         }
     }
 }
@@ -211,7 +214,7 @@ impl SortitionData {
                 continue;
             };
             let Some(local_block_info) =
-                signer_db.get_first_signed_block_in_tenure(&tenure.consensus_hash)?
+                signer_db.get_first_approved_block_in_tenure(&tenure.consensus_hash)?
             else {
                 warn!(
                     "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks, and there is no local knowledge for that tenure's block timing.";
@@ -227,8 +230,10 @@ impl SortitionData {
                 sortition_state_received_time
             {
                 // how long was there between when the proposal was received and the next sortition started?
-                let proposal_to_sortition = if let Some(signed_at) = local_block_info.signed_self {
-                    sortition_state_received_time.saturating_sub(signed_at)
+                let proposal_to_sortition = if let Some(approved_at) =
+                    local_block_info.approved_time
+                {
+                    sortition_state_received_time.saturating_sub(approved_at)
                 } else {
                     info!("We did not sign over the reorged tenure's first block, considering it as a late-arriving proposal");
                     0
@@ -284,7 +289,7 @@ impl SortitionData {
             return Ok(None);
         };
 
-        let Some(signed_over_time) = block_info.signed_self else {
+        let Some(signed_over_time) = block_info.approved_time else {
             return Ok(None);
         };
 
@@ -362,7 +367,7 @@ impl SortitionData {
         }
 
         let tip = match client.get_tenure_tip(tenure_id) {
-            Ok(tip) => tip,
+            Ok(tip) => tip.anchored_header,
             Err(e) => {
                 warn!(
                     "Failed to fetch the tenure tip for the parent tenure: {e:?}. Assuming proposal is higher than the parent tenure for now.";
@@ -380,7 +385,7 @@ impl SortitionData {
                 signer_db.block_lookup(&nakamoto_tip.signer_signature_hash())
             {
                 if block_info.state != BlockState::GloballyAccepted {
-                    if let Err(e) = signer_db.mark_block_globally_accepted(&mut block_info) {
+                    if let Err(e) = block_info.mark_globally_accepted() {
                         warn!("Failed to mark block as globally accepted: {e}");
                     } else if let Err(e) = signer_db.insert_block(&block_info) {
                         warn!("Failed to update block info in db: {e}");

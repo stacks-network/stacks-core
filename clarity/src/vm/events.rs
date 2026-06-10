@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use serde_json::json;
+use stacks_common::util::hash::to_hex_prefixed;
 
 use super::types::serialization::SerializationError;
 use crate::vm::types::{
@@ -219,18 +220,14 @@ pub struct NFTTransferEventData {
 
 impl NFTTransferEventData {
     pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes)?;
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            formatted_bytes
-        };
+        let mut byte_serialization = Vec::new();
+        self.value.serialize_write(&mut byte_serialization)?;
+        let raw_value = to_hex_prefixed(byte_serialization.as_slice(), true);
         Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
             "recipient": format!("{}",self.recipient),
-            "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
+            "raw_value": raw_value,
         }))
     }
 }
@@ -244,17 +241,13 @@ pub struct NFTMintEventData {
 
 impl NFTMintEventData {
     pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes)?;
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            formatted_bytes
-        };
+        let mut byte_serialization = Vec::new();
+        self.value.serialize_write(&mut byte_serialization)?;
+        let raw_value = to_hex_prefixed(byte_serialization.as_slice(), true);
         Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "recipient": format!("{}",self.recipient),
-            "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
+            "raw_value": raw_value,
         }))
     }
 }
@@ -268,17 +261,13 @@ pub struct NFTBurnEventData {
 
 impl NFTBurnEventData {
     pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes)?;
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            formatted_bytes
-        };
+        let mut byte_serialization = Vec::new();
+        self.value.serialize_write(&mut byte_serialization)?;
+        let raw_value = to_hex_prefixed(byte_serialization.as_slice(), true);
         Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
-            "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
+            "raw_value": raw_value,
         }))
     }
 }
@@ -344,17 +333,107 @@ pub struct SmartContractEventData {
 
 impl SmartContractEventData {
     pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes)?;
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            formatted_bytes
-        };
+        let mut byte_serialization = Vec::new();
+        self.value.serialize_write(&mut byte_serialization)?;
+        let raw_value = to_hex_prefixed(byte_serialization.as_slice(), true);
         Ok(json!({
             "contract_identifier": self.key.0.to_string(),
             "topic": self.key.1,
-            "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
+            "raw_value": raw_value,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::types::StandardPrincipalData;
+    use crate::vm::{ClarityName, ContractName};
+
+    fn test_principal() -> PrincipalData {
+        PrincipalData::Standard(StandardPrincipalData::null_principal())
+    }
+
+    fn test_asset_id() -> AssetIdentifier {
+        AssetIdentifier {
+            contract_identifier: QualifiedContractIdentifier::new(
+                StandardPrincipalData::null_principal(),
+                ContractName::try_from("test-contract".to_string()).unwrap(),
+            ),
+            asset_name: ClarityName::try_from("test-nft".to_string()).unwrap(),
+        }
+    }
+
+    #[test]
+    fn nft_transfer_event_json_serialization() {
+        let event = NFTTransferEventData {
+            asset_identifier: test_asset_id(),
+            sender: test_principal(),
+            recipient: test_principal(),
+            value: Value::UInt(42),
+        };
+        assert_eq!(
+            event.json_serialize().unwrap(),
+            json!({
+                "asset_identifier": "S0000000000000000000002AA028H.test-contract::test-nft",
+                "sender": "S0000000000000000000002AA028H",
+                "recipient": "S0000000000000000000002AA028H",
+                "raw_value": "0x010000000000000000000000000000002a",
+            })
+        );
+    }
+
+    #[test]
+    fn nft_mint_event_json_serialization() {
+        let event = NFTMintEventData {
+            asset_identifier: test_asset_id(),
+            recipient: test_principal(),
+            value: Value::UInt(1),
+        };
+        assert_eq!(
+            event.json_serialize().unwrap(),
+            json!({
+                "asset_identifier": "S0000000000000000000002AA028H.test-contract::test-nft",
+                "recipient": "S0000000000000000000002AA028H",
+                "raw_value": "0x0100000000000000000000000000000001",
+            })
+        );
+    }
+
+    #[test]
+    fn nft_burn_event_json_serialization() {
+        let event = NFTBurnEventData {
+            asset_identifier: test_asset_id(),
+            sender: test_principal(),
+            value: Value::UInt(1),
+        };
+        assert_eq!(
+            event.json_serialize().unwrap(),
+            json!({
+                "asset_identifier": "S0000000000000000000002AA028H.test-contract::test-nft",
+                "sender": "S0000000000000000000002AA028H",
+                "raw_value": "0x0100000000000000000000000000000001",
+            })
+        );
+    }
+
+    #[test]
+    fn smart_contract_event_json_serialization() {
+        let contract_id = QualifiedContractIdentifier::new(
+            StandardPrincipalData::null_principal(),
+            ContractName::try_from("test-contract".to_string()).unwrap(),
+        );
+        let event = SmartContractEventData {
+            key: (contract_id, "print".to_string()),
+            value: Value::UInt(99),
+        };
+        assert_eq!(
+            event.json_serialize().unwrap(),
+            json!({
+                "contract_identifier": "S0000000000000000000002AA028H.test-contract",
+                "topic": "print",
+                "raw_value": "0x0100000000000000000000000000000063",
+            })
+        );
     }
 }

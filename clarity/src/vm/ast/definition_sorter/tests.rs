@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,15 +18,17 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check as run_analysis_helper;
 use crate::vm::ast::definition_sorter::DefinitionSorter;
-use crate::vm::ast::errors::{ParseErrors, ParseResult};
+use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::expression_identifier::ExpressionIdentifier;
 use crate::vm::ast::parser;
+use crate::vm::ast::stack_depth_checker::StackDepthLimits;
 use crate::vm::ast::types::ContractAST;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
 
 #[template]
 #[rstest]
@@ -36,7 +38,10 @@ fn test_clarity_versions_definition_sorter(#[case] version: ClarityVersion) {}
 
 fn run_scoped_parsing_helper(contract: &str, version: ClarityVersion) -> ParseResult<ContractAST> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let pre_expressions = parser::v1::parse(contract)?;
+    let pre_expressions = parser::v1::parse(
+        contract,
+        StackDepthLimits::for_epoch(StacksEpochId::Epoch2_05),
+    )?;
     let mut contract_ast = ContractAST::new(contract_identifier, pre_expressions);
     ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, version)?;
     DefinitionSorter::run_pass(&mut contract_ast, &mut (), version)?;
@@ -96,7 +101,7 @@ fn should_raise_dependency_cycle_case_1(#[case] version: ClarityVersion) {
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -109,7 +114,7 @@ fn should_raise_dependency_cycle_case_2(#[case] version: ClarityVersion) {
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -131,7 +136,7 @@ fn should_raise_dependency_cycle_case_let(#[case] version: ClarityVersion) {
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -153,7 +158,7 @@ fn should_raise_dependency_cycle_case_get(#[case] version: ClarityVersion) {
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -177,7 +182,7 @@ fn should_raise_dependency_cycle_case_fetch_entry(#[case] version: ClarityVersio
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -201,7 +206,7 @@ fn should_raise_dependency_cycle_case_delete_entry(#[case] version: ClarityVersi
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -225,7 +230,7 @@ fn should_raise_dependency_cycle_case_set_entry(#[case] version: ClarityVersion)
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -249,7 +254,7 @@ fn should_raise_dependency_cycle_case_insert_entry(#[case] version: ClarityVersi
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -260,7 +265,7 @@ fn should_raise_dependency_cycle_case_fetch_contract_entry(#[case] version: Clar
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[apply(test_clarity_versions_definition_sorter)]

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,20 +18,25 @@ use std::collections::HashMap;
 
 use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
+use stacks_common::types::StacksEpochId;
 
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ClarityVersion;
+use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, FieldIdentifier, List, SugaredFieldIdentifier, TraitReference, Tuple,
 };
 use crate::vm::representations::{PreSymbolicExpression, TraitDefinition};
-use crate::vm::ClarityVersion;
 
 pub struct TraitsResolver {}
 
 impl BuildASTPass for TraitsResolver {
-    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
+    fn run_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+        _epoch: StacksEpochId,
+    ) -> ParseResult<()> {
         let mut command = TraitsResolver::new();
         command.run(contract_ast)?;
         Ok(())
@@ -56,16 +61,17 @@ impl TraitsResolver {
             match define_type {
                 DefineFunctions::Trait => {
                     if args.len() != 2 {
-                        return Err(ParseErrors::DefineTraitBadSignature.into());
+                        return Err(ParseErrorKind::DefineTraitBadSignature.into());
                     }
 
                     match (&args[0].pre_expr, &args[1].pre_expr) {
                         (Atom(trait_name), List(trait_definition)) => {
                             // Check for collisions
                             if contract_ast.referenced_traits.contains_key(trait_name) {
-                                return Err(
-                                    ParseErrors::NameAlreadyUsed(trait_name.to_string()).into()
-                                );
+                                return Err(ParseErrorKind::NameAlreadyUsed(
+                                    trait_name.to_string(),
+                                )
+                                .into());
                             }
 
                             // Traverse and probe for generics nested in the trait definition
@@ -83,18 +89,20 @@ impl TraitsResolver {
                                 .referenced_traits
                                 .insert(trait_name.clone(), TraitDefinition::Defined(trait_id));
                         }
-                        _ => return Err(ParseErrors::DefineTraitBadSignature.into()),
+                        _ => return Err(ParseErrorKind::DefineTraitBadSignature.into()),
                     }
                 }
                 DefineFunctions::UseTrait => {
                     if args.len() != 2 {
-                        return Err(ParseErrors::ImportTraitBadSignature.into());
+                        return Err(ParseErrorKind::ImportTraitBadSignature.into());
                     }
 
                     if let Some(trait_name) = args[0].match_atom() {
                         // Check for collisions
                         if contract_ast.referenced_traits.contains_key(trait_name) {
-                            return Err(ParseErrors::NameAlreadyUsed(trait_name.to_string()).into());
+                            return Err(
+                                ParseErrorKind::NameAlreadyUsed(trait_name.to_string()).into()
+                            );
                         }
 
                         let trait_id = match &args[1].pre_expr {
@@ -109,18 +117,18 @@ impl TraitsResolver {
                                 }
                             }
                             FieldIdentifier(trait_identifier) => trait_identifier.clone(),
-                            _ => return Err(ParseErrors::ImportTraitBadSignature.into()),
+                            _ => return Err(ParseErrorKind::ImportTraitBadSignature.into()),
                         };
                         contract_ast
                             .referenced_traits
                             .insert(trait_name.clone(), TraitDefinition::Imported(trait_id));
                     } else {
-                        return Err(ParseErrors::ImportTraitBadSignature.into());
+                        return Err(ParseErrorKind::ImportTraitBadSignature.into());
                     }
                 }
                 DefineFunctions::ImplTrait => {
                     if args.len() != 1 {
-                        return Err(ParseErrors::ImplTraitBadSignature.into());
+                        return Err(ParseErrorKind::ImplTraitBadSignature.into());
                     }
 
                     let trait_id = match &args[0].pre_expr {
@@ -135,7 +143,7 @@ impl TraitsResolver {
                             }
                         }
                         FieldIdentifier(trait_identifier) => trait_identifier.clone(),
-                        _ => return Err(ParseErrors::ImplTraitBadSignature.into()),
+                        _ => return Err(ParseErrorKind::ImplTraitBadSignature.into()),
                     };
                     contract_ast.implemented_traits.insert(trait_id);
                 }
@@ -166,7 +174,7 @@ impl TraitsResolver {
                 .referenced_traits
                 .contains_key(&trait_reference)
             {
-                let mut err = ParseError::new(ParseErrors::TraitReferenceUnknown(
+                let mut err = ParseError::new(ParseErrorKind::TraitReferenceUnknown(
                     trait_reference.to_string(),
                 ));
                 err.set_pre_expression(&expr);
@@ -207,7 +215,7 @@ impl TraitsResolver {
                     if should_reference {
                         referenced_traits.insert(trait_name.clone(), expression.clone());
                     } else {
-                        return Err(ParseErrors::TraitReferenceNotAllowed.into());
+                        return Err(ParseErrorKind::TraitReferenceNotAllowed.into());
                     }
                 }
                 Tuple(atoms) => {

@@ -19,6 +19,7 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
+
 #[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
@@ -75,32 +76,4 @@ pub mod boot_util {
     pub fn boot_code_addr(mainnet: bool) -> StacksAddress {
         StacksAddress::burn_address(mainnet)
     }
-}
-
-// set via _compile-time_ envars
-const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
-const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
-const GIT_TREE_CLEAN: Option<&'static str> = option_env!("GIT_TREE_CLEAN");
-
-#[cfg(debug_assertions)]
-const BUILD_TYPE: &str = "debug";
-#[cfg(not(debug_assertions))]
-const BUILD_TYPE: &str = "release";
-
-pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
-    let git_branch = GIT_BRANCH.unwrap_or("");
-    let git_commit = GIT_COMMIT.unwrap_or("");
-    let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
-
-    format!(
-        "{} {} ({}:{}{}, {} build, {} [{}])",
-        pkg_name,
-        pkg_version,
-        &git_branch,
-        git_commit,
-        git_tree_clean,
-        BUILD_TYPE,
-        std::env::consts::OS,
-        std::env::consts::ARCH
-    )
 }

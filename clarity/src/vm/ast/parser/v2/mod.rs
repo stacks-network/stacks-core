@@ -1,3 +1,17 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod lexer;
 
 use clarity_types::representations::{ClarityName, ContractName};
@@ -7,13 +21,12 @@ use clarity_types::types::{
 };
 use stacks_common::util::hash::hex_bytes;
 
-use self::lexer::token::{PlacedToken, Token};
 use self::lexer::Lexer;
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult, PlacedError};
-use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use self::lexer::token::{PlacedToken, Token};
+use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult, PlacedError};
+use crate::vm::ast::stack_depth_checker::StackDepthLimits;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::vm::representations::{PreSymbolicExpression, Span};
-use crate::vm::MAX_CALL_STACK_DEPTH;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -26,11 +39,11 @@ pub struct Parser<'a> {
     // context of a stacks-node, while normal mode is useful for developers.
     fail_fast: bool,
     nesting_depth: u64,
+    depth_limits: StackDepthLimits,
 }
 
 pub const MAX_STRING_LEN: usize = 128;
 pub const MAX_CONTRACT_NAME_LEN: usize = 40;
-pub const MAX_NESTING_DEPTH: u64 = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1;
 
 enum OpenTupleStatus {
     /// The next thing to parse is a key
@@ -65,10 +78,14 @@ enum ParserStackElement {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, fail_fast: bool) -> Result<Self, ParseErrors> {
+    pub fn new(
+        input: &'a str,
+        fail_fast: bool,
+        depth_limits: StackDepthLimits,
+    ) -> Result<Self, ParseErrorKind> {
         let lexer = match Lexer::new(input, fail_fast) {
             Ok(lexer) => lexer,
-            Err(e) => return Err(ParseErrors::Lexer(e)),
+            Err(e) => return Err(ParseErrorKind::Lexer(e)),
         };
         let mut p = Self {
             lexer,
@@ -78,6 +95,7 @@ impl<'a> Parser<'a> {
             success: true,
             fail_fast,
             nesting_depth: 0,
+            depth_limits,
         };
 
         loop {
@@ -89,7 +107,7 @@ impl<'a> Parser<'a> {
                         "Parser::read_token should not return an error when not in fail_fast mode"
                     );
                     p.success = false;
-                    return Err(ParseErrors::Lexer(e));
+                    return Err(ParseErrorKind::Lexer(e));
                 }
             };
             if token.token == Token::Eof {
@@ -103,7 +121,7 @@ impl<'a> Parser<'a> {
             .diagnostics
             .iter()
             .map(|lex_error| PlacedError {
-                e: ParseErrors::Lexer(lex_error.e.clone()),
+                e: ParseErrorKind::Lexer(lex_error.e.clone()),
                 span: lex_error.span.clone(),
             })
             .collect();
@@ -111,7 +129,7 @@ impl<'a> Parser<'a> {
         Ok(p)
     }
 
-    fn add_diagnostic(&mut self, e: ParseErrors, span: Span) -> ParseResult<()> {
+    fn add_diagnostic(&mut self, e: ParseErrorKind, span: Span) -> ParseResult<()> {
         if self.fail_fast {
             return Err(ParseError::new(e));
         } else {
@@ -152,11 +170,11 @@ impl<'a> Parser<'a> {
     ///  raises an UnexpectedParserFailure.
     fn peek_last_token(&self) -> ParseResult<&PlacedToken> {
         if self.next_token == 0 {
-            return Err(ParseError::new(ParseErrors::UnexpectedParserFailure));
+            return Err(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
         }
         self.tokens
             .get(self.next_token - 1)
-            .ok_or_else(|| ParseError::new(ParseErrors::UnexpectedParserFailure))
+            .ok_or_else(|| ParseError::new(ParseErrorKind::UnexpectedParserFailure))
     }
 
     fn skip_to_end(&mut self) {
@@ -216,13 +234,16 @@ impl<'a> Parser<'a> {
     ) -> ParseResult<Option<PreSymbolicExpression>> {
         match open_node {
             ParserStackElement::OpenList {
-                ref mut nodes,
-                ref mut span,
-                ref mut whitespace,
+                nodes,
+                span,
+                whitespace,
             } => {
                 if let Some(node) = node_opt {
                     if !*whitespace && node.match_comment().is_none() {
-                        self.add_diagnostic(ParseErrors::ExpectedWhitespace, node.span().clone())?;
+                        self.add_diagnostic(
+                            ParseErrorKind::ExpectedWhitespace,
+                            node.span().clone(),
+                        )?;
                     }
                     nodes.push(node);
                     *whitespace = self.ignore_whitespace();
@@ -241,11 +262,11 @@ impl<'a> Parser<'a> {
                         Token::Eof => {
                             // Report an error, but return the list and attempt to continue parsing
                             self.add_diagnostic(
-                                ParseErrors::ExpectedClosing(Token::Rparen),
+                                ParseErrorKind::ExpectedClosing(Token::Rparen),
                                 token.span.clone(),
                             )?;
                             self.add_diagnostic(
-                                ParseErrors::NoteToMatchThis(Token::Lparen),
+                                ParseErrorKind::NoteToMatchThis(Token::Lparen),
                                 span.clone(),
                             )?;
                             span.end_line = token.span.end_line;
@@ -258,7 +279,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             // Report an error, then skip this token
                             self.add_diagnostic(
-                                ParseErrors::UnexpectedToken(token.token.clone()),
+                                ParseErrorKind::UnexpectedToken(token.token.clone()),
                                 token.span,
                             )?;
                             *whitespace = self.ignore_whitespace();
@@ -267,7 +288,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            ParserStackElement::OpenTuple(ref mut open_tuple) => {
+            ParserStackElement::OpenTuple(open_tuple) => {
                 self.handle_open_tuple(open_tuple, node_opt)
             }
         }
@@ -293,11 +314,11 @@ impl<'a> Parser<'a> {
                         match last_token.token {
                             Token::Eof => {
                                 self.add_diagnostic(
-                                    ParseErrors::ExpectedClosing(Token::Rbrace),
+                                    ParseErrorKind::ExpectedClosing(Token::Rbrace),
                                     open_tuple.diagnostic_token.span.clone(),
                                 )?;
                                 self.add_diagnostic(
-                                    ParseErrors::NoteToMatchThis(Token::Lbrace),
+                                    ParseErrorKind::NoteToMatchThis(Token::Lbrace),
                                     open_tuple.span.clone(),
                                 )?;
                                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
@@ -311,7 +332,7 @@ impl<'a> Parser<'a> {
                             _ => {
                                 // Report an error, then skip this token
                                 self.add_diagnostic(
-                                    ParseErrors::UnexpectedToken(last_token.token),
+                                    ParseErrorKind::UnexpectedToken(last_token.token),
                                     last_token.span,
                                 )?;
                                 return Ok(None); // Ok(None) yields to the parse loop
@@ -335,7 +356,10 @@ impl<'a> Parser<'a> {
                         // This indicates we have reached the end of the input.
                         // Create a placeholder value so that parsing can continue,
                         // then return.
-                        self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
+                        self.add_diagnostic(
+                            ParseErrorKind::TupleColonExpectedv2,
+                            token.span.clone(),
+                        )?;
                         let mut placeholder = PreSymbolicExpression::placeholder("".to_string());
                         placeholder.copy_span(&token.span);
                         open_tuple.nodes.push(placeholder); // Placeholder value
@@ -349,7 +373,10 @@ impl<'a> Parser<'a> {
                     }
                     _ => {
                         // Record an error, then continue to parse
-                        self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
+                        self.add_diagnostic(
+                            ParseErrorKind::TupleColonExpectedv2,
+                            token.span.clone(),
+                        )?;
                     }
                 }
                 open_tuple.diagnostic_token = token;
@@ -377,7 +404,7 @@ impl<'a> Parser<'a> {
                                 let eof_span = last_token.span;
 
                                 self.add_diagnostic(
-                                    ParseErrors::TupleValueExpected,
+                                    ParseErrorKind::TupleValueExpected,
                                     open_tuple.diagnostic_token.span.clone(),
                                 )?;
                                 let mut placeholder =
@@ -396,7 +423,7 @@ impl<'a> Parser<'a> {
                             _ => {
                                 // Report an error, then skip this token
                                 self.add_diagnostic(
-                                    ParseErrors::UnexpectedToken(last_token.token),
+                                    ParseErrorKind::UnexpectedToken(last_token.token),
                                     last_token.span,
                                 )?;
                                 return Ok(None); // Ok(None) yields to the parse loop
@@ -425,7 +452,7 @@ impl<'a> Parser<'a> {
                         return Ok(Some(e));
                     }
                     Token::Eof => (),
-                    _ => self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span)?,
+                    _ => self.add_diagnostic(ParseErrorKind::TupleCommaExpectedv2, token.span)?,
                 }
 
                 let mut comments = self.ignore_whitespace_and_comments();
@@ -469,7 +496,7 @@ impl<'a> Parser<'a> {
         let token = self.peek_next_token();
         match token.token {
             Token::Comma => {
-                self.add_diagnostic(ParseErrors::UnexpectedToken(token.token), token.span)?;
+                self.add_diagnostic(ParseErrorKind::UnexpectedToken(token.token), token.span)?;
                 self.next_token();
             }
             Token::Rbrace => {
@@ -514,7 +541,7 @@ impl<'a> Parser<'a> {
         let principal = match PrincipalData::parse_standard_principal(&addr) {
             Ok(principal) => principal,
             _ => {
-                self.add_diagnostic(ParseErrors::InvalidPrincipalLiteral, span.clone())?;
+                self.add_diagnostic(ParseErrorKind::InvalidPrincipalLiteral, span.clone())?;
                 let mut placeholder = PreSymbolicExpression::placeholder(format!("'{addr}"));
                 placeholder.copy_span(&span);
                 return Ok(placeholder);
@@ -540,7 +567,7 @@ impl<'a> Parser<'a> {
                 }) => {
                     span.end_line = token_span.end_line;
                     span.end_column = token_span.end_column;
-                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, token_span)?;
+                    self.add_diagnostic(ParseErrorKind::ExpectedContractIdentifier, token_span)?;
                     let mut placeholder = PreSymbolicExpression::placeholder(format!(
                         "'{principal}.{}",
                         token.reproduce()
@@ -549,7 +576,7 @@ impl<'a> Parser<'a> {
                     return Ok(placeholder);
                 }
                 None => {
-                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span)?;
+                    self.add_diagnostic(ParseErrorKind::ExpectedContractIdentifier, dot.span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{principal}."));
                     placeholder.copy_span(&span);
@@ -559,7 +586,7 @@ impl<'a> Parser<'a> {
 
             if name.len() > MAX_CONTRACT_NAME_LEN {
                 self.add_diagnostic(
-                    ParseErrors::ContractNameTooLong(name.clone()),
+                    ParseErrorKind::ContractNameTooLong(name.clone()),
                     contract_span,
                 )?;
                 let mut placeholder =
@@ -571,7 +598,7 @@ impl<'a> Parser<'a> {
                 Ok(id) => id,
                 Err(_) => {
                     self.add_diagnostic(
-                        ParseErrors::IllegalContractName(name.clone()),
+                        ParseErrorKind::IllegalContractName(name.clone()),
                         contract_span,
                     )?;
                     let mut placeholder =
@@ -600,7 +627,7 @@ impl<'a> Parser<'a> {
                         token,
                     }) => {
                         self.add_diagnostic(
-                            ParseErrors::ExpectedTraitIdentifier,
+                            ParseErrorKind::ExpectedTraitIdentifier,
                             token_span.clone(),
                         )?;
                         let mut placeholder = PreSymbolicExpression::placeholder(format!(
@@ -614,7 +641,7 @@ impl<'a> Parser<'a> {
                     }
                     None => {
                         self.add_diagnostic(
-                            ParseErrors::ExpectedTraitIdentifier,
+                            ParseErrorKind::ExpectedTraitIdentifier,
                             dot.span.clone(),
                         )?;
                         let mut placeholder =
@@ -626,7 +653,7 @@ impl<'a> Parser<'a> {
                     }
                 };
                 if name.len() > MAX_STRING_LEN {
-                    self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
+                    self.add_diagnostic(ParseErrorKind::NameTooLong(name.clone()), trait_span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{contract_id}.{name}",));
                     placeholder.copy_span(&span);
@@ -636,7 +663,7 @@ impl<'a> Parser<'a> {
                     Ok(id) => id,
                     Err(_) => {
                         self.add_diagnostic(
-                            ParseErrors::IllegalTraitName(name.clone()),
+                            ParseErrorKind::IllegalTraitName(name.clone()),
                             trait_span,
                         )?;
                         let mut placeholder =
@@ -682,7 +709,10 @@ impl<'a> Parser<'a> {
                 span: token_span,
                 token,
             }) => {
-                self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, token_span.clone())?;
+                self.add_diagnostic(
+                    ParseErrorKind::ExpectedContractIdentifier,
+                    token_span.clone(),
+                )?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!(".{}", token.reproduce()));
                 span.end_line = token_span.end_line;
@@ -691,7 +721,7 @@ impl<'a> Parser<'a> {
                 return Ok(placeholder);
             }
             None => {
-                self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, span.clone())?;
+                self.add_diagnostic(ParseErrorKind::ExpectedContractIdentifier, span.clone())?;
                 let mut placeholder = PreSymbolicExpression::placeholder(".".to_string());
                 placeholder.copy_span(&span);
                 return Ok(placeholder);
@@ -699,7 +729,10 @@ impl<'a> Parser<'a> {
         };
 
         if name.len() > MAX_CONTRACT_NAME_LEN {
-            self.add_diagnostic(ParseErrors::ContractNameTooLong(name.clone()), span.clone())?;
+            self.add_diagnostic(
+                ParseErrorKind::ContractNameTooLong(name.clone()),
+                span.clone(),
+            )?;
             let mut placeholder = PreSymbolicExpression::placeholder(format!(".{name}"));
             placeholder.copy_span(&span);
             return Ok(placeholder);
@@ -709,7 +742,7 @@ impl<'a> Parser<'a> {
             Ok(id) => id,
             Err(_) => {
                 self.add_diagnostic(
-                    ParseErrors::IllegalContractName(name.clone()),
+                    ParseErrorKind::IllegalContractName(name.clone()),
                     contract_span,
                 )?;
                 let mut placeholder = PreSymbolicExpression::placeholder(format!(".{name}"));
@@ -735,7 +768,10 @@ impl<'a> Parser<'a> {
                     span: token_span,
                     token,
                 }) => {
-                    self.add_diagnostic(ParseErrors::ExpectedTraitIdentifier, token_span.clone())?;
+                    self.add_diagnostic(
+                        ParseErrorKind::ExpectedTraitIdentifier,
+                        token_span.clone(),
+                    )?;
                     let mut placeholder = PreSymbolicExpression::placeholder(format!(
                         ".{contract_name}.{}",
                         token.reproduce(),
@@ -746,7 +782,7 @@ impl<'a> Parser<'a> {
                     return Ok(placeholder);
                 }
                 None => {
-                    self.add_diagnostic(ParseErrors::ExpectedTraitIdentifier, dot.span.clone())?;
+                    self.add_diagnostic(ParseErrorKind::ExpectedTraitIdentifier, dot.span.clone())?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!(".{contract_name}."));
                     span.end_line = dot.span.end_line;
@@ -756,7 +792,7 @@ impl<'a> Parser<'a> {
                 }
             };
             if name.len() > MAX_STRING_LEN {
-                self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
+                self.add_diagnostic(ParseErrorKind::NameTooLong(name.clone()), trait_span)?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!(".{contract_name}.{name}"));
                 placeholder.copy_span(&span);
@@ -765,7 +801,10 @@ impl<'a> Parser<'a> {
             let trait_name = match ClarityName::try_from(name.clone()) {
                 Ok(id) => id,
                 Err(_) => {
-                    self.add_diagnostic(ParseErrors::IllegalTraitName(name.clone()), trait_span)?;
+                    self.add_diagnostic(
+                        ParseErrorKind::IllegalTraitName(name.clone()),
+                        trait_span,
+                    )?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!(".{contract_name}.{name}"));
                     placeholder.copy_span(&span);
@@ -790,6 +829,7 @@ impl<'a> Parser<'a> {
         // because even though this function only returns a single node, that single node may contain others.
         let mut parse_stack = vec![];
         let mut first_run = true;
+        let max_nesting_depth = self.depth_limits.max_nesting_depth().saturating_add(1);
         // do-while loop until there are no more nodes waiting for children nodes
         while first_run || !parse_stack.is_empty() {
             first_run = false;
@@ -803,9 +843,11 @@ impl<'a> Parser<'a> {
                     match &token.token {
                         Token::Lparen => {
                             self.nesting_depth += 1;
-                            if self.nesting_depth > MAX_NESTING_DEPTH {
+                            if self.nesting_depth > max_nesting_depth {
                                 self.add_diagnostic(
-                                    ParseErrors::ExpressionStackDepthTooDeep,
+                                    ParseErrorKind::ExpressionStackDepthTooDeep {
+                                        max_depth: self.depth_limits.max_call_stack_depth(),
+                                    },
                                     token.span.clone(),
                                 )?;
                                 // Do not try to continue, exit cleanly now to avoid a stack overflow.
@@ -822,9 +864,11 @@ impl<'a> Parser<'a> {
                         }
                         Token::Lbrace => {
                             // This sugared syntax for tuple becomes a list of pairs, so depth is increased by 2.
-                            if self.nesting_depth + 2 > MAX_NESTING_DEPTH {
+                            if self.nesting_depth + 2 > max_nesting_depth {
                                 self.add_diagnostic(
-                                    ParseErrors::ExpressionStackDepthTooDeep,
+                                    ParseErrorKind::ExpressionStackDepthTooDeep {
+                                        max_depth: self.depth_limits.max_call_stack_depth(),
+                                    },
                                     token.span.clone(),
                                 )?;
                                 // Do not try to continue, exit cleanly now to avoid a stack overflow.
@@ -847,7 +891,7 @@ impl<'a> Parser<'a> {
                                 Ok(val) => PreSymbolicExpression::atom_value(Value::Int(val)),
                                 Err(_) => {
                                     self.add_diagnostic(
-                                        ParseErrors::FailedParsingIntValue(val_string.clone()),
+                                        ParseErrorKind::FailedParsingIntValue(val_string.clone()),
                                         token.span.clone(),
                                     )?;
                                     PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -861,7 +905,7 @@ impl<'a> Parser<'a> {
                                 Ok(val) => PreSymbolicExpression::atom_value(Value::UInt(val)),
                                 Err(_) => {
                                     self.add_diagnostic(
-                                        ParseErrors::FailedParsingUIntValue(val_string.clone()),
+                                        ParseErrorKind::FailedParsingUIntValue(val_string.clone()),
                                         token.span.clone(),
                                     )?;
                                     PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -875,8 +919,14 @@ impl<'a> Parser<'a> {
                                 match Value::string_ascii_from_bytes(val.clone().into_bytes()) {
                                     Ok(s) => PreSymbolicExpression::atom_value(s),
                                     Err(_) => {
+                                        // Protect against console flooding and process hanging while running tests,
+                                        // using a purely arbitrary max chars limit.
+                                        // NOTE: A better place for this would be the enum itself, but then we need to write a custom Debug implementation
+                                        #[cfg(any(test, feature = "testing"))]
+                                        let val = ellipse_string_for_test(val, 128);
+
                                         self.add_diagnostic(
-                                            ParseErrors::IllegalASCIIString(val.clone()),
+                                            ParseErrorKind::IllegalASCIIString(val.clone()),
                                             token.span.clone(),
                                         )?;
                                         PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -905,7 +955,7 @@ impl<'a> Parser<'a> {
                         Token::Ident(name) => {
                             let mut expr = if name.len() > MAX_STRING_LEN {
                                 self.add_diagnostic(
-                                    ParseErrors::NameTooLong(name.clone()),
+                                    ParseErrorKind::NameTooLong(name.clone()),
                                     token.span.clone(),
                                 )?;
                                 PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -914,7 +964,7 @@ impl<'a> Parser<'a> {
                                     Ok(name) => PreSymbolicExpression::atom(name),
                                     Err(_) => {
                                         self.add_diagnostic(
-                                            ParseErrors::IllegalClarityName(name.clone()),
+                                            ParseErrorKind::IllegalClarityName(name.clone()),
                                             token.span.clone(),
                                         )?;
                                         PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -927,7 +977,7 @@ impl<'a> Parser<'a> {
                         Token::TraitIdent(name) => {
                             let mut expr = if name.len() > MAX_STRING_LEN {
                                 self.add_diagnostic(
-                                    ParseErrors::NameTooLong(name.clone()),
+                                    ParseErrorKind::NameTooLong(name.clone()),
                                     token.span.clone(),
                                 )?;
                                 PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -936,7 +986,7 @@ impl<'a> Parser<'a> {
                                     Ok(name) => PreSymbolicExpression::trait_reference(name),
                                     Err(_) => {
                                         self.add_diagnostic(
-                                            ParseErrors::IllegalTraitName(name.clone()),
+                                            ParseErrorKind::IllegalTraitName(name.clone()),
                                             token.span.clone(),
                                         )?;
                                         PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -952,7 +1002,7 @@ impl<'a> Parser<'a> {
                                     Ok(value) => PreSymbolicExpression::atom_value(value),
                                     _ => {
                                         self.add_diagnostic(
-                                            ParseErrors::InvalidBuffer,
+                                            ParseErrorKind::InvalidBuffer,
                                             token.span.clone(),
                                         )?;
                                         PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -960,7 +1010,7 @@ impl<'a> Parser<'a> {
                                 },
                                 Err(_) => {
                                     self.add_diagnostic(
-                                        ParseErrors::InvalidBuffer,
+                                        ParseErrorKind::InvalidBuffer,
                                         token.span.clone(),
                                     )?;
                                     PreSymbolicExpression::placeholder(token.token.reproduce())
@@ -986,7 +1036,7 @@ impl<'a> Parser<'a> {
                         | Token::Greater
                         | Token::GreaterEqual => {
                             let name = ClarityName::try_from(token.token.to_string())
-                                .map_err(|_| ParseErrors::InterpreterFailure)?;
+                                .map_err(|_| ParseErrorKind::InterpreterFailure)?;
                             let mut e = PreSymbolicExpression::atom(name);
                             e.copy_span(&token.span);
                             Some(e)
@@ -1054,7 +1104,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             // Report an error, then skip this token
                             self.add_diagnostic(
-                                ParseErrors::UnexpectedToken(token.token),
+                                ParseErrorKind::UnexpectedToken(token.token),
                                 token.span,
                             )?;
                         }
@@ -1074,8 +1124,11 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
-    let mut parser = match Parser::new(input, true) {
+pub fn parse(
+    input: &str,
+    depth_limits: StackDepthLimits,
+) -> ParseResult<Vec<PreSymbolicExpression>> {
+    let mut parser = match Parser::new(input, true, depth_limits) {
         Ok(parser) => parser,
         Err(e) => return Err(ParseError::new(e)),
     };
@@ -1091,9 +1144,10 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 #[allow(clippy::unwrap_used)]
 pub fn parse_collect_diagnostics(
     input: &str,
+    depth_limits: StackDepthLimits,
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
     // When not in fail_fast mode, Parser::new always returns Ok.
-    let mut parser = Parser::new(input, false).unwrap();
+    let mut parser = Parser::new(input, false, depth_limits).unwrap();
 
     // When not in fail_fast mode, Parser::parse always returns Ok.
     let stmts = parser.parse().unwrap();
@@ -1110,14 +1164,50 @@ pub fn parse_collect_diagnostics(
     (stmts, diagnostics, parser.success)
 }
 
+/// Test helper function to shorten big strings while running tests
+///
+/// This prevents both:
+///   - Console flooding with multi-megabyte output during test runs.
+///   - Potential test process blocking or hanging due to stdout buffering limits.
+///
+/// In case a the input `string` need to be shortned based on `max_chars`,
+/// the resulting string will be ellipsed showing the original character count.
+#[cfg(any(test, feature = "testing"))]
+fn ellipse_string_for_test(string: &str, max_chars: usize) -> String {
+    let char_count = string.chars().count();
+    if char_count <= max_chars {
+        string.into()
+    } else {
+        let shortened: String = string.chars().take(max_chars).collect();
+        format!("{shortened}...[{char_count}]")
+    }
+}
+
 #[cfg(test)]
 #[cfg(feature = "developer-mode")]
 mod tests {
+    use stacks_common::types::StacksEpochId;
+
     use self::lexer::error::LexerError;
     use super::*;
+    use crate::vm::ast::stack_depth_checker::StackDepthLimits;
     use crate::vm::diagnostic::Level;
     use crate::vm::representations::PreSymbolicExpressionType;
     use crate::vm::types::{ASCIIData, CharType, PrincipalData, SequenceData};
+
+    fn depth_limits() -> StackDepthLimits {
+        StackDepthLimits::for_epoch(StacksEpochId::latest())
+    }
+
+    fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
+        super::parse(input, depth_limits())
+    }
+
+    fn parse_collect_diagnostics(
+        input: &str,
+    ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
+        super::parse_collect_diagnostics(input, depth_limits())
+    }
 
     #[test]
     fn test_parse_int() {
@@ -1492,7 +1582,9 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong",
+        );
         assert!(!success);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].level, Level::Error);
@@ -2540,7 +2632,9 @@ mod tests {
 
     #[test]
     fn test_parse_tuple_comments() {
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("{ ;; before the key\n  foo ;; before the colon\n  : ;; after the colon\n  ;; comment on newline\n  bar ;; before comma\n  ,\n  ;; after comma\n baz : qux ;; before closing\n}");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "{ ;; before the key\n  foo ;; before the colon\n  : ;; after the colon\n  ;; comment on newline\n  bar ;; before comma\n  ,\n  ;; after comma\n baz : qux ;; before closing\n}",
+        );
         assert!(success);
         assert_eq!(stmts.len(), 1);
         assert!(diagnostics.is_empty());
@@ -2829,11 +2923,15 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) =
-            parse_collect_diagnostics("'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name ");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name ",
+        );
         assert!(!success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(stmts[0].match_placeholder().unwrap(), "'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name");
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            "'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name"
+        );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].message,
@@ -2995,7 +3093,10 @@ mod tests {
             ".this-name-is-way-too-many-characters-to-be-a-legal-contract-name"
         );
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].message, "contract name 'this-name-is-way-too-many-characters-to-be-a-legal-contract-name' is too long");
+        assert_eq!(
+            diagnostics[0].message,
+            "contract name 'this-name-is-way-too-many-characters-to-be-a-legal-contract-name' is too long"
+        );
         assert_eq!(
             diagnostics[0].spans[0],
             Span {
@@ -3006,12 +3107,20 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics(".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            ".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong",
+        );
         assert!(!success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(stmts[0].match_placeholder().unwrap(),".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            ".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong"
+        );
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].message, "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'");
+        assert_eq!(
+            diagnostics[0].message,
+            "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'"
+        );
         assert_eq!(
             diagnostics[0].spans[0],
             Span {
@@ -3173,11 +3282,16 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("<veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong>");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "<veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong>",
+        );
         assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].message, "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'");
+        assert_eq!(
+            diagnostics[0].message,
+            "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'"
+        );
         assert_eq!(
             diagnostics[0].spans[0],
             Span {
@@ -3533,7 +3647,10 @@ mod tests {
     fn test_parse_fail_fast() {
         match parse("42g !ok") {
             Ok(_) => panic!("fail_fast mode should have returned an error"),
-            Err(e) => assert_eq!(*e.err, ParseErrors::Lexer(LexerError::InvalidCharInt('g'))),
+            Err(e) => assert_eq!(
+                *e.err,
+                ParseErrorKind::Lexer(LexerError::InvalidCharInt('g'))
+            ),
         }
     }
 
@@ -3547,8 +3664,7 @@ mod tests {
 
     #[test]
     fn test_stack_depth() {
-        let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let stack_limit = depth_limits().max_nesting_depth() as usize + 1;
         let exceeds_stack_depth_tuple = format!(
             "{}u1 {}",
             "{ a : ".repeat(stack_limit / 2 + 1),
@@ -3561,7 +3677,7 @@ mod tests {
         );
 
         assert!(match *(parse(&exceeds_stack_depth_list).unwrap_err().err) {
-            ParseErrors::ExpressionStackDepthTooDeep => true,
+            ParseErrorKind::ExpressionStackDepthTooDeep { .. } => true,
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
@@ -3570,21 +3686,24 @@ mod tests {
         assert!(!diagnostics.is_empty());
         assert_eq!(
             diagnostics[0].message,
-            "AST has too deep of an expression nesting. The maximum stack depth is 64"
+            format!(
+                "AST has too deep of an expression nesting. The maximum stack depth is {}",
+                depth_limits().max_call_stack_depth()
+            )
         );
         assert_eq!(diagnostics[0].level, Level::Error);
         assert_eq!(
             diagnostics[0].spans[0],
             Span {
                 start_line: 1,
-                start_column: 421,
+                start_column: 805,
                 end_line: 1,
-                end_column: 421
+                end_column: 805
             }
         );
 
         assert!(match *parse(&exceeds_stack_depth_tuple).unwrap_err().err {
-            ParseErrors::ExpressionStackDepthTooDeep => true,
+            ParseErrorKind::ExpressionStackDepthTooDeep { .. } => true,
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
@@ -3593,16 +3712,19 @@ mod tests {
         assert!(!diagnostics.is_empty());
         assert_eq!(
             diagnostics[0].message,
-            "AST has too deep of an expression nesting. The maximum stack depth is 64"
+            format!(
+                "AST has too deep of an expression nesting. The maximum stack depth is {}",
+                depth_limits().max_call_stack_depth()
+            )
         );
         assert_eq!(diagnostics[0].level, Level::Error);
         assert_eq!(
             diagnostics[0].spans[0],
             Span {
                 start_line: 1,
-                start_column: 211,
+                start_column: 403,
                 end_line: 1,
-                end_column: 211
+                end_column: 403
             }
         );
     }

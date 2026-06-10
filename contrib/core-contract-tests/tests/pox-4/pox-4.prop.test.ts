@@ -2,15 +2,16 @@ import {
   Cl,
   ClarityType,
   ClarityValue,
-  createStacksPrivateKey,
   isClarityType,
-  pubKeyfromPrivKey,
+  privateKeyToPublic,
   serializeCV,
   signWithKey,
+  compressPublicKey,
 } from "@stacks/transactions";
 import fc from "fast-check";
 import { assert, describe, expect, it } from "vitest";
-import { createHash } from "crypto";
+import { bytesToHex, hexToBytes } from '@stacks/common';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 // Contract Consts
 const INITIAL_TOTAL_LIQ_SUPPLY = 1_200_000_000_000_000;
@@ -57,11 +58,12 @@ const privateKeyMapping: {
     '5b897659452b9f3642be69aee75dc3cc84b2386d55ece1312affdbb80a3b2a7d01',
 };
 
-const sha256 = (data: Buffer): Buffer =>
-  createHash("sha256").update(data).digest();
+function pubKeyfromPrivKey(privateKey: string) {
+  return hexToBytes(compressPublicKey(privateKeyToPublic(privateKey)));
+}
 
-const structuredDataHash = (structuredData: ClarityValue): Buffer =>
-  sha256(Buffer.from(serializeCV(structuredData)));
+const structuredDataHash = (structuredData: ClarityValue) =>
+  sha256(hexToBytes(serializeCV(structuredData)));
 
 const generateDomainHash = (): ClarityValue =>
   Cl.tuple({
@@ -126,12 +128,12 @@ const buildSignerKeyMessageHash = (
   return signer_key_message_hash;
 };
 
-const signMessageHash = (privateKey: string, messageHash: Buffer) => {
+const signMessageHash = (privateKey: string, messageHash: Uint8Array) => {
   const data = signWithKey(
-    createStacksPrivateKey(privateKey),
-    messageHash.toString("hex")
-  ).data;
-  return Buffer.from(data.slice(2) + data.slice(0, 2), "hex");
+    privateKey,
+    bytesToHex(messageHash)
+  );
+  return hexToBytes(data.slice(2) + data.slice(0, 2));
 };
 
 describe("test pox-4 contract read only functions", () => {
@@ -151,9 +153,9 @@ describe("test pox-4 contract read only functions", () => {
           assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
           assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
           const first_burn_block_height =
-            pox_4_info.value.data["first-burnchain-block-height"];
+            pox_4_info.value.value["first-burnchain-block-height"];
           const reward_cycle_length =
-            pox_4_info.value.data["reward-cycle-length"];
+            pox_4_info.value.value["reward-cycle-length"];
           // Act
           const { result: actual } = simnet.callReadOnlyFn(
             "pox-4",
@@ -190,9 +192,9 @@ describe("test pox-4 contract read only functions", () => {
           assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
           assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
           const first_burn_block_height =
-            pox_4_info.value.data["first-burnchain-block-height"];
+            pox_4_info.value.value["first-burnchain-block-height"];
           const reward_cycle_length =
-            pox_4_info.value.data["reward-cycle-length"];
+            pox_4_info.value.value["reward-cycle-length"];
           // Act
           const { result: actual } = simnet.callReadOnlyFn(
             "pox-4",
@@ -363,7 +365,7 @@ describe("test pox-4 contract read only functions", () => {
           assert(isClarityType(pox_4_info, ClarityType.ResponseOk));
           assert(isClarityType(pox_4_info.value, ClarityType.Tuple));
           const stx_liq_supply =
-            pox_4_info.value.data["total-liquid-supply-ustx"];
+            pox_4_info.value.value["total-liquid-supply-ustx"];
           assert(isClarityType(stx_liq_supply, ClarityType.UInt));
           const expected = Math.floor(
             Number(stx_liq_supply.value) / TESTNET_STACKING_THRESHOLD_25
@@ -1446,22 +1448,22 @@ describe("test pox-4 contract read only functions", () => {
           // Assert
           assert(isClarityType(actual, ClarityType.ResponseOk));
           assert(isClarityType(actual.value, ClarityType.Tuple));
-          expect(actual.value.data["first-burnchain-block-height"]).toBeUint(
+          expect(actual.value.value["first-burnchain-block-height"]).toBeUint(
             expected_first_burn_block_height
           );
-          expect(actual.value.data["min-amount-ustx"]).toBeUint(
+          expect(actual.value.value["min-amount-ustx"]).toBeUint(
             MIN_AMOUNT_USTX
           );
-          expect(actual.value.data["prepare-cycle-length"]).toBeUint(
+          expect(actual.value.value["prepare-cycle-length"]).toBeUint(
             TESTNET_PREPARE_CYCLE_LENGTH
           );
-          expect(actual.value.data["reward-cycle-id"]).toBeUint(
+          expect(actual.value.value["reward-cycle-id"]).toBeUint(
             expected_reward_cycle_id
           );
-          expect(actual.value.data["reward-cycle-length"]).toBeUint(
+          expect(actual.value.value["reward-cycle-length"]).toBeUint(
             TESTNET_REWARD_CYCLE_LENGTH
           );
-          expect(actual.value.data["total-liquid-supply-ustx"]).toBeUint(
+          expect(actual.value.value["total-liquid-supply-ustx"]).toBeUint(
             INITIAL_TOTAL_LIQ_SUPPLY
           );
         }
@@ -1682,7 +1684,7 @@ describe("test pox-4 contract read only functions", () => {
               Cl.stringAscii("topic"),
               Cl.uint(period),
               Cl.some(Cl.buffer(signer_sig)),
-              Cl.buffer(pubKeyfromPrivKey(signer_private_key).data),
+              Cl.buffer(pubKeyfromPrivKey(signer_private_key)),
               Cl.uint(amount),
               Cl.uint(max_amount),
               Cl.uint(auth_id),
@@ -1753,7 +1755,7 @@ describe("test pox-4 contract read only functions", () => {
               Cl.stringAscii("topic"),
               Cl.uint(period),
               Cl.some(Cl.buffer(signer_sig)),
-              Cl.buffer(pubKeyfromPrivKey(wrong_private_key).data),
+              Cl.buffer(pubKeyfromPrivKey(wrong_private_key)),
               Cl.uint(amount),
               Cl.uint(max_amount),
               Cl.uint(auth_id),
@@ -1821,7 +1823,7 @@ describe("test pox-4 contract read only functions", () => {
               Cl.stringAscii("topic"),
               Cl.uint(period),
               Cl.some(Cl.buffer(signer_sig)),
-              Cl.buffer(pubKeyfromPrivKey(signer_private_key).data),
+              Cl.buffer(pubKeyfromPrivKey(signer_private_key)),
               Cl.uint(amount),
               Cl.uint(max_amount),
               Cl.uint(auth_id),

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
 
 use rstest::rstest;
 
-use crate::errors::RuntimeErrorType;
+use crate::errors::ClarityTypeError;
 use crate::representations::{
     CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, ClarityName, ContractName, MAX_STRING_LEN,
 };
@@ -73,7 +73,7 @@ fn test_clarity_name_invalid(#[case] name: &str) {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        RuntimeErrorType::BadNameValue(_, _)
+        ClarityTypeError::InvalidClarityName(_)
     ));
 }
 
@@ -98,8 +98,8 @@ fn test_clarity_name_serialization(#[case] name: &str) {
 
 // the first byte is the length of the buffer.
 #[rstest]
-#[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Clarity name: could not contruct from utf8")]
-#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Clarity name: BadNameValue(\"ClarityName\", \"2i\")")] // starts with number
+#[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Clarity name: could not construct from utf8")]
+#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Clarity name: InvalidClarityName(\"2i\")")] // starts with number
 #[case::too_long(vec![MAX_STRING_LEN + 1], "Failed to deserialize clarity name: too long")]
 #[case::wrong_length(vec![3, b'a'], "failed to fill whole buffer")]
 fn test_clarity_name_deserialization_errors(#[case] buffer: Vec<u8>, #[case] error_message: &str) {
@@ -157,7 +157,7 @@ fn test_contract_name_invalid(#[case] name: &str) {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        RuntimeErrorType::BadNameValue(_, _)
+        ClarityTypeError::InvalidContractName(_)
     ));
 }
 
@@ -201,11 +201,29 @@ fn test_contract_name_serialization_too_long() {
 // the first byte is the length of the buffer.
 #[rstest]
 #[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Contract name: could not construct from utf8")]
-#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Contract name: BadNameValue(\"ContractName\", \"2i\")")] // starts with number
+#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Contract name: InvalidContractName(\"2i\")")] // starts with number
 #[case::too_long(vec![MAX_STRING_LEN + 1], &format!("Failed to deserialize contract name: too short or too long: {}", MAX_STRING_LEN + 1))]
 #[case::wrong_length(vec![3, b'a'], "failed to fill whole buffer")]
 fn test_contract_name_deserialization_errors(#[case] buffer: Vec<u8>, #[case] error_message: &str) {
     let result = ContractName::consensus_deserialize(&mut buffer.as_slice());
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), error_message);
+}
+
+/// Regression test for the issue where some `try_*` calls might panic instead of
+/// returning an error as they should. See https://github.com/stacks-network/stacks-core/pull/7065
+#[test]
+fn test_try_functions_on_invalid_value_fail_but_do_not_panic() {
+    let as_str = "äß}🔥";
+    let as_string = as_str.to_string();
+
+    let into_result_str: Result<ClarityName, _> = as_str.try_into();
+    let into_result_string: Result<ClarityName, _> = as_string.clone().try_into();
+    let from_result_str = ClarityName::try_from(as_str);
+    let from_result_string = ClarityName::try_from(as_string);
+
+    assert!(into_result_str.is_err());
+    assert!(into_result_string.is_err());
+    assert!(from_result_str.is_err());
+    assert!(from_result_string.is_err());
 }

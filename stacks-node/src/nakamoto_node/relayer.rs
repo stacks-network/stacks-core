@@ -487,8 +487,13 @@ impl RelayerThread {
         let burn_db_path = config.get_burn_db_file_path();
         let is_miner = runloop.is_miner();
 
-        let sortdb = SortitionDB::open(&burn_db_path, true, runloop.get_burnchain().pox_constants)
-            .expect("FATAL: failed to open burnchain DB");
+        let sortdb = SortitionDB::open(
+            &burn_db_path,
+            true,
+            runloop.get_burnchain().pox_constants,
+            Some(config.node.get_marf_opts()),
+        )
+        .expect("FATAL: failed to open burnchain DB");
 
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: failed to open chainstate DB");
@@ -760,7 +765,7 @@ impl RelayerThread {
         sn: BlockSnapshot,
         mining_pk: &Hash160,
     ) -> Option<MinerDirective> {
-        let (canonical_stacks_tip_ch, _) =
+        let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
                 .expect("FATAL: failed to query sortition DB for stacks tip");
         let canonical_stacks_snapshot =
@@ -797,9 +802,28 @@ impl RelayerThread {
             return None;
         };
 
+        // Check if we won the last winning snapshot AND it commits to the ongoing tenure.
         let won_last_winning_snapshot =
             last_winning_snapshot.miner_pk_hash.as_ref() == Some(mining_pk);
-        if won_last_winning_snapshot {
+        let canonical_stacks_tip =
+            StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
+        let commits_to_tip_tenure = Self::sortition_commits_to_stacks_tip_tenure(
+            &mut self.chainstate,
+            &canonical_stacks_tip,
+            &canonical_stacks_snapshot,
+            &last_winning_snapshot,
+        ).unwrap_or_else(|e| {
+            warn!(
+                "Relayer: Failed to determine if last winning sortition commits to current tenure: {e:?}";
+                "sortition_ch" => %sn.consensus_hash,
+                "stacks_tip_ch" => %canonical_stacks_tip_ch
+            );
+            false
+        });
+
+        if (won_last_winning_snapshot && commits_to_tip_tenure)
+            || self.config.get_node_config(false).mock_mining
+        {
             debug!(
                 "Relayer: we won the last winning sortition {}",
                 &last_winning_snapshot.consensus_hash
@@ -1185,7 +1209,7 @@ impl RelayerThread {
             .get_active()
             .ok_or_else(|| NakamotoNodeError::NoVRFKeyActive)?;
 
-        let commit = LeaderBlockCommitOp {
+        let mut commit = LeaderBlockCommitOp {
             // NOTE: to be filled in
             treatment: vec![],
             // NOTE: PoX sunset has been disabled prior to taking effect
@@ -1218,6 +1242,43 @@ impl RelayerThread {
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
         };
+
+        if std::env::var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL") == Ok("1".to_string()) {
+            info!("Zeroing parent_vtxindex");
+            commit.parent_vtxindex = 0;
+        }
+
+        if std::env::var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL") == Ok("1".to_string()) {
+            info!("Altering parent_block_ptr");
+            commit.parent_block_ptr = commit.parent_block_ptr.saturating_sub(1);
+
+            let parent_tenure_tip_id = highest_tenure_start_block_header
+                .anchored_header
+                .as_stacks_nakamoto()
+                .unwrap()
+                .parent_block_id
+                .clone();
+
+            let parent_tenure_tip =
+                NakamotoChainState::get_block_header(&self.chainstate.db(), &parent_tenure_tip_id)
+                    .unwrap()
+                    .unwrap();
+
+            let parent_tip_vrf_proof = NakamotoChainState::get_block_vrf_proof(
+                &mut self.chainstate.index_conn(),
+                &stacks_tip,
+                &parent_tenure_tip.consensus_hash,
+            )
+            .unwrap()
+            .unwrap();
+
+            info!(
+                "Altering new_seed from {} to {}",
+                &commit.new_seed,
+                &VRFSeed::from_proof(&parent_tip_vrf_proof)
+            );
+            commit.new_seed = VRFSeed::from_proof(&parent_tip_vrf_proof);
+        }
 
         Ok(LastCommit::new(
             commit,
@@ -1678,7 +1739,7 @@ impl RelayerThread {
 
     #[cfg(test)]
     fn fault_injection_skip_block_commit(&self) -> bool {
-        self.globals.counters.naka_skip_commit_op.get()
+        self.globals.counters.skip_commit_op.get()
     }
 
     #[cfg(not(test))]

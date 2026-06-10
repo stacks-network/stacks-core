@@ -8,16 +8,18 @@ properties:
   slot_id:
     type: integer
     minimum: 0
-    description: Slot identifier
+    maximum: 4294967295
+    description: Slot identifier (u32 range)
   slot_version:
     type: integer
     minimum: 0
-    description: Slot version (lamport clock)
+    maximum: 4294967295
+    description: Slot version (lamport clock, u32 range)
   sig:
     type: string
     description: Hex-encoded signature from the stacker
     pattern: "^[0-9a-f]{130}$"
   data:
     type: string
-    description: Hex-encoded chunk data
-    pattern: "^[0-9a-f]*$"
+    description: Hex-encoded chunk data (must be even length)
+    pattern: "^([0-9a-f]{2})*$"

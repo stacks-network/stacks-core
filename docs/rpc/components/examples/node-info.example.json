@@ -1,25 +1,28 @@
 {
-  "peer_version": 385875968,
-  "pox_consensus": "17f76e597bab45646956f38dd39573085d72cbc0",
-  "burn_block_height": 16,
-  "stable_pox_consensus": "8e0561978fc5506b68a589c402dad97e862edb59",
-  "stable_burn_block_height": 15,
-  "server_version": "stacks-node 3.1.0.0.12 (release/3.1.0.0.12:ae969ca+, release build, linux [x86_64])",
-  "network_id": 1,
-  "parent_network_id": 3652501241,
-  "stacks_tip_height": 1832097,
-  "stacks_tip": "b1807a2d3f7f8c7922f7c1d60d7c34145ade05d789640dc7dc9ec1021e07bb54",
-  "stacks_tip_consensus_hash": "17f76e597bab45646956f38dd39573085d72cbc0",
-  "genesis_chainstate_hash": "74237aa39aa50a83de11a4f3e9a0b9c89a0b1a2f2a6a11b8a7e1e9a0b1c2d3e4f",
-  "unanchored_tip": "0000000000000000000000000000000000000000000000000000000000000000",
-  "tenure_height": 523,
-  "exit_at_block_height": null,
-  "is_fully_synced": false,
-  "node_public_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
-  "node_public_key_hash": "1328af7c4f96eee8fdbb1e023e48ba11e255d1c8",
-  "last_pox_anchor": {
-    "anchor_block_hash": "47c20352492e1647127d6f6275fa5abfe90157f6a64e6a175ff45ed0c1fb3f4e",
-    "anchor_block_txid": "5b5d678c658525122fa73a8699b5810325ce9412bf0dc3762fb7518699be3d4d"
-  },
-  "stackerdbs": []
+    "summary": "Node information response",
+    "value": {
+        "peer_version": 385875968,
+        "pox_consensus": "17f76e597bab45646956f38dd39573085d72cbc0",
+        "burn_block_height": 16,
+        "stable_pox_consensus": "8e0561978fc5506b68a589c402dad97e862edb59",
+        "stable_burn_block_height": 15,
+        "server_version": "stacks-node 3.1.0.0.12 (release/3.1.0.0.12:ae969ca+, release build, linux [x86_64])",
+        "network_id": 1,
+        "parent_network_id": 3652501241,
+        "stacks_tip_height": 1832097,
+        "stacks_tip": "b1807a2d3f7f8c7922f7c1d60d7c34145ade05d789640dc7dc9ec1021e07bb54",
+        "stacks_tip_consensus_hash": "17f76e597bab45646956f38dd39573085d72cbc0",
+        "genesis_chainstate_hash": "74237aa39aa50a83de11a4f3e9a0b9c89a0b1a2f2a6a11b8a7e1e9a0b1c2d3e4f",
+        "unanchored_tip": "0000000000000000000000000000000000000000000000000000000000000000",
+        "tenure_height": 523,
+        "exit_at_block_height": null,
+        "is_fully_synced": false,
+        "node_public_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
+        "node_public_key_hash": "1328af7c4f96eee8fdbb1e023e48ba11e255d1c8",
+        "last_pox_anchor": {
+            "anchor_block_hash": "47c20352492e1647127d6f6275fa5abfe90157f6a64e6a175ff45ed0c1fb3f4e",
+            "anchor_block_txid": "5b5d678c658525122fa73a8699b5810325ce9412bf0dc3762fb7518699be3d4d"
+        },
+        "stackerdbs": []
+    }
 }

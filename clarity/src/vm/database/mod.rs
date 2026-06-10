@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,9 +16,10 @@
 #[cfg(feature = "rusqlite")]
 pub use sqlite::MemoryBackingStore;
 
+pub use self::caching::ClarityExecutionCache;
 pub use self::clarity_db::{
-    BurnStateDB, ClarityDatabase, HeadersDB, StoreType, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-    STORE_CONTRACT_SRC_INTERFACE,
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    STORE_CONTRACT_SRC_INTERFACE, StoreType,
 };
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
@@ -29,6 +30,7 @@ pub use self::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
 };
 
+mod caching;
 pub mod clarity_db;
 pub mod clarity_store;
 mod key_value_wrapper;

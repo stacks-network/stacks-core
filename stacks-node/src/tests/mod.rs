@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -44,13 +44,14 @@ use crate::BitcoinRegtestController;
 
 mod atlas;
 mod bitcoin;
-mod bitcoin_rpc_integrations;
 mod epoch_205;
 mod epoch_21;
 mod epoch_22;
 mod epoch_23;
 mod epoch_24;
 mod integrations;
+mod marf;
+mod mem_abort;
 mod mempool;
 pub mod nakamoto_integrations;
 pub mod neon_integrations;

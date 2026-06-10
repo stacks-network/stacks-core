@@ -12,8 +12,7 @@ repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Reference implementation of the Clarity virtual machine"
 keywords = ["stacks", "stx", "bitcoin", "crypto", "blockchain"]
 readme = "README.md"
-edition = "2021"
-resolver = "2"
+edition = "2024"
 
 [lib]
 name = "clarity"
@@ -45,13 +44,24 @@ getrandom = { version = "0.2", features = ["js"], optional = true }
 assert-json-diff = "1.0.0"
 clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false, features = ["testing"] }
 mutants = "0.0.3"
+criterion = "0.8.2"
+pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
+stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false, features = ["testing"] }
 
-# a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
-#  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
-# criterion = "0.3"
+[[bench]]
+name = "sequence_ops"
+harness = false
+
+[[bench]]
+name = "value_ref"
+harness = false
+
+[[bench]]
+name = "sequence_higher_order"
+harness = false
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 serde_stacker = "0.1"
@@ -60,7 +70,7 @@ serde_stacker = "0.1"
 developer-mode = ["stacks_common/developer-mode", "clarity-types/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 rusqlite = ["stacks_common/rusqlite", "clarity-types/rusqlite", "dep:rusqlite"]
-testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing"]
+testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing", "stacks_common/testing"]
 devtools = []
 rollback_value_check = []
 disable-costs = []
@@ -71,3 +81,6 @@ default = ["rusqlite", "clarity-wasm", "serde_stacker", "vrf"]
 clarity-wasm = ["wasmtime"]
 vrf = ["stacks_common/vrf"]
 wasm = ["stacks_common/wasm", "developer-mode", "getrandom"]
+
+[package.metadata.pinny]
+allowed = ["t_prop"]

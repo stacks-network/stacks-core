@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 
 use std::collections::HashMap;
 
+use clarity::util::hash::Sha512Trunc256Sum;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::to_hex;
 
@@ -33,8 +34,11 @@ use crate::chainstate::stacks::{BlockHeaderHash, TrieHash};
 pub mod cache;
 pub mod file;
 pub mod marf;
+pub mod marf_perfs;
 pub mod node;
+pub mod node_patch;
 pub mod proofs;
+pub mod squash;
 pub mod storage;
 pub mod trie;
 
@@ -125,15 +129,6 @@ pub fn merkle_test_marf(
     value: &[u8],
     root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>,
 ) -> HashMap<TrieHash, BlockHeaderHash> {
-    test_debug!("---------");
-    test_debug!(
-        "MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?",
-        header,
-        path,
-        value
-    );
-    test_debug!("---------");
-
     s.open_block(header).unwrap();
     let (_, root_hash) = Trie::read_root(s).unwrap();
     let triepath = TrieHash::from_bytes(path).unwrap();
@@ -141,15 +136,26 @@ pub fn merkle_test_marf(
     let mut marf_value = [0u8; 40];
     marf_value.copy_from_slice(&value[0..40]);
 
+    test_debug!("---------");
+    test_debug!(
+        "MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?",
+        header,
+        path,
+        value
+    );
+    test_debug!("MARF merkle verify target root hash: {:?}", &root_hash);
+    test_debug!("MARF merkle verify source block: {:?}", header);
+    test_debug!("---------");
+
     let proof = TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value), header).unwrap();
+    let root_to_block = root_to_block.unwrap_or_else(|| s.read_root_to_block_table().unwrap());
 
     test_debug!("---------");
     test_debug!("MARF merkle verify: {:?}", &proof);
     test_debug!("MARF merkle verify target root hash: {:?}", &root_hash);
     test_debug!("MARF merkle verify source block: {:?}", header);
+    test_debug!("MARF root-to-block: {:?}", &root_to_block);
     test_debug!("---------");
-
-    let root_to_block = root_to_block.unwrap_or_else(|| s.read_root_to_block_table().unwrap());
 
     assert!(proof.verify(
         &triepath,
@@ -203,7 +209,7 @@ pub fn make_node_path(
     leaf_data: Vec<u8>,
 ) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
     // make a fully-fleshed-out path of node's to a leaf
-    let root_ptr = s.root_ptr();
+    let root_ptr = u32::try_from(s.root_ptr()).unwrap();
     let root = TrieNode256::new(&path_segments[0].0);
     let root_hash = TrieHash::from_data(&[0u8; 32]); // don't care about this in this test
     s.write_node(root_ptr, &root, root_hash).unwrap();
@@ -239,16 +245,16 @@ pub fn make_node_path(
         // update parent
         match parent {
             TrieNodeType::Node256(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr.into())))
             }
             TrieNodeType::Node48(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr.into())))
             }
             TrieNodeType::Node16(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr.into())))
             }
             TrieNodeType::Node4(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr.into())))
             }
             TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
         };
@@ -261,7 +267,7 @@ pub fn make_node_path(
         .unwrap();
 
         nodes.push(parent.clone());
-        node_ptrs.push(TriePtr::new(node_id, chr, node_ptr));
+        node_ptrs.push(TriePtr::new(node_id, chr, node_ptr.into()));
         hashes.push(TrieHash::from_data(&[(seg_id + 1) as u8; 32]));
 
         parent = node;
@@ -284,16 +290,32 @@ pub fn make_node_path(
     // update parent
     match parent {
         TrieNodeType::Node256(ref mut data) => {
-            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+            assert!(data.insert(&TriePtr::new(
+                TrieNodeID::Leaf as u8,
+                child_chr,
+                child_ptr.into()
+            )))
         }
         TrieNodeType::Node48(ref mut data) => {
-            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+            assert!(data.insert(&TriePtr::new(
+                TrieNodeID::Leaf as u8,
+                child_chr,
+                child_ptr.into()
+            )))
         }
         TrieNodeType::Node16(ref mut data) => {
-            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+            assert!(data.insert(&TriePtr::new(
+                TrieNodeID::Leaf as u8,
+                child_chr,
+                child_ptr.into()
+            )))
         }
         TrieNodeType::Node4(ref mut data) => {
-            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+            assert!(data.insert(&TriePtr::new(
+                TrieNodeID::Leaf as u8,
+                child_chr,
+                child_ptr.into()
+            )))
         }
         TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
     };
@@ -306,7 +328,11 @@ pub fn make_node_path(
     .unwrap();
 
     nodes.push(parent.clone());
-    node_ptrs.push(TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr));
+    node_ptrs.push(TriePtr::new(
+        TrieNodeID::Leaf as u8,
+        child_chr,
+        child_ptr.into(),
+    ));
     hashes.push(TrieHash::from_data(&[(seg_id + 1) as u8; 32]));
 
     (nodes, node_ptrs, hashes)
@@ -318,4 +344,96 @@ pub fn make_node4_path(
     leaf_data: Vec<u8>,
 ) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
     make_node_path(s, TrieNodeID::Node4 as u8, path_segments, leaf_data)
+}
+
+/// Generates deterministic test insert data as key–value pairs per block
+pub fn make_test_insert_data(
+    num_inserts_per_block: u64,
+    num_blocks: u64,
+) -> Vec<Vec<(String, MARFValue)>> {
+    let mut data = vec![0u8; 32];
+    let mut ret = vec![];
+
+    for blk in 0..num_blocks {
+        let mut block_data = vec![];
+        test_debug!("Make block {}", blk);
+        for val in 0..num_inserts_per_block {
+            let path_bytes = Sha512Trunc256Sum::from_data(&data).as_bytes().to_vec();
+            data.copy_from_slice(&path_bytes[0..32]);
+
+            let path = to_hex(&path_bytes);
+
+            let value_bytes = Sha512Trunc256Sum::from_data(&data).as_bytes().to_vec();
+            data.copy_from_slice(&value_bytes[0..32]);
+
+            let mut value_bytes_slice = [0u8; 40];
+            value_bytes_slice[0..32].copy_from_slice(&value_bytes);
+
+            let value = MARFValue(value_bytes_slice);
+            block_data.push((path, value));
+        }
+        ret.push(block_data);
+    }
+    ret
+}
+
+pub mod opts {
+    use std::sync::LazyLock;
+
+    use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+    use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
+
+    pub static OPTS_NOOP_IMM: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false));
+    pub static OPTS_NOOP_IMM_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true));
+    pub static OPTS_NOOP_IMM_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_NOOP_IMM.clone().with_compression(true));
+    pub static OPTS_NOOP_IMM_EXT_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_NOOP_IMM_EXT.clone().with_compression(true));
+    pub static OPTS_NOOP_DEF: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false));
+    pub static OPTS_NOOP_DEF_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true));
+    pub static OPTS_NOOP_DEF_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_NOOP_DEF.clone().with_compression(true));
+    pub static OPTS_NOOP_DEF_EXT_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_NOOP_DEF_EXT.clone().with_compression(true));
+
+    pub static OPTS_N256_IMM_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "node256", true));
+    pub static OPTS_N256_DEF_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "node256", true));
+
+    pub static OPTS_EVER_IMM_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true));
+    pub static OPTS_EVER_DEF_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true));
+    pub static OPTS_EVER_DEF_EXT_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_EVER_DEF_EXT.clone().with_compression(true));
+
+    pub static ALL_OPTS_NOOP: LazyLock<Vec<MARFOpenOpts>> = LazyLock::new(|| {
+        vec![
+            OPTS_NOOP_IMM.clone(),
+            OPTS_NOOP_IMM_EXT.clone(),
+            OPTS_NOOP_IMM_COMP.clone(),
+            OPTS_NOOP_IMM_EXT_COMP.clone(),
+            OPTS_NOOP_DEF.clone(),
+            OPTS_NOOP_DEF_EXT.clone(),
+            OPTS_NOOP_DEF_COMP.clone(),
+            OPTS_NOOP_DEF_EXT_COMP.clone(),
+        ]
+    });
+
+    #[template]
+    #[rstest]
+    #[case::imm(&opts::OPTS_NOOP_IMM)]
+    #[case::imm_ext(&opts::OPTS_NOOP_IMM_EXT)]
+    #[case::imm_comp(&opts::OPTS_NOOP_IMM_COMP)]
+    #[case::imm_ext_comp(&opts::OPTS_NOOP_IMM_EXT_COMP)]
+    #[case::def(&opts::OPTS_NOOP_DEF)]
+    #[case::def_ext(&opts::OPTS_NOOP_DEF_EXT)]
+    #[case::def_comp(&opts::OPTS_NOOP_DEF_COMP)]
+    #[case::def_ext_comp(&opts::OPTS_NOOP_DEF_EXT_COMP)]
+    pub fn tpl_all_opts_noop(#[case] marf_opts: &MARFOpenOpts) {}
 }

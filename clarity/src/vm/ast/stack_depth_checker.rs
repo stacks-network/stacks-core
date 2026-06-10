@@ -14,24 +14,67 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ast::errors::{ParseErrors, ParseResult};
+use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::{List, Tuple};
-use crate::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
+use crate::vm::{ClarityVersion, max_call_stack_depth_for_epoch};
 
 // allow  the AST to get deeper than the max call stack depth,
 //    but not much deeper (things like tuples would increase the
 //    AST depth, without impacting the stack depth).
-pub const AST_CALL_STACK_DEPTH_BUFFER: u64 = 5;
+const AST_CALL_STACK_DEPTH_BUFFER: u64 = 5;
 
-fn check(args: &[PreSymbolicExpression], depth: u64) -> ParseResult<()> {
-    if depth >= (AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64) {
-        return Err(ParseErrors::ExpressionStackDepthTooDeep.into());
+/// Bundles related stack depth limits for parsing and AST checks.
+#[derive(Clone, Copy, Debug)]
+pub struct StackDepthLimits {
+    max_call_stack_depth: u64,
+    max_nesting_depth: u64,
+}
+
+impl StackDepthLimits {
+    pub fn new(max_call_stack_depth: u64) -> Self {
+        let max_nesting_depth = AST_CALL_STACK_DEPTH_BUFFER.saturating_add(max_call_stack_depth);
+        Self {
+            max_call_stack_depth,
+            max_nesting_depth,
+        }
+    }
+
+    pub fn no_limit() -> Self {
+        Self {
+            max_call_stack_depth: u64::MAX,
+            max_nesting_depth: u64::MAX,
+        }
+    }
+
+    pub fn for_epoch(epoch: stacks_common::types::StacksEpochId) -> Self {
+        Self::new(max_call_stack_depth_for_epoch(epoch))
+    }
+
+    pub fn max_call_stack_depth(&self) -> u64 {
+        self.max_call_stack_depth
+    }
+
+    pub fn max_nesting_depth(&self) -> u64 {
+        self.max_nesting_depth
+    }
+}
+
+fn check(
+    args: &[PreSymbolicExpression],
+    depth: u64,
+    depth_limits: StackDepthLimits,
+) -> ParseResult<()> {
+    if depth >= depth_limits.max_nesting_depth() {
+        return Err(ParseErrorKind::ExpressionStackDepthTooDeep {
+            max_depth: depth_limits.max_call_stack_depth(),
+        }
+        .into());
     }
     for expression in args.iter() {
         match expression.pre_expr {
-            List(ref exprs) => check(exprs, depth + 1),
+            List(ref exprs) => check(exprs, depth + 1, depth_limits),
             _ => {
                 // Other symbolic expressions don't have depth
                 //  impacts.
@@ -45,19 +88,31 @@ fn check(args: &[PreSymbolicExpression], depth: u64) -> ParseResult<()> {
 pub struct StackDepthChecker;
 
 impl BuildASTPass for StackDepthChecker {
-    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
-        check(&contract_ast.pre_expressions, 0)
+    fn run_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+        epoch: stacks_common::types::StacksEpochId,
+    ) -> ParseResult<()> {
+        let depth_limits = StackDepthLimits::for_epoch(epoch);
+        check(&contract_ast.pre_expressions, 0, depth_limits)
     }
 }
 
-fn check_vary(args: &[PreSymbolicExpression], depth: u64) -> ParseResult<()> {
-    if depth >= (AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64) {
-        return Err(ParseErrors::VaryExpressionStackDepthTooDeep.into());
+fn check_vary(
+    args: &[PreSymbolicExpression],
+    depth: u64,
+    depth_limits: StackDepthLimits,
+) -> ParseResult<()> {
+    if depth >= depth_limits.max_nesting_depth() {
+        return Err(ParseErrorKind::VaryExpressionStackDepthTooDeep {
+            max_depth: depth_limits.max_call_stack_depth(),
+        }
+        .into());
     }
     for expression in args.iter() {
         match expression.pre_expr {
-            List(ref exprs) => check_vary(exprs, depth + 1),
-            Tuple(ref exprs) => check_vary(exprs, depth + 1),
+            List(ref exprs) => check_vary(exprs, depth + 1, depth_limits),
+            Tuple(ref exprs) => check_vary(exprs, depth + 1, depth_limits),
             _ => {
                 // Other symbolic expressions don't have depth
                 //  impacts.
@@ -71,7 +126,69 @@ fn check_vary(args: &[PreSymbolicExpression], depth: u64) -> ParseResult<()> {
 pub struct VaryStackDepthChecker;
 
 impl BuildASTPass for VaryStackDepthChecker {
-    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
-        check_vary(&contract_ast.pre_expressions, 0)
+    fn run_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+        epoch: stacks_common::types::StacksEpochId,
+    ) -> ParseResult<()> {
+        let depth_limits = StackDepthLimits::for_epoch(epoch);
+        check_vary(&contract_ast.pre_expressions, 0, depth_limits)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use stacks_common::types::StacksEpochId;
+
+    use super::{AST_CALL_STACK_DEPTH_BUFFER, StackDepthLimits};
+
+    /// Independent witness against accidental changes to the buffer constant.
+    /// Other tests and higher-level assertions rely on this exact value.
+    #[test]
+    fn ast_call_stack_depth_buffer_is_5() {
+        assert_eq!(AST_CALL_STACK_DEPTH_BUFFER, 5);
+    }
+
+    #[test]
+    fn for_epoch_pre_3_4_uses_legacy_limit() {
+        for epoch in [
+            StacksEpochId::Epoch10,
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch22,
+            StacksEpochId::Epoch23,
+            StacksEpochId::Epoch24,
+            StacksEpochId::Epoch25,
+            StacksEpochId::Epoch30,
+            StacksEpochId::Epoch31,
+            StacksEpochId::Epoch32,
+            StacksEpochId::Epoch33,
+        ] {
+            let limits = StackDepthLimits::for_epoch(epoch);
+            assert_eq!(limits.max_call_stack_depth(), 64, "epoch={epoch}");
+            assert_eq!(limits.max_nesting_depth(), 64 + 5, "epoch={epoch}");
+        }
+    }
+
+    #[test]
+    fn for_epoch_3_4_uses_increased_limit() {
+        let limits = StackDepthLimits::for_epoch(StacksEpochId::Epoch34);
+        assert_eq!(limits.max_call_stack_depth(), 128);
+        assert_eq!(limits.max_nesting_depth(), 128 + 5);
+    }
+
+    #[test]
+    fn new_adds_buffer_to_call_stack_depth() {
+        let limits = StackDepthLimits::new(100);
+        assert_eq!(limits.max_call_stack_depth(), 100);
+        assert_eq!(limits.max_nesting_depth(), 105);
+    }
+
+    #[test]
+    fn no_limit_uses_u64_max() {
+        let limits = StackDepthLimits::no_limit();
+        assert_eq!(limits.max_call_stack_depth(), u64::MAX);
+        assert_eq!(limits.max_nesting_depth(), u64::MAX);
     }
 }

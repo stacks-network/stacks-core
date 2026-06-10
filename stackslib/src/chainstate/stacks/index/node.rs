@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,19 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::{error, fmt};
 
-use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
-use stacks_common::util::hash::to_hex;
-
 use crate::chainstate::stacks::index::bits::{
-    get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
+    get_compressed_ptrs_size, get_path_byte_len, get_ptrs_byte_len, get_ptrs_byte_len_compressed,
+    get_sparse_ptrs_bitmap_size, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
+    SPARSE_PTR_BITMAP_MARKER,
 };
 use crate::chainstate::stacks::index::{
     BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
+use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
+use crate::util::hash::to_hex;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {
@@ -52,15 +53,19 @@ impl error::Error for CursorError {
 }
 
 // All numeric values of a Trie node when encoded.
-// They are all 7-bit numbers -- the 8th bit is used to indicate whether or not the value
-// identifies a back-pointer to be followed.
+// The low 4 bits encode the base TrieNodeID value (0-6).
+// * the 8th bit (0x80) indicates a back-pointer to be followed
+// * the 7th bit (0x40) indicates the ptrs are compressed. Cleared on read.
+// * the 6th bit (0x20) indicates the ptr offset is encoded as u64, instead of u32. Cleared on read.
+// * the 5th bit (0x10) indicates a compressed inline pointer contains a back_block payload. Cleared on read.
 define_u8_enum!(TrieNodeID {
     Empty = 0,
     Leaf = 1,
     Node4 = 2,
     Node16 = 3,
     Node48 = 4,
-    Node256 = 5
+    Node256 = 5,
+    Patch = 6
 });
 
 /// A node ID encodes a back-pointer if its high bit is set
@@ -78,11 +83,164 @@ pub fn clear_backptr(id: u8) -> u8 {
     id & 0x7f
 }
 
+/// Is this node compressed?
+pub fn is_compressed(id: u8) -> bool {
+    id & 0x40 != 0
+}
+
+/// Set the compressed bit
+pub fn set_compressed(id: u8) -> u8 {
+    id | 0x40
+}
+
+/// Clear the compressed bit
+pub fn clear_compressed(id: u8) -> u8 {
+    id & 0xbf
+}
+
+/// Is this compressed inline pointer flagged to carry `back_block` payload bytes?
+/// This bit is wire-format-only metadata and is cleared after decoding.
+pub fn has_inline_back_block(id: u8) -> bool {
+    id & 0x10 != 0
+}
+
+/// Set the compressed inline `back_block` payload bit.
+pub fn set_inline_back_block(id: u8) -> u8 {
+    id | 0x10
+}
+
+/// Clear the compressed inline `back_block` payload bit.
+pub fn clear_inline_back_block(id: u8) -> u8 {
+    id & 0xef
+}
+
+/// True if a compressed pointer with this encoded id includes a back_block payload.
+#[inline]
+fn has_back_block_payload_bytes(id: u8) -> bool {
+    is_backptr(id) || has_inline_back_block(id)
+}
+
+/// Is this pointer encoded with a u64 offset?
+pub const fn is_u64_ptr(id: u8) -> bool {
+    id & 0x20 != 0
+}
+
+/// Set the u64-pointer bit
+pub const fn set_u64_ptr(id: u8) -> u8 {
+    id | 0x20
+}
+
+/// Clear the u64-pointer bit
+pub const fn clear_u64_ptr(id: u8) -> u8 {
+    id & 0xdf
+}
+
+/// Clear all control bits (backptr, compressed, u64-pointer, squash annotation)
+pub fn clear_ctrl_bits(id: u8) -> u8 {
+    id & 0x0f
+}
+
 // Byte writing operations for pointer lists, paths.
 
+/// Write out the list of TriePtrs to the given Write object.
+/// The written pointers will NOT be compressed.
+/// Returns Ok(()) on success
+/// Returns Err(IOError(..)) on disk I/O error
 fn write_ptrs_to_bytes<W: Write>(ptrs: &[TriePtr], w: &mut W) -> Result<(), Error> {
     for ptr in ptrs.iter() {
         ptr.write_bytes(w)?;
+    }
+    Ok(())
+}
+
+/// Write the list of TriePtrs to the given Write object.
+/// The given `id` is a node ID with some control bits set -- in particular, the compressed bit.
+/// If the compressed bit is set, then the TriePtr list will be compressed as best as possible
+/// before written.  See `bits::ptrs_to_bytes()` for details.
+///
+/// Returns Ok(()) on success
+/// Returns Err(CorruptionError(..)) if the id does not correspond to a valid node ID or is a patch
+/// node ID
+/// Returns Err(IOError(..)) on disk I/O error
+fn write_ptrs_to_bytes_compressed<W: Write>(
+    id: u8,
+    ptrs: &[TriePtr],
+    w: &mut W,
+) -> Result<(), Error> {
+    let Some(node_id) = TrieNodeID::from_u8(id) else {
+        return Err(Error::CorruptionError(
+            "Tried to store invalid trie node ID".to_string(),
+        ));
+    };
+    if node_id == TrieNodeID::Patch {
+        // NB the only proper way to store a patch node is to have it dumped as part of a TrieRAM
+        return Err(Error::CorruptionError(
+            "Tried to store patch node's ptrs improperly".to_string(),
+        ));
+    }
+
+    let Some((ptrs_size, is_sparse)) = get_compressed_ptrs_size(id, ptrs) else {
+        // doesn't apply -- this node has no ptrs
+        return Ok(());
+    };
+
+    if is_sparse {
+        // do a sparse write -- just write the bitmap and the non-empty trieptrs.
+        // the first byte is SPARSE_PTR_BITMAP_MARKER to indicate that this is a sparse list, since it cannot be a
+        // valid trie node ID
+        w.write_all(&[SPARSE_PTR_BITMAP_MARKER])?;
+
+        // compute the bitmap
+        let bitmap_size = get_sparse_ptrs_bitmap_size(id).ok_or_else(|| {
+            Error::CorruptionError(format!("No bitmap size defined for node id {id}"))
+        })?;
+
+        let mut bitmap = vec![0u8; bitmap_size];
+        for (i, ptr) in ptrs.iter().enumerate() {
+            if ptr.id() != TrieNodeID::Empty as u8 {
+                // SAFETY: have checked ptrs.len() against bitmap size
+                let bi = i / 8;
+                let bt = i % 8;
+                let mask = 1u8 << bt;
+                let byte_mut = bitmap
+                    .get_mut(bi)
+                    .ok_or_else(|| Error::CorruptionError("bitmap not long enough".into()))?;
+                *byte_mut |= mask;
+            }
+        }
+        trace!(
+            "Write sparse compressed ptrs list ({} bytes) for node {}; bitmap {}",
+            ptrs_size,
+            id,
+            to_hex(&bitmap)
+        );
+
+        // write out bitmap
+        w.write_all(&bitmap)?;
+
+        // write out non-empty ptrs
+        for ptr in ptrs.iter() {
+            if ptr.id() != TrieNodeID::Empty as u8 {
+                trace!("write sparse ptr {}", {
+                    let mut byte_buffer = vec![];
+                    _ = ptr.write_bytes_compressed(&mut byte_buffer);
+                    to_hex(&byte_buffer)
+                });
+                ptr.write_bytes_compressed(w)?;
+            }
+        }
+        return Ok(());
+    }
+
+    // ptrs are not sparse enough.
+    // compute a bitmap of which ptrs are non-empty
+    trace!(
+        "Write dense compressed ptrs list ({} bytes) for node {}",
+        ptrs_size,
+        id
+    );
+    for ptr in ptrs.iter() {
+        ptr.write_bytes_compressed(w)?;
     }
     Ok(())
 }
@@ -96,6 +254,43 @@ fn ptrs_consensus_hash<W: Write, M: BlockMap>(
         ptr.write_consensus_bytes(map, w)?;
     }
     Ok(())
+}
+
+/// Copy-on-write pointer to a node.  When the MARF writes a new key/value pair, it copies
+/// intermediate nodes from the parent trie into the new trie being built.  This struct is a
+/// pointer stored in the new trie's nodes which point back to the node it was copied from.
+///
+/// This data is not stored anywhere.  It is used instead to compute TrieNodePatch nodes to write
+/// to disk as a space-efficient alternative to copying over the same lightly-modified node over
+/// and over again.
+///
+/// Fields are (trie block hash holding the node, pointer to the node in the trie)
+#[derive(Clone, PartialEq, Copy)]
+pub struct TrieCowPtr([u8; 32], TriePtr);
+
+impl TrieCowPtr {
+    pub fn new<T: MarfTrieId>(trie_id: T, ptr: TriePtr) -> Self {
+        Self(trie_id.to_bytes(), ptr)
+    }
+
+    pub fn block_id<T: MarfTrieId>(&self) -> T {
+        T::from_bytes(self.0)
+    }
+
+    pub fn ptr(&self) -> &TriePtr {
+        &self.1
+    }
+}
+
+impl fmt::Debug for TrieCowPtr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "TrieCowPtr({},{})",
+            &to_hex(&self.0),
+            &ptrs_fmt(&[self.1])
+        )
+    }
 }
 
 /// All Trie nodes implement the following methods:
@@ -118,9 +313,9 @@ pub trait TrieNode {
     fn replace(&mut self, ptr: &TriePtr) -> bool;
 
     /// Read an encoded instance of this node from a byte stream and instantiate it.
-    fn from_bytes<R: Read>(r: &mut R) -> Result<Self, Error>
+    fn from_bytes<R: Read + Seek>(r: &mut R) -> Result<Self, Error>
     where
-        Self: std::marker::Sized;
+        Self: Sized;
 
     /// Get a reference to the children of this node.
     fn ptrs(&self) -> &[TriePtr];
@@ -131,10 +326,34 @@ pub trait TrieNode {
     /// Construct a TrieNodeType from a TrieNode
     fn as_trie_node_type(&self) -> TrieNodeType;
 
+    /// Get the ptr to the node we were copied from (on COW)
+    fn get_cow_ptr(&self) -> Option<&TrieCowPtr>;
+
+    /// Set the ptr to the node we were copied from (on COW)
+    fn set_cow_ptr(&mut self, cowptr: TrieCowPtr);
+
+    /// Apply a list of TrieNodePatches to produce this node
+    fn apply_patches(
+        self,
+        patches: &[(u32, TriePtr, TrieNodePatch)],
+        cur_block_id: u32,
+    ) -> Option<Self>
+    where
+        Self: Sized;
+
     /// Encode this node instance into a byte stream and write it to w.
+    /// The TriePtrs willl NOT be compressed
     fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
         w.write_all(&[self.id()])?;
         write_ptrs_to_bytes(self.ptrs(), w)?;
+        write_path_to_bytes(self.path().as_slice(), w)
+    }
+
+    /// Encode this node instance into a byte stream and write it to w.
+    /// The TriePtrs will be compressed to the smallest possible size.
+    fn write_bytes_compressed<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[set_compressed(self.id())])?;
+        write_ptrs_to_bytes_compressed(self.id(), self.ptrs(), w)?;
         write_path_to_bytes(self.path().as_slice(), w)
     }
 
@@ -149,6 +368,11 @@ pub trait TrieNode {
     /// Calculate how many bytes this node will take to encode.
     fn byte_len(&self) -> usize {
         get_ptrs_byte_len(self.ptrs()) + get_path_byte_len(self.path())
+    }
+
+    /// Calculate how many bytes this node will take to encode.
+    fn byte_len_compressed(&self) -> usize {
+        get_ptrs_byte_len_compressed(self.id(), self.ptrs()) + get_path_byte_len(self.path())
     }
 }
 
@@ -183,23 +407,36 @@ impl<T: TrieNode, M: BlockMap> ConsensusSerializable<M> for T {
     }
 }
 
-/// Child pointer
+/// Child pointer within a MARF trie node.
+///
+/// `back_block` has two modes depending on the backptr flag in `id`:
+///
+/// * Back-pointer (`id & 0x80 != 0`): the child lives in a different block's trie.
+///   `back_block` is the `marf_data` row ID of that block, and `ptr` is the byte offset
+///   within that block's trie storage.
+///
+/// * Inline (`id & 0x80 == 0`): the child lives in the same trie storage.
+///   `back_block` is normally 0. In a squashed MARF, a non-zero `back_block` is a
+///   squash annotation: it records the original archival block ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TriePtr {
-    pub id: u8, // ID of the child.  Will have bit 0x80 set if the child is a back-pointer (in which case, back_block will be nonzero)
-    pub chr: u8, // Path character at which this child resides
-    pub ptr: u32, // Storage-specific pointer to where the child's encoded bytes can be found
-    pub back_block: u32, // Pointer back to the block that contains the child, if it's not in this trie
+    /// Node type ID of the child (see [`TrieNodeID`]). Bit 0x80 marks a back-pointer.
+    pub id: u8,
+    /// Path character at which this child resides.
+    pub chr: u8,
+    /// Byte offset of the child's encoded data within the trie storage.
+    pub ptr: u64,
+    /// Block ID of the trie containing the child. Zero for same-block inline children
+    /// (unless carrying a squash annotation).
+    pub back_block: u32,
 }
-
-pub const TRIEPTR_SIZE: usize = 10; // full size of a TriePtr
 
 pub fn ptrs_fmt(ptrs: &[TriePtr]) -> String {
     let mut strs = vec![];
     for ptr in ptrs.iter() {
         if ptr.id != TrieNodeID::Empty as u8 {
             strs.push(format!(
-                "id{}chr{:02x}ptr{}bblk{}",
+                "id({})chr({:02x})ptr({})bblk({})",
                 ptr.id, ptr.chr, ptr.ptr, ptr.back_block
             ))
         }
@@ -220,13 +457,32 @@ impl Default for TriePtr {
 }
 
 impl TriePtr {
+    /// Serialized size of the node-ID byte.
+    const ID_BYTE_LEN: usize = 1;
+    /// Serialized size of the path-char byte.
+    const CHR_BYTE_LEN: usize = 1;
+    /// Serialized size of the `back_block` field (only present in uncompressed
+    /// form, or in compressed form when the pointer is a backptr).
+    const BACK_BLOCK_BYTE_LEN: usize = 4;
+
     #[inline]
-    pub fn new(id: u8, chr: u8, ptr: u32) -> TriePtr {
+    pub fn new(id: u8, chr: u8, ptr: u64) -> TriePtr {
         TriePtr {
             id,
             chr,
             ptr,
             back_block: 0,
+        }
+    }
+
+    /// Create a back-pointer version of a [`TriePtr`]
+    #[cfg(test)]
+    pub fn new_backptr(id: u8, chr: u8, ptr: u64, back_block: u32) -> TriePtr {
+        TriePtr {
+            id: set_backptr(id),
+            chr,
+            ptr,
+            back_block,
         }
     }
 
@@ -247,8 +503,22 @@ impl TriePtr {
     }
 
     #[inline]
-    pub fn ptr(&self) -> u32 {
+    pub fn ptr(&self) -> u64 {
         self.ptr
+    }
+
+    /// Convert `self.ptr()` to a `u32` in-memory index, or return an error
+    /// if the value exceeds `u32::MAX`.
+    #[inline]
+    pub fn try_ptr_into_u32(&self) -> Result<u32, Error> {
+        u32::try_from(self.ptr).map_err(|_| Error::OverflowError)
+    }
+
+    /// Convert `self.ptr()` to a `usize` in-memory index, or return an error
+    /// if the value exceeds `usize::MAX`.
+    #[inline]
+    pub fn try_ptr_into_usize(&self) -> Result<usize, Error> {
+        usize::try_from(self.ptr).map_err(|_| Error::OverflowError)
     }
 
     #[inline]
@@ -266,11 +536,84 @@ impl TriePtr {
         }
     }
 
+    /// Return the identifier byte that will be emitted on disk for this pointer.
+    ///
+    /// This preserves the logical node kind while setting or clearing the `0x20`
+    /// control bit to match the encoded pointer width.
+    #[inline]
+    pub fn encoded_id(&self) -> u8 {
+        if self.ptr() > u64::from(u32::MAX) {
+            set_u64_ptr(self.id())
+        } else {
+            clear_u64_ptr(self.id())
+        }
+    }
+
+    /// Return the uncompressed encoded size, in bytes, for a pointer with the
+    /// given on-disk identifier byte.
+    ///
+    /// The `0x20` control bit determines whether the pointer payload is encoded
+    /// as `u32` or `u64`.
+    ///
+    /// Uncompressed layout: `id (1) + chr (1) + ptr (4 or 8) + back_block (4)`.
+    #[inline]
+    pub const fn encoded_size_for_id(node_id: u8) -> usize {
+        let ptr_bytes = if is_u64_ptr(node_id) { 8 } else { 4 };
+        Self::ID_BYTE_LEN + Self::CHR_BYTE_LEN + ptr_bytes + Self::BACK_BLOCK_BYTE_LEN
+    }
+
+    /// Return the maximum possible uncompressed encoded size for any `TriePtr`.
+    #[inline]
+    pub const fn max_encoded_size() -> usize {
+        Self::encoded_size_for_id(set_u64_ptr(TrieNodeID::Empty as u8))
+    }
+
+    /// Return the compressed encoded size, in bytes, for a pointer with the
+    /// given on-disk identifier byte.
+    ///
+    /// The `0x20` control bit determines whether the pointer payload is encoded
+    /// as `u32` or `u64`.
+    ///
+    /// Compressed layout: `id (1) + chr (1) + ptr (4 or 8)`. The `back_block`
+    /// field is only appended for backptr nodes (see [`Self::compressed_size_for_id`]).
+    #[inline]
+    pub const fn encoded_size_compressed_for_id(node_id: u8) -> usize {
+        let ptr_bytes = if is_u64_ptr(node_id) { 8 } else { 4 };
+        Self::ID_BYTE_LEN + Self::CHR_BYTE_LEN + ptr_bytes
+    }
+
     #[inline]
     pub fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
-        w.write_all(&[self.id(), self.chr()])?;
-        w.write_all(&self.ptr().to_be_bytes())?;
+        let encoded_id = self.encoded_id();
+        w.write_all(&[encoded_id, self.chr()])?;
+        if is_u64_ptr(encoded_id) {
+            w.write_all(&self.ptr().to_be_bytes())?;
+        } else {
+            let ptr32 = self.try_ptr_into_u32()?;
+            w.write_all(&ptr32.to_be_bytes())?;
+        }
         w.write_all(&self.back_block().to_be_bytes())?;
+        Ok(())
+    }
+
+    #[inline]
+    pub fn write_bytes_compressed<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        // Preserve squash annotation payload on disk for inline pointers that
+        // carry a non-zero back_block, without changing backptr semantics.
+        let mut encoded_id = set_compressed(self.encoded_id());
+        if !is_backptr(self.id()) && self.back_block() != 0 {
+            encoded_id = set_inline_back_block(encoded_id);
+        }
+        w.write_all(&[encoded_id, self.chr()])?;
+        if is_u64_ptr(encoded_id) {
+            w.write_all(&self.ptr().to_be_bytes())?;
+        } else {
+            let ptr32 = self.try_ptr_into_u32()?;
+            w.write_all(&ptr32.to_be_bytes())?;
+        }
+        if has_back_block_payload_bytes(encoded_id) {
+            w.write_all(&self.back_block().to_be_bytes())?;
+        }
         Ok(())
     }
 
@@ -299,18 +642,134 @@ impl TriePtr {
 
     #[inline]
     #[allow(clippy::indexing_slicing)]
-    pub fn from_bytes(bytes: &[u8]) -> TriePtr {
-        assert!(bytes.len() >= TRIEPTR_SIZE);
-        let id = bytes[0];
+    /// Deserialize a pointer from raw bytes and return it with bytes consumed.
+    pub fn from_bytes(bytes: &[u8]) -> (TriePtr, usize) {
+        let encoded_id = bytes[0];
+        let min_len = TriePtr::encoded_size_for_id(encoded_id);
+        assert!(bytes.len() >= min_len);
+        let id = clear_u64_ptr(encoded_id);
         let chr = bytes[1];
-        let ptr = u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]);
-        let back_block = u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]);
+        // Layout: [id(1)][chr(1)][ptr(4 or 8)][back_block(4)].
+        let (ptr, back_block) = if is_u64_ptr(encoded_id) {
+            let ptr = u64::from_be_bytes(bytes[2..10].try_into().unwrap());
+            let back_block = u32::from_be_bytes(bytes[10..14].try_into().unwrap());
+            (ptr, back_block)
+        } else {
+            let ptr = u64::from(u32::from_be_bytes(bytes[2..6].try_into().unwrap()));
+            let back_block = u32::from_be_bytes(bytes[6..10].try_into().unwrap());
+            (ptr, back_block)
+        };
+
+        (
+            TriePtr {
+                id,
+                chr,
+                ptr,
+                back_block,
+            },
+            min_len,
+        )
+    }
+
+    /// Load up this TriePtr from a slice of bytes, assuming that they represent a compressed
+    /// TriePtr.
+    ///
+    /// A compressed TriePtr stores `back_block` bytes if either:
+    /// * it is a back-pointer (`is_backptr(id)`), or
+    /// * it is an inline pointer with back_block payload
+    ///   (`has_inline_back_block(id)`).
+    ///
+    /// The annotation bit is wire metadata and is cleared on read.
+    #[inline]
+    #[allow(clippy::indexing_slicing)]
+    pub fn from_bytes_compressed(bytes: &[u8]) -> TriePtr {
+        let encoded_id = clear_compressed(bytes[0]);
+        assert!(bytes.len() >= TriePtr::compressed_size_for_id(encoded_id));
+        let id = clear_u64_ptr(clear_inline_back_block(encoded_id));
+        let chr = bytes[1];
+        // Layout: [id(1)][chr(1)][ptr(4 or 8)]; backptrs append [back_block(4)].
+        let ptr = if is_u64_ptr(encoded_id) {
+            u64::from_be_bytes(bytes[2..10].try_into().unwrap())
+        } else {
+            u64::from(u32::from_be_bytes(bytes[2..6].try_into().unwrap()))
+        };
+
+        let back_block = if has_back_block_payload_bytes(encoded_id) {
+            // Backpointers and squash annotations append a 4-byte `back_block` after the compressed ptr payload.
+            let back_block_offset = TriePtr::encoded_size_compressed_for_id(encoded_id);
+            let back_block_end = back_block_offset + 4;
+            assert!(bytes.len() >= back_block_end);
+            u32::from_be_bytes(bytes[back_block_offset..back_block_end].try_into().unwrap())
+        } else {
+            0
+        };
 
         TriePtr {
             id,
             chr,
             ptr,
             back_block,
+        }
+    }
+
+    /// Load up a compressed TriePtr from a Read object.
+    /// Returns Ok(ptr) on success
+    /// Returns Err(codec_error::*) on disk I/O failure, or failure to decode the requested bytes
+    #[inline]
+    pub fn read_bytes_compressed<R: Read>(fd: &mut R) -> Result<TriePtr, codec_error> {
+        let id_bits: u8 = read_next(fd)?;
+        let encoded_id = clear_compressed(id_bits);
+        let id = clear_u64_ptr(clear_inline_back_block(encoded_id));
+        let chr: u8 = read_next(fd)?;
+        let ptr = if is_u64_ptr(encoded_id) {
+            let hi: [u8; 4] = read_next(fd)?;
+            let lo: [u8; 4] = read_next(fd)?;
+            u64::from_be_bytes([hi[0], hi[1], hi[2], hi[3], lo[0], lo[1], lo[2], lo[3]])
+        } else {
+            let ptr_be_bytes: [u8; 4] = read_next(fd)?;
+            u64::from(u32::from_be_bytes(ptr_be_bytes))
+        };
+        let back_block = if has_back_block_payload_bytes(encoded_id) {
+            let bytes: [u8; 4] = read_next(fd)?;
+            u32::from_be_bytes(bytes)
+        } else {
+            0
+        };
+
+        Ok(TriePtr {
+            id,
+            chr,
+            ptr,
+            back_block,
+        })
+    }
+
+    /// Size of this TriePtr on disk.
+    #[inline]
+    pub fn encoded_size(&self) -> usize {
+        Self::encoded_size_for_id(self.encoded_id())
+    }
+
+    /// Size of this TriePtr on disk, if compression is to be used.
+    #[inline]
+    pub fn compressed_size(&self) -> usize {
+        let encoded_id = self.encoded_id();
+        if !is_backptr(self.id) && self.back_block != 0 {
+            Self::encoded_size_for_id(encoded_id)
+        } else {
+            Self::compressed_size_for_id(encoded_id)
+        }
+    }
+
+    /// Returns the size, in bytes, that a node occupies on disk, taking compression into account.
+    /// Pointers without a `back_block` payload omit it, while backpointers and
+    /// inline-annotation pointers store it.
+    #[inline]
+    pub fn compressed_size_for_id(node_id: u8) -> usize {
+        if !has_back_block_payload_bytes(node_id) {
+            Self::encoded_size_compressed_for_id(node_id)
+        } else {
+            Self::encoded_size_for_id(node_id)
         }
     }
 }
@@ -627,6 +1086,10 @@ impl StacksMessageCodec for TrieLeaf {
 pub struct TrieNode4 {
     pub path: Vec<u8>,
     pub ptrs: [TriePtr; 4],
+    /// If this node was created by copy-on-write, then this points to the node it was copied from.
+    pub cowptr: Option<TrieCowPtr>,
+    /// List of patches applied to this node.  Fields are (node block ID, pointer to node, patch itself)
+    pub patches: Vec<(u32, TriePtr, TrieNodePatch)>,
 }
 
 impl fmt::Debug for TrieNode4 {
@@ -645,6 +1108,8 @@ impl TrieNode4 {
         TrieNode4 {
             path: path.to_owned(),
             ptrs: [TriePtr::default(); 4],
+            cowptr: None,
+            patches: vec![],
         }
     }
 }
@@ -654,6 +1119,10 @@ impl TrieNode4 {
 pub struct TrieNode16 {
     pub path: Vec<u8>,
     pub ptrs: [TriePtr; 16],
+    /// If this node was created by copy-on-write, then this points to the node it was copied from.
+    pub cowptr: Option<TrieCowPtr>,
+    /// List of patches applied to this node.  Fields are (node block ID, pointer to node, patch itself)
+    pub patches: Vec<(u32, TriePtr, TrieNodePatch)>,
 }
 
 impl fmt::Debug for TrieNode16 {
@@ -672,6 +1141,8 @@ impl TrieNode16 {
         TrieNode16 {
             path: path.to_owned(),
             ptrs: [TriePtr::default(); 16],
+            cowptr: None,
+            patches: vec![],
         }
     }
 
@@ -682,6 +1153,8 @@ impl TrieNode16 {
         TrieNode16 {
             path: node4.path.clone(),
             ptrs,
+            cowptr: None,
+            patches: vec![],
         }
     }
 }
@@ -690,8 +1163,13 @@ impl TrieNode16 {
 #[derive(Clone)]
 pub struct TrieNode48 {
     pub path: Vec<u8>,
-    indexes: [i8; 256], // indexes[i], if non-negative, is an index into ptrs.
+    /// If indexes[i] is non-negative, then it is an index into ptrs.
+    pub indexes: [i8; 256],
     pub ptrs: [TriePtr; 48],
+    /// If this node was created by copy-on-write, then this points to the node it was copied from.
+    pub cowptr: Option<TrieCowPtr>,
+    /// List of patches applied to this node.  Fields are (node block ID, pointer to node, patch itself)
+    pub patches: Vec<(u32, TriePtr, TrieNodePatch)>,
 }
 
 impl fmt::Debug for TrieNode48 {
@@ -717,6 +1195,8 @@ impl TrieNode48 {
             path: path.to_owned(),
             indexes: [-1; 256],
             ptrs: [TriePtr::default(); 48],
+            cowptr: None,
+            patches: vec![],
         }
     }
 
@@ -735,6 +1215,8 @@ impl TrieNode48 {
             path: node16.path.clone(),
             indexes,
             ptrs,
+            cowptr: None,
+            patches: vec![],
         }
     }
 }
@@ -744,6 +1226,10 @@ impl TrieNode48 {
 pub struct TrieNode256 {
     pub path: Vec<u8>,
     pub ptrs: [TriePtr; 256],
+    /// If this node was created by copy-on-write, then this points to the node it was copied from.
+    pub cowptr: Option<TrieCowPtr>,
+    /// List of patches applied to this node.  Fields are (node block ID, pointer to node, patch itself)
+    pub patches: Vec<(u32, TriePtr, TrieNodePatch)>,
 }
 
 impl fmt::Debug for TrieNode256 {
@@ -768,6 +1254,8 @@ impl TrieNode256 {
         TrieNode256 {
             path: path.to_owned(),
             ptrs: [TriePtr::default(); 256],
+            cowptr: None,
+            patches: vec![],
         }
     }
 
@@ -783,6 +1271,8 @@ impl TrieNode256 {
         TrieNode256 {
             path: node4.path.clone(),
             ptrs,
+            cowptr: None,
+            patches: vec![],
         }
     }
 
@@ -799,7 +1289,451 @@ impl TrieNode256 {
         TrieNode256 {
             path: node48.path.clone(),
             ptrs,
+            cowptr: None,
+            patches: vec![],
         }
+    }
+}
+
+/// This is a non-consensus "patch node" that applies a diff atop a base node.  There can be up to
+/// MAX_PATCH_DEPTH patch nodes applied atop the base node.
+#[derive(Clone, PartialEq)]
+pub struct TrieNodePatch {
+    /// Pointer to the node we're patching (will always be a back-block ptr)
+    pub ptr: TriePtr,
+    /// Field of ptrs to insert atop the base node
+    pub ptr_diff: Vec<TriePtr>,
+}
+
+impl fmt::Debug for TrieNodePatch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "TrieNodePatch(ptr={} ptr_diff={})",
+            &ptrs_fmt(&[self.ptr]),
+            ptrs_fmt(&self.ptr_diff)
+        )
+    }
+}
+
+impl StacksMessageCodec for TrieNodePatch {
+    /// Serializes this [`TrieNodePatch`] to the given writer, with the following format:
+    ///
+    /// 0    1        1+P      2+P              2+P+N
+    /// |----|--------|----------|----------------|
+    ///   id     ptr    diff len     ptr diffs
+    ///   (1)    (P)       (1)          (N)
+    ///
+    /// where:
+    /// - `id` is [`TrieNodeID::Patch`]
+    /// - `ptr` is a compressed [`TriePtr`]
+    /// - `diff len` is the number of diffs, serialized as `len - 1`
+    /// - `ptr diffs` are the patch diffs written in compressed format
+    ///
+    /// # Invariants
+    ///
+    /// The number of diffs must be in the range `1..=256`. A patch is valid only
+    /// if it contains at least one diff (see the factory methods
+    /// [`TrieNodePatch::try_from_nodetype`] and [`TrieNodePatch::try_from_patch`]).
+    ///
+    /// To fit in a `u8`, the diff count is normalized to `len - 1` before
+    /// serialization.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(codec_error::SerializeError)` if:
+    /// * Writing to `fd` fails.
+    /// * `ptr` fails to serialize.
+    /// * Any pointer in `ptr diffs` fails to serialize.
+    /// * The diff count is `0` or greater than `256`.
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &(TrieNodeID::Patch as u8))?;
+        self.ptr
+            .write_bytes_compressed(fd)
+            .map_err(|e| codec_error::SerializeError(format!("Failed to serialize .ptr: {e:?}")))?;
+
+        let num_ptrs = self.ptr_diff.len();
+        if num_ptrs == 0 || num_ptrs > 256 {
+            return Err(codec_error::SerializeError(format!(
+                "Cannot serialize TrieNodePatch with invalid ptrs len {num_ptrs} (expected 1..=256)"
+            )));
+        }
+        // normalize num_ptrs to range [0, 255] to fit in u8
+        let num_ptrs_norm = num_ptrs.checked_sub(1).expect("infallible");
+        let num_ptrs_u8 = u8::try_from(num_ptrs_norm).expect("infallible");
+        write_next(fd, &num_ptrs_u8).map_err(|e| {
+            codec_error::SerializeError(format!("Failed to serialize .ptr_diff.len(): {e:?}"))
+        })?;
+
+        for ptr in self.ptr_diff.iter() {
+            ptr.write_bytes_compressed(fd).map_err(|e| {
+                codec_error::SerializeError(format!("Failed to serialize ptr in .ptr_diff: {e:?}"))
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Deserializes a [`TrieNodePatch`] from the given reader.
+    ///
+    /// This method expects the byte stream to be in the exact format produced by
+    /// [`TrieNodePatch::consensus_serialize`] (see that method for the detailed
+    /// wire format description)
+    ///
+    /// During deserialization, the stored diff length is de-normalized by
+    /// adding `1`, reversing the `len - 1` normalization applied during
+    /// serialization.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(codec_error::DeserializeError)` if:
+    /// * The node identifier does not match [`TrieNodeID::Patch`].
+    /// * Reading from `fd` fails.
+    /// * The pointer or any pointer diff fails to deserialize.
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let id: u8 = read_next(fd)?;
+        if id != TrieNodeID::Patch as u8 {
+            return Err(codec_error::DeserializeError(
+                "Did not read a TrieNodeID::Patch".to_string(),
+            ));
+        }
+
+        let ptr = TriePtr::read_bytes_compressed(fd)?;
+        let num_ptrs_u8: u8 = read_next(fd)?;
+        let num_ptrs_norm = usize::try_from(num_ptrs_u8).expect("infallible");
+        // denormalize num_ptrs to range [1, 256] (reversing the -1 introduced during serialization)
+        let num_ptrs = num_ptrs_norm.checked_add(1).expect("infallible");
+
+        let mut ptr_diff: Vec<TriePtr> = Vec::with_capacity(num_ptrs);
+        for _ in 0..num_ptrs {
+            ptr_diff.push(TriePtr::read_bytes_compressed(fd)?);
+        }
+        Ok(Self { ptr, ptr_diff })
+    }
+}
+
+/// Turn each non-empty, non-backptr in `ptrs` into a backptr.
+/// If `back_block` is already non-zero (squash annotation), it is preserved;
+/// otherwise it is set to `child_block_id`.
+pub(crate) fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) {
+    for pointer in ptrs.iter_mut() {
+        // if the node is empty, do nothing, if it's a back pointer,
+        if pointer.id() == TrieNodeID::Empty as u8 || is_backptr(pointer.id()) {
+            continue;
+        }
+        if pointer.back_block == 0 {
+            pointer.back_block = child_block_id;
+        }
+        pointer.id = set_backptr(pointer.id());
+    }
+}
+
+/// Given the current block ID, convert every backptr pointer whose back_block is equal to
+/// `cur_block_id` to a normal pointer.  This is used when applying patches.
+fn node_normalize_ptrs(ptrs: &mut [TriePtr], cur_block_id: u32) {
+    for ptr in ptrs.iter_mut() {
+        if is_backptr(ptr.id) && ptr.back_block == cur_block_id {
+            // normalize
+            ptr.id = clear_backptr(ptr.id);
+            ptr.back_block = 0;
+        }
+    }
+}
+
+impl TrieNodePatch {
+    /// Compute the difference between `old_ptrs` and `new_ptrs`. In particular, if a pointer in
+    /// `new_ptrs` is in the same block as indicated by `old_node_ptr`, this code will first need to
+    /// normalize it (i.e. convert it into a non-backpointer) in order to compare it against the
+    /// corresponding pointer in `old_ptrs` (which might have that very same pointer, but not yet
+    /// made into a backptr by a COW)
+    fn make_ptr_diff(
+        old_node_ptr: &TriePtr,
+        old_ptrs: &[TriePtr],
+        new_ptrs: &[TriePtr],
+    ) -> Vec<TriePtr> {
+        let mut ret = Vec::with_capacity(new_ptrs.len());
+        let mut mapped: [Option<&TriePtr>; 256] = [None; 256];
+        for old_ptr in old_ptrs.iter() {
+            // SAFETY: chr() is a u8, so it's in range [0, 256)
+            if !old_ptr.is_empty() {
+                let mapped_ptr = mapped
+                    .get_mut(old_ptr.chr() as usize)
+                    .expect("infallible: mapped has 256 elements and .chr() is a u8");
+                *mapped_ptr = Some(old_ptr);
+            }
+        }
+
+        for new_ptr in new_ptrs.iter() {
+            if new_ptr.is_empty() {
+                continue;
+            }
+            // SAFETY: chr() is a u8, so it's in range [0, 256)
+            if let Some(old_ptr) = *mapped
+                .get(new_ptr.chr() as usize)
+                .expect("infallible: mapped has 256 elements and .chr() is a u8")
+            {
+                if !is_backptr(old_ptr.id())
+                    && is_backptr(new_ptr.id())
+                    && new_ptr.back_block == old_node_ptr.back_block
+                {
+                    // new_ptr may be the backptr-ified version of old_ptr
+                    let mut normalized_new_ptr =
+                        TriePtr::new(clear_ctrl_bits(new_ptr.id()), new_ptr.chr(), new_ptr.ptr());
+                    normalized_new_ptr.back_block = 0;
+                    if *old_ptr != normalized_new_ptr {
+                        trace!(
+                            "new overwritten ptr (old_ptr != normalized_new_ptr): {:?} != {:?}",
+                            &normalized_new_ptr,
+                            old_ptr
+                        );
+                        ret.push(*new_ptr);
+                    }
+                } else {
+                    if old_ptr != new_ptr {
+                        trace!(
+                            "new overwritten ptr (old_ptr != new_ptr): {:?} != {:?}",
+                            &new_ptr,
+                            old_ptr
+                        );
+                        ret.push(*new_ptr);
+                    } else if !is_backptr(new_ptr.id()) {
+                        trace!(
+                            "new overwritten ptr (new_ptr not backptr): {:?} != {:?}",
+                            &new_ptr,
+                            old_ptr
+                        );
+                        ret.push(*new_ptr);
+                    }
+                }
+            } else {
+                ret.push(*new_ptr);
+            }
+        }
+        debug_assert!(
+            ret.len() <= new_ptrs.len(),
+            "TrieNodePatch has {} diffs for {} pointer slots",
+            ret.len(),
+            new_ptrs.len()
+        );
+        ret
+    }
+
+    /// Test-only wrapper exposing the private [`TrieNodePatch::make_ptr_diff`] for unit testing
+    #[cfg(test)]
+    pub fn make_ptr_diff_for_test(
+        old_node_ptr: &TriePtr,
+        old_ptrs: &[TriePtr],
+        new_ptrs: &[TriePtr],
+    ) -> Vec<TriePtr> {
+        TrieNodePatch::make_ptr_diff(old_node_ptr, old_ptrs, new_ptrs)
+    }
+
+    /// Create a patch from one node4 to another
+    pub fn from_node4(old_node_ptr: TriePtr, old_node: &TrieNode4, new_node: &TrieNode4) -> Self {
+        let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
+        Self {
+            ptr: old_node_ptr,
+            ptr_diff: ptr_diff,
+        }
+    }
+
+    /// Create a patch from one node16 to another
+    pub fn from_node16(
+        old_node_ptr: TriePtr,
+        old_node: &TrieNode16,
+        new_node: &TrieNode16,
+    ) -> Self {
+        let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
+        Self {
+            ptr: old_node_ptr,
+            ptr_diff: ptr_diff,
+        }
+    }
+
+    /// Create a patch from one node48 to another
+    pub fn from_node48(
+        old_node_ptr: TriePtr,
+        old_node: &TrieNode48,
+        new_node: &TrieNode48,
+    ) -> Self {
+        let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
+        Self {
+            ptr: old_node_ptr,
+            ptr_diff: ptr_diff,
+        }
+    }
+
+    /// Create a patch from one node256 to another
+    pub fn from_node256(
+        old_node_ptr: TriePtr,
+        old_node: &TrieNode256,
+        new_node: &TrieNode256,
+    ) -> Self {
+        let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
+        Self {
+            ptr: old_node_ptr,
+            ptr_diff: ptr_diff,
+        }
+    }
+
+    /// Create a patch from one nodetype to another.  If they're not the same nodetype, then this
+    /// function returns None.
+    pub fn try_from_nodetype(
+        old_node_ptr: TriePtr,
+        old_node: &TrieNodeType,
+        new_node: &TrieNodeType,
+    ) -> Option<Self> {
+        if clear_ctrl_bits(old_node.id()) != clear_ctrl_bits(new_node.id()) {
+            trace!("Cannot produce TrieNodePatch: old node and new node are not the same type!");
+            return None;
+        }
+
+        let patch_opt = match (old_node, new_node) {
+            (TrieNodeType::Node4(old_data), TrieNodeType::Node4(new_data)) => {
+                Some(Self::from_node4(old_node_ptr, old_data, new_data))
+            }
+            (TrieNodeType::Node16(old_data), TrieNodeType::Node16(new_data)) => {
+                Some(Self::from_node16(old_node_ptr, old_data, new_data))
+            }
+            (TrieNodeType::Node48(old_data), TrieNodeType::Node48(new_data)) => {
+                Some(Self::from_node48(old_node_ptr, old_data, new_data))
+            }
+            (TrieNodeType::Node256(old_data), TrieNodeType::Node256(new_data)) => {
+                Some(Self::from_node256(old_node_ptr, old_data, new_data))
+            }
+            (_, _) => None,
+        };
+        let Some(patch) = patch_opt else {
+            trace!("Cannot produce TrieNodePatch: old node and new node are type leaf!");
+            return None;
+        };
+        if patch.ptr_diff.len() == 0 {
+            trace!("Cannot produce TrieNodePatch: patch has no diffs!");
+            return None;
+        }
+        Some(patch)
+    }
+
+    /// Create a patch from one patch to a node
+    pub fn try_from_patch(
+        old_patch_ptr: TriePtr,
+        old_patch: &TrieNodePatch,
+        new_node: &TrieNodeType,
+    ) -> Option<Self> {
+        if clear_ctrl_bits(old_patch.ptr.id) != clear_ctrl_bits(new_node.id()) {
+            trace!("Cannot produce TrieNodePatch: old node and new node are not the same type!");
+            return None;
+        }
+
+        let ptr_diff = Self::make_ptr_diff(&old_patch_ptr, &old_patch.ptr_diff, new_node.ptrs());
+        let patch = Self {
+            ptr: old_patch_ptr,
+            ptr_diff,
+        };
+        if patch.ptr_diff.len() == 0 {
+            trace!("Cannot produce TrieNodePatch: patch has no diffs!");
+            return None;
+        }
+        return Some(patch);
+    }
+
+    /// Apply this patch to a node4, given the node, block ID where the patch was found, and block
+    /// ID where the node was written.
+    pub fn apply_node4(
+        &self,
+        mut old_node: TrieNode4,
+        patch_block_id: u32,
+        cur_block_id: u32,
+    ) -> Option<TrieNode4> {
+        trace!("Apply patch {self:?} read from block ID {patch_block_id} to {old_node:?}");
+        node_copy_update_ptrs(&mut old_node.ptrs, self.ptr.back_block);
+        for ptr in self.ptr_diff.iter() {
+            if !old_node.insert(ptr) {
+                return None;
+            }
+        }
+        node_copy_update_ptrs(&mut old_node.ptrs, patch_block_id);
+        node_normalize_ptrs(&mut old_node.ptrs, cur_block_id);
+        trace!("Patched up to {old_node:?}");
+        Some(old_node)
+    }
+
+    /// Apply this patch to a node16, given the node, block ID where the patch was found, and block
+    /// ID where the node was written.
+    pub fn apply_node16(
+        &self,
+        mut old_node: TrieNode16,
+        patch_block_id: u32,
+        cur_block_id: u32,
+    ) -> Option<TrieNode16> {
+        trace!("Apply patch {self:?} read from block ID {patch_block_id} to {old_node:?}");
+        node_copy_update_ptrs(&mut old_node.ptrs, self.ptr.back_block);
+        for ptr in self.ptr_diff.iter() {
+            if !old_node.insert(ptr) {
+                return None;
+            }
+        }
+        node_copy_update_ptrs(&mut old_node.ptrs, patch_block_id);
+        node_normalize_ptrs(&mut old_node.ptrs, cur_block_id);
+        trace!("Patched up to {old_node:?}");
+        Some(old_node)
+    }
+
+    /// Apply this patch to a node48, given the node, block ID where the patch was found, and block
+    /// ID where the node was written.
+    pub fn apply_node48(
+        &self,
+        mut old_node: TrieNode48,
+        patch_block_id: u32,
+        cur_block_id: u32,
+    ) -> Option<TrieNode48> {
+        trace!("Apply patch {self:?} read from block ID {patch_block_id} to {old_node:?}");
+        node_copy_update_ptrs(&mut old_node.ptrs, self.ptr.back_block);
+        for ptr in self.ptr_diff.iter() {
+            if !old_node.insert(ptr) {
+                return None;
+            }
+        }
+        node_copy_update_ptrs(&mut old_node.ptrs, patch_block_id);
+        node_normalize_ptrs(&mut old_node.ptrs, cur_block_id);
+        trace!("Patched up to {old_node:?}");
+        Some(old_node)
+    }
+
+    /// Apply this patch to a node256, given the node, block ID where the patch was found, and block
+    /// ID where the node was written.
+    pub fn apply_node256(
+        &self,
+        mut old_node: TrieNode256,
+        patch_block_id: u32,
+        cur_block_id: u32,
+    ) -> Option<TrieNode256> {
+        trace!("Apply patch {self:?} read from block ID {patch_block_id} to {old_node:?}");
+        node_copy_update_ptrs(&mut old_node.ptrs, self.ptr.back_block);
+        for ptr in self.ptr_diff.iter() {
+            if !old_node.insert(ptr) {
+                return None;
+            }
+        }
+        node_copy_update_ptrs(&mut old_node.ptrs, patch_block_id);
+        node_normalize_ptrs(&mut old_node.ptrs, cur_block_id);
+        trace!("Patched up to {old_node:?}");
+        Some(old_node)
+    }
+
+    /// Compute the size of the TriePatchNode. Its pointers are always compressed.
+    #[inline]
+    pub fn size(&self) -> usize {
+        // ID
+        let mut sz = 1;
+        // previous node ptr
+        sz += self.ptr.compressed_size();
+        // length prefix
+        sz += 1;
+        // ptr_diff
+        for ptr in self.ptr_diff.iter() {
+            sz += ptr.compressed_size();
+        }
+        sz
     }
 }
 
@@ -812,6 +1746,8 @@ impl TrieNode for TrieNode4 {
         TrieNode4 {
             path: vec![],
             ptrs: [TriePtr::default(); 4],
+            cowptr: None,
+            patches: vec![],
         }
     }
 
@@ -824,7 +1760,7 @@ impl TrieNode for TrieNode4 {
         None
     }
 
-    fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode4, Error> {
+    fn from_bytes<R: Read + Seek>(r: &mut R) -> Result<TrieNode4, Error> {
         let mut ptrs_slice = [TriePtr::default(); 4];
         ptrs_from_bytes(TrieNodeID::Node4 as u8, r, &mut ptrs_slice)?;
         let path = path_from_bytes(r)?;
@@ -832,6 +1768,8 @@ impl TrieNode for TrieNode4 {
         Ok(TrieNode4 {
             path,
             ptrs: ptrs_slice,
+            cowptr: None,
+            patches: vec![],
         })
     }
 
@@ -870,6 +1808,30 @@ impl TrieNode for TrieNode4 {
     fn as_trie_node_type(&self) -> TrieNodeType {
         TrieNodeType::Node4(self.clone())
     }
+
+    fn get_cow_ptr(&self) -> Option<&TrieCowPtr> {
+        self.cowptr.as_ref()
+    }
+
+    fn set_cow_ptr(&mut self, cowptr: TrieCowPtr) {
+        self.cowptr.replace(cowptr);
+    }
+
+    fn apply_patches(
+        self,
+        patches: &[(u32, TriePtr, TrieNodePatch)],
+        cur_block_id: u32,
+    ) -> Option<Self> {
+        let mut node = self;
+        for (patch_block_id, _, patch) in patches.iter() {
+            let Some(next_node) = patch.apply_node4(node, *patch_block_id, cur_block_id) else {
+                return None;
+            };
+            node = next_node;
+        }
+        node.patches.extend_from_slice(patches);
+        Some(node)
+    }
 }
 
 impl TrieNode for TrieNode16 {
@@ -881,6 +1843,8 @@ impl TrieNode for TrieNode16 {
         TrieNode16 {
             path: vec![],
             ptrs: [TriePtr::default(); 16],
+            cowptr: None,
+            patches: vec![],
         }
     }
 
@@ -893,15 +1857,16 @@ impl TrieNode for TrieNode16 {
         None
     }
 
-    fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode16, Error> {
+    fn from_bytes<R: Read + Seek>(r: &mut R) -> Result<TrieNode16, Error> {
         let mut ptrs_slice = [TriePtr::default(); 16];
         ptrs_from_bytes(TrieNodeID::Node16 as u8, r, &mut ptrs_slice)?;
-
         let path = path_from_bytes(r)?;
 
         Ok(TrieNode16 {
             path,
             ptrs: ptrs_slice,
+            cowptr: None,
+            patches: vec![],
         })
     }
 
@@ -940,6 +1905,30 @@ impl TrieNode for TrieNode16 {
     fn as_trie_node_type(&self) -> TrieNodeType {
         TrieNodeType::Node16(self.clone())
     }
+
+    fn get_cow_ptr(&self) -> Option<&TrieCowPtr> {
+        self.cowptr.as_ref()
+    }
+
+    fn set_cow_ptr(&mut self, cowptr: TrieCowPtr) {
+        self.cowptr.replace(cowptr);
+    }
+
+    fn apply_patches(
+        self,
+        patches: &[(u32, TriePtr, TrieNodePatch)],
+        cur_block_id: u32,
+    ) -> Option<Self> {
+        let mut node = self;
+        for (patch_block_id, _, patch) in patches.iter() {
+            let Some(next_node) = patch.apply_node16(node, *patch_block_id, cur_block_id) else {
+                return None;
+            };
+            node = next_node;
+        }
+        node.patches.extend_from_slice(patches);
+        Some(node)
+    }
 }
 
 impl TrieNode for TrieNode48 {
@@ -952,6 +1941,8 @@ impl TrieNode for TrieNode48 {
             path: vec![],
             indexes: [-1; 256],
             ptrs: [TriePtr::default(); 48],
+            cowptr: None,
+            patches: vec![],
         }
     }
 
@@ -978,23 +1969,34 @@ impl TrieNode for TrieNode48 {
         write_path_to_bytes(self.path().as_slice(), w)
     }
 
+    fn write_bytes_compressed<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[set_compressed(self.id())])?;
+        write_ptrs_to_bytes_compressed(self.id(), self.ptrs(), w)?;
+
+        for i in self.indexes.iter() {
+            w.write_all(&[*i as u8])?;
+        }
+
+        write_path_to_bytes(self.path().as_slice(), w)
+    }
+
     fn byte_len(&self) -> usize {
         get_ptrs_byte_len(&self.ptrs) + 256 + get_path_byte_len(&self.path)
     }
 
+    fn byte_len_compressed(&self) -> usize {
+        get_ptrs_byte_len_compressed(self.id(), &self.ptrs) + 256 + get_path_byte_len(&self.path)
+    }
+
     #[allow(clippy::indexing_slicing)]
-    fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode48, Error> {
+    fn from_bytes<R: Read + Seek>(r: &mut R) -> Result<TrieNode48, Error> {
         let mut ptrs_slice = [TriePtr::default(); 48];
         ptrs_from_bytes(TrieNodeID::Node48 as u8, r, &mut ptrs_slice)?;
 
         let mut indexes = [0u8; 256];
-        let l_indexes = r.read(&mut indexes).map_err(Error::IOError)?;
-
-        if l_indexes != 256 {
-            return Err(Error::CorruptionError(
-                "Node48: Failed to read 256 indexes".to_string(),
-            ));
-        }
+        r.read_exact(&mut indexes).inspect_err(|e| {
+            error!("I/O error reading TrieNode48 indexes: {e:?}");
+        })?;
 
         let path = path_from_bytes(r)?;
 
@@ -1034,6 +2036,8 @@ impl TrieNode for TrieNode48 {
             path,
             indexes: indexes_slice,
             ptrs: ptrs_slice,
+            cowptr: None,
+            patches: vec![],
         })
     }
 
@@ -1076,6 +2080,30 @@ impl TrieNode for TrieNode48 {
     fn as_trie_node_type(&self) -> TrieNodeType {
         TrieNodeType::Node48(Box::new(self.clone()))
     }
+
+    fn get_cow_ptr(&self) -> Option<&TrieCowPtr> {
+        self.cowptr.as_ref()
+    }
+
+    fn set_cow_ptr(&mut self, cowptr: TrieCowPtr) {
+        self.cowptr.replace(cowptr);
+    }
+
+    fn apply_patches(
+        self,
+        patches: &[(u32, TriePtr, TrieNodePatch)],
+        cur_block_id: u32,
+    ) -> Option<Self> {
+        let mut node = self;
+        for (patch_block_id, _, patch) in patches.iter() {
+            let Some(next_node) = patch.apply_node48(node, *patch_block_id, cur_block_id) else {
+                return None;
+            };
+            node = next_node;
+        }
+        node.patches.extend_from_slice(patches);
+        Some(node)
+    }
 }
 
 impl TrieNode for TrieNode256 {
@@ -1087,6 +2115,8 @@ impl TrieNode for TrieNode256 {
         TrieNode256 {
             path: vec![],
             ptrs: [TriePtr::default(); 256],
+            cowptr: None,
+            patches: vec![],
         }
     }
 
@@ -1099,7 +2129,7 @@ impl TrieNode for TrieNode256 {
         Some(*ptr)
     }
 
-    fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode256, Error> {
+    fn from_bytes<R: Read + Seek>(r: &mut R) -> Result<TrieNode256, Error> {
         let mut ptrs_slice = [TriePtr::default(); 256];
         ptrs_from_bytes(TrieNodeID::Node256 as u8, r, &mut ptrs_slice)?;
 
@@ -1108,6 +2138,8 @@ impl TrieNode for TrieNode256 {
         Ok(TrieNode256 {
             path,
             ptrs: ptrs_slice,
+            cowptr: None,
+            patches: vec![],
         })
     }
 
@@ -1143,6 +2175,30 @@ impl TrieNode for TrieNode256 {
     fn as_trie_node_type(&self) -> TrieNodeType {
         TrieNodeType::Node256(Box::new(self.clone()))
     }
+
+    fn get_cow_ptr(&self) -> Option<&TrieCowPtr> {
+        self.cowptr.as_ref()
+    }
+
+    fn set_cow_ptr(&mut self, cowptr: TrieCowPtr) {
+        self.cowptr.replace(cowptr);
+    }
+
+    fn apply_patches(
+        self,
+        patches: &[(u32, TriePtr, TrieNodePatch)],
+        cur_block_id: u32,
+    ) -> Option<Self> {
+        let mut node = self;
+        for (patch_block_id, _, patch) in patches.iter() {
+            let Some(next_node) = patch.apply_node256(node, *patch_block_id, cur_block_id) else {
+                return None;
+            };
+            node = next_node;
+        }
+        node.patches.extend_from_slice(patches);
+        Some(node)
+    }
 }
 
 impl TrieNode for TrieLeaf {
@@ -1165,36 +2221,44 @@ impl TrieNode for TrieLeaf {
         Ok(())
     }
 
+    fn write_bytes_compressed<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        write_path_to_bytes(&self.path, w)?;
+        w.write_all(&self.data.0[..])?;
+        Ok(())
+    }
+
     fn byte_len(&self) -> usize {
         1 + get_path_byte_len(&self.path) + self.data.len()
     }
 
-    fn from_bytes<R: Read>(r: &mut R) -> Result<TrieLeaf, Error> {
+    fn byte_len_compressed(&self) -> usize {
+        1 + get_path_byte_len(&self.path) + self.data.len()
+    }
+
+    fn from_bytes<R: Read + Seek>(r: &mut R) -> Result<TrieLeaf, Error> {
         let mut idbuf = [0u8; 1];
-        let l_idbuf = r.read(&mut idbuf).map_err(Error::IOError)?;
+        r.read_exact(&mut idbuf).inspect_err(|e| {
+            error!("I/O error reading TrieLeaf ID: {e:?}");
+        })?;
 
-        if l_idbuf != 1 {
-            return Err(Error::CorruptionError(
-                "Leaf: failed to read ID".to_string(),
-            ));
-        }
-
-        if clear_backptr(idbuf[0]) != TrieNodeID::Leaf as u8 {
+        if clear_ctrl_bits(idbuf[0]) != TrieNodeID::Leaf as u8 {
             return Err(Error::CorruptionError(format!(
-                "Leaf: bad ID {:x}",
+                "Leaf: bad ID 0x{:02x}",
                 idbuf[0]
             )));
         }
 
         let path = path_from_bytes(r)?;
         let mut leaf_data = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
-        let l_leaf_data = r.read(&mut leaf_data).map_err(Error::IOError)?;
 
-        if l_leaf_data != (MARF_VALUE_ENCODED_SIZE as usize) {
-            return Err(Error::CorruptionError(format!(
-                "Leaf: read only {l_leaf_data} out of {MARF_VALUE_ENCODED_SIZE} bytes"
-            )));
-        }
+        r.read_exact(&mut leaf_data).inspect_err(|e| {
+            error!(
+                "I/O error reading TrieLeaf data: {e:?}. Got idbuf = {:02x}, path = {}",
+                &idbuf[0],
+                &to_hex(&path)
+            );
+        })?;
 
         Ok(TrieLeaf {
             path,
@@ -1220,6 +2284,23 @@ impl TrieNode for TrieLeaf {
 
     fn as_trie_node_type(&self) -> TrieNodeType {
         TrieNodeType::Leaf(self.clone())
+    }
+
+    fn get_cow_ptr(&self) -> Option<&TrieCowPtr> {
+        // no-op
+        None
+    }
+
+    fn set_cow_ptr(&mut self, _cowptr: TrieCowPtr) {
+        // no-op
+    }
+
+    fn apply_patches(
+        self,
+        _patches: &[(u32, TriePtr, TrieNodePatch)],
+        _cur_block_id: u32,
+    ) -> Option<Self> {
+        Some(self)
     }
 }
 
@@ -1277,6 +2358,10 @@ impl TrieNodeType {
         with_node!(self, ref data, data.write_bytes(w))
     }
 
+    pub fn write_bytes_compressed<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        with_node!(self, ref data, data.write_bytes_compressed(w))
+    }
+
     pub fn write_consensus_bytes<W: Write, M: BlockMap>(
         &self,
         map: &mut M,
@@ -1287,6 +2372,10 @@ impl TrieNodeType {
 
     pub fn byte_len(&self) -> usize {
         with_node!(self, ref data, data.byte_len())
+    }
+
+    pub fn byte_len_compressed(&self) -> usize {
+        with_node!(self, ref data, data.byte_len_compressed())
     }
 
     pub fn insert(&mut self, ptr: &TriePtr) -> bool {
@@ -1327,5 +2416,57 @@ impl TrieNodeType {
 
     pub fn set_path(&mut self, new_path: Vec<u8>) {
         with_node!(self, ref mut data, data.path = new_path)
+    }
+
+    pub fn get_cow_ptr(&self) -> Option<&TrieCowPtr> {
+        with_node!(self, ref data, data.get_cow_ptr())
+    }
+
+    pub fn set_cow_ptr(&mut self, cowptr: TrieCowPtr) {
+        with_node!(self, ref mut data, data.set_cow_ptr(cowptr))
+    }
+
+    pub fn apply_patches(
+        self,
+        patches: &[(u32, TriePtr, TrieNodePatch)],
+        cur_block_id: u32,
+    ) -> Option<Self> {
+        match self {
+            TrieNodeType::Node4(data) => {
+                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
+                    return None;
+                };
+                Some(TrieNodeType::Node4(new_data))
+            }
+            TrieNodeType::Node16(data) => {
+                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
+                    return None;
+                };
+                Some(TrieNodeType::Node16(new_data))
+            }
+            TrieNodeType::Node48(data) => {
+                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
+                    return None;
+                };
+                Some(TrieNodeType::Node48(Box::new(new_data)))
+            }
+            TrieNodeType::Node256(data) => {
+                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
+                    return None;
+                };
+                Some(TrieNodeType::Node256(Box::new(new_data)))
+            }
+            TrieNodeType::Leaf(data) => Some(TrieNodeType::Leaf(data)),
+        }
+    }
+
+    pub fn get_patches(&self) -> &[(u32, TriePtr, TrieNodePatch)] {
+        match self {
+            TrieNodeType::Node4(ref data) => &data.patches,
+            TrieNodeType::Node16(ref data) => &data.patches,
+            TrieNodeType::Node48(ref data) => &data.patches,
+            TrieNodeType::Node256(ref data) => &data.patches,
+            TrieNodeType::Leaf(_) => panic!("Leaf has no patches"),
+        }
     }
 }

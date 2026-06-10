@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,9 @@
 
 use std::cmp::Ordering;
 use std::fmt;
+use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::str::FromStr;
 use std::sync::LazyLock;
 
 #[cfg(feature = "rusqlite")]
@@ -28,7 +30,13 @@ use crate::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use crate::consts::MICROSTACKS_PER_STACKS;
+use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
+use crate::consts::{
+    MICROSTACKS_PER_STACKS, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
+    PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
+    PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
+};
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
@@ -95,9 +103,23 @@ pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 // Only relevant for Nakamoto (epoch 3.x)
 pub const MINING_COMMITMENT_FREQUENCY_NAKAMOTO: u8 = 3;
 
-#[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
-pub enum StacksEpochId {
+macro_rules! define_stacks_epochs {
+    ($($variant:ident = $value:expr),* $(,)?) => {
+        #[repr(u32)]
+        #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        pub enum StacksEpochId {
+            $($variant = $value),*
+        }
+
+        impl StacksEpochId {
+            pub const ALL: &'static [StacksEpochId] = &[
+                $(StacksEpochId::$variant),*
+            ];
+        }
+    };
+}
+
+define_stacks_epochs! {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
@@ -110,6 +132,7 @@ pub enum StacksEpochId {
     Epoch31 = 0x03001,
     Epoch32 = 0x03002,
     Epoch33 = 0x03003,
+    Epoch34 = 0x03004,
 }
 
 #[derive(Debug)]
@@ -437,22 +460,20 @@ impl SIP031EmissionInterval {
 }
 
 impl StacksEpochId {
+    /// Highest epoch enabled in release builds.
+    /// Keep this in sync with `versions.toml` and `PEER_NETWORK_EPOCH`
+    /// (validated in tests and `validate_epochs()`)
+    pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch34;
+
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch33
+        StacksEpochId::Epoch34
     }
 
     #[cfg(not(any(test, feature = "testing")))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch32
+        StacksEpochId::RELEASE_LATEST_EPOCH
     }
-
-    pub const ALL_GTE_30: &'static [StacksEpochId] = &[
-        StacksEpochId::Epoch30,
-        StacksEpochId::Epoch31,
-        StacksEpochId::Epoch32,
-        StacksEpochId::Epoch33,
-    ];
 
     /// In this epoch, how should the mempool perform garbage collection?
     pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
@@ -468,7 +489,8 @@ impl StacksEpochId {
             StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => MempoolCollectionBehavior::ByReceiveTime,
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => MempoolCollectionBehavior::ByReceiveTime,
         }
     }
 
@@ -487,7 +509,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => true,
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => true,
         }
     }
 
@@ -506,7 +529,25 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => true,
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => true,
+        }
+    }
+
+    pub fn supports_specific_budget_extends(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
         }
     }
 
@@ -525,7 +566,8 @@ impl StacksEpochId {
             StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => true,
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => true,
         }
     }
 
@@ -544,7 +586,8 @@ impl StacksEpochId {
             StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => true,
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => true,
         }
     }
 
@@ -562,7 +605,8 @@ impl StacksEpochId {
             StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => true,
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => true,
         }
     }
 
@@ -574,6 +618,42 @@ impl StacksEpochId {
     ///  true for all epochs before 2.5. For 2.5 and after, this returns false.
     pub fn supports_pox_missed_slot_unlocks(&self) -> bool {
         self < &StacksEpochId::Epoch25
+    }
+
+    /// Whether `from-consensus-buff` treats unexpected serialization as `none` or causes
+    /// an error that makes the transaction un-includable in a block.
+    pub fn treats_unexpected_serialization_as_none(&self) -> bool {
+        self >= &StacksEpochId::Epoch34
+    }
+
+    /// Whether or not this epoch rejects `SupertypeTooLarge` errors.
+    pub fn rejects_supertype_too_large(&self) -> bool {
+        self < &StacksEpochId::Epoch34
+    }
+
+    /// Whether or not this epoch rejects parse-depth errors.
+    pub fn rejects_parse_depth_errors(&self) -> bool {
+        self < &StacksEpochId::Epoch34
+    }
+
+    /// Whether or not this epoch pre-sanitizes contract variables at deploy
+    /// and load time, allowing variable lookups to borrow directly.
+    pub fn uses_pre_sanitized_variables(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => false,
+            StacksEpochId::Epoch34 => true,
+        }
     }
 
     /// What is the sortition mining commitment window for this epoch?
@@ -596,7 +676,8 @@ impl StacksEpochId {
             StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
         }
     }
 
@@ -635,8 +716,15 @@ impl StacksEpochId {
             StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => cur_reward_cycle > first_epoch30_reward_cycle,
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => cur_reward_cycle > first_epoch30_reward_cycle,
         }
+    }
+
+    /// Does this epoch support the post-condition enhancements from SIP-040?
+    /// This includes support for `Originator` mode and the `MaySend` NFT condition.
+    pub fn supports_sip040_post_conditions(&self) -> bool {
+        self >= &StacksEpochId::Epoch34
     }
 
     /// What is the coinbase (in uSTX) to award for the given burnchain height?
@@ -751,8 +839,14 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30 => {
                 self.coinbase_reward_pre_sip029(first_burnchain_height, current_burnchain_height)
             }
-            StacksEpochId::Epoch31 | StacksEpochId::Epoch32 | StacksEpochId::Epoch33 => self
-                .coinbase_reward_sip029(mainnet, first_burnchain_height, current_burnchain_height),
+            StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => self.coinbase_reward_sip029(
+                mainnet,
+                first_burnchain_height,
+                current_burnchain_height,
+            ),
         }
     }
 
@@ -769,7 +863,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31 => false,
-            StacksEpochId::Epoch32 | StacksEpochId::Epoch33 => true,
+            StacksEpochId::Epoch32 | StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
         }
     }
 
@@ -786,8 +880,120 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 => true,
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
         }
+    }
+
+    /// Before Epoch 3.3, the cost for arguments to functions was based on the
+    /// parameter type, not the actual size of the argument passed in. This
+    /// resulted in over-charging for arguments smaller than the maximum size
+    /// permitted for the parameter.
+    pub fn uses_arg_size_for_cost(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
+        }
+    }
+
+    /// In Epoch 3.3, limits are introduced on the number of parameters
+    /// in function definitions and the number of methods in trait definitions.
+    pub fn limits_parameter_and_method_count(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
+        }
+    }
+
+    pub fn handles_with_stx_combined_check(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => false,
+            StacksEpochId::Epoch34 => true,
+        }
+    }
+
+    pub fn supports_call_with_constant(&self) -> bool {
+        self >= &StacksEpochId::Epoch34
+    }
+
+    /// Whether `at-block` is available in this epoch.
+    pub fn supports_at_block(&self) -> bool {
+        self < &StacksEpochId::Epoch34
+    }
+
+    /// Return the network epoch associated with the StacksEpochId
+    pub fn network_epoch(epoch: StacksEpochId) -> u8 {
+        match epoch {
+            StacksEpochId::Epoch10 => PEER_VERSION_EPOCH_1_0,
+            StacksEpochId::Epoch20 => PEER_VERSION_EPOCH_2_0,
+            StacksEpochId::Epoch2_05 => PEER_VERSION_EPOCH_2_05,
+            StacksEpochId::Epoch21 => PEER_VERSION_EPOCH_2_1,
+            StacksEpochId::Epoch22 => PEER_VERSION_EPOCH_2_2,
+            StacksEpochId::Epoch23 => PEER_VERSION_EPOCH_2_3,
+            StacksEpochId::Epoch24 => PEER_VERSION_EPOCH_2_4,
+            StacksEpochId::Epoch25 => PEER_VERSION_EPOCH_2_5,
+            StacksEpochId::Epoch30 => PEER_VERSION_EPOCH_3_0,
+            StacksEpochId::Epoch31 => PEER_VERSION_EPOCH_3_1,
+            StacksEpochId::Epoch32 => PEER_VERSION_EPOCH_3_2,
+            StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
+            StacksEpochId::Epoch34 => PEER_VERSION_EPOCH_3_4,
+        }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn since(epoch: StacksEpochId) -> &'static [StacksEpochId] {
+        let idx = Self::ALL
+            .iter()
+            .position(|&e| e == epoch)
+            .expect("epoch not found in ALL");
+
+        &Self::ALL[idx..]
+    }
+
+    /// Returns all [`StacksEpochId`] from `start` to `end`, both inclusive.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn between(start: StacksEpochId, end: StacksEpochId) -> &'static [StacksEpochId] {
+        let start_idx = Self::ALL
+            .iter()
+            .position(|&e| e == start)
+            .expect("start epoch not found in ALL");
+        let end_idx = Self::ALL
+            .iter()
+            .position(|&e| e == end)
+            .expect("end epoch not found in ALL");
+        assert!(start_idx <= end_idx, "start epoch must be <= end epoch");
+
+        &Self::ALL[start_idx..=end_idx]
     }
 }
 
@@ -806,6 +1012,30 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch31 => write!(f, "3.1"),
             StacksEpochId::Epoch32 => write!(f, "3.2"),
             StacksEpochId::Epoch33 => write!(f, "3.3"),
+            StacksEpochId::Epoch34 => write!(f, "3.4"),
+        }
+    }
+}
+
+impl FromStr for StacksEpochId {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1.0" => Ok(StacksEpochId::Epoch10),
+            "2.0" => Ok(StacksEpochId::Epoch20),
+            "2.05" => Ok(StacksEpochId::Epoch2_05),
+            "2.1" => Ok(StacksEpochId::Epoch21),
+            "2.2" => Ok(StacksEpochId::Epoch22),
+            "2.3" => Ok(StacksEpochId::Epoch23),
+            "2.4" => Ok(StacksEpochId::Epoch24),
+            "2.5" => Ok(StacksEpochId::Epoch25),
+            "3.0" => Ok(StacksEpochId::Epoch30),
+            "3.1" => Ok(StacksEpochId::Epoch31),
+            "3.2" => Ok(StacksEpochId::Epoch32),
+            "3.3" => Ok(StacksEpochId::Epoch33),
+            "3.4" => Ok(StacksEpochId::Epoch34),
+            _ => Err("Invalid epoch string"),
         }
     }
 }
@@ -827,6 +1057,7 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch31 as u32 => Ok(StacksEpochId::Epoch31),
             x if x == StacksEpochId::Epoch32 as u32 => Ok(StacksEpochId::Epoch32),
             x if x == StacksEpochId::Epoch33 as u32 => Ok(StacksEpochId::Epoch33),
+            x if x == StacksEpochId::Epoch34 as u32 => Ok(StacksEpochId::Epoch34),
             _ => Err("Invalid epoch"),
         }
     }
@@ -1092,5 +1323,67 @@ impl<L: Clone> Deref for EpochList<L> {
 impl<L: Clone> DerefMut for EpochList<L> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Copy)]
+pub enum MiningReason {
+    BlockFound = 0,
+    Extended = 1,
+    ReadCountExtend = 2,
+}
+
+impl TryFrom<u8> for MiningReason {
+    type Error = CodecError;
+
+    fn try_from(value: u8) -> Result<Self, CodecError> {
+        match value {
+            x if x == MiningReason::BlockFound as u8 => Ok(MiningReason::BlockFound),
+            x if x == MiningReason::Extended as u8 => Ok(MiningReason::Extended),
+            x if x == MiningReason::ReadCountExtend as u8 => Ok(MiningReason::ReadCountExtend),
+            _ => Err(CodecError::DeserializeError(format!(
+                "unknown mining reason {value}"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MinerDiagnosticData {
+    pub burnchain_tip_height: u64,
+    pub burnchain_tip_consensus_hash: chainstate::ConsensusHash,
+    pub burnchain_tip_header_hash: chainstate::BurnchainHeaderHash,
+    pub tenure_extend_time_stamp: u64,
+    pub read_count_extend_timestamp: u64,
+    pub mining_reason: MiningReason,
+}
+
+impl StacksMessageCodec for MinerDiagnosticData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.burnchain_tip_height)?;
+        write_next(fd, &self.burnchain_tip_consensus_hash)?;
+        write_next(fd, &self.burnchain_tip_header_hash)?;
+        write_next(fd, &self.tenure_extend_time_stamp)?;
+        write_next(fd, &self.read_count_extend_timestamp)?;
+        write_next(fd, &(self.mining_reason as u8))?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let burnchain_tip_height = read_next(fd)?;
+        let burnchain_tip_consensus_hash = read_next(fd)?;
+        let burnchain_tip_header_hash = read_next(fd)?;
+        let tenure_extend_time_stamp = read_next(fd)?;
+        let read_count_extend_timestamp = read_next(fd)?;
+        let mining_reason = read_next::<u8, _>(fd)?.try_into()?;
+
+        Ok(MinerDiagnosticData {
+            burnchain_tip_height,
+            burnchain_tip_consensus_hash,
+            burnchain_tip_header_hash,
+            tenure_extend_time_stamp,
+            read_count_extend_timestamp,
+            mining_reason,
+        })
     }
 }

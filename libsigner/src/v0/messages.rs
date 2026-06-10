@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ use std::hash::Hash;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
+use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
@@ -43,7 +44,7 @@ use clarity::types::PrivateKey;
 use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, Value};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
@@ -52,7 +53,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 
 use crate::stacks_common::types::PublicKey;
-use crate::v0::signer_state::ReplayTransactionSet;
+use crate::v0::signer_state::{ReplayTransactionSet, SignerStateMachine};
 use crate::{
     BlockProposal, MessageSlotID as MessageSlotIDTrait, SignerMessage as SignerMessageTrait,
     VERSION_STRING,
@@ -273,7 +274,7 @@ impl StacksMessageCodec for SignerMessage {
     }
 }
 
-/// Work around for the fact that a lot of the structs being desierialized are not defined in messages.rs
+/// Work around for the fact that a lot of the structs being deserialized are not defined in messages.rs
 pub trait StacksMessageCodecExtensions: Sized {
     /// Serialize the struct to the provided writer
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError>;
@@ -326,7 +327,7 @@ impl StacksMessageCodec for PeerInfo {
         // must encode a valid string
         let server_version = String::from_utf8(bytes).map_err(|_e| {
             CodecError::DeserializeError(
-                "Failed to parse server version name: could not contruct from utf8".to_string(),
+                "Failed to parse server version name: could not construct from utf8".to_string(),
             )
         })?;
         let pox_consensus = read_next::<ConsensusHash, _>(fd)?;
@@ -371,25 +372,25 @@ impl MockProposal {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "stacks-tip-consensus-hash".into(),
+                    ClarityName::from_literal("stacks-tip-consensus-hash"),
                     Value::buff_from(self.peer_info.stacks_tip_consensus_hash.as_bytes().into())
                         .unwrap(),
                 ),
                 (
-                    "stacks-tip".into(),
+                    ClarityName::from_literal("stacks-tip"),
                     Value::buff_from(self.peer_info.stacks_tip.as_bytes().into()).unwrap(),
                 ),
                 (
-                    "stacks-tip-height".into(),
+                    ClarityName::from_literal("stacks-tip-height"),
                     Value::UInt(self.peer_info.stacks_tip_height.into()),
                 ),
                 (
-                    "server-version".into(),
+                    ClarityName::from_literal("server-version"),
                     Value::string_ascii_from_bytes(self.peer_info.server_version.clone().into())
                         .unwrap(),
                 ),
                 (
-                    "pox-consensus".into(),
+                    ClarityName::from_literal("pox-consensus"),
                     Value::buff_from(self.peer_info.pox_consensus.as_bytes().into()).unwrap(),
                 ),
             ])
@@ -399,17 +400,17 @@ impl MockProposal {
     }
 
     /// The signature hash including the miner's signature. Used by signers.
-    fn signer_signature_hash(&self) -> Sha256Sum {
+    pub fn signer_signature_hash(&self) -> Sha256Sum {
         let domain_tuple =
             make_structured_data_domain("mock-signer", "1.0.0", self.peer_info.network_id);
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "miner-signature-hash".into(),
+                    ClarityName::from_literal("miner-signature-hash"),
                     Value::buff_from(self.miner_signature_hash().as_bytes().into()).unwrap(),
                 ),
                 (
-                    "miner-signature".into(),
+                    ClarityName::from_literal("miner-signature"),
                     Value::buff_from(self.signature.as_bytes().into()).unwrap(),
                 ),
             ])
@@ -458,7 +459,7 @@ impl StacksMessageCodec for MockProposal {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MockSignature {
     /// The signer's signature across the mock proposal
-    signature: MessageSignature,
+    pub signature: MessageSignature,
     /// The mock block proposal that was signed across
     pub mock_proposal: MockProposal,
     /// The signature metadata
@@ -593,6 +594,48 @@ pub enum StateMachineUpdateContent {
     },
 }
 
+impl Display for StateMachineUpdateContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StateMachineUpdateContent::V0 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+            } => write!(
+                f,
+                "V0 {{ burn_block: {:?}, burn_block_height: {}, current_miner: {:?} }}",
+                burn_block, burn_block_height, current_miner
+            ),
+            StateMachineUpdateContent::V1 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions,
+            } => write!(
+                f,
+                "V1 {{ burn_block: {:?}, burn_block_height: {}, current_miner: {:?}, replay_tx_count: {} }}",
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions.len()
+            ),
+            StateMachineUpdateContent::V2 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions,
+            } => write!(
+                f,
+                "V2 {{ burn_block: {:?}, burn_block_height: {}, current_miner: {:?}, replay_tx_count: {} }}",
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions.len()
+            ),
+        }
+    }
+}
+
 /// Message for update the Signer State infos
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, Hash)]
 pub enum StateMachineUpdateMinerState {
@@ -614,24 +657,76 @@ pub enum StateMachineUpdateMinerState {
     /// The signer doesn't believe there's any valid miner
     NoValidMiner,
 }
-
 impl StateMachineUpdate {
-    /// Construct a StateMachineUpdate message, checking to ensure that the
-    /// supplied content is supported by the supplied protocol versions.
+    /// Create a `StateMachineUpdate` for **outbound** messages.
+    ///
+    /// The content version **must exactly match** the negotiated protocol version:
+    /// `min(active_signer_protocol_version, local_supported_signer_protocol_version)`.
+    ///
+    /// This ensures the message we send conforms strictly to what both sides have agreed upon.
     pub fn new(
         active_signer_protocol_version: u64,
         local_supported_signer_protocol_version: u64,
         content: StateMachineUpdateContent,
     ) -> Result<Self, CodecError> {
-        if !content.is_protocol_version_compatible(active_signer_protocol_version) {
-            return Err(CodecError::DeserializeError(format!("StateMachineUpdateContent is incompatible with protocol version: {active_signer_protocol_version}")));
+        let negotiated =
+            active_signer_protocol_version.min(local_supported_signer_protocol_version);
+        let version = content.version();
+
+        if version != negotiated {
+            return Err(CodecError::DeserializeError(format!(
+                "Outbound content version {version} does not match negotiated protocol version {negotiated} \
+                 (active={active_signer_protocol_version}, local_supported={local_supported_signer_protocol_version})"
+            )));
         }
+
         Ok(Self {
             active_signer_protocol_version,
             local_supported_signer_protocol_version,
             content,
             no_manual_construct: PhantomData,
         })
+    }
+
+    /// Create a `StateMachineUpdate` for **inbound** messages.
+    ///
+    /// The content version must be **less than or equal to** the negotiated protocol version
+    /// (`min(active_signer_protocol_version, local_supported_signer_protocol_version)`).
+    /// Older versions are explicitly allowed for backward compatibility.
+    fn new_inbound(
+        active_signer_protocol_version: u64,
+        local_supported_signer_protocol_version: u64,
+        content: StateMachineUpdateContent,
+    ) -> Result<Self, CodecError> {
+        let negotiated =
+            active_signer_protocol_version.min(local_supported_signer_protocol_version);
+        let version = content.version();
+
+        if content.version() > negotiated {
+            return Err(CodecError::DeserializeError(format!(
+                "Inbound content version {version} exceeds negotiated protocol version {negotiated} \
+                 (active={active_signer_protocol_version}, local_supported={local_supported_signer_protocol_version})"
+            )));
+        }
+
+        Ok(Self {
+            active_signer_protocol_version,
+            local_supported_signer_protocol_version,
+            content,
+            no_manual_construct: PhantomData,
+        })
+    }
+}
+
+impl Display for StateMachineUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "StateMachineUpdate {{ active_protocol: {}, local_supported_protocol: {}, content: {} }}",
+            self.active_signer_protocol_version,
+            self.local_supported_signer_protocol_version,
+            self.content
+        )
     }
 }
 
@@ -692,12 +787,63 @@ impl StacksMessageCodec for StateMachineUpdateMinerState {
 }
 
 impl StateMachineUpdateContent {
-    // Is the protocol version specified one that uses self's content?
-    fn is_protocol_version_compatible(&self, version: u64) -> bool {
+    /// Get the replay transaction txids
+    pub fn replay_txids(&self) -> Vec<String> {
         match self {
-            Self::V0 { .. } => version == 0,
-            Self::V1 { .. } => version == 1,
-            Self::V2 { .. } => version == 2,
+            Self::V0 { .. } => Vec::new(),
+            Self::V1 {
+                replay_transactions,
+                ..
+            }
+            | Self::V2 {
+                replay_transactions,
+                ..
+            } => replay_transactions
+                .iter()
+                .map(|tx| tx.txid().to_string())
+                .collect(),
+        }
+    }
+
+    /// Attempt to create a new state machine update content with the specified version
+    pub fn new(
+        version: u64,
+        current_miner: StateMachineUpdateMinerState,
+        state_machine: &SignerStateMachine,
+    ) -> Result<Self, CodecError> {
+        let content = match version {
+            0 => StateMachineUpdateContent::V0 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+            },
+            1 => StateMachineUpdateContent::V1 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            2 => StateMachineUpdateContent::V2 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            other => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Signer protocol version is unknown: {other}"
+                )))
+            }
+        };
+        Ok(content)
+    }
+
+    /// Get the underlying version of the state machine update content
+    pub fn version(&self) -> u64 {
+        match self {
+            Self::V0 { .. } => 0,
+            Self::V1 { .. } => 1,
+            Self::V2 { .. } => 2,
         }
     }
 
@@ -832,8 +978,8 @@ impl StacksMessageCodec for StateMachineUpdate {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let active_signer_protocol_version = read_next(fd)?;
-        let local_supported_signer_protocol_version = read_next(fd)?;
+        let active_signer_protocol_version: u64 = read_next(fd)?;
+        let local_supported_signer_protocol_version: u64 = read_next(fd)?;
         let content_len: u32 = read_next(fd)?;
         if content_len > STATE_MACHINE_UPDATE_MAX_SIZE {
             return Err(CodecError::DeserializeError(format!(
@@ -844,12 +990,12 @@ impl StacksMessageCodec for StateMachineUpdate {
             .expect("FATAL: cannot process signer messages when usize < u32");
         let mut buffer = vec![0u8; buffer_len];
         fd.read_exact(&mut buffer).map_err(CodecError::ReadError)?;
-        let content = StateMachineUpdateContent::deserialize(
-            &mut buffer.as_slice(),
-            active_signer_protocol_version,
-        )?;
+        let negotiated =
+            active_signer_protocol_version.min(local_supported_signer_protocol_version);
+        let content = StateMachineUpdateContent::deserialize(&mut buffer.as_slice(), negotiated)?;
 
-        Self::new(
+        // We use the inbound constructor here as we need to allow for older versions
+        Self::new_inbound(
             active_signer_protocol_version,
             local_supported_signer_protocol_version,
             content,
@@ -1199,15 +1345,18 @@ impl BlockResponse {
     pub fn accepted(
         signer_signature_hash: Sha512Trunc256Sum,
         signature: MessageSignature,
-        tenure_extend_timestamp: u64,
+        full_extend_ts: u64,
+        read_count_extend_ts: u64,
     ) -> Self {
         Self::Accepted(BlockAccepted {
             signer_signature_hash,
             signature,
             metadata: SignerMessageMetadata::default(),
             response_data: BlockResponseData::new(
-                tenure_extend_timestamp,
+                full_extend_ts,
                 RejectReason::NotRejected,
+                read_count_extend_ts,
+                None,
             ),
         })
     }
@@ -1218,14 +1367,16 @@ impl BlockResponse {
         reject_reason: RejectReason,
         private_key: &StacksPrivateKey,
         mainnet: bool,
-        timestamp: u64,
+        full_extend_ts: u64,
+        read_count_extend_ts: u64,
     ) -> Self {
         Self::Rejected(BlockRejection::new(
             hash,
             reject_reason,
             private_key,
             mainnet,
-            timestamp,
+            full_extend_ts,
+            read_count_extend_ts,
         ))
     }
 
@@ -1353,17 +1504,26 @@ impl SignerMessageMetadata {
 }
 
 /// The latest version of the block response data
-pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 3;
+pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 5;
+/// The first version of the block response data that added the tenure read count extend
+///  timestamp.
+pub const FIRST_RESPONSE_DATA_VERSION_WITH_READ_COUNT: u8 = 4;
+/// The first version of the block response data that added the `failed_txid` field.
+pub const FIRST_RESPONSE_DATA_VERSION_WITH_FAILED_TXID: u8 = 5;
 
 /// Versioned, backwards-compatible struct for block response data
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockResponseData {
     /// The version of the block response data
     pub version: u8,
-    /// The block response data
+    /// Timestamp for when this signer would accept a full time-based TenureExtend
     pub tenure_extend_timestamp: u64,
     /// Block rejection reason
     pub reject_reason: RejectReason,
+    /// Timestamp for when this signer would accept a read-count only TenureExtend
+    pub tenure_extend_read_count_timestamp: u64,
+    /// The txid of the transaction that caused block validation to fail, if any
+    pub failed_txid: Option<Txid>,
     /// When deserializing future versions,
     /// there may be extra bytes that we don't know about
     pub unknown_bytes: Vec<u8>,
@@ -1371,24 +1531,41 @@ pub struct BlockResponseData {
 
 impl BlockResponseData {
     /// Create a new BlockResponseData for the provided tenure extend timestamp and unknown bytes
-    pub fn new(tenure_extend_timestamp: u64, reject_reason: RejectReason) -> Self {
+    pub fn new(
+        tenure_extend_timestamp: u64,
+        reject_reason: RejectReason,
+        tenure_extend_read_count_timestamp: u64,
+        failed_txid: Option<Txid>,
+    ) -> Self {
         Self {
             version: BLOCK_RESPONSE_DATA_VERSION,
             tenure_extend_timestamp,
             reject_reason,
+            tenure_extend_read_count_timestamp,
+            failed_txid,
             unknown_bytes: vec![],
         }
     }
 
     /// Create an empty BlockResponseData
     pub fn empty() -> Self {
-        Self::new(u64::MAX, RejectReason::NotRejected)
+        Self::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None)
     }
 
     /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.tenure_extend_timestamp)?;
         write_next(fd, &self.reject_reason)?;
+        write_next(fd, &self.tenure_extend_read_count_timestamp)?;
+        match &self.failed_txid {
+            Some(txid) => {
+                write_next(fd, &1u8)?;
+                write_next(fd, txid)?;
+            }
+            None => {
+                write_next(fd, &0u8)?;
+            }
+        }
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())
@@ -1421,10 +1598,28 @@ impl StacksMessageCodec for BlockResponseData {
         let mut inner_reader = inner_bytes.as_slice();
         let tenure_extend_timestamp = read_next(&mut inner_reader)?;
         let reject_reason = read_next::<RejectReason, _>(&mut inner_reader)?;
+        let tenure_extend_read_count_timestamp =
+            if version < FIRST_RESPONSE_DATA_VERSION_WITH_READ_COUNT {
+                u64::MAX
+            } else {
+                read_next(&mut inner_reader)?
+            };
+        let failed_txid = if version < FIRST_RESPONSE_DATA_VERSION_WITH_FAILED_TXID {
+            None
+        } else {
+            let has_txid: u8 = read_next(&mut inner_reader)?;
+            if has_txid != 0 {
+                Some(read_next::<Txid, _>(&mut inner_reader)?)
+            } else {
+                None
+            }
+        };
         Ok(Self {
             version,
             tenure_extend_timestamp,
             reject_reason,
+            tenure_extend_read_count_timestamp,
+            failed_txid,
             unknown_bytes: inner_reader.to_vec(),
         })
     }
@@ -1471,15 +1666,18 @@ impl BlockAccepted {
     pub fn new(
         signer_signature_hash: Sha512Trunc256Sum,
         signature: MessageSignature,
-        tenure_extend_timestamp: u64,
+        full_extend_ts: u64,
+        read_count_extend_ts: u64,
     ) -> Self {
         Self {
             signer_signature_hash,
             signature,
             metadata: SignerMessageMetadata::default(),
             response_data: BlockResponseData::new(
-                tenure_extend_timestamp,
+                full_extend_ts,
                 RejectReason::NotRejected,
+                read_count_extend_ts,
+                None,
             ),
         }
     }
@@ -1511,7 +1709,8 @@ impl BlockRejection {
         reject_reason: RejectReason,
         private_key: &StacksPrivateKey,
         mainnet: bool,
-        timestamp: u64,
+        full_extend_ts: u64,
+        read_count_extend_ts: u64,
     ) -> Self {
         let chain_id = if mainnet {
             CHAIN_ID_MAINNET
@@ -1525,7 +1724,12 @@ impl BlockRejection {
             signature: MessageSignature::empty(),
             chain_id,
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(timestamp, reject_reason),
+            response_data: BlockResponseData::new(
+                full_extend_ts,
+                reject_reason,
+                read_count_extend_ts,
+                None,
+            ),
         };
         rejection
             .sign(private_key)
@@ -1538,7 +1742,8 @@ impl BlockRejection {
         reject: BlockValidateReject,
         private_key: &StacksPrivateKey,
         mainnet: bool,
-        timestamp: u64,
+        full_extend_ts: u64,
+        read_count_extend_ts: u64,
     ) -> Self {
         let chain_id = if mainnet {
             CHAIN_ID_MAINNET
@@ -1546,14 +1751,20 @@ impl BlockRejection {
             CHAIN_ID_TESTNET
         };
         let reject_code = RejectCode::ValidationFailed(reject.reason_code);
+        let response_data = BlockResponseData::new(
+            full_extend_ts,
+            (&reject_code).into(),
+            read_count_extend_ts,
+            reject.failed_txid,
+        );
         let mut rejection = Self {
             reason: reject.reason,
-            reason_code: reject_code.clone(),
+            reason_code: reject_code,
             signer_signature_hash: reject.signer_signature_hash,
             chain_id,
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(timestamp, (&reject_code).into()),
+            response_data,
         };
         rejection
             .sign(private_key)
@@ -1924,6 +2135,7 @@ mod test {
             &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
+            thread_rng().next_u64(),
         );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
@@ -1935,6 +2147,7 @@ mod test {
             RejectReason::ConnectivityIssues("unspecified".to_string()),
             &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
+            thread_rng().next_u64(),
             thread_rng().next_u64(),
         );
         let serialized_rejection = rejection.serialize_to_vec();
@@ -1952,6 +2165,8 @@ mod test {
             response_data: BlockResponseData::new(
                 thread_rng().next_u64(),
                 RejectReason::NotRejected,
+                thread_rng().next_u64(),
+                None,
             ),
         };
         let response = BlockResponse::Accepted(accepted);
@@ -1965,6 +2180,7 @@ mod test {
             RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
             &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
+            thread_rng().next_u64(),
             thread_rng().next_u64(),
         ));
         let serialized_response = response.serialize_to_vec();
@@ -1982,6 +2198,8 @@ mod test {
             response_data: BlockResponseData::new(
                 thread_rng().next_u64(),
                 RejectReason::NotRejected,
+                thread_rng().next_u64(),
+                None,
             ),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted(accepted));
@@ -2149,7 +2367,7 @@ mod test {
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
                 metadata: SignerMessageMetadata::empty(),
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
 
@@ -2162,13 +2380,13 @@ mod test {
                 .unwrap(),
                 metadata: SignerMessageMetadata::empty(),
                 signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
     }
 
     #[test]
-    fn test_block_response_metadata() {
+    fn v2_block_response_metadata() {
         let block_rejected_hex = "010100000050426c6f636b206973206e6f7420612074656e7572652d737461727420626c6f636b2c20616e642068617320616e20756e7265636f676e697a65642074656e75726520636f6e73656e7375732068617368000691f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e80000000006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df30000000b48656c6c6f20776f726c64";
         let block_rejected_bytes = hex_bytes(block_rejected_hex).unwrap();
         let block_accepted_hex = "010011717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e80000000b48656c6c6f20776f726c64";
@@ -2189,7 +2407,7 @@ mod test {
                 metadata: SignerMessageMetadata {
                     server_version: "Hello world".to_string(),
                 },
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
 
@@ -2220,22 +2438,25 @@ mod test {
 
     #[test]
     fn block_response_data_serialization() {
-        let mut response_data = BlockResponseData::new(2, RejectReason::ReorgNotAllowed);
+        let mut response_data = BlockResponseData::new(2, RejectReason::ReorgNotAllowed, 3, None);
         response_data.unknown_bytes = vec![1, 2, 3, 4];
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
         // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp
-        //   + 1 byte reject code + 4 bytes unknown_bytes
-        assert_eq!(bytes.len(), 18);
+        //   + 1 byte reject code + 8 bytes read_count_timestamp + 1 byte failed_txid flag
+        //   + 4 bytes unknown_bytes
+        assert_eq!(bytes.len(), 27);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
 
-        let response_data = BlockResponseData::new(2, RejectReason::NotRejected);
+        let response_data = BlockResponseData::new(2, RejectReason::NotRejected, 3, None);
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
-        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 0 bytes unknown_bytes
-        assert_eq!(bytes.len(), 14);
+        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp
+        //   + 1 byte reject code + 8 bytes read_count_timestamp + 1 byte failed_txid flag
+        //   + 0 bytes unknown_bytes
+        assert_eq!(bytes.len(), 23);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
@@ -2246,6 +2467,8 @@ mod test {
         pub version: u8,
         pub tenure_extend_timestamp: u64,
         pub reject_reason: RejectReason,
+        pub read_count_timestamp: u64,
+        pub failed_txid: Option<Txid>,
         pub some_other_field: u64,
         pub yet_another_field: u64,
     }
@@ -2254,6 +2477,16 @@ mod test {
         pub fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
             write_next(fd, &self.tenure_extend_timestamp)?;
             write_next(fd, &self.reject_reason)?;
+            write_next(fd, &self.read_count_timestamp)?;
+            match &self.failed_txid {
+                Some(txid) => {
+                    write_next(fd, &1u8)?;
+                    write_next(fd, txid)?;
+                }
+                None => {
+                    write_next(fd, &0u8)?;
+                }
+            }
             write_next(fd, &self.some_other_field)?;
             write_next(fd, &self.yet_another_field)?;
             Ok(())
@@ -2276,6 +2509,8 @@ mod test {
             version: 11,
             tenure_extend_timestamp: 2,
             reject_reason: RejectReason::ReorgNotAllowed,
+            read_count_timestamp: 3,
+            failed_txid: None,
             some_other_field: 3,
             yet_another_field: 4,
         };
@@ -2342,7 +2577,7 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum::from_hex("11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19").unwrap(),
             metadata: SignerMessageMetadata::default(),
             signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-            response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected),
+            response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
         };
 
         let mut bytes = vec![];
@@ -2373,27 +2608,73 @@ mod test {
             accepted.response_data.reject_reason,
             RejectReason::Unknown(RejectReasonPrefix::Unknown as u8)
         );
+        assert_eq!(
+            accepted.response_data.tenure_extend_read_count_timestamp,
+            u64::MAX
+        );
     }
 
     #[test]
     fn version_check_state_machine_update() {
-        let error = StateMachineUpdate::new(
-            1,
-            3,
-            StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                    current_miner_pkh: Hash160([0xab; 20]),
-                    tenure_id: ConsensusHash([0x44; 20]),
-                    parent_tenure_id: ConsensusHash([0x22; 20]),
-                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                    parent_tenure_last_block_height: 1,
-                },
+        let content = StateMachineUpdateContent::V1 {
+            burn_block: ConsensusHash([0x55; 20]),
+            burn_block_height: 100,
+            current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh: Hash160([0xab; 20]),
+                tenure_id: ConsensusHash([0x44; 20]),
+                parent_tenure_id: ConsensusHash([0x22; 20]),
+                parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                parent_tenure_last_block_height: 1,
             },
-        )
-        .unwrap_err();
+            replay_transactions: vec![],
+        };
+        // We active version does not support the content
+        let error = StateMachineUpdate::new(0, 1, content.clone()).unwrap_err();
         assert!(matches!(error, CodecError::DeserializeError(_)));
+        // The content should be the min of the active/local versions but it is lower
+        let error = StateMachineUpdate::new(2, 3, content.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+        // The content should be the min of the active/local versions but it is greater
+        let error = StateMachineUpdate::new(2, 0, content.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+        // the content version is equal to the min of the active/local versions
+        assert!(StateMachineUpdate::new(1, 2, content.clone()).is_ok())
+    }
+
+    #[test]
+    fn version_check_state_machine_update_inbound() {
+        let content_v1 = StateMachineUpdateContent::V1 {
+            burn_block: ConsensusHash([0x55; 20]),
+            burn_block_height: 100,
+            current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh: Hash160([0xab; 20]),
+                tenure_id: ConsensusHash([0x44; 20]),
+                parent_tenure_id: ConsensusHash([0x22; 20]),
+                parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                parent_tenure_last_block_height: 1,
+            },
+            replay_transactions: vec![],
+        };
+
+        // Inbound: content version exceeds negotiated version → should reject
+
+        // Case 1: Content version (1) > negotiated (0) → reject
+        let error = StateMachineUpdate::new_inbound(0, 1, content_v1.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+
+        // Case 2: Content version (1) > negotiated (0) → reject (swapped active/local)
+        let error = StateMachineUpdate::new_inbound(1, 0, content_v1.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+
+        // Case 3: Content version (1) == negotiated (1) → accept
+        assert!(StateMachineUpdate::new_inbound(1, 1, content_v1.clone()).is_ok());
+        assert!(StateMachineUpdate::new_inbound(1, 2, content_v1.clone()).is_ok());
+        assert!(StateMachineUpdate::new_inbound(3, 1, content_v1.clone()).is_ok());
+
+        // Case 4: Content version (1) < negotiated (2) → accept (backward compatibility)
+        assert!(StateMachineUpdate::new_inbound(2, 2, content_v1.clone()).is_ok());
+        assert!(StateMachineUpdate::new_inbound(2, 5, content_v1.clone()).is_ok());
+        assert!(StateMachineUpdate::new_inbound(10, 10, content_v1.clone()).is_ok());
     }
 
     #[test]
@@ -2640,5 +2921,80 @@ mod test {
             read_next::<SignerMessage, _>(&mut &serialized_pre_commit[..])
                 .expect("Failed to deserialize pre-commit");
         assert_eq!(pre_commit, deserialized_pre_commit);
+    }
+
+    #[test]
+    /// Tests that messages created by version 3 of the response data
+    /// can be deserialized by the current version.
+    ///
+    /// * When deserialized by V4 of the library, these messages will set the
+    ///   `tenure_extend_read_count_timestamp` field to u64::MAX.
+    fn v3_block_response_deserialization() {
+        let test_vectors = [
+            (
+                SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                    reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
+                    reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
+                    signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
+                    chain_id: CHAIN_ID_TESTNET,
+                    signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
+                    metadata: SignerMessageMetadata {
+                        server_version: "Hello world".to_string(),
+                    },
+                    response_data: BlockResponseData {
+                        version: 3,
+                        tenure_extend_timestamp: 11,
+                        reject_reason: RejectReason::InvalidParentBlock,
+                        tenure_extend_read_count_timestamp: u64::MAX,
+                        failed_txid: None,
+                        unknown_bytes: vec![],
+                    },
+                })),
+                "010100000050426c6f636b206973206e6f7420612074656e7572652d737461727420626c6f636b2c20616e642068617320616e20756e7265636f676e697a65642074656e75726520636f6e73656e7375732068617368000691f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e80000000006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df30000000b48656c6c6f20776f726c640300000009000000000000000b0b",
+            ),
+            (
+                SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
+                    signer_signature_hash: Sha512Trunc256Sum::from_hex(
+                        "11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19"
+                    )
+                        .unwrap(),
+                    metadata: SignerMessageMetadata {
+                        server_version: "Hello world".to_string(),
+                    },
+                    signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
+                    response_data: BlockResponseData {
+                        version: 3,
+                        tenure_extend_timestamp: 21,
+                        reject_reason: RejectReason::NotRejected,
+                        tenure_extend_read_count_timestamp: u64::MAX,
+                        failed_txid: None,
+                        unknown_bytes: vec![],
+                    },
+                })),
+                "010011717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e80000000b48656c6c6f20776f726c6403000000090000000000000015ff",
+            )
+        ];
+
+        for (expected_out, input_hex) in test_vectors.into_iter() {
+            let input_bytes = hex_bytes(input_hex).unwrap();
+            let actual_out =
+                SignerMessage::consensus_deserialize(&mut input_bytes.as_slice()).unwrap();
+            assert_eq!(actual_out, expected_out);
+            let SignerMessage::BlockResponse(expected_out) = expected_out else {
+                panic!("Expected block response");
+            };
+            let SignerMessage::BlockResponse(actual_out) = actual_out else {
+                panic!("Expected block response");
+            };
+            let expected_data = expected_out.get_response_data();
+            let resp_data = actual_out.get_response_data();
+            assert_eq!(
+                resp_data.tenure_extend_read_count_timestamp,
+                expected_data.tenure_extend_read_count_timestamp
+            );
+            assert_eq!(resp_data.unknown_bytes, expected_data.unknown_bytes);
+            assert_eq!(resp_data.version, expected_data.version);
+            assert_eq!(resp_data, expected_data);
+        }
     }
 }

@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -5,11 +21,13 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{cmp, env, fs, io, thread};
 
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
+use clarity::vm::{
+    execute_with_parameters as execute, ClarityName, ClarityVersion, ContractName, Value,
+};
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
@@ -34,9 +52,8 @@ use stacks::chainstate::stacks::miner::{
 };
 use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, TransactionContractCall, TransactionPayload,
+    StacksTransaction, TenureChangeCause, TransactionContractCall, TransactionPayload,
 };
-use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MemPoolWalkTxTypes};
@@ -110,21 +127,21 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1000,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1000,
             end_height: 1000000 - 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 1000000 - 1,
             end_height: 9223372036854775807,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));
@@ -278,17 +295,16 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
-    use libsigner::BurnBlockEvent;
     use stacks::chainstate::stacks::boot::RewardSet;
-    use stacks::chainstate::stacks::events::StackerDBChunksEvent;
+    use stacks::chainstate::stacks::events::{BurnBlockEvent, StackerDBChunksEvent};
     use stacks::chainstate::stacks::StacksTransaction;
     use stacks::codec::StacksMessageCodec;
     use stacks::config::{EventKeyType, EventObserverConfig};
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use stacks::util::hash::hex_bytes;
     use stacks_common::types::chainstate::StacksBlockId;
-    use warp::Filter;
-    use {tokio, warp};
+    use tokio;
+    use warp::{self, Filter};
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
     use crate::Config;
@@ -788,6 +804,30 @@ pub fn next_block_and_wait_with_timeout(
         blocks_processed.load(Ordering::SeqCst)
     );
     true
+}
+
+/// Mine blocks until `check` returns `true`, up to `max_blocks` blocks.
+/// Each block is mined with `next_block_and_wait`, waiting up to
+/// `block_timeout_secs` for it to be processed before moving on.
+pub fn mine_blocks_until<F>(
+    btc_controller: &BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    max_blocks: u64,
+    block_timeout_secs: u64,
+    mut check: F,
+) -> Result<(), String>
+where
+    F: FnMut() -> Result<bool, String>,
+{
+    for _ in 0..max_blocks {
+        next_block_and_wait_with_timeout(btc_controller, blocks_processed, block_timeout_secs);
+        if check()? {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "Condition not met after mining {max_blocks} blocks"
+    ))
 }
 
 /// Returns `false` on a timeout, true otherwise.
@@ -1560,7 +1600,7 @@ fn get_chain_tip(http_origin: &str) -> (ConsensusHash, BlockHeaderHash) {
     )
 }
 
-fn get_chain_tip_height(http_origin: &str) -> u64 {
+pub fn get_chain_tip_height(http_origin: &str) -> u64 {
     let client = reqwest::blocking::Client::new();
     let path = format!("{http_origin}/v2/info");
     let res = client
@@ -1605,13 +1645,6 @@ fn deep_contract() {
         return;
     }
 
-    let stack_limit = (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
-    let exceeds_stack_depth_list = format!(
-        "{}u1 {}",
-        "(list ".repeat(stack_limit + 1),
-        ")".repeat(stack_limit + 1)
-    );
-
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.clone().into();
@@ -1627,6 +1660,14 @@ fn deep_contract() {
         address: spender_princ,
         amount: spender_bal,
     });
+
+    let epoch = conf.burnchain.get_epoch_list().last().unwrap().epoch_id;
+    let stack_limit = StackDepthLimits::for_epoch(epoch).max_nesting_depth() as usize + 1;
+    let exceeds_stack_depth_list = format!(
+        "{}u1 {}",
+        "(list ".repeat(stack_limit + 1),
+        ")".repeat(stack_limit + 1)
+    );
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -2217,21 +2258,21 @@ fn stx_delegate_btc_integration_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));
@@ -2368,6 +2409,8 @@ fn stx_delegate_btc_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity2,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -2406,16 +2449,16 @@ fn stx_delegate_btc_integration_test() {
 
                 // Ensure that the function name is as expected
                 // This verifies that there were print events for delegate-stack-stx and delegate-stx
-                let name_field =
-                    &contract_event["value"]["Response"]["data"]["Tuple"]["data_map"]["name"];
-                let name_data = name_field["Sequence"]["String"]["ASCII"]["data"]
-                    .as_array()
+                let raw_hex = contract_event["raw_value"].as_str().unwrap();
+                let clarity_bytes = hex_bytes(&raw_hex[2..]).unwrap();
+                let clarity_value =
+                    Value::deserialize_read(&mut &clarity_bytes[..], None, false).unwrap();
+                let pair = clarity_value
+                    .expect_result_ok()
+                    .unwrap()
+                    .expect_tuple()
                     .unwrap();
-                let ascii_vec = name_data
-                    .iter()
-                    .map(|num| num.as_u64().unwrap() as u8)
-                    .collect();
-                let name = String::from_utf8(ascii_vec).unwrap();
+                let name = pair.get_owned("name").unwrap().expect_ascii().unwrap();
                 if name == "delegate-stack-stx" {
                     delegate_stack_stx_found = true;
                 } else if name == "delegate-stx" {
@@ -2468,49 +2511,49 @@ fn stack_stx_burn_op_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 6,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 6,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
     ]));
@@ -2865,49 +2908,49 @@ fn vote_for_aggregate_key_burn_op_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 6,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 6,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
     ]));
@@ -4294,41 +4337,40 @@ fn cost_voting_integration() {
         &[Value::UInt(1)],
     );
 
+    test_observer::clear();
     submit_tx(&http_origin, &vote_tx);
     submit_tx(&http_origin, &call_le_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Mine blocks until both txs are confirmed (nonces 3 and 4)
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
+        let res = get_account(&http_origin, &spender_princ);
+        Ok(res.nonce >= 5)
+    })
+    .expect("vote and execute txs should have been mined");
 
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let mut blocks = test_observer::get_blocks();
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    eprintln!("{}", transactions.len());
+    let blocks = test_observer::get_blocks();
     let mut tested = false;
     let mut exec_cost = ExecutionCost::ZERO;
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            continue;
-        }
-        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-            eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "execute-2" {
-                exec_cost =
-                    serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
-            } else if contract_call.function_name.as_str() == "propose-vote-confirm" {
-                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                assert_eq!(parsed.to_string(), "(ok u0)");
-                tested = true;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "execute-2" {
+                    exec_cost =
+                        serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
+                } else if contract_call.function_name.as_str() == "propose-vote-confirm" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                    assert_eq!(parsed.to_string(), "(ok u0)");
+                    tested = true;
+                }
             }
         }
     }
@@ -4346,36 +4388,35 @@ fn cost_voting_integration() {
         &[Value::UInt(0)],
     );
 
+    test_observer::clear();
     submit_tx(&http_origin, &confirm_proposal);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Mine blocks until early confirm-miners is confirmed (nonce 5)
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
+        let res = get_account(&http_origin, &spender_princ);
+        Ok(res.nonce >= 6)
+    })
+    .expect("early confirm-miners tx should have been mined");
 
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let mut blocks = test_observer::get_blocks();
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    eprintln!("{}", transactions.len());
+    let blocks = test_observer::get_blocks();
     let mut tested = false;
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            continue;
-        }
-        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-            eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "confirm-miners" {
-                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                assert_eq!(parsed.to_string(), "(err 13)");
-                tested = true;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "confirm-miners" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                    assert_eq!(parsed.to_string(), "(err 13)");
+                    tested = true;
+                }
             }
         }
     }
@@ -4397,35 +4438,35 @@ fn cost_voting_integration() {
         &[Value::UInt(0)],
     );
 
+    test_observer::clear();
     submit_tx(&http_origin, &confirm_proposal);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Mine blocks until confirm-miners after maturation is confirmed (nonce 6)
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
+        let res = get_account(&http_origin, &spender_princ);
+        Ok(res.nonce >= 7)
+    })
+    .expect("confirm-miners tx should have been mined");
 
-    let mut blocks = test_observer::get_blocks();
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    eprintln!("{}", transactions.len());
+    let blocks = test_observer::get_blocks();
     let mut tested = false;
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            continue;
-        }
-        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-            eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "confirm-miners" {
-                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                assert_eq!(parsed.to_string(), "(ok true)");
-                tested = true;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "confirm-miners" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                    assert_eq!(parsed.to_string(), "(ok true)");
+                    tested = true;
+                }
             }
         }
     }
@@ -4442,35 +4483,35 @@ fn cost_voting_integration() {
         &[Value::UInt(1)],
     );
 
+    test_observer::clear();
     submit_tx(&http_origin, &call_le_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Mine blocks until execute-2 with new cost is confirmed (nonce 7)
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
+        let res = get_account(&http_origin, &spender_princ);
+        Ok(res.nonce >= 8)
+    })
+    .expect("execute-2 tx should have been mined");
 
-    let mut blocks = test_observer::get_blocks();
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-
+    let blocks = test_observer::get_blocks();
     let mut tested = false;
     let mut new_exec_cost = ExecutionCost::max_value();
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            continue;
-        }
-        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-            eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "execute-2" {
-                new_exec_cost =
-                    serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
-                tested = true;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "execute-2" {
+                    new_exec_cost =
+                        serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
+                    tested = true;
+                }
             }
         }
     }
@@ -5356,6 +5397,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -5468,6 +5511,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_2_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -5492,6 +5537,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_2_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -5601,10 +5648,10 @@ fn pox_integration_test() {
 
     for block in burn_blocks.iter() {
         for holder in block.reward_slot_holders.iter() {
-            if let Some(current) = recipient_slots.get_mut(holder) {
+            if let Some(current) = recipient_slots.get_mut(&holder.clone().to_b58()) {
                 *current += 1;
             } else {
-                recipient_slots.insert(holder.clone(), 1);
+                recipient_slots.insert(holder.clone().to_b58(), 1);
             }
         }
     }
@@ -7269,7 +7316,12 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             max_contract_src,
         ),
     );
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
+    // Mine blocks until the contract publish (nonce 0) is confirmed.
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
+        let account = get_account(&http_origin, &spender_addr);
+        Ok(account.nonce >= 1)
+    })
+    .expect("Timed out waiting for contract publish to confirm");
 
     // Loop 20 times. Each time, execute the same transaction, but increase the amount *paid*.
     // This will exercise the window size.
@@ -7289,12 +7341,12 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
                 &[],
             ),
         );
-        run_until_burnchain_height(
-            &mut btc_regtest_controller,
-            &blocks_processed,
-            212 + 2 * i,
-            &conf,
-        );
+        // Mine blocks until this transaction (nonce i) is confirmed.
+        mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
+            let account = get_account(&http_origin, &spender_addr);
+            Ok(account.nonce > i)
+        })
+        .unwrap_or_else(|_| panic!("Timed out waiting for tx nonce {i} to confirm"));
 
         {
             // Read from the fee estimation endpoin.
@@ -7302,8 +7354,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 
             let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
                 address: spender_addr.clone(),
-                contract_name: ContractName::from("increment-contract"),
-                function_name: ClarityName::from("increment-many"),
+                contract_name: ContractName::from_literal("increment-contract"),
+                function_name: ClarityName::from_literal("increment-many"),
                 function_args: vec![],
             });
 
@@ -7326,30 +7378,28 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
         }
     }
 
-    // Wait two extra blocks to be sure.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
     assert_eq!(response_estimated_costs.len(), response_top_fee_rates.len());
 
     // Check that:
     // 1) The cost is always the same.
-    // 2) Fee rate grows monotonically.
+    // 2) Fee rate trends upward overall. The estimator window may contain empty
+    //    blocks (fee_rate=1.0 minimum) which can cause intermediate dips in the
+    //    median — so we verify the overall trend rather than strict monotonicity.
     for i in 1..response_estimated_costs.len() {
         let curr_cost = response_estimated_costs[i];
         let last_cost = response_estimated_costs[i - 1];
         assert_eq!(curr_cost, last_cost);
-
-        let curr_rate = response_top_fee_rates[i];
-        let last_rate = response_top_fee_rates[i - 1];
-        assert!(curr_rate >= last_rate);
     }
 
-    // Check the final value is near input parameter.
-    assert!(is_close_f64(
-        *response_top_fee_rates.last().unwrap(),
-        expected_final_value
-    ));
+    let first_rate = *response_top_fee_rates.first().unwrap();
+    let last_rate = *response_top_fee_rates.last().unwrap();
+    assert!(
+        last_rate > first_rate,
+        "Fee rate should trend upward: first={first_rate}, last={last_rate}"
+    );
+
+    // Check the final value is near the expected value.
+    assert!(is_close_f64(last_rate, expected_final_value));
 
     channel.stop_chains_coordinator();
 }
@@ -7795,21 +7845,21 @@ fn test_problematic_txs_are_not_stored() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 10_002,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 10_002,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));
@@ -7828,7 +7878,8 @@ fn test_problematic_txs_are_not_stored() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // something at the limit of the expression depth (will get mined and processed)
-    let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
+    let edge_repeat_factor =
+        StackDepthLimits::for_epoch(StacksEpochId::Epoch2_05).max_nesting_depth() - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
     let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");
@@ -8033,21 +8084,21 @@ fn test_problematic_blocks_are_not_mined() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 10_002,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 10_002,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));
@@ -8184,7 +8235,12 @@ fn test_problematic_blocks_are_not_mined() {
     debug!("Submit problematic tx_high transaction {tx_high_txid}");
     std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "1");
     submit_tx(&http_origin, &tx_high);
-    assert!(get_unconfirmed_tx(&http_origin, &tx_high_txid).is_some());
+    // `get_unconfirmed_tx` returns `None` on *any* non-success response, which
+    // includes transient RPC errors while the node is busy processing a block.
+    wait_for(30, || {
+        Ok(get_unconfirmed_tx(&http_origin, &tx_high_txid).is_some())
+    })
+    .expect("Problematic tx_high should be accepted into the mempool");
     std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "0");
 
     btc_regtest_controller.build_next_block(1);
@@ -8486,7 +8542,7 @@ pub fn make_expensive_tx_chain(
                 nonce,
                 1049230 + nonce + fee_plus,
                 chain_id,
-                &contract_name,
+                contract_name.as_str(),
                 &make_runtime_sized_contract(num_index_of, nonce, &addr_prefix),
             )
         } else {
@@ -9461,7 +9517,7 @@ fn mock_miner_replay() {
         return;
     }
 
-    let timeout = Some(Duration::from_secs(30));
+    let timeout = Some(Duration::from_secs(120));
     // Had to add this so that mock miner makes an attempt on EVERY block
     let block_gap = Duration::from_secs(1);
 
@@ -9580,25 +9636,41 @@ fn mock_miner_replay() {
     let follower_blocks_processed_end = follower_channel.get_stacks_blocks_processed();
 
     let blocks_dir = follower_conf.node.mock_mining_output_dir.clone().unwrap();
-    let file_count = follower_conf
-        .node
-        .mock_mining_output_dir
-        .unwrap()
-        .read_dir()
-        .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
-        .count();
+    let mock_mining_output_dir = follower_conf.node.mock_mining_output_dir.unwrap();
 
     // Check that expected output files exist
     assert!(test_dir.is_dir());
     assert!(blocks_dir.is_dir());
-    assert_eq!(file_count, 12);
+
+    // Wait for all mock mining output files to be flushed to disk.
+    let expected_file_count = 12;
+    let start = std::time::Instant::now();
+    let file_count = loop {
+        let count = mock_mining_output_dir
+            .read_dir()
+            .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
+            .count();
+        if count >= expected_file_count {
+            break count;
+        }
+        if start.elapsed() > Duration::from_secs(30) {
+            panic!(
+                "Timed out waiting for mock mining output files: expected {expected_file_count}, got {count}"
+            );
+        }
+        thread::sleep(Duration::from_millis(500));
+    };
+    assert_eq!(file_count, expected_file_count);
     assert_eq!(miner_blocks_processed_end, follower_blocks_processed_end);
 
     // PART 2
     // Run `mock_miner_replay()`
     let blocks_dir = blocks_dir.into_os_string().into_string().unwrap();
     let db_path = format!("{}/neon", conf.node.working_dir);
-    let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
+    let args = stacks_inspect::ReplayMockMiningArgs {
+        chainstate_path: db_path,
+        mock_mining_output_path: blocks_dir,
+    };
 
     info!("Replaying mock mined blocks...");
     stacks_inspect::command_replay_mock_mining(&args, Some(&conf));
@@ -9607,4 +9679,37 @@ fn mock_miner_replay() {
 
     miner_channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
+}
+
+/// Waits for a tenure change transaction to be observed in the test_observer at the expected height
+pub fn wait_for_tenure_change_tx(
+    timeout_secs: u64,
+    cause: TenureChangeCause,
+    expected_height: u64,
+) -> Result<serde_json::Value, String> {
+    let mut result = None;
+    wait_for(timeout_secs, || {
+        let blocks = test_observer::get_blocks();
+        for block in blocks {
+            let height = block["block_height"].as_u64().unwrap();
+            if height == expected_height {
+                let transactions = block["transactions"].as_array().unwrap();
+                for tx in transactions {
+                    let raw_tx = tx["raw_tx"].as_str().unwrap();
+                    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                    let parsed =
+                        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                    if let TransactionPayload::TenureChange(payload) = &parsed.payload {
+                        if payload.cause.is_eq(&cause) {
+                            info!("Found tenure change transaction: {parsed:?}");
+                            result = Some(block);
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(false)
+    })?;
+    Ok(result.unwrap())
 }

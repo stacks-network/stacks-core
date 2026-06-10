@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use clarity::types::net::PeerHost;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
@@ -60,6 +61,7 @@ use crate::net::{
 };
 
 mod blockreplay;
+mod blocksimulate;
 mod callreadonly;
 mod fastcallreadonly;
 mod get_tenures_fork_info;
@@ -185,8 +187,8 @@ fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHtt
         let all_relays_flushed =
             receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
 
-        let nw = sender.send(&mut pipe_write).unwrap();
-        let nr = receiver.recv(&mut pipe_read).unwrap();
+        let nw = sender.send(&mut pipe_write).expect("Invalid send");
+        let nr = receiver.recv(&mut pipe_read).expect("Invalid receive");
 
         debug!(
             "test_rpc: all_relays_flushed = {} ({},{}), nr = {}, nw = {}",
@@ -341,11 +343,17 @@ impl<'a> TestRPC<'a> {
 
         // stacker DBs get initialized thru reconfiguration when the above block gets processed
         peer_1_config.add_stacker_db(
-            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".into()),
+            QualifiedContractIdentifier::new(
+                addr1.clone().into(),
+                ContractName::from_literal("hello-world"),
+            ),
             StackerDBConfig::noop(),
         );
         peer_2_config.add_stacker_db(
-            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".into()),
+            QualifiedContractIdentifier::new(
+                addr1.clone().into(),
+                ContractName::from_literal("hello-world"),
+            ),
             StackerDBConfig::noop(),
         );
 
@@ -469,7 +477,7 @@ impl<'a> TestRPC<'a> {
                 &neighbor,
                 &[QualifiedContractIdentifier::new(
                     addr1.clone().into(),
-                    "hello-world".into(),
+                    ContractName::from_literal("hello-world"),
                 )],
             )
             .unwrap();
