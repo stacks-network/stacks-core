@@ -57,9 +57,9 @@ fn hex_id(label: &str) -> String {
 const FIXTURE_LEAF: MARFValue = MARFValue([0xff; 40]);
 
 /// Create a destination DB that simulates a squashed MARF: a real (tiny)
-/// MARF with one confirmed block and one [`FIXTURE_LEAF`] leaf, plus the
-/// `marf_squashed_blocks` table holding the given canonical block labels
-/// (stored as [`label_block_id`] BLOBs). Returns the connection for
+/// MARF with one confirmed block and one [`FIXTURE_LEAF`] leaf, plus
+/// `marf_squashed_blocks` rows for the given canonical block labels
+/// (stored as [`label_block_id`] ids). Returns the connection for
 /// [`append_canonical_block`].
 fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&str]) -> Connection {
     let mut marf =
@@ -72,14 +72,6 @@ fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&st
     drop(marf);
 
     let conn = Connection::open(path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS marf_squashed_blocks (
-            height INTEGER PRIMARY KEY,
-            block_hash BLOB NOT NULL UNIQUE,
-            marf_root_hash BLOB NOT NULL
-        )",
-    )
-    .unwrap();
     for (h, bh) in canonical.iter().enumerate() {
         let id = label_block_id(bh);
         conn.execute(
