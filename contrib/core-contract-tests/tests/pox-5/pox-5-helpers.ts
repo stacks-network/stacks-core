@@ -329,8 +329,7 @@ export function deployTestSignerContract(name: string) {
   simnet.deployContract(
     name,
     signerSource,
-    // Runtime supports Clarity 6 (matches Clarinet.toml) but the SDK's
-    // type union still lags behind, so we cast away the literal-type check.
+    // @ts-ignore
     { clarityVersion: 6 },
     accounts.deployer.address,
   );
