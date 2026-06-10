@@ -3608,13 +3608,13 @@ export const contracts = {
           { name: 'signer', type: 'principal' },
           { name: 'cycle', type: 'uint128' },
         ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+        outputs: { type: 'bool' },
       } as TypedAbiFunction<
         [
           signer: TypedAbiArg<string, 'signer'>,
           cycle: TypedAbiArg<number | bigint, 'cycle'>,
         ],
-        Response<boolean, bigint>
+        boolean
       >,
       addStakerToBond: {
         name: 'add-staker-to-bond',
@@ -4050,6 +4050,60 @@ export const contracts = {
           },
           bigint
         >
+      >,
+      getL1LockupSummary: {
+        name: 'get-l1-lockup-summary',
+        access: 'private',
+        args: [
+          {
+            name: 'lockup',
+            type: {
+              tuple: [
+                { name: 'amount', type: 'uint128' },
+                { name: 'header', type: { buffer: { length: 80 } } },
+                { name: 'height', type: 'uint128' },
+                {
+                  name: 'leaf-hashes',
+                  type: {
+                    list: { type: { buffer: { length: 32 } }, length: 14 },
+                  },
+                },
+                { name: 'output-index', type: 'uint128' },
+                { name: 'tx', type: { buffer: { length: 100000 } } },
+                { name: 'tx-count', type: 'uint128' },
+                { name: 'tx-index', type: 'uint128' },
+              ],
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            tuple: [
+              { name: 'output-index', type: 'uint128' },
+              { name: 'txid', type: { buffer: { length: 32 } } },
+            ],
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          lockup: TypedAbiArg<
+            {
+              amount: number | bigint;
+              header: Uint8Array;
+              height: number | bigint;
+              leafHashes: Uint8Array[];
+              outputIndex: number | bigint;
+              tx: Uint8Array;
+              txCount: number | bigint;
+              txIndex: number | bigint;
+            },
+            'lockup'
+          >,
+        ],
+        {
+          outputIndex: bigint;
+          txid: Uint8Array;
+        }
       >,
       matchUintInList: {
         name: 'match-uint-in-list',
@@ -5128,6 +5182,36 @@ export const contracts = {
                 tuple: [
                   { name: 'amount-ustx', type: 'uint128' },
                   { name: 'bond-index', type: 'uint128' },
+                  {
+                    name: 'btc-lockup',
+                    type: {
+                      tuple: [
+                        {
+                          name: 'txs',
+                          type: {
+                            optional: {
+                              list: {
+                                type: {
+                                  tuple: [
+                                    { name: 'output-index', type: 'uint128' },
+                                    {
+                                      name: 'txid',
+                                      type: { buffer: { length: 32 } },
+                                    },
+                                  ],
+                                },
+                                length: 10,
+                              },
+                            },
+                          },
+                        },
+                        {
+                          name: 'type',
+                          type: { 'string-ascii': { length: 2 } },
+                        },
+                      ],
+                    },
+                  },
                   { name: 'first-reward-cycle', type: 'uint128' },
                   { name: 'is-l1-lock', type: 'bool' },
                   { name: 'sats-total', type: 'uint128' },
@@ -5171,6 +5255,15 @@ export const contracts = {
           {
             amountUstx: bigint;
             bondIndex: bigint;
+            btcLockup: {
+              txs:
+                | {
+                    outputIndex: bigint;
+                    txid: Uint8Array;
+                  }[]
+                | null;
+              type: string;
+            };
             firstRewardCycle: bigint;
             isL1Lock: boolean;
             satsTotal: bigint;
