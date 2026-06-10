@@ -3419,7 +3419,7 @@ mod tests {
 
         // tx1: deploy (no contract-call path → no cache activity).
         conn.as_transaction(|tx| {
-            let (ct_ast, ct_analysis) = tx
+            let (mut ct_ast, ct_analysis) = tx
                 .analyze_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
@@ -3429,7 +3429,8 @@ mod tests {
             tx.initialize_smart_contract(
                 &contract_identifier,
                 ClarityVersion::Clarity1,
-                &ct_ast,
+                &mut ct_ast,
+                &ct_analysis,
                 contract_src,
                 None,
                 |_, _| None,

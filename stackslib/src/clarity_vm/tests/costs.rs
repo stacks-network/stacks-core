@@ -2032,7 +2032,16 @@ fn test_cost_change() {
     let use_mainnet = false;
 
     let result_32_small = with_owned_env(StacksEpochId::Epoch32, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity3, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity3,
+            &mut owned_env,
+            &mut analysis_db,
+        );
 
         let contract = "(define-read-only (execute (bytes (buff 4096))) bytes)";
 
@@ -2064,7 +2073,16 @@ fn test_cost_change() {
     });
 
     let result_32_large = with_owned_env(StacksEpochId::Epoch32, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity3, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity3,
+            &mut owned_env,
+            &mut analysis_db,
+        );
 
         let contract = "(define-read-only (execute (bytes (buff 8192))) bytes)";
 
@@ -2098,7 +2116,16 @@ fn test_cost_change() {
     assert!(result_32_large.exceeds(&result_32_small));
 
     let result_33_small = with_owned_env(StacksEpochId::Epoch33, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity4, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity4,
+            &mut owned_env,
+            &mut analysis_db,
+        );
 
         let contract = "(define-read-only (execute (bytes (buff 4096))) bytes)";
 
@@ -2130,7 +2157,16 @@ fn test_cost_change() {
     });
 
     let result_33_large = with_owned_env(StacksEpochId::Epoch33, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity4, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity4,
+            &mut owned_env,
+            &mut analysis_db,
+        );
 
         let contract = "(define-read-only (execute (bytes (buff 8192))) bytes)";
 

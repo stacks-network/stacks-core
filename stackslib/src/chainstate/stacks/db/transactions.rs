@@ -23,7 +23,7 @@ use clarity::vm::contexts::{AssetMap, AssetMapEntry, ExecutionState, InvocationC
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::diagnostic::DiagnosableError;
-use clarity::vm::errors::{VmExecutionError, VmInternalError};
+use clarity::vm::errors::{VmExecutionError, VmInternalError, WasmError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -1441,7 +1441,7 @@ impl StacksChainState {
 
                 debug!("Compiling the contract to wasm binary");
                 let mut module = compile_contract(contract_analysis.clone()).map_err(|e| {
-                    Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(
+                    Error::ClarityError(ClarityError::Wasm(WasmError::WasmGeneratorError(
                         e.message(),
                     )))
                 })?;
@@ -1802,7 +1802,7 @@ pub mod test {
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::types::ResponseData;
+    use clarity::vm::types::{CallableData, ResponseData, TraitIdentifier};
     use pinny::tag;
     use proptest::prelude::*;
     use rand::Rng;
@@ -10216,7 +10216,7 @@ pub mod test {
                 panic!("Did not get unchecked interpreter error");
             } else if !matches!(
                 &err,
-                Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(_)))
+                Error::ClarityError(ClarityError::Wasm(WasmError::WasmGeneratorError(_)))
             ) {
                 panic!("Did not get WASM generator error");
             }
@@ -10326,7 +10326,7 @@ pub mod test {
                 panic!("Did not get unchecked interpreter error");
             } else if !matches!(
                 &err,
-                Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(_)))
+                Error::ClarityError(ClarityError::Wasm(WasmError::WasmGeneratorError(_)))
             ) {
                 panic!("Did not get WASM generator error");
             }
@@ -10700,8 +10700,8 @@ pub mod test {
             QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap();
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::from("foo"),
-            ClarityName::from("foo"),
+            ContractName::from_literal("foo"),
+            ClarityName::from_literal("foo"),
         );
         let callable_arg = Value::some(Value::CallableContract(CallableData {
             contract_identifier: foo_impl_qci,

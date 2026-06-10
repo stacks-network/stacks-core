@@ -30,7 +30,7 @@ use clarity::vm::types::{
     Value,
 };
 use clarity::vm::version::ClarityVersion;
-use clarity::vm::{ast, ContractContext};
+use clarity::vm::ContractContext;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -199,7 +199,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 .unwrap();
             }
             StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => {
-                let (ast, _analysis) = tx
+                let (mut ast, analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-4", false),
                         ClarityVersion::Clarity2,
