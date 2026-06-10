@@ -531,7 +531,8 @@ fn handle_unstake_pox_v5(
     match pox_unstake_v5(&mut global_context.database, &staker, unlock_height) {
         Ok(()) => {
             // Emit a lock event reflecting the new (earlier) unlock-height.
-            // The locked amount is unchanged.
+            // The locked amount is unchanged. (The gated PoX action is recorded
+            // uniformly for all position-altering ops in `handle_contract_call`.)
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
                     locked_amount,
@@ -551,13 +552,14 @@ fn handle_unstake_pox_v5(
 /// Handle special cases when calling into the PoX-5 API contract
 pub fn handle_contract_call(
     global_context: &mut GlobalContext,
-    _sender_opt: Option<&PrincipalData>,
+    sender_opt: Option<&PrincipalData>,
     _contract_id: &QualifiedContractIdentifier,
     function_name: &str,
     _args: &[Value],
     value: &Value,
 ) -> Result<(), VmExecutionError> {
-    // Execute function specific logic to complete the lock-up
+    // Execute function specific logic to complete the lock-up. Only the ops
+    // with a lock/event side effect appear here.
     let lock_event_opt = match function_name {
         "stake" | "register-for-bond" => {
             handle_lockup_pox_v5(global_context, function_name, value)?
@@ -566,6 +568,18 @@ pub fn handle_contract_call(
         "unstake" => handle_unstake_pox_v5(global_context, function_name, value)?,
         _ => None,
     };
+
+    // Record a position-altering PoX action for the affected staker (always
+    // `tx-sender`, i.e. `sender_opt`), so that transaction-level `Pox`
+    // post-conditions and `with-pox` allowances can constrain them.
+    if matches!(
+        function_name,
+        "unstake" | "unstake-sbtc" | "update-bond-registration" | "announce-l1-early-exit"
+    ) {
+        if let Some(staker) = sender_opt {
+            global_context.log_pox_action(staker)?;
+        }
+    }
 
     // append the lockup event
     if let Some((batch, _)) = global_context.event_batches.last_mut() {

@@ -1,0 +1,1 @@
+Removed the `allow-contract-caller`, `disallow-contract-caller`, and `check-caller-allowed` functions and the `allowance-contract-callers` map from `pox-5`. Stacking methods may now be invoked through any contract-caller; stackers protect themselves with the in-contract `with-stacking` / `with-pox` allowances or transaction-level `Staking` / `Pox` post-conditions instead.

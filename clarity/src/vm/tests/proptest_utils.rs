@@ -622,9 +622,11 @@ pub fn nft_allowance_snippets() -> impl Strategy<Value = String> {
     })
 }
 
-/// A strategy that generates Clarity code snippets for stacking allowances.
+/// A strategy that generates Clarity code snippets for staking allowances.
+/// Emits the Clarity 6+ spelling (`with-staking`); these proptests run at
+/// `ClarityVersion::latest()`.
 pub fn stacking_allowance_snippets() -> impl Strategy<Value = String> {
-    any::<u128>().prop_map(|amount| format!("(with-stacking u{amount})"))
+    any::<u128>().prop_map(|amount| format!("(with-staking u{amount})"))
 }
 
 /// A strategy that generates Clarity code snippets for allowances.

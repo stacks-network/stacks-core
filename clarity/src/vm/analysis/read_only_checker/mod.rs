@@ -383,6 +383,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
+            | AllowanceWithStaking
+            | AllowanceWithPox
             | AllowanceAll
             | VerifyMerkleProof
             | GetBitcoinTxOutput => {

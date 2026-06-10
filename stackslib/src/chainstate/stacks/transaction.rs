@@ -2564,6 +2564,15 @@ mod test {
                 NonfungibleConditionCode::NotSent,
             );
 
+            let staking_pc = TransactionPostCondition::Staking(
+                tx_pcp.clone(),
+                FungibleConditionCode::SentLe,
+                31337,
+            );
+
+            let pox_pc =
+                TransactionPostCondition::Pox(tx_pcp.clone(), PoxConditionCode::NotPerformed);
+
             let mut stx_pc_bytes = vec![];
             (AssetInfoID::STX as u8)
                 .consensus_serialize(&mut stx_pc_bytes)
@@ -2632,9 +2641,44 @@ mod test {
                 NonfungibleConditionCode::NotSent as u8,
             ]);
 
-            let pcs = vec![stx_pc, fungible_pc, nonfungible_pc];
-            let pc_bytes = [stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
-            for i in 0..3 {
+            let mut staking_pc_bytes = vec![];
+            (AssetInfoID::Staking as u8)
+                .consensus_serialize(&mut staking_pc_bytes)
+                .unwrap();
+            tx_pcp.consensus_serialize(&mut staking_pc_bytes).unwrap();
+            staking_pc_bytes.append(&mut vec![
+                // condition code
+                FungibleConditionCode::SentLe as u8,
+                // amount (31337 = 0x7a69)
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x7a,
+                0x69,
+            ]);
+
+            let mut pox_pc_bytes = vec![];
+            (AssetInfoID::Pox as u8)
+                .consensus_serialize(&mut pox_pc_bytes)
+                .unwrap();
+            tx_pcp.consensus_serialize(&mut pox_pc_bytes).unwrap();
+            pox_pc_bytes.append(&mut vec![
+                // condition code
+                PoxConditionCode::NotPerformed as u8,
+            ]);
+
+            let pcs = vec![stx_pc, fungible_pc, nonfungible_pc, staking_pc, pox_pc];
+            let pc_bytes = [
+                stx_pc_bytes,
+                fungible_pc_bytes,
+                nonfungible_pc_bytes,
+                staking_pc_bytes,
+                pox_pc_bytes,
+            ];
+            for i in 0..5 {
                 check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
             }
         }

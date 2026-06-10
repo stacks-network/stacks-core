@@ -2692,7 +2692,7 @@ const RESTRICT_ASSETS: SpecialAPI = SpecialAPI {
     input_type: "principal, ((Allowance){0,128}), AnyType, ... A",
     snippet: "restrict-assets? ${1:asset-owner} (${2:allowance-1} ${3:allowance-2}) ${4:expr-1}",
     output_type: "(response A int)",
-    signature: "(restrict-assets? asset-owner ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)",
+    signature: "(restrict-assets? asset-owner ((with-stx|with-ft|with-nft|with-stacking|with-staking|with-pox)*) expr-body1 expr-body2 ... expr-body-last)",
     description: "Executes the body expressions, then checks the asset
 outflows against the granted allowances, in declaration order. If any
 allowance is violated, the body expressions are reverted, an error is
@@ -2721,7 +2721,7 @@ const AS_CONTRACT_SAFE: SpecialAPI = SpecialAPI {
     input_type: "((Allowance){0,128}), AnyType, ... A",
     snippet: "as-contract? (${1:allowance-1} ${2:allowance-2}) ${3:expr-1}",
     output_type: "(response A uint)",
-    signature: "(as-contract? ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)",
+    signature: "(as-contract? ((with-stx|with-ft|with-nft|with-stacking|with-staking|with-pox)*) expr-body1 expr-body2 ... expr-body-last)",
     description: "Switches the current context's `tx-sender` and
 `contract-caller` values to the contract's principal and executes the body
 expressions within that context, then checks the asset outflows from the
@@ -2843,7 +2843,8 @@ that either delegate funds for stacking or stack directly, ensuring that the
 locked amount is limited by the amount of uSTX specified. Note that the
 amount specified here is the total amount allowed to be stacked, i.e. a call to
 `stack-increase` will need an allowance for the new total, not just the
-increase amount.
+increase amount. Replaced with `with-staking` in Clarity 6+ for consistency
+with the active PoX contract's naming.
 ",
     example: r#"
 (restrict-assets? tx-sender
@@ -2857,6 +2858,65 @@ increase amount.
   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
     u900000000000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
   ))
+) ;; Returns (ok true)
+"#,
+};
+
+const ALLOWANCE_WITH_STAKING: SpecialAPI = SpecialAPI {
+    input_type: "uint",
+    snippet: "with-staking ${1:amount}",
+    output_type: "Allowance",
+    signature: "(with-staking amount)",
+    description: "Adds a staking allowance for `amount` uSTX from the
+`asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
+expression. `with-staking` is the Clarity 6+ spelling of the allowance that was
+called `with-stacking` in Clarity 4 and 5; it is not allowed outside of
+`restrict-assets?` or `as-contract?` contexts. This restricts calls to the
+active PoX contract to stake STX, ensuring that the locked amount is limited by
+the amount of uSTX specified. Note that the amount specified here is the total
+amount allowed to be staked, i.e. a call that increases an existing stake will
+need an allowance for the new total, not just the increase amount.
+",
+    example: r#"
+(restrict-assets? tx-sender
+  ((with-staking u1000000000000))
+  (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 stake
+    .signer u1100000000000 u12 burn-block-height none
+  ))
+) ;; Returns (err u0)
+(restrict-assets? tx-sender
+  ((with-staking u1000000000000))
+  (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 stake
+    .signer u900000000000 u12 burn-block-height none
+  ))
+) ;; Returns (ok true)
+"#,
+};
+
+const ALLOWANCE_WITH_POX: SpecialAPI = SpecialAPI {
+    input_type: "N/A",
+    snippet: "with-pox",
+    output_type: "Allowance",
+    signature: "(with-pox)",
+    description: "Permits the `asset-owner` of the enclosing `restrict-assets?`
+or `as-contract?` expression to perform a position-altering PoX action — calling
+the active PoX contract to `unstake`, `unstake-sbtc`, `update-bond-registration`,
+or `announce-l1-early-exit`. `with-pox` is not allowed outside of
+`restrict-assets?` or `as-contract?` contexts. These actions are all-or-nothing
+for a position, so this allowance takes no amount: its presence simply permits
+them, and its absence forbids them within the protected scope. An *attempt* is
+gated whether or not the underlying call succeeds, so the absence of `with-pox`
+catches even a failed attempt to touch the position. Locking STX is covered by
+`with-staking`, not `with-pox`.
+",
+    example: r#"
+(restrict-assets? tx-sender
+  ()
+  (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 unstake .signer))
+) ;; Returns (err u128) -- no allowance permits the PoX action
+(restrict-assets? tx-sender
+  ((with-pox))
+  (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 unstake .signer))
 ) ;; Returns (ok true)
 "#,
 };
@@ -3006,6 +3066,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AllowanceWithFt => make_for_special(&ALLOWANCE_WITH_FT, function),
         AllowanceWithNft => make_for_special(&ALLOWANCE_WITH_NFT, function),
         AllowanceWithStacking => make_for_special(&ALLOWANCE_WITH_STACKING, function),
+        AllowanceWithStaking => make_for_special(&ALLOWANCE_WITH_STAKING, function),
+        AllowanceWithPox => make_for_special(&ALLOWANCE_WITH_POX, function),
         AllowanceAll => make_for_special(&ALLOWANCE_WITH_ALL, function),
         Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
         VerifyMerkleProof => make_for_special(&VERIFY_MERKLE_PROOF_API, function),
@@ -3531,6 +3593,14 @@ mod test {
             }
             if func_api.name == "with-stacking" {
                 eprintln!("Skipping with-stacking, because it requires PoX state");
+                continue;
+            }
+            if func_api.name == "with-staking" {
+                eprintln!("Skipping with-staking, because it requires PoX state");
+                continue;
+            }
+            if func_api.name == "with-pox" {
+                eprintln!("Skipping with-pox, because it requires PoX state");
                 continue;
             }
 

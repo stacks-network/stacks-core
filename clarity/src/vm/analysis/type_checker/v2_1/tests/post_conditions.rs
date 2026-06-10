@@ -57,7 +57,7 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] epoch: StacksEp
         ),
         // multiple allowances
         (
-            "(restrict-assets? tx-sender ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" (list 0x01)) (with-stacking u1000)) true)",
+            "(restrict-assets? tx-sender ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" (list 0x01))) true)",
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // multiple body expressions
@@ -233,7 +233,7 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochI
         ),
         // multiple allowances
         (
-            "(as-contract? ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" (list 0x01)) (with-stacking u1000)) true)",
+            "(as-contract? ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" (list 0x01))) true)",
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // multiple body expressions
@@ -822,8 +822,18 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] epoch: 
 
     for (code, expected_type) in &good {
         if version < ClarityVersion::Clarity4 {
+            // `restrict-assets?` itself does not exist before Clarity 4.
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else if version >= ClarityVersion::Clarity6 {
+            // `with-stacking` was renamed to `with-staking` in Clarity 6.
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("with-stacking".to_string()),
                 *type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err,
@@ -842,6 +852,202 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] epoch: 
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else if version >= ClarityVersion::Clarity6 {
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("with-stacking".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else {
+            assert_eq!(
+                expected_err,
+                type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err
+                    .as_ref(),
+                "{code}",
+            );
+        }
+    }
+}
+
+/// Test type-checking for `with-staking` allowance expressions (the Clarity 6+
+/// spelling of `with-stacking`).
+#[apply(test_clarity_versions)]
+fn test_with_staking_allowance(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let good = [
+        // basic usage
+        (
+            "(restrict-assets? tx-sender ((with-staking u1000)) true)",
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
+        ),
+        // zero amount
+        (
+            "(restrict-assets? tx-sender ((with-staking u0)) true)",
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
+        ),
+        // variable amount
+        (
+            "(let ((amount u1000)) (restrict-assets? tx-sender ((with-staking amount)) true))",
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
+        ),
+    ];
+
+    let bad = [
+        // no arguments
+        (
+            "(restrict-assets? tx-sender ((with-staking)) true)",
+            StaticCheckErrorKind::IncorrectArgumentCount(1, 0),
+        ),
+        // too many arguments
+        (
+            "(restrict-assets? tx-sender ((with-staking u1000 u2000)) true)",
+            StaticCheckErrorKind::IncorrectArgumentCount(1, 2),
+        ),
+        // wrong type - string instead of uint
+        (
+            r#"(restrict-assets? tx-sender ((with-staking "1000")) true)"#,
+            StaticCheckErrorKind::TypeError(
+                TypeSignature::UIntType.into(),
+                TypeSignature::new_ascii_type_checked(4).into(),
+            ),
+        ),
+        // wrong type - int instead of uint
+        (
+            "(restrict-assets? tx-sender ((with-staking 1000)) true)",
+            StaticCheckErrorKind::TypeError(
+                TypeSignature::UIntType.into(),
+                TypeSignature::IntType.into(),
+            ),
+        ),
+    ];
+
+    for (code, expected_type) in &good {
+        if version < ClarityVersion::Clarity4 {
+            // `restrict-assets?` itself does not exist before Clarity 4.
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else if version < ClarityVersion::Clarity6 {
+            // `with-staking` was introduced in Clarity 6; before that the
+            // allowance was spelled `with-stacking`.
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("with-staking".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else {
+            assert_eq!(
+                expected_type,
+                &type_check_helper_version(code, version, epoch).unwrap(),
+                "{code}",
+            );
+        }
+    }
+
+    for (code, expected_err) in &bad {
+        if version < ClarityVersion::Clarity4 {
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else if version < ClarityVersion::Clarity6 {
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("with-staking".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else {
+            assert_eq!(
+                expected_err,
+                type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err
+                    .as_ref(),
+                "{code}",
+            );
+        }
+    }
+}
+
+/// Test type-checking for `with-pox` allowance expressions
+#[apply(test_clarity_versions)]
+fn test_with_pox_allowance(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let good = [
+        // basic usage (no arguments)
+        (
+            "(restrict-assets? tx-sender ((with-pox)) true)",
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
+        ),
+    ];
+
+    let bad = [
+        // too many arguments
+        (
+            "(restrict-assets? tx-sender ((with-pox u1000)) true)",
+            StaticCheckErrorKind::IncorrectArgumentCount(0, 1),
+        ),
+    ];
+
+    for (code, expected_type) in &good {
+        if version < ClarityVersion::Clarity4 {
+            // `restrict-assets?` itself does not exist before Clarity 4.
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else if version < ClarityVersion::Clarity6 {
+            // `restrict-assets?` exists, but `with-pox` was added in
+            // Clarity 6, so it is not a recognized allowance expression yet.
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("with-pox".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else {
+            assert_eq!(
+                expected_type,
+                &type_check_helper_version(code, version, epoch).unwrap(),
+                "{code}",
+            );
+        }
+    }
+
+    for (code, expected_err) in &bad {
+        if version < ClarityVersion::Clarity4 {
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
+                "{code}",
+            );
+        } else if version < ClarityVersion::Clarity6 {
+            assert_eq!(
+                StaticCheckErrorKind::UnknownFunction("with-pox".to_string()),
                 *type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err,

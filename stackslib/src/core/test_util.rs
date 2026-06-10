@@ -30,8 +30,9 @@ use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBui
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksTransaction,
     StacksTransactionSigner, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostCondition,
+    TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
+    TransactionVersion,
 };
 use crate::util_lib::strings::StacksString;
 
@@ -458,6 +459,47 @@ pub fn make_contract_call_tx(
     };
 
     sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id)
+}
+
+/// Build, sign, and serialize a contract-call transaction with explicit
+/// post-conditions and post-condition mode (the plain [`make_contract_call`]
+/// uses `Allow` mode with no post-conditions).
+#[allow(clippy::too_many_arguments)]
+pub fn make_contract_call_with_post_conditions(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    chain_id: u32,
+    contract_addr: &StacksAddress,
+    contract_name: &str,
+    function_name: &str,
+    function_args: &[Value],
+    post_condition_mode: TransactionPostConditionMode,
+    post_conditions: Vec<TransactionPostCondition>,
+) -> Vec<u8> {
+    let payload = TransactionContractCall {
+        address: contract_addr.clone(),
+        contract_name: contract_name.try_into().expect("invalid contract name"),
+        function_name: function_name.try_into().expect("invalid function name"),
+        function_args: function_args.to_vec(),
+    };
+    let mut unsigned_tx = make_unsigned_tx(
+        payload.into(),
+        sender,
+        None,
+        nonce,
+        None,
+        tx_fee,
+        chain_id,
+        TransactionAnchorMode::OnChainOnly,
+        TransactionVersion::Testnet,
+    );
+    unsigned_tx.post_condition_mode = post_condition_mode;
+    unsigned_tx.post_conditions = post_conditions;
+
+    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+    tx_signer.sign_origin(sender).unwrap();
+    tx_signer.get_tx().unwrap().serialize_to_vec()
 }
 
 #[allow(clippy::too_many_arguments)]
