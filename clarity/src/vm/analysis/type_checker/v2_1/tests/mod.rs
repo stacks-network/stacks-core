@@ -1520,6 +1520,9 @@ fn test_lists() {
         "(map hash160 (+ u1 u2))",
         "(len 1)",
         "(map + (list 1 2 3 4 5) (list true true true true true))",
+        "(map + (list) (list 1))",
+        "(map pow (list) (list 1))",
+        "(define-private (add (x int) (y int)) (+ x y)) (map add (list) (list 1))",
     ];
     let bad_expected = [
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(IntType)),
@@ -1539,8 +1542,25 @@ fn test_lists() {
         StaticCheckErrorKind::ExpectedSequence(Box::new(UIntType)),
         StaticCheckErrorKind::ExpectedSequence(Box::new(IntType)),
         StaticCheckErrorKind::TypeError(Box::new(IntType), Box::new(BoolType)),
+        StaticCheckErrorKind::UnionTypeError(
+            vec![IntType, UIntType],
+            Box::new(TypeSignature::NoType),
+        ),
+        StaticCheckErrorKind::UnionTypeError(
+            vec![IntType, UIntType],
+            Box::new(TypeSignature::NoType),
+        ),
+        StaticCheckErrorKind::TypeError(
+            Box::new(TypeSignature::IntType),
+            Box::new(TypeSignature::NoType),
+        ),
     ];
 
+    assert_eq!(
+        good.len(),
+        expected.len(),
+        "Good tests should match related expected count"
+    );
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
@@ -1548,6 +1568,11 @@ fn test_lists() {
         );
     }
 
+    assert_eq!(
+        bad.len(),
+        bad_expected.len(),
+        "Bad tests should match related expected count"
+    );
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
