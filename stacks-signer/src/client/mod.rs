@@ -433,7 +433,7 @@ pub(crate) mod tests {
 
         for signer_id in 0..num_signers {
             let private_key = if signer_id == 0 {
-                config.stacks_private_key.clone()
+                config.stacks_private_key
             } else {
                 StacksPrivateKey::random()
             };
@@ -466,7 +466,7 @@ pub(crate) mod tests {
                 signer_addresses,
             },
             signer_slot_ids,
-            stacks_private_key: config.stacks_private_key.clone(),
+            stacks_private_key: config.stacks_private_key,
             node_host: config.node_host.to_string(),
             mainnet: config.network.is_mainnet(),
             db_path: config.db_path.clone(),
