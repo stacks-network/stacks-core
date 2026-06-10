@@ -1175,7 +1175,6 @@
             (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
             (bond-index (get bond-index membership))
             (signer (get signer membership))
-            (bond (unwrap-panic (get-protocol-bond bond-index)))
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
