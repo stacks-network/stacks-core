@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, ContractName, Value};
 use madhouse::{Command, CommandWrapper};
@@ -53,7 +53,7 @@ fn nft_asset_info() -> AssetInfo {
     AssetInfo {
         contract_address: FAUCET_ADDRESS.clone(),
         contract_name: ContractName::try_from("nft".to_string()).unwrap(),
-        asset_name: LegacyClarityName::try_from("asset".to_string()).unwrap(),
+        asset_name: ClarityName::try_from("asset".to_string()).unwrap(),
     }
 }
 

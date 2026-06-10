@@ -16,7 +16,7 @@
 use std::env;
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use clarity::vm::{ContractName, Value};
 use rand::Rng;
@@ -261,13 +261,13 @@ fn pessimistic_estimator_contract_owner_separation() {
     let cc_payload_0 = TransactionPayload::ContractCall(TransactionContractCall {
         address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
         contract_name: ContractName::from_literal("contract-1"),
-        function_name: LegacyClarityName::from_literal("func1"),
+        function_name: ClarityName::from_literal("func1"),
         function_args: vec![],
     });
     let cc_payload_1 = TransactionPayload::ContractCall(TransactionContractCall {
         address: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
         contract_name: ContractName::from_literal("contract-1"),
-        function_name: LegacyClarityName::from_literal("func1"),
+        function_name: ClarityName::from_literal("func1"),
         function_args: vec![],
     });
 

@@ -187,7 +187,7 @@ mod test {
     use std::io::{Read, Write};
 
     use clarity::types::StacksEpochId;
-    use clarity::vm::representations::{ContractName, LegacyClarityName};
+    use clarity::vm::representations::ContractName;
     use clarity::vm::tests::test_clarity_versions;
     use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
     use clarity::vm::{ClarityVersion, Value};
@@ -896,7 +896,7 @@ mod test {
                 TransactionPayload::ContractCall(TransactionContractCall {
                     address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
                     contract_name: ContractName::try_from("hello-world").unwrap(),
-                    function_name: LegacyClarityName::try_from("hello-function").unwrap(),
+                    function_name: ClarityName::try_from("hello-function").unwrap(),
                     function_args: vec![Value::Int(0)],
                 })
             }
@@ -1037,7 +1037,7 @@ mod test {
         TransactionContractCall {
             address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
             contract_name: ContractName::try_from("hello-contract-name").unwrap(),
-            function_name: LegacyClarityName::try_from("hello-function-name").unwrap(),
+            function_name: ClarityName::try_from("hello-function-name").unwrap(),
             function_args: vec![Value::Int(0)],
         }
     }
@@ -2375,7 +2375,7 @@ mod test {
         let contract_call = TransactionContractCall {
             address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
             contract_name: ContractName::try_from(hello_contract_name).unwrap(),
-            function_name: LegacyClarityName::try_from(hello_function_name).unwrap(),
+            function_name: ClarityName::try_from(hello_function_name).unwrap(),
             function_args: vec![Value::Int(0)],
         };
 
@@ -2414,7 +2414,7 @@ mod test {
         // test invalid contract name
         let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let contract_name = "hello\x00contract-name";
-        let function_name = LegacyClarityName::try_from("hello-function-name").unwrap();
+        let function_name = ClarityName::try_from("hello-function-name").unwrap();
         let function_args = vec![Value::Int(0)];
 
         let mut contract_call_bytes = vec![];
@@ -2477,21 +2477,19 @@ mod test {
         );
     }
 
-    /// The consensus contract that makes the LegacyClarityName refactor
-    /// safe: bytes encoding a leading-`_` `function_name` MUST fail to
-    /// deserialize as a `TransactionContractCall`. Un-upgraded nodes
-    /// already reject these bytes via their narrow `ClarityName` codec;
-    /// the `LegacyClarityName` codec on upgraded nodes is required to
-    /// reject them identically. If this test ever flips to passing, the
-    /// chain-split risk that motivated the refactor has silently
-    /// reappeared.
+    /// The wide `ClarityName` codec admits leading-`_` bytes — Clarity 6's
+    /// relaxation lives at the codec layer. Consensus during the upgrade
+    /// window is preserved by `StacksBlock::validate_transaction_static_epoch`,
+    /// which rejects the resulting `TransactionContractCall` at admission
+    /// when the active epoch is pre-Clarity-6; see the admission tests in
+    /// `chainstate/stacks/block.rs`.
     #[test]
-    fn tx_contract_call_function_name_rejects_leading_underscore_on_the_wire() {
+    fn tx_contract_call_function_name_with_leading_underscore_round_trips() {
         let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let contract_name = ContractName::try_from("hello-contract-name").unwrap();
-        let bad_function_name = "_admin";
-        let mut bad_function_name_bytes = vec![bad_function_name.len() as u8];
-        bad_function_name_bytes.extend_from_slice(bad_function_name.as_bytes());
+        let function_name_str = "_admin";
+        let mut function_name_bytes = vec![function_name_str.len() as u8];
+        function_name_bytes.extend_from_slice(function_name_str.as_bytes());
 
         let function_args: Vec<Value> = vec![];
 
@@ -2502,7 +2500,7 @@ mod test {
         contract_name
             .consensus_serialize(&mut contract_call_bytes)
             .unwrap();
-        contract_call_bytes.extend_from_slice(&bad_function_name_bytes);
+        contract_call_bytes.extend_from_slice(&function_name_bytes);
         function_args
             .consensus_serialize(&mut contract_call_bytes)
             .unwrap();
@@ -2510,23 +2508,23 @@ mod test {
         let mut tx_bytes = vec![TransactionPayloadID::ContractCall as u8];
         tx_bytes.append(&mut contract_call_bytes);
 
-        let err = TransactionPayload::consensus_deserialize(&mut &tx_bytes[..])
-            .expect_err("leading-`_` function_name must not deserialize");
-        assert!(
-            err.to_string().find("Failed to parse Clarity name").is_some(),
-            "expected `Failed to parse Clarity name` in error, got: {err}",
-        );
+        let payload = TransactionPayload::consensus_deserialize(&mut &tx_bytes[..])
+            .expect("leading-`_` function_name should round-trip at the codec layer");
+        let TransactionPayload::ContractCall(cc) = payload else {
+            panic!("expected ContractCall payload");
+        };
+        assert_eq!(cc.function_name.as_str(), "_admin");
     }
 
-    /// Analogous to the function_name test: bytes encoding a leading-`_`
-    /// `asset_name` inside an `AssetInfo` MUST fail to deserialize.
+    /// Analogous to the function_name test: leading-`_` `asset_name`
+    /// round-trips at the `AssetInfo` codec layer; admission gates it.
     #[test]
-    fn tx_asset_info_asset_name_rejects_leading_underscore_on_the_wire() {
+    fn tx_asset_info_asset_name_with_leading_underscore_round_trips() {
         let contract_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let contract_name = ContractName::try_from("hello-contract-name").unwrap();
-        let bad_asset_name = "_admin";
-        let mut bad_asset_name_bytes = vec![bad_asset_name.len() as u8];
-        bad_asset_name_bytes.extend_from_slice(bad_asset_name.as_bytes());
+        let asset_name_str = "_admin";
+        let mut asset_name_bytes = vec![asset_name_str.len() as u8];
+        asset_name_bytes.extend_from_slice(asset_name_str.as_bytes());
 
         let mut asset_info_bytes = vec![];
         contract_address
@@ -2535,14 +2533,11 @@ mod test {
         contract_name
             .consensus_serialize(&mut asset_info_bytes)
             .unwrap();
-        asset_info_bytes.extend_from_slice(&bad_asset_name_bytes);
+        asset_info_bytes.extend_from_slice(&asset_name_bytes);
 
-        let err = AssetInfo::consensus_deserialize(&mut &asset_info_bytes[..])
-            .expect_err("leading-`_` asset_name must not deserialize");
-        assert!(
-            err.to_string().find("Failed to parse Clarity name").is_some(),
-            "expected `Failed to parse Clarity name` in error, got: {err}",
-        );
+        let info = AssetInfo::consensus_deserialize(&mut &asset_info_bytes[..])
+            .expect("leading-`_` asset_name should round-trip at the codec layer");
+        assert_eq!(info.asset_name.as_str(), "_admin");
     }
 
     #[test]
@@ -2555,7 +2550,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         ];
 
-        let asset_name = LegacyClarityName::try_from("hello-asset").unwrap();
+        let asset_name = ClarityName::try_from("hello-asset").unwrap();
         let mut asset_name_bytes = vec![
             // length
             asset_name.len(),
@@ -2605,7 +2600,7 @@ mod test {
 
         for tx_pcp in tx_post_condition_principals {
             let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-            let asset_name = LegacyClarityName::try_from("hello-asset").unwrap();
+            let asset_name = ClarityName::try_from("hello-asset").unwrap();
             let contract_name = ContractName::try_from("contract-name").unwrap();
 
             let stx_pc =
@@ -2715,7 +2710,7 @@ mod test {
             AssetInfo {
                 contract_address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
                 contract_name: ContractName::try_from("contract-name").unwrap(),
-                asset_name: LegacyClarityName::try_from("hello-asset").unwrap(),
+                asset_name: ClarityName::try_from("hello-asset").unwrap(),
             },
             Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
             NonfungibleConditionCode::MaybeSent,
@@ -2775,7 +2770,7 @@ mod test {
                 AssetInfo {
                     contract_address: StacksAddress::new(1, Hash160([0x33; 20])).unwrap(),
                     contract_name: ContractName::try_from("contract-name").unwrap(),
-                    asset_name: LegacyClarityName::try_from("hello-asset").unwrap(),
+                    asset_name: ClarityName::try_from("hello-asset").unwrap(),
                 },
                 Value::buff_from(vec![4, 5, 6, 7]).unwrap(),
                 NonfungibleConditionCode::MaybeSent,
@@ -2821,7 +2816,7 @@ mod test {
     #[test]
     fn tx_stacks_postcondition_invalid() {
         let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-        let asset_name = LegacyClarityName::try_from("hello-asset").unwrap();
+        let asset_name = ClarityName::try_from("hello-asset").unwrap();
         let contract_name = ContractName::try_from("hello-world").unwrap();
 
         // can't parse a postcondition with an invalid condition code
@@ -3045,7 +3040,7 @@ mod test {
         let hello_token_name = "hello-token";
 
         let contract_name = ContractName::try_from(hello_contract_name).unwrap();
-        let asset_name = LegacyClarityName::try_from(hello_asset_name).unwrap();
+        let asset_name = ClarityName::try_from(hello_asset_name).unwrap();
         let token_name = StacksString::from_str(hello_token_name).unwrap();
 
         let asset_value = StacksString::from_str("asset-value").unwrap();

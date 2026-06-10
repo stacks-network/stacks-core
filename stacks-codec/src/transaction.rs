@@ -25,7 +25,7 @@ use std::fmt::{self, Display};
 use std::hash::Hash;
 use std::io::{Read, Write};
 
-use clarity_types::representations::{ContractName, LegacyClarityName};
+use clarity_types::representations::{ClarityName, ContractName};
 use clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
@@ -2026,17 +2026,11 @@ impl TransactionAuth {
 }
 
 /// A transaction that calls into a smart contract.
-///
-/// The `function_name` is held as a [`LegacyClarityName`] so the wire codec
-/// statically rejects names beginning with `_`. Calls into Clarity-6
-/// `_`-prefixed functions would need a versioned variant of this payload
-/// (analogous to [`TransactionPayloadID::VersionedSmartContract`]), which
-/// is not yet introduced.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionContractCall {
     pub address: StacksAddress,
     pub contract_name: ContractName,
-    pub function_name: LegacyClarityName,
+    pub function_name: ClarityName,
     pub function_args: Vec<Value>,
 }
 
@@ -2082,7 +2076,7 @@ impl StacksMessageCodec for TransactionContractCall {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionContractCall, codec_error> {
         let address: StacksAddress = read_next(fd)?;
         let contract_name: ContractName = read_next(fd)?;
-        let function_name: LegacyClarityName = read_next(fd)?;
+        let function_name: ClarityName = read_next(fd)?;
         let function_args: Vec<Value> = {
             let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_TRANSACTION_LEN));
             read_next(&mut bound_read)
@@ -2127,16 +2121,11 @@ impl StacksMessageCodec for TransactionSmartContract {
 }
 
 /// Encoding of an asset type identifier.
-///
-/// `asset_name` is a [`LegacyClarityName`] so the codec rejects bytes
-/// encoding a `_`-prefixed asset on deserialize. Post-conditions
-/// referencing Clarity-6 `_`-prefixed assets are unsupported here until
-/// a versioned `AssetInfo` variant is introduced alongside.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetInfo {
     pub contract_address: StacksAddress,
     pub contract_name: ContractName,
-    pub asset_name: LegacyClarityName,
+    pub asset_name: ClarityName,
 }
 
 impl StacksMessageCodec for AssetInfo {
@@ -2150,7 +2139,7 @@ impl StacksMessageCodec for AssetInfo {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<AssetInfo, codec_error> {
         let contract_address: StacksAddress = read_next(fd)?;
         let contract_name: ContractName = read_next(fd)?;
-        let asset_name: LegacyClarityName = read_next(fd)?;
+        let asset_name: ClarityName = read_next(fd)?;
         Ok(AssetInfo {
             contract_address,
             contract_name,
@@ -2588,10 +2577,7 @@ impl TransactionPayload {
             }
         };
 
-        // Wire-narrow `LegacyClarityName` constructor — rejects leading
-        // `_` names. Calls to Clarity-6 `_`-prefixed functions are
-        // unsupported here until a versioned `ContractCall` payload exists.
-        let function_name_str = match LegacyClarityName::try_from(function_name.to_string()) {
+        let function_name_str = match ClarityName::try_from(function_name.to_string()) {
             Ok(s) => s,
             Err(_) => {
                 return None;

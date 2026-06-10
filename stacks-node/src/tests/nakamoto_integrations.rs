@@ -24,7 +24,6 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_addr;
-use clarity::vm::representations::LegacyClarityName;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
@@ -16193,7 +16192,7 @@ fn check_sip040_post_conditions() {
         AssetInfo {
             contract_address: sender_addr.clone(),
             contract_name: ContractName::from_literal(contract_name),
-            asset_name: LegacyClarityName::from_literal("asset"),
+            asset_name: ClarityName::from_literal("asset"),
         },
         Value::UInt(1),
         NonfungibleConditionCode::MaybeSent,

@@ -24,7 +24,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::ClarityEvalError;
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ContractName, Value};
 use lazy_static::lazy_static;
@@ -4730,7 +4730,7 @@ fn atlas_stop_start() {
                     TransactionPayload::ContractCall(TransactionContractCall {
                         address: signer_pk.clone(),
                         contract_name: atlas_name.clone(),
-                        function_name: LegacyClarityName::from_literal("make-attach"),
+                        function_name: ClarityName::from_literal("make-attach"),
                         function_args: vec![Value::buff_from(vec![ix; 20]).unwrap()],
                     }),
                 ),

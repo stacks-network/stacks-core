@@ -772,9 +772,7 @@ impl StacksChainState {
                             StandardPrincipalData::from(asset_info.contract_address.clone()),
                             asset_info.contract_name.clone(),
                         ),
-                        // Widen the wire-narrow LegacyClarityName into the
-                        // runtime ClarityName carried by AssetIdentifier.
-                        asset_name: asset_info.asset_name.clone().into(),
+                        asset_name: asset_info.asset_name.clone(),
                     };
 
                     let amount_sent = asset_map
@@ -810,9 +808,7 @@ impl StacksChainState {
                             StandardPrincipalData::from(asset_info.contract_address.clone()),
                             asset_info.contract_name.clone(),
                         ),
-                        // Widen the wire-narrow LegacyClarityName into the
-                        // runtime ClarityName carried by AssetIdentifier.
-                        asset_name: asset_info.asset_name.clone().into(),
+                        asset_name: asset_info.asset_name.clone(),
                     };
 
                     let empty_assets = vec![];
@@ -2089,7 +2085,7 @@ pub mod test {
                 AssetInfo {
                     contract_address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
                     contract_name: ContractName::try_from("hello-world").unwrap(),
-                    asset_name: LegacyClarityName::try_from("asset").unwrap(),
+                    asset_name: ClarityName::try_from("asset").unwrap(),
                 },
                 Value::Int(1),
                 NonfungibleConditionCode::MaybeSent,
@@ -3787,13 +3783,13 @@ pub mod test {
         let asset_info = AssetInfo {
             contract_address: addr_publisher.clone(),
             contract_name: contract_name.clone(),
-            asset_name: LegacyClarityName::try_from("stackaroos").unwrap(),
+            asset_name: ClarityName::try_from("stackaroos").unwrap(),
         };
 
         let name_asset_info = AssetInfo {
             contract_address: addr_publisher.clone(),
             contract_name: contract_name.clone(),
-            asset_name: LegacyClarityName::try_from("names").unwrap(),
+            asset_name: ClarityName::try_from("names").unwrap(),
         };
 
         let mut tx_contract = StacksTransaction::new(
@@ -4492,13 +4488,13 @@ pub mod test {
         let asset_info = AssetInfo {
             contract_address: addr_publisher.clone(),
             contract_name: contract_name.clone(),
-            asset_name: LegacyClarityName::try_from("stackaroos").unwrap(),
+            asset_name: ClarityName::try_from("stackaroos").unwrap(),
         };
 
         let name_asset_info = AssetInfo {
             contract_address: addr_publisher.clone(),
             contract_name: contract_name.clone(),
-            asset_name: LegacyClarityName::try_from("names").unwrap(),
+            asset_name: ClarityName::try_from("names").unwrap(),
         };
 
         let mut tx_contract = StacksTransaction::new(
@@ -5147,7 +5143,7 @@ pub mod test {
         let asset_info = AssetInfo {
             contract_address: addr_publisher.clone(),
             contract_name,
-            asset_name: LegacyClarityName::try_from("connect-token").unwrap(),
+            asset_name: ClarityName::try_from("connect-token").unwrap(),
         };
 
         let mut tx_contract = StacksTransaction::new(
@@ -5242,19 +5238,19 @@ pub mod test {
         let asset_info_1 = AssetInfo {
             contract_address: contract_addr.clone(),
             contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: LegacyClarityName::try_from("test-asset-1").unwrap(),
+            asset_name: ClarityName::try_from("test-asset-1").unwrap(),
         };
 
         let asset_info_2 = AssetInfo {
             contract_address: contract_addr.clone(),
             contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: LegacyClarityName::try_from("test-asset-2").unwrap(),
+            asset_name: ClarityName::try_from("test-asset-2").unwrap(),
         };
 
         let asset_info_3 = AssetInfo {
             contract_address: contract_addr.clone(),
             contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: LegacyClarityName::try_from("test-asset-3").unwrap(),
+            asset_name: ClarityName::try_from("test-asset-3").unwrap(),
         };
 
         let asset_id_1 = AssetIdentifier {
@@ -5262,7 +5258,7 @@ pub mod test {
                 StandardPrincipalData::from(asset_info_1.contract_address.clone()),
                 asset_info_1.contract_name.clone(),
             ),
-            asset_name: asset_info_1.asset_name.clone().into(),
+            asset_name: asset_info_1.asset_name.clone(),
         };
 
         let asset_id_2 = AssetIdentifier {
@@ -5270,7 +5266,7 @@ pub mod test {
                 StandardPrincipalData::from(asset_info_2.contract_address.clone()),
                 asset_info_2.contract_name.clone(),
             ),
-            asset_name: asset_info_2.asset_name.clone().into(),
+            asset_name: asset_info_2.asset_name.clone(),
         };
 
         let _asset_id_3 = AssetIdentifier {
@@ -5278,7 +5274,7 @@ pub mod test {
                 StandardPrincipalData::from(asset_info_3.contract_address.clone()),
                 asset_info_3.contract_name.clone(),
             ),
-            asset_name: asset_info_3.asset_name.clone().into(),
+            asset_name: asset_info_3.asset_name.clone(),
         };
 
         // multi-ft
@@ -7086,7 +7082,7 @@ pub mod test {
         let asset_info = AssetInfo {
             contract_address: contract_addr.clone(),
             contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: LegacyClarityName::try_from("test-asset").unwrap(),
+            asset_name: ClarityName::try_from("test-asset").unwrap(),
         };
 
         let asset_id = AssetIdentifier {
@@ -7094,7 +7090,7 @@ pub mod test {
                 StandardPrincipalData::from(asset_info.contract_address.clone()),
                 asset_info.contract_name.clone(),
             ),
-            asset_name: asset_info.asset_name.clone().into(),
+            asset_name: asset_info.asset_name.clone(),
         };
 
         // multi-nft transfer
@@ -7514,7 +7510,7 @@ pub mod test {
         let asset_info = AssetInfo {
             contract_address: contract_addr.clone(),
             contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: LegacyClarityName::try_from("test-asset").unwrap(),
+            asset_name: ClarityName::try_from("test-asset").unwrap(),
         };
 
         let asset_id = AssetIdentifier {
@@ -7522,7 +7518,7 @@ pub mod test {
                 StandardPrincipalData::from(asset_info.contract_address.clone()),
                 asset_info.contract_name.clone(),
             ),
-            asset_name: asset_info.asset_name.clone().into(),
+            asset_name: asset_info.asset_name.clone(),
         };
 
         let mut nft_sent_value_1 = AssetMap::new();
@@ -7684,14 +7680,14 @@ pub mod test {
             let asset_info = AssetInfo {
                 contract_address: StacksAddress::new(1, Hash160([0x01; 20])).unwrap(),
                 contract_name: ContractName::try_from("hello-world").unwrap(),
-                asset_name: LegacyClarityName::try_from("test-asset").unwrap(),
+                asset_name: ClarityName::try_from("test-asset").unwrap(),
             };
             let asset_id = AssetIdentifier {
                 contract_identifier: QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(asset_info.contract_address.clone()),
                     asset_info.contract_name.clone(),
                 ),
-                asset_name: asset_info.asset_name.clone().into(),
+                asset_name: asset_info.asset_name.clone(),
             };
 
             let mut asset_map = AssetMap::new();

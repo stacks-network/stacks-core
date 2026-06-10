@@ -970,28 +970,22 @@ impl PartialEq for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
-    /// Walk this value recursively and return the first tuple key that
-    /// would not be accepted at `epoch`. Used by transaction admission
-    /// to keep `_`-prefixed tuple keys off the wire when the active
-    /// epoch would not accept them.
+    /// Walk this value recursively and return the first tuple key
+    /// that would not be accepted at `epoch`. Used by transaction
+    /// admission to keep `_`-prefixed tuple keys off the wire.
     ///
     /// Two rules:
-    ///   1. Bare `_` is reserved as the `let` / `match` discard marker
-    ///      and is never a valid *tuple key* — rejected at every epoch.
-    ///   2. Any other leading-`_` key is rejected when `epoch < Epoch40`
-    ///      (pre-Clarity-6). The narrow wire codec on un-upgraded nodes
-    ///      already rejects every leading-`_` name; matching that
-    ///      behavior on upgraded nodes pre-activation preserves
-    ///      consensus during the upgrade window. Post-activation,
-    ///      `_foo` tuple keys are permitted.
+    ///   1. Bare `_` is never a valid tuple key (reserved as the
+    ///      `let` / `match` discard marker; rejected at every epoch).
+    ///   2. Any other leading-`_` key is rejected pre-Clarity-6 (epoch
+    ///      `< Epoch40`) to match un-upgraded nodes' narrow wire codec.
+    ///      Post-activation, `_foo` tuple keys are permitted.
     ///
-    /// NOTE: this walker is the consensus-critical companion to the
-    /// "value sanitization" routine flagged above the `Value` enum (see
-    /// `Value`'s definition). Any new compound `Value` variant added in
-    /// the future — one that can carry `_other_ values_` like `Tuple`,
-    /// `Optional`, `Response`, or `Sequence(List)` — must be handled
-    /// here too, or `_`-prefixed tuple keys could escape into the
-    /// wire-format payload of an admitted transaction.
+    /// NOTE: this is the consensus-critical companion to the "value
+    /// sanitization" routine flagged above the `Value` enum. Any new
+    /// compound `Value` variant — one that can carry other values —
+    /// must be handled here too, or `_`-prefixed keys could escape into
+    /// a transaction's wire payload.
     pub fn find_invalid_tuple_key(&self, epoch: StacksEpochId) -> Option<String> {
         match self {
             Value::Tuple(data) => {

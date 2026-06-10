@@ -17,8 +17,7 @@
 pub use clarity_types::representations::{
     CLARITY_NAME_REGEX, CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH,
     CONTRACT_MIN_NAME_LENGTH, CONTRACT_NAME_REGEX, CONTRACT_NAME_REGEX_STRING,
-    CONTRACT_PRINCIPAL_REGEX_STRING, ClarityName, ContractName, DISCARD_IDENTIFIER,
-    LEGACY_CLARITY_NAME_REGEX, LEGACY_CLARITY_NAME_REGEX_STRING, LegacyClarityName, MAX_STRING_LEN,
+    CONTRACT_PRINCIPAL_REGEX_STRING, ClarityName, ContractName, DISCARD_IDENTIFIER, MAX_STRING_LEN,
     PRINCIPAL_DATA_REGEX_STRING, PreSymbolicExpression, PreSymbolicExpressionType,
     STANDARD_PRINCIPAL_REGEX_STRING, Span, SymbolicExpression, SymbolicExpressionCommon,
     SymbolicExpressionType, TraitDefinition, depth_traverse,

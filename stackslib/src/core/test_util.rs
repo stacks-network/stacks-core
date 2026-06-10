@@ -23,7 +23,7 @@ use clarity::types::chainstate::{
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::tests::BurnStateDB;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::{ClarityVersion, ContractName, Value};
 
 use crate::chainstate::stacks::db::StacksChainState;
@@ -448,7 +448,7 @@ pub fn make_contract_call_tx(
     chain_id: u32,
     contract_addr: &StacksAddress,
     contract_name: ContractName,
-    function_name: LegacyClarityName,
+    function_name: ClarityName,
     function_args: &[Value],
 ) -> StacksTransaction {
     let payload = TransactionContractCall {
@@ -497,7 +497,7 @@ pub fn make_contract_call_mblock_only(
     function_args: &[Value],
 ) -> Vec<u8> {
     let contract_name = ContractName::from_literal(contract_name);
-    let function_name = LegacyClarityName::from_literal(function_name);
+    let function_name = ClarityName::from_literal(function_name);
 
     let payload = TransactionContractCall {
         address: contract_addr.clone(),

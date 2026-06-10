@@ -16,7 +16,7 @@
 use std::env;
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::{ContractName, Value};
 use rand::Rng;
 use stacks_common::types::chainstate::StacksAddress;
@@ -76,7 +76,7 @@ fn make_dummy_cc_tx(fee: u64, execution_cost: &ExecutionCost) -> StacksTransacti
         TransactionPayload::ContractCall(TransactionContractCall {
             address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
             contract_name: ContractName::from_literal("cc-dummy"),
-            function_name: LegacyClarityName::from_literal("func-name"),
+            function_name: ClarityName::from_literal("func-name"),
             function_args: vec![],
         }),
     );

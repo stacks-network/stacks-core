@@ -906,10 +906,7 @@ fn test_sequence_try_retain_internal_error() {
 // `Value::find_invalid_tuple_key` — the recursive walker that backs the
 // transaction-admission epoch gate for `_`-prefixed tuple keys.
 
-/// Helper: a one-key tuple Value with the given key name and `Int(0)`
-/// payload. `ClarityName::try_from` is used (rather than `from_literal`)
-/// because the test inputs aren't `'static`; the walker only inspects
-/// the string content of the key, not its regex validity.
+/// Build a one-key tuple Value with the given key name.
 fn tuple_with_key(key: &str) -> Value {
     Value::Tuple(
         TupleData::from_data(vec![(
@@ -1012,13 +1009,10 @@ fn test_find_invalid_tuple_key_descends_into_compound_values() {
         Some("_buried"),
     );
 
-    // Tuple inside a list. Clarity lists are homogeneous (all elements
-    // share a `TupleTypeSignature`), so we can't easily exercise the
-    // "offender is the second element" path with mixed schemas — the
-    // single-element form is sufficient to prove the walker descends
-    // into `Sequence(List)`. The for-loop in
-    // `find_invalid_tuple_key`'s `Sequence(List)` arm makes the
-    // second-element behavior identical.
+    // Tuple inside a list. Clarity lists are homogeneous, so the
+    // single-element form is sufficient: the walker's for-loop over
+    // `Sequence(List)` makes the second-element behavior identical to
+    // the first.
     let list_value = Value::list_from(vec![tuple_with_key("_buried")]).unwrap();
     assert_eq!(
         list_value.find_invalid_tuple_key(epoch).as_deref(),

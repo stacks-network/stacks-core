@@ -17,7 +17,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksPrivateKey;
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::ContractName;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -287,7 +287,7 @@ fn simulate_block_with_pc_failure() {
     let address = to_addr(&private_key);
 
     let contract_name = ContractName::from_literal("test");
-    let function_name = LegacyClarityName::from_literal("test");
+    let function_name = ClarityName::from_literal("test");
 
     // Set up the RPC test with a contract, so that we can test a post-condition failure
     let rpc_test =

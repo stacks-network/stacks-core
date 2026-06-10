@@ -18,7 +18,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 
-use clarity_types::representations::{ClarityName, ContractName, LegacyClarityName};
+use clarity_types::representations::{ClarityName, ContractName};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
@@ -88,14 +88,6 @@ impl From<ClarityName> for StacksString {
     fn from(clarity_name: ClarityName) -> StacksString {
         // .unwrap() is safe since StacksString is less strict
         StacksString::from_str(&clarity_name).unwrap()
-    }
-}
-
-impl From<LegacyClarityName> for StacksString {
-    fn from(legacy_name: LegacyClarityName) -> StacksString {
-        // .unwrap() is safe since StacksString is less strict than
-        // LegacyClarityName's narrow regex.
-        StacksString::from_str(&legacy_name).unwrap()
     }
 }
 

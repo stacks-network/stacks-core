@@ -17,8 +17,7 @@ use rstest::rstest;
 
 use crate::errors::ClarityTypeError;
 use crate::representations::{
-    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, ClarityName, ContractName,
-    LegacyClarityName, MAX_STRING_LEN,
+    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, ClarityName, ContractName, MAX_STRING_LEN,
 };
 use crate::stacks_common::codec::StacksMessageCodec;
 
@@ -215,126 +214,6 @@ fn test_contract_name_deserialization_errors(#[case] buffer: Vec<u8>, #[case] er
     let result = ContractName::consensus_deserialize(&mut buffer.as_slice());
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), error_message);
-}
-
-// `LegacyClarityName` — the narrow (pre-Clarity-6) name type used at
-// wire positions that must reject `_`-prefixed names for consensus
-// safety. Mirrors the historical `ClarityName` acceptance set.
-
-#[rstest]
-#[case::plain_letter("hello")]
-#[case::dash("hello-dash")]
-#[case::interior_underscore("hello_underscore")]
-#[case::numbers("test123")]
-#[case::single_letter("a")]
-#[case::exclamation_mark("set-token-uri!")]
-#[case::question_mark("is-owner?")]
-#[case::single_operator("*")]
-#[case::less_than_or_equal_to("<=")]
-fn test_legacy_clarity_name_valid(#[case] name: &str) {
-    let legacy = LegacyClarityName::try_from(name.to_string())
-        .unwrap_or_else(|_| panic!("Should parse valid LegacyClarityName: {name}"));
-    assert_eq!(legacy.as_str(), name);
-}
-
-/// The defining contract of `LegacyClarityName`: it MUST reject every
-/// name that begins with `_`, including the bare `_`. These are the
-/// names whose wire-level acceptance would split the chain.
-#[rstest]
-#[case::leading_underscore("_admin")]
-#[case::bare_underscore("_")]
-#[case::double_underscore("__")]
-#[case::underscore_with_operators("_check!?")]
-#[case::underscore_with_digits("_var123")]
-#[case::underscore_then_dash("_-")]
-fn test_legacy_clarity_name_rejects_leading_underscore(#[case] name: &str) {
-    let result = LegacyClarityName::try_from(name.to_string());
-    assert!(result.is_err(), "expected {name:?} to be rejected by LegacyClarityName");
-    assert!(matches!(
-        result.unwrap_err(),
-        ClarityTypeError::InvalidClarityName(_)
-    ));
-}
-
-#[rstest]
-#[case::empty("")]
-#[case::starts_with_number("123abc")]
-#[case::contains_space("hello world")]
-#[case::contains_dot("hello.world")]
-#[case::too_long(&"a".repeat(MAX_STRING_LEN as usize + 1))]
-fn test_legacy_clarity_name_invalid(#[case] name: &str) {
-    let result = LegacyClarityName::try_from(name.to_string());
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        ClarityTypeError::InvalidClarityName(_)
-    ));
-}
-
-#[rstest]
-#[case("hello")]
-#[case("contract-call?")]
-#[case("*")]
-fn test_legacy_clarity_name_serialization(#[case] name: &str) {
-    let name = LegacyClarityName::try_from(name.to_string()).unwrap();
-
-    let mut buffer = Vec::new();
-    name.consensus_serialize(&mut buffer)
-        .unwrap_or_else(|_| panic!("Serialization should succeed for name: {name}"));
-
-    assert_eq!(buffer[0], name.len());
-    assert_eq!(&buffer[1..], name.as_bytes());
-
-    let deserialized = LegacyClarityName::consensus_deserialize(&mut buffer.as_slice()).unwrap();
-    assert_eq!(deserialized, name);
-}
-
-/// The codec contract that makes this whole refactor consensus-safe: a
-/// `_`-prefixed name MUST fail to deserialize at the wire layer. If this
-/// test ever flips to passing, the chain-split risk that motivated the
-/// `LegacyClarityName` introduction has silently reappeared.
-#[test]
-fn test_legacy_clarity_name_rejects_underscore_on_the_wire() {
-    let underscore_bytes = [4, b'_', b'f', b'o', b'o'];
-    let result = LegacyClarityName::consensus_deserialize(&mut underscore_bytes.as_slice());
-    assert!(result.is_err(), "leading `_` must not deserialize as LegacyClarityName");
-}
-
-/// Widening (`LegacyClarityName` -> `ClarityName`) is infallible — every
-/// legacy name is also a valid wide name.
-#[rstest]
-#[case("hello")]
-#[case("contract-call?")]
-#[case("set!")]
-#[case("*")]
-#[case("<=")]
-fn test_legacy_to_wide_widening(#[case] name: &str) {
-    let legacy = LegacyClarityName::try_from(name.to_string()).unwrap();
-    let wide: ClarityName = legacy.clone().into();
-    assert_eq!(wide.as_str(), legacy.as_str());
-}
-
-/// Narrowing (`ClarityName` -> `LegacyClarityName`) succeeds for names
-/// that also satisfy the legacy regex.
-#[rstest]
-#[case("hello")]
-#[case("foo-bar")]
-fn test_wide_to_legacy_ok(#[case] name: &str) {
-    let wide = ClarityName::try_from(name.to_string()).unwrap();
-    let legacy = LegacyClarityName::try_from(wide).expect("should narrow");
-    assert_eq!(legacy.as_str(), name);
-}
-
-/// Narrowing fails for `_`-prefixed names — the type-system guarantee
-/// that legacy wire positions can't hold a leading-`_` name.
-#[rstest]
-#[case("_foo")]
-#[case("_")]
-#[case("__transient_like")]
-fn test_wide_to_legacy_underscore_rejected(#[case] name: &str) {
-    let wide = ClarityName::try_from(name.to_string()).unwrap();
-    let narrowed = LegacyClarityName::try_from(wide);
-    assert!(narrowed.is_err(), "narrowing of {name:?} must fail");
 }
 
 /// Regression test for the issue where some `try_*` calls might panic instead of

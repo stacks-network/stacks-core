@@ -22,7 +22,7 @@ use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::representations::ClarityName;
 #[cfg(test)]
-use clarity::vm::representations::{ContractName, LegacyClarityName};
+use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
@@ -509,7 +509,7 @@ pub mod test {
         epoch_id: StacksEpochId,
     ) -> Vec<StacksTransaction> {
         let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-        let asset_name = LegacyClarityName::try_from("hello-asset").unwrap();
+        let asset_name = ClarityName::try_from("hello-asset").unwrap();
         let asset_value = Value::buff_from(vec![0, 1, 2, 3]).unwrap();
         let contract_name = ContractName::try_from("hello-world").unwrap();
         let hello_contract_call = "hello contract call";
@@ -796,7 +796,7 @@ pub mod test {
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress::new(4, Hash160([0xfc; 20])).unwrap(),
                 contract_name: ContractName::try_from("hello-contract-name").unwrap(),
-                function_name: LegacyClarityName::try_from("hello-contract-call").unwrap(),
+                function_name: ClarityName::try_from("hello-contract-call").unwrap(),
                 function_args: vec![Value::Int(0)],
             }),
             TransactionPayload::SmartContract(

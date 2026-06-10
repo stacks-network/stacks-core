@@ -15,7 +15,7 @@
 
 use std::fs;
 
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::ContractName;
 use pinny::tag;
@@ -681,7 +681,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
         let cc_payload = TransactionPayload::ContractCall(TransactionContractCall {
             address: addr.clone(),
             contract_name: ContractName::try_from("test-clarity-db").unwrap(),
-            function_name: LegacyClarityName::try_from("test-all").unwrap(),
+            function_name: ClarityName::try_from("test-all").unwrap(),
             function_args: vec![],
         });
 

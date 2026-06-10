@@ -24,7 +24,7 @@ use std::{env, fs, io};
 
 use clarity::vm::ast::errors::ParseError;
 use clarity::vm::errors::{ClarityEvalError, ClarityTypeError, VmExecutionError};
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, ContractName, Value};
 use clarity_cli::vm_execute;
@@ -275,10 +275,7 @@ fn make_contract_call(
     let address =
         StacksAddress::from_string(&contract_address).ok_or("Failed to parse contract address")?;
     let contract_name = ContractName::try_from(contract_name)?;
-    // Wire-narrow `LegacyClarityName`. Calls to Clarity-6 `_`-prefixed
-    // functions are unsupported here until a versioned `ContractCall`
-    // payload is introduced.
-    let function_name = LegacyClarityName::try_from(function_name)?;
+    let function_name = ClarityName::try_from(function_name)?;
 
     Ok(TransactionContractCall {
         address,

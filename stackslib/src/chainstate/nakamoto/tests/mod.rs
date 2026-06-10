@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use clarity::types::chainstate::{SortitionId, StacksBlockId};
 use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::representations::LegacyClarityName;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::{ContractName, Value};
 use libstackerdb::StackerDBChunkData;
@@ -2459,7 +2459,7 @@ fn parse_vote_for_aggregate_public_key_valid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2512,7 +2512,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
                 &StacksPublicKey::from_private(&signer_private_key),
             ),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2528,7 +2528,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: ContractName::from_literal("bad-signers-contract-name"),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2544,7 +2544,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal("some-other-function"),
+            function_name: ClarityName::from_literal("some-other-function"),
             function_args: valid_function_args,
         }),
     };
@@ -2560,7 +2560,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 aggregate_key_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2581,7 +2581,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 signer_index_arg.clone(),
@@ -2602,7 +2602,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2623,7 +2623,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name,
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg,
                 aggregate_key_arg.clone(),
@@ -2693,7 +2693,7 @@ fn valid_vote_transaction() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2767,7 +2767,7 @@ fn valid_vote_transaction_malformed_transactions() {
                 &StacksPublicKey::from_private(&signer_private_key),
             ),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2783,7 +2783,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: ContractName::from_literal("bad-signers-contract-name"),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2799,7 +2799,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2815,7 +2815,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal("some-other-function"),
+            function_name: ClarityName::from_literal("some-other-function"),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2831,7 +2831,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 aggregate_key_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2852,7 +2852,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 signer_index_arg.clone(),
@@ -2873,7 +2873,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2894,7 +2894,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg,
                 aggregate_key_arg.clone(),
@@ -2915,7 +2915,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name,
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2984,7 +2984,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3000,7 +3000,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3016,7 +3016,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3032,7 +3032,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3048,7 +3048,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args,
         }),
     };
@@ -3115,7 +3115,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3131,7 +3131,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3147,7 +3147,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: LegacyClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args,
         }),
     };
