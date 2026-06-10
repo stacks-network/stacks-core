@@ -84,6 +84,33 @@ impl From<VmExecutionError> for LockingError {
     }
 }
 
+#[cfg(test)]
+impl LockingError {
+    /// A stable, per-variant code for exact-equality assertions in tests.
+    ///
+    /// `LockingError` can't `derive(PartialEq)` because its
+    /// `Clarity(VmExecutionError)` variant wraps a type that isn't
+    /// `PartialEq`, so tests compare error codes rather than the errors
+    /// themselves. The code identifies the variant only; wrapped contents (the
+    /// `Clarity` error, the `PoxMalformedResponse` message) are not compared.
+    pub(crate) fn as_error_code(&self) -> u32 {
+        match self {
+            LockingError::DefunctPoxContract => 0,
+            LockingError::PoxAlreadyLocked => 1,
+            LockingError::PoxInsufficientBalance => 2,
+            LockingError::PoxExtendNotLocked => 3,
+            LockingError::PoxIncreaseOnV1 => 4,
+            LockingError::PoxInvalidIncrease => 5,
+            LockingError::Clarity(_) => 6,
+            LockingError::PoxUnstakeNotLocked => 7,
+            LockingError::PoxInvalidLockAmount => 8,
+            LockingError::PoxInvalidUnlockHeight => 9,
+            LockingError::PoxBalanceOverflow => 10,
+            LockingError::PoxMalformedResponse(_) => 11,
+        }
+    }
+}
+
 pub const POX_1_NAME: &str = "pox";
 pub const POX_2_NAME: &str = "pox-2";
 pub const POX_3_NAME: &str = "pox-3";

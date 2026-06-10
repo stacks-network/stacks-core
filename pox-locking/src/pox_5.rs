@@ -810,8 +810,9 @@ mod tests {
         let bogus = Value::UInt(0);
         let err =
             parse_pox_stake_result(&bogus).expect_err("non-response value must surface as error");
-        assert!(
-            matches!(err, LockingError::PoxMalformedResponse(_)),
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxMalformedResponse(String::new()).as_error_code(),
             "unexpected error: {err:?}"
         );
 
@@ -819,8 +820,9 @@ mod tests {
         let ok_not_tuple = Value::okay(Value::UInt(1)).unwrap();
         let err = parse_pox_stake_result(&ok_not_tuple)
             .expect_err("non-tuple ok payload must surface as error");
-        assert!(
-            matches!(err, LockingError::PoxMalformedResponse(_)),
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxMalformedResponse(String::new()).as_error_code(),
             "unexpected error: {err:?}"
         );
     }
@@ -1574,7 +1576,10 @@ mod tests {
             total_amount + 1,
         )
         .expect_err("expected PoxInsufficientBalance");
-        assert!(matches!(err, LockingError::PoxInsufficientBalance));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInsufficientBalance.as_error_code()
+        );
     }
 
     #[test]
@@ -1603,7 +1608,10 @@ mod tests {
             initial_lock - 1,
         )
         .expect_err("expected PoxInvalidIncrease");
-        assert!(matches!(err, LockingError::PoxInvalidIncrease));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInvalidIncrease.as_error_code()
+        );
     }
 
     /// `pox_lock_update_v5` after `pox_unstake_v5` must succeed and re-commit
@@ -1765,7 +1773,10 @@ mod tests {
             500_000,
         )
         .expect_err("expected PoxInvalidUnlockHeight");
-        assert!(matches!(err, LockingError::PoxInvalidUnlockHeight));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInvalidUnlockHeight.as_error_code()
+        );
     }
 
     /// A roll-over to an earlier unlock height (before the current one) is
@@ -1792,7 +1803,10 @@ mod tests {
             500_000,
         )
         .expect_err("expected PoxInvalidUnlockHeight");
-        assert!(matches!(err, LockingError::PoxInvalidUnlockHeight));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInvalidUnlockHeight.as_error_code()
+        );
     }
 
     /// A zero `new_total_locked` is an invalid request (pre-snapshot check).
@@ -1804,7 +1818,10 @@ mod tests {
 
         let err = pox_rollover_v5(&mut global_context.database, &staker, 10_000, 0)
             .expect_err("expected PoxInvalidLockAmount");
-        assert!(matches!(err, LockingError::PoxInvalidLockAmount));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInvalidLockAmount.as_error_code()
+        );
     }
 
     /// Calling `pox_rollover_v5` on an account that isn't currently locked
@@ -1819,7 +1836,10 @@ mod tests {
         // No prior lock — has_locked_tokens is false.
         let err = pox_rollover_v5(&mut global_context.database, &staker, 10_000, 500_000)
             .expect_err("expected PoxExtendNotLocked");
-        assert!(matches!(err, LockingError::PoxExtendNotLocked));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxExtendNotLocked.as_error_code()
+        );
     }
 
     /// A rollover that asks to lock more than the account holds (unlocked +
@@ -1850,7 +1870,10 @@ mod tests {
             total_amount + 1,
         )
         .expect_err("expected PoxInsufficientBalance");
-        assert!(matches!(err, LockingError::PoxInsufficientBalance));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInsufficientBalance.as_error_code()
+        );
     }
 
     // ── unstake tests ──
@@ -2014,9 +2037,11 @@ mod tests {
 
             let err = pox_lock_v5(&mut gc.database, &staker, 0, unlock_height)
                 .expect_err("zero amount must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxInvalidLockAmount),
-                "expected PoxInvalidLockAmount, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidLockAmount.as_error_code(),
+                "expected PoxInvalidLockAmount, got {:?}",
+                err
             );
         }
 
@@ -2033,9 +2058,11 @@ mod tests {
 
             let err = pox_lock_v5(&mut gc.database, &staker, amount, 0)
                 .expect_err("zero unlock_height must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxInvalidUnlockHeight),
-                "expected PoxInvalidUnlockHeight, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidUnlockHeight.as_error_code(),
+                "expected PoxInvalidUnlockHeight, got {:?}",
+                err
             );
         }
 
@@ -2061,9 +2088,11 @@ mod tests {
                 .expect("first lock should succeed");
             let err = pox_lock_v5(&mut gc.database, &staker, second_amount, second_unlock)
                 .expect_err("second lock must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxAlreadyLocked),
-                "expected PoxAlreadyLocked, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxAlreadyLocked.as_error_code(),
+                "expected PoxAlreadyLocked, got {:?}",
+                err
             );
         }
 
@@ -2083,9 +2112,11 @@ mod tests {
 
             let err = pox_lock_v5(&mut gc.database, &staker, lock_amount, unlock_height)
                 .expect_err("over-balance lock must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxInsufficientBalance),
-                "expected PoxInsufficientBalance, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInsufficientBalance.as_error_code(),
+                "expected PoxInsufficientBalance, got {:?}",
+                err
             );
         }
 
@@ -2110,9 +2141,11 @@ mod tests {
                 .expect("first lock should succeed");
             let err = pox_lock_update_v5(&mut gc.database, &staker, new_unlock, new_total)
                 .expect_err("decrease must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxInvalidIncrease),
-                "expected PoxInvalidIncrease, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidIncrease.as_error_code(),
+                "expected PoxInvalidIncrease, got {:?}",
+                err
             );
         }
 
@@ -2131,9 +2164,11 @@ mod tests {
 
             let err = pox_unstake_v5(&mut gc.database, &staker, 0)
                 .expect_err("zero unlock_burn_height must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxInvalidUnlockHeight),
-                "expected PoxInvalidUnlockHeight, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidUnlockHeight.as_error_code(),
+                "expected PoxInvalidUnlockHeight, got {:?}",
+                err
             );
         }
 
@@ -2152,9 +2187,11 @@ mod tests {
 
             let err = pox_lock_update_v5(&mut gc.database, &staker, unlock_height, 0)
                 .expect_err("zero new_total must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxInvalidLockAmount),
-                "expected PoxInvalidLockAmount, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidLockAmount.as_error_code(),
+                "expected PoxInvalidLockAmount, got {:?}",
+                err
             );
         }
 
@@ -2174,9 +2211,11 @@ mod tests {
 
             let err = pox_lock_update_v5(&mut gc.database, &staker, unlock_height, new_total)
                 .expect_err("update on unlocked must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxExtendNotLocked),
-                "expected PoxExtendNotLocked, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxExtendNotLocked.as_error_code(),
+                "expected PoxExtendNotLocked, got {:?}",
+                err
             );
         }
 
@@ -2202,9 +2241,11 @@ mod tests {
                 .expect("initial lock should succeed");
             let err = pox_lock_update_v5(&mut gc.database, &staker, new_unlock, new_total)
                 .expect_err("new_total > total_balance must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxInsufficientBalance),
-                "expected PoxInsufficientBalance, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInsufficientBalance.as_error_code(),
+                "expected PoxInsufficientBalance, got {:?}",
+                err
             );
         }
 
@@ -2274,9 +2315,11 @@ mod tests {
 
             let err = pox_unstake_v5(&mut gc.database, &staker, unlock_height)
                 .expect_err("unstake on unlocked must be rejected");
-            prop_assert!(
-                matches!(err, LockingError::PoxUnstakeNotLocked),
-                "expected PoxUnstakeNotLocked, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxUnstakeNotLocked.as_error_code(),
+                "expected PoxUnstakeNotLocked, got {:?}",
+                err
             );
         }
 
@@ -2304,9 +2347,11 @@ mod tests {
             let bad = Value::okay(Value::Tuple(tuple)).unwrap();
             let err = parse_pox_stake_result(&bad)
                 .expect_err("missing field must surface as PoxMalformedResponse");
-            prop_assert!(
-                matches!(err, LockingError::PoxMalformedResponse(_)),
-                "expected PoxMalformedResponse, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxMalformedResponse(String::new()).as_error_code(),
+                "expected PoxMalformedResponse, got {:?}",
+                err
             );
         }
 
@@ -2332,9 +2377,11 @@ mod tests {
             let bad = Value::okay(Value::Tuple(tuple)).unwrap();
             let err = parse_pox_stake_result(&bad)
                 .expect_err("u128 > u64::MAX must surface as PoxMalformedResponse");
-            prop_assert!(
-                matches!(err, LockingError::PoxMalformedResponse(_)),
-                "expected PoxMalformedResponse, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxMalformedResponse(String::new()).as_error_code(),
+                "expected PoxMalformedResponse, got {:?}",
+                err
             );
         }
 
@@ -2352,9 +2399,11 @@ mod tests {
             let bad = Value::error(payload).unwrap();
             let err = parse_pox_stake_result(&bad)
                 .expect_err("non-uint err payload must surface as PoxMalformedResponse");
-            prop_assert!(
-                matches!(err, LockingError::PoxMalformedResponse(_)),
-                "expected PoxMalformedResponse, got {err:?}"
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxMalformedResponse(String::new()).as_error_code(),
+                "expected PoxMalformedResponse, got {:?}",
+                err
             );
         }
     }
