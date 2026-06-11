@@ -13,12 +13,16 @@ import { expect } from 'vitest';
 import { rov, txErr } from '@clarigen/test';
 import { MAX_UINT128, errorCodes } from '../pox-5-helpers';
 
+/**
+ * Stake from a sender who is already staking. The already-staked check fails
+ * with ERR_ALREADY_STAKED and mutates nothing.
+ */
 export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      // amount-ustx is irrelevant once ERR_ALREADY_STAKED fires; the
-      // balance check is the last assert in the chain.
+      // Free over the full uint128 space; the balance check that would read it
+      // sits past the already-staked check this targets.
       amountUstx: fc.bigInt({ min: 0n, max: MAX_UINT128 }),
       numCycles: fc.integer({ min: 1, max: 12 }),
       signerIndex: fc.nat(),
@@ -26,13 +30,11 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
     .map((r) => {
       let pickedSigner: string | undefined;
       return {
+        // Live grant and non-prepare-phase keep the earlier grant and
+        // prepare-phase checks from masking ERR_ALREADY_STAKED.
         check: (model: Readonly<Model>) =>
-          // A live grant is needed or the grant check (which runs before the
-          // already-staked check) would mask ERR_ALREADY_STAKED.
           grantedSigners(model).length > 0 &&
           isStakerActive(model, r.sender) &&
-          // In the prepare phase stake reverts with ERR_STAKE_IN_PREPARE_PHASE
-          // first, masking ERR_ALREADY_STAKED.
           !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
@@ -63,17 +65,15 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
 
           // Assert
 
-          // Model says sender is already staking; contract should agree and
-          // its view should match the model's recorded staker.
+          // Pre-state matched the model's staker record.
           expect(stakerInfoBefore).toEqual({
             amountUstx: expectedStaker.amountUstx,
             firstRewardCycle: expectedStaker.firstRewardCycle,
             numCycles: expectedStaker.numCycles,
             signer: expectedStaker.signer,
           });
-          // Contract rejected with the expected error code.
           expect(receipt.value).toBe(errorCodes.ERR_ALREADY_STAKED);
-          // Failing call did not mutate the sender's staker record.
+          // Rejected call left the staker record untouched.
           expect(rov(real.contracts.pox5.getStakerInfo(r.sender))).toEqual(
             stakerInfoBefore,
           );

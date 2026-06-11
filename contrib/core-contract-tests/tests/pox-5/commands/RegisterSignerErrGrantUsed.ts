@@ -62,8 +62,6 @@ export const RegisterSignerErrGrantUsed = (accounts: Real['accounts']) =>
           );
 
           // Act
-
-          // Re-run register-self with the consumed tuple and expect error.
           const receipt = txErr(
             handle.registerSelf({
               signerManager,

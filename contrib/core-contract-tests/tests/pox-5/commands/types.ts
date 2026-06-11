@@ -18,21 +18,23 @@ export type StakerState = {
   signer: string;
 };
 
+/** Mirrors a `protocol-bonds` row (the config `setup-bond` stores). */
+export type BondConfig = {
+  targetRate: bigint;
+  stxValueRatio: bigint;
+  minUstxRatio: bigint;
+  earlyUnlockBytes: Uint8Array;
+};
+
 export interface Model {
-  /** Tracks per-address staker state. Absent means not staking. */
+  /** Per-address staker state. Absent means not staking. */
   stakers: Map<string, StakerState>;
-  /**
-   * Per-cycle aggregate state mirroring the contract's four
-   * unconditional-write maps, so any cycle (past, current, or future) is
-   * checked against the value stored for that cycle. Never pruned: the
-   * contract leaves past-cycle entries in place, which is what lets the
-   * current cycle (frozen before any later update) read back correctly.
-   */
-  /** Mirrors `ustx-delegated-per-cycle`: Maps cycle to total uSTX delegated. */
+  // The next four maps mirror the contract's unconditional-write per-cycle
+  // maps. Never pruned: past-cycle entries stay in place, which is what lets
+  // the current cycle (frozen before any later update) read back correctly.
+  /** Mirrors `ustx-delegated-per-cycle`. Cycle to total uSTX delegated. */
   ustxDelegatedPerCycle: Map<bigint, bigint>;
-  /** Mirrors `signer-delegated-per-cycle`. Maps `${signer}|${cycle}` to uSTX
-   * amount.
-   */
+  /** Mirrors `signer-delegated-per-cycle`, keyed `${signer}|${cycle}`. */
   signerDelegatedPerCycle: Map<string, bigint>;
   /** Mirrors `staker-signer-cycle-memberships`, keyed `${staker}|${cycle}`. */
   stakerSignerCycleMemberships: Map<
@@ -45,38 +47,46 @@ export interface Model {
    */
   stakerSharesStakedForCycle: Map<string, bigint>;
   /**
-   * Identifiers of every signer-manager contract deployed so far.
-   * `size` is the index used for naming the next deploy.
+   * Every signer-manager contract deployed so far. `size` names the next
+   * deploy.
    */
   deployedSigners: Set<string>;
   /**
-   * Subset of `deployedSigners` that has been registered with a key grant,
-   * mapped to the signer key currently recorded for it (the value of the
-   * contract's `signers` map, set by `register-signer`). `RotateSignerKey`
-   * overwrites the key in place.
+   * Subset of `deployedSigners` registered with a key grant, mapped to the key
+   * currently recorded for it (the contract's `signers` map value, set by
+   * `register-signer`). A key rotation overwrites the value in place.
    */
   signers: Map<string, { signerKey: Uint8Array }>;
   /**
    * Serialised `${hex(signerKey)}|${signerManager}|${authId}` tuples consumed
    * via `grant-signer-key` (the contract's `used-signer-key-grants` map).
-   * Never deleted: replaying any of these must reject with the proper error
-   * code. Use `usedGrantKey` / `parseUsedGrantKey` to (de)serialise.
+   * Never deleted, so replaying any of these must reject.
    */
   usedGrants: Set<string>;
   /**
    * Serialised `${hex(signerKey)}|${signerManager}` tuples currently live in
-   * the contract's `signer-key-grants` map. Rotating a key leaves the previous
+   * the contract's `signer-key-grants` map. A key rotation leaves the previous
    * grant live until it is explicitly revoked.
    */
   activeGrants: Set<string>;
   /** Current simulated burn block height. */
   burnBlockHeight: bigint;
-  /** Reward cycle length (set by setBurnchainParameters). */
+  /** Burnchain parameters mirrored from `set-burnchain-parameters`. */
   rewardCycleLength: bigint;
-  /** First burn height (set by setBurnchainParameters). */
   firstBurnHeight: bigint;
-  /** Prepare cycle length (set by setBurnchainParameters). */
   prepareCycleLength: bigint;
-  /** Map tracking command execution counts for reporting. */
+  /** Mirrors `protocol-bonds`: bond-index to config; never deleted. */
+  bonds: Map<bigint, BondConfig>;
+  /**
+   * Mirrors `protocol-bond-allowances`, keyed `${bondIndex}|${staker}` to
+   * max-sats. One entry per allowlisted staker.
+   */
+  bondAllowances: Map<string, bigint>;
+  /**
+   * `first-bond-period-cycle` (= `begin-pox5-reward-cycle`). Bond `N` starts at
+   * cycle `firstBondPeriodCycle + N * BOND_GAP_CYCLES`.
+   */
+  firstBondPeriodCycle: bigint;
+  /** Command execution counts, for the end-of-run report. */
   statistics: Map<string, number>;
 }

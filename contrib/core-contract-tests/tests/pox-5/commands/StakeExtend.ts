@@ -36,8 +36,8 @@ export const StakeExtend = (accounts: Real['accounts']) =>
     .map((r) => {
       let pickedSigner: string | undefined;
       return {
-        // Keep the resulting internal num-cycles (new-unlock - current - 1) in
-        // the contract's [1, 96] band, else stake-update rejects.
+        // Keep the internal num-cycles (new-unlock - current - 1) in the
+        // contract's [1, 96] band, else stake-update rejects.
         check: (model: Readonly<Model>) => {
           if (model.signers.size === 0) return false;
           // stake-update reverts with ERR_STAKE_IN_PREPARE_PHASE in the
@@ -45,8 +45,7 @@ export const StakeExtend = (accounts: Real['accounts']) =>
           if (isInPreparePhase(model)) return false;
           if (!isStakerActive(model, r.sender)) return false;
           const prev = model.stakers.get(r.sender)!;
-          // stake-update re-checks the (reused) signer's grant; skip if
-          // revoked.
+          // stake-update re-checks the reused signer's grant; skip if revoked.
           if (!signerHasActiveGrant(model, prev.signer)) return false;
           const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
           const newUnlockCycle = prevUnlockCycle + r.cyclesToExtend;
@@ -63,7 +62,7 @@ export const StakeExtend = (accounts: Real['accounts']) =>
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const currentCycle = currentRewardCycle(model);
           const prev = model.stakers.get(r.sender)!;
-          // Extend-only: reuse the staker's signer for both args; capture it for toString.
+          // Reuse the staker's signer for both args; capture it for toString.
           const signer = prev.signer;
           pickedSigner = signer;
           const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
@@ -72,9 +71,9 @@ export const StakeExtend = (accounts: Real['accounts']) =>
             model,
             expectedUnlockCycle,
           );
-          // Extend-only: amount unchanged (amountIncrease = 0).
           const expectedAmountUstx = prev.amountUstx;
-          // Contract keeps first-reward-cycle, bumps num-cycles by cyclesToExtend.
+          // Contract keeps first-reward-cycle, bumps num-cycles by
+          // cyclesToExtend.
           const expectedNumCycles = prev.numCycles + r.cyclesToExtend;
           const stakerInfoBefore = rov(
             real.contracts.pox5.getStakerInfo(r.sender),
@@ -88,8 +87,8 @@ export const StakeExtend = (accounts: Real['accounts']) =>
             signer,
           };
           // Boundaries of the affected range: remove [current+1, prev-unlock),
-          // re-add [current+1, new-unlock). cyclesToExtend >= 1 so the new
-          // range extends past the old; first=current+1, last=new-unlock-1.
+          // re-add [current+1, new-unlock). With cyclesToExtend >= 1 the new
+          // range extends past the old, so these two cycles cover both ends.
           const firstAffectedCycle = currentCycle + 1n;
           const lastAffectedCycle = expectedUnlockCycle - 1n;
 
@@ -107,10 +106,10 @@ export const StakeExtend = (accounts: Real['accounts']) =>
 
           // Update model
 
-          // Replay the contract's remove-then-add over the affected cycles,
-          // then commit. Amount and signer unchanged, so each existing cycle
-          // nets back to the same value, just extended further out. Before the
-          // asserts so they compare against the committed mirror.
+          // Replay the contract's remove-then-add over the affected cycles.
+          // Amount and signer unchanged, so each existing cycle nets back to
+          // the same value, just extended further out. Before the asserts so
+          // they compare against the committed mirror.
           modelRemoveStakerFromCycles(
             model,
             r.sender,

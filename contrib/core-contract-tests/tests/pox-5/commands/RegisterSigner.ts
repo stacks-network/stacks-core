@@ -55,8 +55,8 @@ export const RegisterSigner = (accounts: Real['accounts']) =>
           // Assert
           expect(rov(pox5.getSignerInfo(signerId))).toEqual(signerKey);
 
-          // Update model. register-self consumed the (key, manager, auth-id)
-          // grant and left it live in signer-key-grants.
+          // Update model: register-self consumed the (key, manager, auth-id)
+          // grant for replay protection yet left it live for verification.
           model.signers.set(signerId, { signerKey });
           model.usedGrants.add(usedGrantKey(signerKey, signerId, r.authId));
           model.activeGrants.add(grantKey(signerKey, signerId));

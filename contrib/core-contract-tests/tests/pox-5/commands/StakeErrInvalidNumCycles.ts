@@ -13,21 +13,22 @@ import { expect } from 'vitest';
 import { rov, txErr } from '@clarigen/test';
 import { MAX_UINT128, errorCodes } from '../pox-5-helpers';
 
+/**
+ * Stake with num-cycles outside the valid range. The num-cycles check fails
+ * with ERR_INVALID_NUM_CYCLES and mutates nothing.
+ */
 export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      // amount-ustx is read only on the (last) balance check; on the
-      // ERR_INVALID_NUM_CYCLES branch it never influences the outcome, so
-      // leave the full uint128 space open.
+      // Free over the full uint128 space; the balance check that would read it
+      // sits past the num-cycles check this targets.
       amountUstx: fc.bigInt({ min: 0n, max: MAX_UINT128 }),
-      // Pox-5 requires num-cycles ∈ [1, 96]. Generate from {0n} ∪ [97n, ...]
-      // so the targeted ERR_INVALID_NUM_CYCLES branch fires. The upper cap
-      // stays clear of MAX_UINT128 because the contract evaluates
-      //   `unlock-cycle = first-reward-cycle + num-cycles`
-      // in the `let` binding before any assert; values near MAX_UINT128 would
-      // trip Clarity's runtime arithmetic-overflow path, which is the VM's
-      // concern and outside pox-5's domain.
+      // Pox-5 requires num-cycles in [1, 96]; draw from {0n} or [97n, ...] to
+      // trip ERR_INVALID_NUM_CYCLES. The cap stays clear of MAX_UINT128
+      // because the `let` computes `first-reward-cycle + num-cycles` before
+      // any assert, and values near the max would hit Clarity's overflow path
+      // instead.
       numCycles: fc.oneof(
         fc.constant(0n),
         fc.bigInt({ min: 97n, max: MAX_UINT128 - 100000n }),
@@ -37,13 +38,9 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
     .map((r) => {
       let pickedSigner: string | undefined;
       return {
-        // Gate on the same preconditions as Stake so we know
-        // ERR_INVALID_NUM_CYCLES is the first failing assertion: registered
-        // signer exists, sender not yet staking, and not in the prepare phase
-        // (whose guard fires before the num-cycles check).
+        // Live grant, non-staking sender, and non-prepare-phase keep the
+        // earlier checks from masking ERR_INVALID_NUM_CYCLES.
         check: (model: Readonly<Model>) =>
-          // Live grant needed; the grant check runs before the num-cycles
-          // check.
           grantedSigners(model).length > 0 &&
           !isStakerActive(model, r.sender) &&
           !isInPreparePhase(model),
@@ -75,11 +72,10 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
 
           // Assert
 
-          // Model predicted sender was not staking; contract should agree.
+          // Pre-state confirms the sender was not staking.
           expect(stakerInfoBefore).toBeNull();
-          // Contract rejected with the num-cycles error.
           expect(receipt.value).toBe(errorCodes.ERR_INVALID_NUM_CYCLES);
-          // No partial mutation of staker state.
+          // Rejected call left the staker record untouched.
           expect(rov(real.contracts.pox5.getStakerInfo(r.sender))).toEqual(
             stakerInfoBefore,
           );

@@ -9,8 +9,9 @@ export const DeploySigner = () =>
   fc.constant(null).map(() => {
     let name: string | undefined;
     return {
-      // Allow max MAX_SIGNERS signer-manager contracts to be deployed.
-      check: (model: Readonly<Model>) => model.deployedSigners.size < MAX_SIGNERS,
+      // Cap the run at MAX_SIGNERS signer-manager contracts.
+      check: (model: Readonly<Model>) =>
+        model.deployedSigners.size < MAX_SIGNERS,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
         trackCommandRun(model, 'deploy-signer');

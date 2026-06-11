@@ -14,8 +14,7 @@ import { MAX_SIGNERS, errorCodes, signerAddress } from '../pox-5-helpers';
 export const RevokeSignerGrantNonexistent = () =>
   fc
     .record({
-      // Fresh 48-byte seed yielding a key never granted to any manager (noble
-      // wants 48).
+      // 48 bytes for noble; yields a key never granted to any manager.
       seed: fc.uint8Array({ minLength: 48, maxLength: 48 }),
       // Static cap for legible shrinks; `%` wraps onto the live deployed
       // signer set.
@@ -24,9 +23,8 @@ export const RevokeSignerGrantNonexistent = () =>
     .map((r) => {
       let target: string | undefined;
       return {
-        // Any deployed signer-manager is a fine target principal. The
-        // (fresh-key, manager) pair is guaranteed absent from
-        // signer-key-grants by design.
+        // Any deployed signer-manager works; the (fresh-key, manager) pair is
+        // absent from signer-key-grants by construction.
         check: (model: Readonly<Model>) => model.deployedSigners.size > 0,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);

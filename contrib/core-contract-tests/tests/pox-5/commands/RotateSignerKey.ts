@@ -23,12 +23,10 @@ import {
 export const RotateSignerKey = () =>
   fc
     .record({
-      // New 48-byte seed; a fresh signer key (noble's randomSecretKey wants
-      // 48).
+      // 48 bytes is what noble's randomSecretKey wants for a fresh key.
       seed: fc.uint8Array({ minLength: 48, maxLength: 48 }),
-      // Fresh auth-id for the new grant. With a new key the
-      // (key, manager, auth-id) tuple is always unused, so any value works;
-      // range mirrors RegisterSigner.
+      // With a new key the (key, manager, auth-id) tuple is always unused, so
+      // any auth-id works here.
       authId: fc.bigInt({ min: 1n, max: 1_000_000_000n }),
       // Static cap for legible shrinks; `%` wraps onto the live signer set.
       signerIndex: fc.nat({ max: MAX_SIGNERS - 1 }),
@@ -57,8 +55,8 @@ export const RotateSignerKey = () =>
 
           // Act
 
-          // Re-register the same signer with a new key. register-self grants
-          // the new key, then map-sets `signers`, overwriting the key.
+          // register-self grants the new key, then map-sets `signers` over the
+          // existing entry.
           const { signerKey: newKey } = registerSigner({
             signerManager: handle,
             seed: r.seed,
@@ -76,8 +74,7 @@ export const RotateSignerKey = () =>
 
           // Update model
 
-          // New grant is consumed + live; the previous grant remains live
-          // (rotation does not revoke it).
+          // New grant is consumed and live; the previous grant stays live too.
           model.signers.set(signerId, { signerKey: newKey });
           model.usedGrants.add(usedGrantKey(newKey, signerId, r.authId));
           model.activeGrants.add(grantKey(newKey, signerId));

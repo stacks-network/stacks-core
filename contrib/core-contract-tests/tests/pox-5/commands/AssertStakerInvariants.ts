@@ -15,12 +15,12 @@ import {
 } from './utils';
 
 /**
- * Standing-invariant sweep over active stakers (decoupled from any Act). Picks
- * a wallet from the static set and `check`-gates it to one holding a position
- * in the current cycle, so every read hits the non-null side: identity
- * (`get-staker-info`), the runtime STX lock, and per-cycle membership/shares.
- * The shares read uses the model's per-cycle signer (not the staker's latest —
- * a mid-lock signer change makes them differ), which `check` guarantees exists.
+ * Standing-invariant sweep over active stakers (decoupled from any Act).
+ * Samples a wallet, `check`-gated to one holding a position in the current
+ * cycle, so every read hits the non-null side: identity, the runtime STX lock,
+ * and per-cycle membership/shares. The shares read uses the model's per-cycle
+ * signer (which a mid-lock signer change can make differ from the staker's
+ * latest), guaranteed to exist by `check`.
  */
 export const AssertStakerInvariants = (accounts: Real['accounts']) => {
   const addresses = Object.values(accounts).map((a) => a.address);
@@ -29,8 +29,8 @@ export const AssertStakerInvariants = (accounts: Real['accounts']) => {
       staker: fc.constantFrom(...addresses),
     })
     .map((r) => ({
-      // Participating in the current cycle ⇒ active staker with a current-cycle
-      // membership, so the lock and per-cycle signer are both guaranteed.
+      // Active in the current cycle, so its lock and per-cycle membership (and
+      // thus the per-cycle signer) are both guaranteed to exist.
       check: (model: Readonly<Model>) =>
         isStakerInCurrentCycle(model, r.staker),
       run: (model: Model, real: Real) => {

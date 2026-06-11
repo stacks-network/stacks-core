@@ -11,11 +11,10 @@ import {
 } from './utils';
 
 /**
- * Standing-invariant sweep over signers (decoupled from any Act). Picks a
- * signer-manager id from the static candidate set, `check`-gates it to a
+ * Standing-invariant sweep over signers (decoupled from any Act). Samples a
+ * signer-manager id from the static candidate set, `check`-gated to a
  * registered one, and asserts its signer-scoped reads against the model:
- * identity (`get-signer-info`) and per-cycle delegation
- * (`get-amount-delegated-for-signer`) at the current cycle.
+ * identity and per-cycle delegation at the current cycle.
  */
 export const AssertSignerInvariants = () => {
   return fc
@@ -23,7 +22,7 @@ export const AssertSignerInvariants = () => {
       signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => ({
-      // Run only when the picked candidate is actually registered.
+      // Picked candidate must be a registered signer.
       check: (model: Readonly<Model>) => model.signers.has(r.signer),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
@@ -33,7 +32,7 @@ export const AssertSignerInvariants = () => {
         const stacksHeightBefore = real.network.stacksBlockHeight;
         const checkedCycle = currentRewardCycle(model);
 
-        // Identity invariant; null-or-key derivation lives in the helper.
+        // Identity invariant; the null-or-key derivation lives in the helper.
         assertSignerInfo(model.signers, real, r.signer);
         // Per-cycle delegation at the current cycle.
         assertSignerDelegationForCycle(model, real, checkedCycle, r.signer);

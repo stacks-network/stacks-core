@@ -11,19 +11,23 @@ import { expect } from 'vitest';
 import { rov, txErr } from '@clarigen/test';
 import { MAX_UINT128, errorCodes } from '../pox-5-helpers';
 
+/**
+ * Stake naming a deployed-but-unregistered signer-manager. The signer lookup
+ * fails with ERR_SIGNER_NOT_FOUND and mutates nothing.
+ */
 export const StakeErrSignerNotFound = (accounts: Real['accounts']) =>
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      // amount-ustx is irrelevant once ERR_SIGNER_NOT_FOUND fires
-      // (balance check comes much later in the contract).
+      // Free over the full uint128 space; the balance check that would read it
+      // sits past the signer lookup this targets.
       amountUstx: fc.bigInt({ min: 0n, max: MAX_UINT128 }),
       numCycles: fc.integer({ min: 1, max: 12 }),
       signerIndex: fc.nat(),
     })
     .map((r) => {
       let pickedSigner: string | undefined;
-      // Pick a deployed-but-unregistered signer-manager from the model.
+      // A deployed signer-manager the model never registered.
       const pickUnregisteredId = (model: Readonly<Model>) => {
         const unregistered = [...model.deployedSigners].filter(
           (id) => !model.signers.has(id),
@@ -33,11 +37,10 @@ export const StakeErrSignerNotFound = (accounts: Real['accounts']) =>
       };
 
       return {
+        // Non-prepare-phase keeps the earlier prepare-phase guard from masking
+        // ERR_SIGNER_NOT_FOUND.
         check: (model: Readonly<Model>) =>
-          pickUnregisteredId(model) !== undefined &&
-          // The prepare-phase guard runs before the signer lookup; avoid it so
-          // ERR_SIGNER_NOT_FOUND is the error under test.
-          !isInPreparePhase(model),
+          pickUnregisteredId(model) !== undefined && !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'stake_err_signer_not_found');
@@ -64,11 +67,8 @@ export const StakeErrSignerNotFound = (accounts: Real['accounts']) =>
           );
 
           // Assert
-
-          // The contract checks signer-not-found before any staker-related
-          // assertion, so the call must reject with this exact error.
           expect(receipt.value).toBe(errorCodes.ERR_SIGNER_NOT_FOUND);
-          // The rejected call must not mutate the sender's staker record.
+          // Rejected call left the staker record untouched.
           expect(rov(real.contracts.pox5.getStakerInfo(r.sender))).toEqual(
             stakerInfoBefore,
           );

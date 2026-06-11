@@ -32,13 +32,11 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
     .map((r) => {
       let pickedSigner: string | undefined;
       return {
-        // Gate so the resulting internal num-cycles
-        //   (new-unlock-cycle - current-cycle - 1)
-        // stays within the contract's [1, 96] band; otherwise stake-update
-        // would always reject with ERR_INVALID_NUM_CYCLES.
+        // Gate the internal num-cycles (new-unlock - current - 1) into the
+        // contract's [1, 96] band, else stake-update rejects with
+        // ERR_INVALID_NUM_CYCLES.
         check: (model: Readonly<Model>) => {
-          // The new signer must have a live grant (revoke now blocks
-          // stake-update).
+          // The new signer needs a live grant; revoke blocks stake-update.
           if (grantedSigners(model).length === 0) return false;
           // stake-update reverts with ERR_STAKE_IN_PREPARE_PHASE in the
           // prepare phase.
@@ -70,8 +68,8 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
             expectedUnlockCycle,
           );
           const expectedAmountUstx = prev.amountUstx + r.amountIncrease;
-          // Contract preserves the original first-reward-cycle in staker-info
-          // and bumps num-cycles by cyclesToExtend.
+          // Contract keeps the original first-reward-cycle and bumps
+          // num-cycles by cyclesToExtend.
           const expectedNumCycles = prev.numCycles + r.cyclesToExtend;
           const stakerInfoBefore = rov(
             real.contracts.pox5.getStakerInfo(r.sender),
@@ -84,11 +82,10 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
             unlockCycle: expectedUnlockCycle,
             signer: newSigner,
           };
-          // Boundary cycles of the Act's affected range. The contract removes
-          // the staker from [current+1, prev-unlock) and re-adds across
-          // [current+1, new-unlock); with `cyclesToExtend >= 1` the new range
-          // always extends past the old, so first=current+1, last=new-unlock-1
-          // covers both ends of the affected band.
+          // Boundaries of the affected range: the contract removes from
+          // [current+1, prev-unlock) and re-adds [current+1, new-unlock). With
+          // cyclesToExtend >= 1 the new range extends past the old, so these
+          // two cycles cover both ends.
           const firstAffectedCycle = currentCycle + 1n;
           const lastAffectedCycle = expectedUnlockCycle - 1n;
 
@@ -106,11 +103,11 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
 
           // Update model
 
-          // Replay the contract's remove-then-add across the affected cycles,
-          // then commit the staker record. The remove reads the stored
-          // (pre-update) memberships, so amount/signer changes net out per
-          // cycle exactly as the contract computes them. Done before the
-          // per-cycle asserts so they compare against the committed mirror.
+          // Replay the contract's remove-then-add across the affected cycles.
+          // The remove reads the stored (pre-update) memberships, so
+          // amount/signer changes net out per cycle as the contract computes
+          // them. Before the asserts so they compare against the committed
+          // mirror.
           modelRemoveStakerFromCycles(
             model,
             r.sender,
@@ -150,7 +147,7 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
             numCycles: expectedNumCycles,
             signer: newSigner,
           });
-          // Lock updated to the proper amount.
+          // Lock now reflects the new amount and extended unlock height.
           assertStakerLock(model, real, r.sender);
           // Per-cycle invariants at the first and last affected cycles.
           assertSignerDelegationForCycle(

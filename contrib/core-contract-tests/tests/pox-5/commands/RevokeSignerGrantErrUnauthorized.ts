@@ -19,10 +19,9 @@ import { errorCodes } from '../pox-5-helpers';
 export const RevokeSignerGrantErrUnauthorized = (accounts: Real['accounts']) =>
   fc
     .record({
-      // The unauthorized caller (a wallet address). The authorized caller is
-      // the key's derived principal (hash160 of a random signer pubkey), which
-      // is never equal to a Devnet.toml fixed wallet, so this is always the
-      // wrong sender.
+      // A wallet caller; the authorized caller is the key's derived principal
+      // (hash160 of a random pubkey), never a fixed Devnet.toml wallet, so
+      // this is always the wrong sender.
       caller: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       // Picks which live grant to target; `%` wraps onto the live set.
       grantIndex: fc.nat(),

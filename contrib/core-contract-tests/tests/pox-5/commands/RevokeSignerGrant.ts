@@ -12,9 +12,9 @@ import { errorCodes, signerAddress } from '../pox-5-helpers';
 
 /**
  * Revoke a live signer-key grant. Only the Stacks principal derived from the
- * signer key (`principal-construct?(hash160(key))`) may call it; we pass that
- * derived address as the caller. map-delete returns `true` because the entry
- * existed, and verify-signer-key-grant then reports it gone.
+ * signer key (`principal-construct?(hash160(key))`) may call it. map-delete
+ * returns `true` because the entry existed, and verify-signer-key-grant then
+ * reports it gone.
  */
 export const RevokeSignerGrant = () =>
   fc
@@ -41,7 +41,7 @@ export const RevokeSignerGrant = () =>
           const grant = pickActiveGrant(model)!;
           const { signerKey, signerManager } = parseGrantKey(grant);
           revoked = signerManager.split('.').pop();
-          // The only authorized caller is the key's derived principal.
+          // Authorized caller is the principal derived from the signer key.
           const caller = signerAddress(signerKey);
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;

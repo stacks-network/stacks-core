@@ -12,12 +12,18 @@ import { rov, txErr } from '@clarigen/test';
 import { expect } from 'vitest';
 import { errorCodes } from '../pox-5-helpers';
 
+/**
+ * Unstake during the prepare phase. With an active staker, the prepare-phase
+ * guard fails with ERR_UNSTAKE_IN_PREPARE_PHASE and mutates nothing.
+ */
 export const UnstakeErrInPreparePhase = (accounts: Real['accounts']) =>
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
     })
     .map((r) => ({
+      // Active staker in the prepare phase: the guard is the only reason
+      // unstake reverts.
       check: (model: Readonly<Model>) =>
         isStakerActive(model, r.sender) && isInPreparePhase(model),
       run: (model: Model, real: Real) => {
@@ -40,17 +46,16 @@ export const UnstakeErrInPreparePhase = (accounts: Real['accounts']) =>
 
         // Assert
 
-        // Pre-state matched the model's record.
+        // Pre-state matched the model's staker record.
         expect(stakerInfoBefore).toEqual({
           amountUstx: prev.amountUstx,
           firstRewardCycle: prev.firstRewardCycle,
           numCycles: prev.numCycles,
           signer: prev.signer,
         });
-        // Contract rejected because we are within `prepareCycleLength` of
-        // the end of the current cycle.
+        // Within `prepareCycleLength` of the cycle end, so unstake is blocked.
         expect(receipt.value).toBe(errorCodes.ERR_UNSTAKE_IN_PREPARE_PHASE);
-        // No mutation on the rejected path.
+        // Rejected call left the staker record untouched.
         expect(rov(real.contracts.pox5.getStakerInfo(r.sender))).toEqual(
           stakerInfoBefore,
         );

@@ -1,6 +1,6 @@
 import type { Model, Real, StakerState } from './types';
 import { accounts } from '../../clarigen-types';
-import { MAX_SIGNERS, testSigner } from '../pox-5-helpers';
+import { BOND_GAP_CYCLES, MAX_SIGNERS, testSigner } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
 import { hex } from '@scure/base';
 import { cvToValue, hexToCV } from '@stacks/transactions';
@@ -25,18 +25,16 @@ export function isStakerActive(
 ): boolean {
   const staker = model.stakers.get(address);
   if (!staker) return false;
-  // Contract logic (get-staker-info): treats lock as expired once
-  // first-reward-cycle + num-cycles <= current-pox-reward-cycle.
-  // unlockCycle == first + num, so the staker is active while
-  // current < unlockCycle.
+  // get-staker-info expires a lock once first + num <= current cycle.
+  // unlockCycle holds first + num, so active means current < unlockCycle.
   return currentRewardCycle(model) < staker.unlockCycle;
 }
 
 /**
  * True when `staker` holds a position in the current reward cycle: its lock
  * has started (firstRewardCycle <= current) and not yet expired (current <
- * unlockCycle) — exactly the stakers the contract has a current-cycle
- * membership for, so `modelStakerSignerForCycle` is guaranteed to resolve.
+ * unlockCycle). These are exactly the stakers the contract holds a
+ * current-cycle membership for, so `modelStakerSignerForCycle` resolves.
  */
 export function isStakerInCurrentCycle(
   model: Readonly<Model>,
@@ -286,8 +284,8 @@ export function parseUsedGrantKey(key: string): {
 }
 
 // Per-cycle key encoders for the model's mirror maps. The contract keys these
-// maps by composite tuples; we flatten to `|`-joined strings so they live in
-// plain `Map`s. `|` is safe: principals and decimal cycles never contain it.
+// maps by composite tuples; flatten to the same `|`-joined strings so they
+// live in plain `Map`s.
 
 function signerCycleKey(signer: string, cycle: bigint): string {
   return `${signer}|${cycle}`;
@@ -385,7 +383,7 @@ export function modelRemoveStakerFromCycles(
 
 /**
  * The signer the model recorded for `staker` at `cycle` (its per-cycle
- * membership signer — which a mid-lock signer change can make differ from the
+ * membership signer, which a mid-lock signer change can make differ from the
  * staker's latest `signer`). Undefined when the staker has no membership that
  * cycle.
  */
@@ -508,8 +506,8 @@ export function assertSignerInfo(
 }
 
 // Locked-STX invariant. clarinet-sdk applies the pox-5 STX lock in simnet
-// (only for the boot pox-5 — see pox-5-helpers), so the runtime `stx-account`
-// of an active staker must agree with the model.
+// only for the boot pox-5, so the runtime `stx-account` of an active staker
+// must agree with the model.
 
 /** Read a principal's `stx-account` (locked / unlocked / unlock-height). */
 function stxAccount(

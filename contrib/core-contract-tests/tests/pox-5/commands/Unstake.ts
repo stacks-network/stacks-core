@@ -41,12 +41,9 @@ export const Unstake = (accounts: Real['accounts']) =>
           model,
           expectedUnlockCycle,
         );
-        // Contract sets `num-cycles = unlock-cycle - first-reward-cycle`
-        // where `unlock-cycle = current-cycle + 1`. With the precondition
-        // `current-cycle < unlockCycle` (i.e., lock not yet expired), this is
-        // always ≥ 0; equals 0 only when current-cycle < first-reward-cycle,
-        // i.e., the stake hasn't started yet (still in the cycle before its
-        // first reward cycle).
+        // Contract sets num-cycles = (current+1) - first-reward-cycle. The
+        // active-staker precondition keeps this non-negative; it is 0 only
+        // when the stake has not started yet (current < first-reward-cycle).
         const expectedNumCycles = expectedUnlockCycle - prev.firstRewardCycle;
         const stakerInfoBefore = rov(
           real.contracts.pox5.getStakerInfo(r.sender),
@@ -59,10 +56,8 @@ export const Unstake = (accounts: Real['accounts']) =>
           unlockCycle: expectedUnlockCycle,
           signer: prev.signer,
         };
-        // The contract removes the staker from cycles [current+1, prev-unlock).
-        // First/last cycle of that removed range; skip the quartet if empty
-        // (staker was already at its last locked cycle and there's nothing to
-        // remove from the future).
+        // Boundaries of the contract's removed range [current+1, prev-unlock).
+        // Empty when the staker is already at its last locked cycle.
         const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
         const firstRemovedCycle = currentCycle + 1n;
         const lastRemovedCycle = prevUnlockCycle - 1n;
@@ -75,10 +70,9 @@ export const Unstake = (accounts: Real['accounts']) =>
 
         // Update model
 
-        // Replay the contract's removal across [current+1, prevUnlock), then
-        // commit the shortened staker record. Done before the per-cycle
-        // asserts so they compare against the committed mirror. An empty range
-        // is a no-op.
+        // Replay the contract's removal across [current+1, prev-unlock) before
+        // the asserts, so they compare against the committed mirror. An empty
+        // range is a no-op.
         modelRemoveStakerFromCycles(
           model,
           r.sender,
@@ -102,11 +96,10 @@ export const Unstake = (accounts: Real['accounts']) =>
         expect(receipt.value.firstRewardCycle).toBe(prev.firstRewardCycle);
         expect(receipt.value.amountUstx).toBe(prev.amountUstx);
         expect(receipt.value.staker).toBe(r.sender);
-        // staker-info still exists with the shortened num-cycles. Note that
-        // even when expectedNumCycles is 0 (lock had not started yet:
-        // firstRewardCycle > currentCycle), `get-staker-info` still returns
-        // Some because its filter is `first + num <= current` and
-        // `first + 0 = first > current` in that case.
+        // staker-info still exists with the shortened num-cycles. Even when
+        // expectedNumCycles is 0 (stake not started, first > current),
+        // get-staker-info returns Some: its filter is first + num <= current,
+        // which fails here since first > current.
         expect(rov(real.contracts.pox5.getStakerInfo(r.sender))).toEqual({
           amountUstx: prev.amountUstx,
           firstRewardCycle: prev.firstRewardCycle,
@@ -114,12 +107,11 @@ export const Unstake = (accounts: Real['accounts']) =>
           signer: prev.signer,
         });
         // Still locked at the same amount; only the unlock burn height moves
-        // earlier (to the next cycle).
+        // earlier, to the next cycle.
         assertStakerLock(model, real, r.sender);
-        // Per-cycle invariants at the first and last removed cycles. After the
-        // Act the staker no longer contributes to any unconditional-write map
-        // for those cycles. Skipped when the removed range is empty (staker
-        // was at its last locked cycle).
+        // Per-cycle invariants at the first and last removed cycles, where the
+        // staker no longer contributes after the Act. Skipped when the removed
+        // range is empty (staker was at its last locked cycle).
         if (firstRemovedCycle <= lastRemovedCycle) {
           assertSignerDelegationForCycle(
             model,

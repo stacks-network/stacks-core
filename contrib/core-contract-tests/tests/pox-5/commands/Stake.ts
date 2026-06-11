@@ -35,12 +35,11 @@ export const Stake = (accounts: Real['accounts']) =>
       let pickedSigner: string | undefined;
       return {
         check: (model: Readonly<Model>) =>
-          // Only signers whose grant is still live can accept a new stake
-          // (revoke blocks it); the run picks from these.
+          // Only signers with a live grant can accept a new stake; revoke
+          // blocks it. The run picks from these.
           grantedSigners(model).length > 0 &&
           !isStakerActive(model, r.sender) &&
-          // stake reverts with ERR_STAKE_IN_PREPARE_PHASE in the prepare
-          // phase; the rejection is asserted by StakeErrInPreparePhase.
+          // stake reverts with ERR_STAKE_IN_PREPARE_PHASE in the prepare phase.
           !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
@@ -88,10 +87,9 @@ export const Stake = (accounts: Real['accounts']) =>
 
           // Update model
 
-          // Commit the staker record, then replay the contract's per-cycle
-          // writes across [firstLockedCycle, +numCycles). Done before the
-          // per-cycle asserts so they compare against the committed mirror,
-          // and so model and contract stay in lockstep if an assert throws.
+          // Replay the contract's per-cycle writes across
+          // [firstLockedCycle, +numCycles) before the asserts, so they compare
+          // against the committed mirror and stay in lockstep if one throws.
           model.stakers.set(r.sender, newStakerState);
           modelAddStakerToCycles(
             model,
@@ -118,8 +116,7 @@ export const Stake = (accounts: Real['accounts']) =>
             numCycles: r.numCycles,
             signer,
           });
-          // Lock should have started: the staked amount is now locked until
-          // the unlock burn height.
+          // Lock has started: amount locked until the unlock burn height.
           assertStakerLock(model, real, r.sender);
           // Per-cycle invariants at the staker's first and last locked cycles.
           assertSignerDelegationForCycle(model, real, firstLockedCycle, signer);

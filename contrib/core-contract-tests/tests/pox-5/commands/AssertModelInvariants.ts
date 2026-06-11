@@ -15,11 +15,9 @@ import {
 
 /**
  * Standing-invariant sweep over the whole system (decoupled from any Act).
- * Picks any wallet plus a `check`-gated registered signer and asserts, against
- * the model at the current cycle, the whole-system aggregate
- * (`get-ustx-delegated-for-cycle`), staker identity (`get-staker-info`), and
- * per-cycle membership/shares (`get-signer-cycle-membership`,
- * `get-staker-shares-staked-for-cycle`).
+ * Samples any wallet plus a `check`-gated registered signer, so reads exercise
+ * the non-staker (null/0) side too. Asserts, at the current cycle, the
+ * whole-system aggregate, staker identity, and per-cycle membership/shares.
  */
 export const AssertModelInvariants = (accounts: Real['accounts']) => {
   const addresses = Object.values(accounts).map((a) => a.address);
@@ -29,8 +27,7 @@ export const AssertModelInvariants = (accounts: Real['accounts']) => {
       staker: fc.constantFrom(...addresses),
     })
     .map((r) => ({
-      // Run only when the picked signer is registered; staker may be any
-      // wallet.
+      // Picked signer must be registered; the staker may be any wallet.
       check: (model: Readonly<Model>) => model.signers.has(r.signer),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
@@ -44,8 +41,8 @@ export const AssertModelInvariants = (accounts: Real['accounts']) => {
         assertTotalDelegatedForCycle(model, real, checkedCycle);
         // Identity invariant for the sampled (possibly non-)staker.
         assertStakerInfo(model.stakers, real, r.staker);
-        // Per-cycle staker-scoped reads at the current cycle (null/0 side for a
-        // non-staker). No lock check — see the JSDoc above.
+        // Per-cycle staker-scoped reads at the current cycle (null/0 for a
+        // non-staker). No lock check; the staker may not be active.
         assertSignerCycleMembership(model, real, checkedCycle, r.staker);
         assertStakerSharesForCycle(
           model,
