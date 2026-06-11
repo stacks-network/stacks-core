@@ -27,7 +27,7 @@ use crate::chainstate::stacks::index::bits::{
 use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
 use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::types::sqlite::NO_PARAMS;
 use crate::util_lib::db::{query_count, query_row, table_exists, tx_begin_immediate, u64_to_sql};
@@ -80,7 +80,7 @@ INSERT OR REPLACE INTO migrated_version (version) VALUES (1);
 /// Schema 3 adds SQL tables for squash metadata.
 ///
 /// `marf_squash_info` holds the singleton squash metadata row (squash root
-/// node hash, archival root hash, squash height).
+/// node hash, archival root hash, and the squash-boundary height).
 /// `marf_squashed_blocks` stores one row per height in the squashed range
 /// `0..=H`, mapping each `(height, block_hash, marf_root_hash)` triple.
 ///
@@ -114,84 +114,93 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     tx.commit().map_err(|e| e.into())
 }
 
+/// Row read from the `marf_squash_info` table.
+#[derive(Debug)]
+pub struct SqlSquashInfo {
+    /// Root hash the archival MARF had at the squash tip.
+    pub archival_marf_root_hash: TrieHash,
+    /// Hash of the squashed trie's own root node.
+    pub squash_root_node_hash: TrieHash,
+    /// MARF height at the squash tip.
+    pub squash_height: u32,
+}
+
 /// Write squash metadata to the out-of-trie SQL table.
 pub fn write_squash_info(
     conn: &Connection,
     archival_marf_root_hash: &TrieHash,
-    height: u32,
+    squash_height: u32,
 ) -> Result<(), Error> {
     conn.execute(
-        "INSERT OR REPLACE INTO marf_squash_info (id, archival_marf_root_hash, squash_height) VALUES (1, ?1, ?2)",
-        params![archival_marf_root_hash.as_bytes().to_vec(), i64::from(height)],
+        "INSERT OR REPLACE INTO marf_squash_info \
+         (id, archival_marf_root_hash, squash_height) \
+         VALUES (1, ?1, ?2)",
+        params![
+            archival_marf_root_hash.as_bytes().to_vec(),
+            i64::from(squash_height),
+        ],
     )?;
     Ok(())
 }
 
-/// Read the squash metadata row.
-///
-/// Returns:
-/// - `None` for archival MARFs.
-/// - `Some((archival_marf_root_hash, squash_root_node_hash_opt, height))` for squashed MARFs.
-///
-/// `squash_root_node_hash_opt` is `None` only while `squash_to_path` is building the squash;
-/// committed squashed MARFs always have it.
-pub fn read_squash_info(
-    conn: &Connection,
-) -> Result<Option<(TrieHash, Option<TrieHash>, u32)>, Error> {
+/// Read the squash metadata row. Returns `None` for archival MARFs.
+pub fn read_squash_info(conn: &Connection) -> Result<Option<SqlSquashInfo>, Error> {
     if !table_exists(conn, "marf_squash_info")? {
         return Ok(None);
     }
 
     let result: Option<(Vec<u8>, Option<Vec<u8>>, i64)> = conn
         .query_row(
-            "SELECT archival_marf_root_hash, squash_root_node_hash, squash_height FROM marf_squash_info WHERE id = 1",
+            "SELECT archival_marf_root_hash, squash_root_node_hash, squash_height \
+             FROM marf_squash_info WHERE id = 1",
             NO_PARAMS,
             |row| {
                 let archival_bytes: Vec<u8> = row.get(0)?;
                 let squash_bytes: Option<Vec<u8>> = row.get(1)?;
-                let height: i64 = row.get(2)?;
-                Ok((archival_bytes, squash_bytes, height))
+                let squash_height: i64 = row.get(2)?;
+                Ok((archival_bytes, squash_bytes, squash_height))
             },
         )
         .optional()?;
 
-    match result {
-        Some((archival_bytes, squash_bytes, height)) => {
-            if archival_bytes.len() != TRIEHASH_ENCODED_SIZE {
-                return Err(Error::CorruptionError(
-                    "Invalid archival root hash length".to_string(),
-                ));
-            }
-            let archival_marf_root_hash =
-                TrieHash::from_bytes(&archival_bytes).ok_or_else(|| {
-                    Error::CorruptionError("Invalid archival root hash bytes".to_string())
-                })?;
+    let Some((archival_bytes, squash_bytes, squash_height)) = result else {
+        return Ok(None);
+    };
 
-            let squash_root_node_hash = match squash_bytes {
-                Some(bytes) => {
-                    if bytes.len() != TRIEHASH_ENCODED_SIZE {
-                        return Err(Error::CorruptionError(
-                            "Invalid squash root hash length".to_string(),
-                        ));
-                    }
-                    Some(TrieHash::from_bytes(&bytes).ok_or_else(|| {
-                        Error::CorruptionError("Invalid squash root hash bytes".to_string())
-                    })?)
-                }
-                None => None,
-            };
-
-            let squash_height = u32::try_from(height)
-                .map_err(|_| Error::CorruptionError("Invalid squash height".to_string()))?;
-
-            Ok(Some((
-                archival_marf_root_hash,
-                squash_root_node_hash,
-                squash_height,
-            )))
-        }
-        None => Ok(None),
+    if archival_bytes.len() != TRIEHASH_ENCODED_SIZE {
+        return Err(Error::CorruptionError(
+            "Invalid archival root hash length".to_string(),
+        ));
     }
+    let archival_marf_root_hash = TrieHash::from_bytes(&archival_bytes)
+        .ok_or_else(|| Error::CorruptionError("Invalid archival root hash bytes".to_string()))?;
+
+    // A committed squash always has `squash_root_node_hash` set; NULL only
+    // appears between `write_squash_info` and `update_squash_root_node_hash`
+    // inside the same `squash_to_path` transaction, never visible to readers.
+    let squash_bytes = squash_bytes.ok_or_else(|| {
+        Error::CorruptionError(
+            "marf_squash_info row exists but squash_root_node_hash is NULL \
+             (squash build did not finalize)"
+                .to_string(),
+        )
+    })?;
+    if squash_bytes.len() != TRIEHASH_ENCODED_SIZE {
+        return Err(Error::CorruptionError(
+            "Invalid squash root hash length".to_string(),
+        ));
+    }
+    let squash_root_node_hash = TrieHash::from_bytes(&squash_bytes)
+        .ok_or_else(|| Error::CorruptionError("Invalid squash root hash bytes".to_string()))?;
+
+    let squash_height = u32::try_from(squash_height)
+        .map_err(|_| Error::CorruptionError("Invalid squash height".to_string()))?;
+
+    Ok(Some(SqlSquashInfo {
+        archival_marf_root_hash,
+        squash_root_node_hash,
+        squash_height,
+    }))
 }
 
 /// Update the squash_root_node_hash in the squash info table (computed after blob commit).
@@ -276,11 +285,8 @@ pub fn read_squashed_block_height_by_hash<T: MarfTrieId>(
     block_hash: &T,
 ) -> Result<Option<u32>, Error> {
     let result: Option<i64> = conn
-        .query_row(
-            "SELECT height FROM marf_squashed_blocks WHERE block_hash = ?1",
-            params![block_hash.as_bytes()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT height FROM marf_squashed_blocks WHERE block_hash = ?1")?
+        .query_row(params![block_hash.as_bytes()], |row| row.get(0))
         .optional()?;
 
     result
@@ -356,14 +362,53 @@ pub fn bulk_read_squashed_blocks<T: MarfTrieId>(
     Ok(result)
 }
 
+/// Test-only: insert one `marf_squashed_blocks` row, as the squash engine
+/// would. Lets test fixtures outside the MARF module populate squash
+/// metadata without writing MARF-internal SQL. The table itself is created
+/// by the schema-3 migration.
+#[cfg(test)]
+pub fn test_insert_squashed_block<T: MarfTrieId>(
+    conn: &Connection,
+    height: u32,
+    block_hash: &T,
+    marf_root_hash: &TrieHash,
+) -> Result<(), Error> {
+    conn.execute(
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
+         VALUES (?1, ?2, ?3)",
+        params![
+            i64::from(height),
+            block_hash.as_bytes(),
+            marf_root_hash.as_bytes()
+        ],
+    )?;
+    Ok(())
+}
+
+/// Test-only: append a `marf_squashed_blocks` row one above the current
+/// maximum height.
+#[cfg(test)]
+pub fn test_append_squashed_block<T: MarfTrieId>(
+    conn: &Connection,
+    block_hash: &T,
+    marf_root_hash: &TrieHash,
+) -> Result<(), Error> {
+    conn.execute(
+        "INSERT INTO marf_squashed_blocks (height, block_hash, marf_root_hash) \
+         VALUES ((SELECT COALESCE(MAX(height) + 1, 0) FROM marf_squashed_blocks), ?1, ?2)",
+        params![block_hash.as_bytes(), marf_root_hash.as_bytes()],
+    )?;
+    Ok(())
+}
+
 /// Bulk-read all confirmed block entries from `marf_data`.
 ///
-/// Returns `(block_id, block_hash, external_offset)` for every confirmed row,
-/// ordered by `block_id`.  Used by the squash pipeline to avoid per-row SQL
+/// Returns one [`MarfDataEntry`] for every confirmed row, ordered by
+/// `block_id`.  Used by the squash pipeline to avoid per-row SQL
 /// lookups for block IDs and blob offsets.
 pub fn bulk_read_block_entries<T: MarfTrieId>(
     conn: &Connection,
-) -> Result<Vec<(u32, T, u64)>, Error> {
+) -> Result<Vec<MarfDataEntry<T>>, Error> {
     let mut stmt = conn.prepare(
         "SELECT block_id, block_hash, external_offset FROM marf_data \
          WHERE unconfirmed = 0 ORDER BY block_id",
@@ -377,8 +422,12 @@ pub fn bulk_read_block_entries<T: MarfTrieId>(
     let mut result = Vec::new();
     for row in rows {
         let (block_id, block_hash, offset_i64) = row?;
-        let offset = u64::try_from(offset_i64).map_err(|_| Error::OverflowError)?;
-        result.push((block_id, block_hash, offset));
+        let external_offset = u64::try_from(offset_i64).map_err(|_| Error::OverflowError)?;
+        result.push(MarfDataEntry {
+            block_id,
+            block_hash,
+            external_offset,
+        });
     }
     Ok(result)
 }
