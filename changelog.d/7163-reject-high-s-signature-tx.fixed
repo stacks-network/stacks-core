@@ -1,0 +1,1 @@
+Prevent blocks that contain transactions with non-normalized "high S" secp256k1 signatures. Consensus still allows them (this will be changed in a future epoch), but miners won't mine them and signers won't sign them.

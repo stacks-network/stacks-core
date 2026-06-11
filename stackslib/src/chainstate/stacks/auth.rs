@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,7 +27,8 @@ mod test {
         OrderIndependentMultisigSpendingCondition, SinglesigHashMode, SinglesigSpendingCondition,
         StacksPrivateKey, StacksPublicKey, StacksPublicKey as PubKey, TransactionAuth,
         TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
-        TransactionPublicKeyEncoding, TransactionSpendingCondition,
+        TransactionAuthVerificationMode, TransactionPublicKeyEncoding,
+        TransactionSpendingCondition,
     };
     use crate::net::codec::test::check_codec_and_corruption;
 
@@ -996,6 +997,7 @@ mod test {
                     nonces[i],
                     &key_encoding,
                     &sig,
+                    TransactionAuthVerificationMode::EnforceLowS,
                 )
                 .unwrap();
 
