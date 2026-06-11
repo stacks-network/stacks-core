@@ -701,23 +701,37 @@ fn replay_staging_block(
 
     let block = StacksChainState::extract_stacks_block(&next_staging_block)
         .map_err(|e| format!("{e:?}"))?;
-    let block_size = next_staging_block.block_data.len() as u64;
 
-    replay_block(
-        sort_tx,
-        chainstate_tx,
-        clarity_instance,
-        &parent_header_info,
-        &next_staging_block.parent_microblock_hash,
-        next_staging_block.parent_microblock_seq,
-        block_id,
-        &block,
-        block_size,
-        &next_staging_block.consensus_hash,
-        &next_staging_block.anchored_block_hash,
-        next_staging_block.commit_burn,
-        next_staging_block.sortition_burn,
-    )
+    if true {
+        for tx in block.txs.iter() {
+            tx.verify(TransactionAuthVerificationMode::EnforceLowS)
+                .map_err(|e| {
+                    format!(
+                        "Failed to verify tx {} in pre-Nakamoto block: {e:?}",
+                        tx.txid()
+                    )
+                })?
+        }
+        Ok(())
+    } else {
+        let block_size = next_staging_block.block_data.len() as u64;
+
+        replay_block(
+            sort_tx,
+            chainstate_tx,
+            clarity_instance,
+            &parent_header_info,
+            &next_staging_block.parent_microblock_hash,
+            next_staging_block.parent_microblock_seq,
+            block_id,
+            &block,
+            block_size,
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+            next_staging_block.commit_burn,
+            next_staging_block.sortition_burn,
+        )
+    }
 }
 
 /// Process a mock mined block and call `replay_block()` to validate
@@ -963,8 +977,21 @@ fn replay_naka_staging_block(
         .map_err(|e| format!("Failed to load Nakamoto block: {e:?}"))?
         .ok_or_else(|| "No block data found".to_string())?;
 
-    replay_block_nakamoto(&mut sortdb, &mut chainstate, &block, block_size)
-        .map_err(|e| format!("Failed to validate Nakamoto block: {e:?}"))
+    if true {
+        for tx in block.txs.iter() {
+            tx.verify(TransactionAuthVerificationMode::EnforceLowS)
+                .map_err(|e| {
+                    format!(
+                        "Failed to verify tx {:#?} in Nakamoto block: {e:?}",
+                        tx.txid()
+                    )
+                })?
+        }
+        Ok(())
+    } else {
+        replay_block_nakamoto(&mut sortdb, &mut chainstate, &block, block_size)
+            .map_err(|e| format!("Failed to validate Nakamoto block: {e:?}"))
+    }
 }
 
 #[allow(clippy::result_large_err)]
