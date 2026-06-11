@@ -4437,6 +4437,104 @@ test('unstake is rejected when called during the prepare phase', () => {
 });
 
 /**
+ * Regression for stacks-network/stacks-core#7295. `unstake-sbtc` mutates
+ * next-cycle bond / signer shares, and the next-cycle signer set is frozen
+ * during the current cycle's prepare phase. The other share-mutating
+ * entry-points (`stake`, `stake-update`, `register-for-bond`,
+ * `update-bond-registration`) all gate on `verify-not-prepare-phase`;
+ * `unstake-sbtc` previously side-stepped it. After the fix it returns
+ * `ERR_STAKE_IN_PREPARE_PHASE` mid-prepare and succeeds once the next
+ * cycle starts.
+ */
+test('unstake-sbtc is rejected during the prepare phase', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+  const unstakeAmount = 40000n;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSbtc, staker: alice }]);
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Cycle 0 prepare phase begins at (cycle-1-start - 10). Land mid-prepare.
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) - 9n);
+  expect(rov(pox5.isInPreparePhase(rov(pox5.currentPoxRewardCycle())))).toBe(
+    true,
+  );
+
+  expect(
+    txErr(
+      pox5.unstakeSbtc({
+        signerManager: signer,
+        amountToWithdrawalSats: unstakeAmount,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKE_IN_PREPARE_PHASE);
+
+  // Crossing into the next cycle clears the prepare phase: the same call
+  // now succeeds, confirming the guard was the sole blocker.
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)));
+  expect(rov(pox5.isInPreparePhase(rov(pox5.currentPoxRewardCycle())))).toBe(
+    false,
+  );
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer,
+      amountToWithdrawalSats: unstakeAmount,
+    }),
+    alice,
+  );
+});
+
+/**
+ * Regression for stacks-network/stacks-core#7295. `announce-l1-early-exit`
+ * also mutates next-cycle bond / signer shares (zeros the staker's
+ * `amount-sats`, debits `protocol-bonds-total-staked`, and rewrites the
+ * per-cycle bond-share maps via `remove-staker-from-bond-cycles`), so it
+ * must reject during the current cycle's prepare phase too. Simnet can't
+ * register a real L1-lock bond (fake burn header hashes fail
+ * `ERR_INVALID_BTC_HEADER`), so we exercise the guard on an sBTC bond:
+ * pre-fix the call falls through to `ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK`
+ * at the `is-l1-lock` assertion; post-fix the prepare-phase guard fires
+ * first.
+ */
+test('announce-l1-early-exit is rejected during the prepare phase', () => {
+  const signer = testSigner.identifier;
+  const aliceSbtc = 100000n;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSbtc, staker: alice }]);
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) - 9n);
+  expect(rov(pox5.isInPreparePhase(rov(pox5.currentPoxRewardCycle())))).toBe(
+    true,
+  );
+
+  expect(txErr(pox5.announceL1EarlyExit(alice, signer), alice).value).toBe(
+    pox5Errors.ERR_STAKE_IN_PREPARE_PHASE,
+  );
+});
+
+/**
  * After the bond period ends, an sBTC bond participant should still be able to
  * retrieve their locked sBTC.
  */
