@@ -30,8 +30,8 @@ use stacks_inspect::{
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
-    StacksTransactionSigner, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionVersion,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
+    TransactionAuthVerificationMode, TransactionPayload, TransactionVersion,
 };
 use stackslib::config::{Config, ConfigFile};
 use stackslib::core::{
@@ -412,7 +412,16 @@ fn main() {
                 })
                 .unwrap();
 
-            println!("Verified: {:#?}", tx.verify());
+            let verified_strict = tx.verify(TransactionAuthVerificationMode::EnforceLowS);
+            if verified_strict.is_ok() {
+                println!("Verified: {:#?}", verified_strict);
+            } else {
+                let verified_lenient = tx.verify(TransactionAuthVerificationMode::AllowHighS);
+                println!("Verified: {:#?}", verified_lenient);
+                if verified_lenient.is_ok() {
+                    println!("WARNING: Transaction signature has high-S");
+                }
+            }
             let address = tx.auth.origin().get_address(tx.is_mainnet());
             println!("Address: {address}");
 
