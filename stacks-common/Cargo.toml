@@ -33,7 +33,7 @@ curve25519-dalek = { version = "4.1.3", default-features = false, features = ["s
 ed25519-dalek = { workspace = true }
 hashbrown = { workspace = true }
 lazy_static = { workspace = true }
-libsecp256k1 = { version = "0.7.2", default-features = false, features = ["hmac", "lazy-static-context"] }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
 ripemd = { version = "0.1.1", default-features = false }
 serde = { workspace = true , features = ["derive"] }
 serde_derive = { workspace = true }
@@ -98,7 +98,7 @@ bech32_std = []
 bech32_strict = []
 
 # Wasm-specific features for easier configuration
-wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context"]
+wasm-web = ["rand", "getrandom/js"]
 wasm-deterministic = ["getrandom/custom"]
 
 [package.metadata.pinny]

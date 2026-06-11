@@ -14,14 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
-use ::libsecp256k1::curve::Scalar;
-pub use ::libsecp256k1::Error;
-use ::libsecp256k1::{
-    self, Error as LibSecp256k1Error, Message as LibSecp256k1Message,
-    PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
-    SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature, ECMULT_GEN_CONTEXT,
+use k256::ecdsa::{
+    RecoveryId as K256RecoveryId, Signature as K256Signature, SigningKey, VerifyingKey,
 };
+use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::{PublicKey as K256PublicKey, SecretKey as K256SecretKey};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
 
@@ -31,33 +28,70 @@ use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
 
 pub const PUBLIC_KEY_SIZE: usize = 33;
 
+/// Error type mirroring the libsecp256k1 variants used throughout the codebase.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Error {
+    InvalidPublicKey,
+    InvalidSecretKey,
+    InvalidSignature,
+    InvalidMessage,
+    InvalidRecoveryId,
+    InvalidInputLength,
+    InvalidAffinePoint,
+    TweakOutOfRange,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::InvalidPublicKey => write!(f, "invalid public key"),
+            Error::InvalidSecretKey => write!(f, "invalid secret key"),
+            Error::InvalidSignature => write!(f, "invalid signature"),
+            Error::InvalidMessage => write!(f, "invalid message"),
+            Error::InvalidRecoveryId => write!(f, "invalid recovery id"),
+            Error::InvalidInputLength => write!(f, "invalid input length"),
+            Error::InvalidAffinePoint => write!(f, "invalid affine point"),
+            Error::TweakOutOfRange => write!(f, "tweak out of range"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Secp256k1PublicKey {
-    // serde is broken for secp256k1, so do it ourselves
     #[serde(
         serialize_with = "secp256k1_pubkey_serialize",
         deserialize_with = "secp256k1_pubkey_deserialize"
     )]
-    key: LibSecp256k1PublicKey,
+    key: K256PublicKey,
     compressed: bool,
 }
 
 impl std::hash::Hash for Secp256k1PublicKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.key.serialize_compressed().hash(state);
+        self.key.to_encoded_point(true).as_bytes().hash(state);
         self.compressed.hash(state);
     }
 }
 
+/// Private key stored as raw 32-byte scalar so that the struct stays `Copy`.
+/// The bytes are always validated on construction (zero scalar is rejected).
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Secp256k1PrivateKey {
-    // serde is broken for secp256k1, so do it ourselves
     #[serde(
         serialize_with = "secp256k1_privkey_serialize",
         deserialize_with = "secp256k1_privkey_deserialize"
     )]
-    key: LibSecp256k1PrivateKey,
+    key: [u8; 32],
     compress_public: bool,
+}
+
+impl Secp256k1PrivateKey {
+    fn signing_key(&self) -> SigningKey {
+        // Safety: bytes were validated on construction.
+        SigningKey::from_slice(&self.key).expect("stored key bytes are always valid")
+    }
 }
 
 impl MessageSignature {
@@ -78,22 +112,20 @@ impl MessageSignature {
     }
 
     pub fn from_secp256k1_recoverable(
-        sig: &LibSecp256k1Signature,
-        recid: LibSecp256k1RecoveryId,
+        sig: &K256Signature,
+        recid: K256RecoveryId,
     ) -> MessageSignature {
-        let bytes = sig.serialize();
+        let bytes = sig.to_bytes();
         let mut ret_bytes = [0u8; 65];
-        ret_bytes[0] = recid.serialize();
-        ret_bytes[1..=64].copy_from_slice(&bytes[..64]);
+        ret_bytes[0] = recid.to_byte();
+        ret_bytes[1..=64].copy_from_slice(bytes.as_ref());
         MessageSignature(ret_bytes)
     }
 
-    pub fn to_secp256k1_recoverable(
-        &self,
-    ) -> Option<(LibSecp256k1Signature, LibSecp256k1RecoveryId)> {
-        let recovery_id = LibSecp256k1RecoveryId::parse(self.0[0]).ok()?;
-        let signature = LibSecp256k1Signature::parse_standard_slice(&self.0[1..65]).ok()?;
-        Some((signature, recovery_id))
+    pub fn to_secp256k1_recoverable(&self) -> Option<(K256Signature, K256RecoveryId)> {
+        let recovery_id = K256RecoveryId::from_byte(self.0[0])?;
+        let sig = K256Signature::from_slice(&self.0[1..65]).ok()?;
+        Some((sig, recovery_id))
     }
 
     /// Convert from VRS to RSV
@@ -105,7 +137,8 @@ impl MessageSignature {
     /// Returns None if the signature bytes are malformed.
     pub fn to_der_signature(&self) -> Option<Vec<u8>> {
         let (sig, _) = self.to_secp256k1_recoverable()?;
-        Some(secp256k1_der_encode(&sig.serialize()))
+        let bytes: [u8; 64] = sig.to_bytes().into();
+        Some(secp256k1_der_encode(&bytes))
     }
 }
 
@@ -155,19 +188,14 @@ impl Secp256k1PublicKey {
     }
 
     pub fn from_slice(data: &[u8]) -> Result<Secp256k1PublicKey, &'static str> {
-        let (format, compressed) = if data.len() == PUBLIC_KEY_SIZE {
-            (libsecp256k1::PublicKeyFormat::Compressed, true)
-        } else {
-            (libsecp256k1::PublicKeyFormat::Full, false)
-        };
-        LibSecp256k1PublicKey::parse_slice(data, Some(format))
+        let compressed = data.len() == PUBLIC_KEY_SIZE;
+        K256PublicKey::from_sec1_bytes(data)
             .map(|key| Secp256k1PublicKey { key, compressed })
             .map_err(|_e| "Invalid public key: failed to load")
     }
 
     pub fn from_private(privk: &Secp256k1PrivateKey) -> Secp256k1PublicKey {
-        let key =
-            LibSecp256k1PublicKey::from_secret_key_with_context(&privk.key, &ECMULT_GEN_CONTEXT);
+        let key = K256PublicKey::from(privk.signing_key().verifying_key());
         Secp256k1PublicKey {
             key,
             compressed: privk.compress_public,
@@ -179,7 +207,7 @@ impl Secp256k1PublicKey {
     }
 
     pub fn to_bytes_compressed(&self) -> Vec<u8> {
-        self.key.serialize_compressed().to_vec()
+        self.key.to_encoded_point(true).as_bytes().to_vec()
     }
 
     pub fn compressed(&self) -> bool {
@@ -204,11 +232,10 @@ impl Secp256k1PublicKey {
 
 impl PublicKey for Secp256k1PublicKey {
     fn to_bytes(&self) -> Vec<u8> {
-        if self.compressed {
-            self.key.serialize_compressed().to_vec()
-        } else {
-            self.key.serialize().to_vec()
-        }
+        self.key
+            .to_encoded_point(self.compressed)
+            .as_bytes()
+            .to_vec()
     }
 
     #[cfg(feature = "wasm-deterministic")]
@@ -224,8 +251,7 @@ impl PublicKey for Secp256k1PublicKey {
             return Ok(false);
         }
 
-        // NOTE: libsecp256k1 _should_ ensure that the S is low,
-        // but add this check just to be safe.
+        // Ensure S is low to prevent malleability.
         let (standard_sig, _) = sig
             .to_secp256k1_recoverable()
             .ok_or("Invalid signature: failed to decode recoverable signature")?;
@@ -238,15 +264,16 @@ impl PublicKey for Secp256k1PublicKey {
 }
 
 /// Returns true if the signature's S value is in the lower half of the secp256k1 group order.
-fn is_low_s(sig: &LibSecp256k1Signature) -> bool {
+fn is_low_s(sig: &K256Signature) -> bool {
     // secp256k1 group order n divided by 2 (big-endian)
     const HALF_ORDER: [u8; 32] = [
         0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b,
         0x20, 0xa0,
     ];
-    let bytes = sig.serialize();
-    bytes[32..] <= HALF_ORDER[..]
+    // GenericArray<u8, U64> derefs to [u8]
+    let bytes = sig.to_bytes();
+    &bytes[32..64] <= &HALF_ORDER[..]
 }
 
 impl Secp256k1PrivateKey {
@@ -256,12 +283,11 @@ impl Secp256k1PrivateKey {
 
         let mut rng = rand::thread_rng();
         loop {
-            // keep trying to generate valid bytes
-            let mut random_32_bytes = [0u8; 32];
-            rng.fill_bytes(&mut random_32_bytes);
-            if let Ok(pk) = LibSecp256k1PrivateKey::parse_slice(&random_32_bytes) {
+            let mut key = [0u8; 32];
+            rng.fill_bytes(&mut key);
+            if K256SecretKey::from_slice(&key).is_ok() {
                 return Secp256k1PrivateKey {
-                    key: pk,
+                    key,
                     compress_public: true,
                 };
             }
@@ -302,7 +328,6 @@ impl Secp256k1PrivateKey {
             return Err("Invalid private key: greater than 33 bytes");
         }
         let compress_public = if data.len() == 33 {
-            // compressed byte tag?
             if data[32] != 0x01 {
                 return Err("Invalid private key: invalid compressed byte marker");
             }
@@ -310,10 +335,15 @@ impl Secp256k1PrivateKey {
         } else {
             false
         };
-        LibSecp256k1PrivateKey::parse_slice(&data[0..32])
-            .map(|key| Secp256k1PrivateKey {
-                key,
-                compress_public,
+        // Validate the scalar (reject zero and values >= n).
+        K256SecretKey::from_slice(&data[0..32])
+            .map(|_| {
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&data[0..32]);
+                Secp256k1PrivateKey {
+                    key,
+                    compress_public,
+                }
             })
             .map_err(|_e| "Invalid private key: failed to load")
     }
@@ -327,7 +357,7 @@ impl Secp256k1PrivateKey {
     }
 
     pub fn to_hex(&self) -> String {
-        let mut bytes = self.key.serialize().to_vec();
+        let mut bytes = self.key.to_vec();
         if self.compress_public {
             bytes.push(1);
         }
@@ -337,7 +367,7 @@ impl Secp256k1PrivateKey {
 
 impl PrivateKey for Secp256k1PrivateKey {
     fn to_bytes(&self) -> Vec<u8> {
-        let mut bits = self.key.serialize().to_vec();
+        let mut bits = self.key.to_vec();
         if self.compress_public {
             bits.push(0x01);
         }
@@ -351,9 +381,11 @@ impl PrivateKey for Secp256k1PrivateKey {
 
     #[cfg(not(feature = "wasm-deterministic"))]
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
-        let message = LibSecp256k1Message::parse_slice(data_hash)
+        use k256::ecdsa::signature::hazmat::PrehashSigner;
+        let (sig, recid) = self
+            .signing_key()
+            .sign_prehash(data_hash)
             .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
-        let (sig, recid) = libsecp256k1::sign(&message, &self.key);
         Ok(MessageSignature::from_secp256k1_recoverable(&sig, recid))
     }
 
@@ -372,95 +404,131 @@ impl PrivateKey for Secp256k1PrivateKey {
         data_hash: &[u8],
         noncedata: &[u8; 32],
     ) -> Result<MessageSignature, &'static str> {
-        let message = LibSecp256k1Message::parse_slice(data_hash)
-            .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
-        let mut nonce = Scalar::default();
-        let _ = nonce.set_b32(noncedata);
+        use k256::ecdsa::hazmat::SignPrimitive;
+        use k256::elliptic_curve::NonZeroScalar;
+        use k256::FieldBytes;
 
-        // we need this as the key raw data are private
-        let mut key = Scalar::default();
-        let _ = key.set_b32(&self.key.serialize());
+        if data_hash.len() != 32 {
+            return Err("Invalid message: failed to decode data hash: must be a 32-byte hash");
+        }
 
-        let (sigr, sigs, recid) = match ECMULT_GEN_CONTEXT.sign_raw(&key, &message.0, &nonce) {
-            Ok(result) => result,
-            Err(_) => return Err("unable to sign message"),
-        };
+        // Build ephemeral scalar k from noncedata.
+        let k_bytes = FieldBytes::from_slice(noncedata);
+        let k: NonZeroScalar<k256::Secp256k1> =
+            Option::from(NonZeroScalar::<k256::Secp256k1>::from_repr(*k_bytes))
+                .ok_or("unable to sign message: nonce is zero or out of range")?;
 
-        let recid = match LibSecp256k1RecoveryId::parse(recid) {
-            Ok(recid) => recid,
-            Err(_) => return Err("invalid recovery id"),
-        };
+        let z = FieldBytes::from_slice(data_hash);
+        let sk = K256SecretKey::from_slice(&self.key).expect("stored key bytes are always valid");
+        let secret_scalar = sk.to_nonzero_scalar();
 
-        let sig = LibSecp256k1Signature { r: sigr, s: sigs };
+        // Deref NonZeroScalar → Scalar; Scalar<Secp256k1> satisfies the
+        // Invert<Output = CtOption<Scalar>> bound required by try_sign_prehashed.
+        let k_scalar: k256::Scalar = *k;
+        let (sig, recid_opt) = (*secret_scalar)
+            .try_sign_prehashed(k_scalar, z)
+            .map_err(|_| "unable to sign message")?;
+
+        let recid = recid_opt.ok_or("invalid recovery id")?;
         Ok(MessageSignature::from_secp256k1_recoverable(&sig, recid))
     }
 }
 
 fn secp256k1_pubkey_serialize<S: serde::Serializer>(
-    pubk: &LibSecp256k1PublicKey,
+    pubk: &K256PublicKey,
     s: S,
 ) -> Result<S::Ok, S::Error> {
-    let key_hex = to_hex(&pubk.serialize_compressed());
+    let key_hex = to_hex(pubk.to_encoded_point(true).as_bytes());
     s.serialize_str(key_hex.as_str())
 }
 
 fn secp256k1_pubkey_deserialize<'de, D: serde::Deserializer<'de>>(
     d: D,
-) -> Result<LibSecp256k1PublicKey, D::Error> {
+) -> Result<K256PublicKey, D::Error> {
     let key_hex = String::deserialize(d)?;
     let key_bytes = hex_bytes(&key_hex).map_err(de_Error::custom)?;
-
-    LibSecp256k1PublicKey::parse_slice(&key_bytes[..], None).map_err(de_Error::custom)
+    K256PublicKey::from_sec1_bytes(&key_bytes).map_err(de_Error::custom)
 }
 
 fn secp256k1_privkey_serialize<S: serde::Serializer>(
-    privk: &LibSecp256k1PrivateKey,
+    privk: &[u8; 32],
     s: S,
 ) -> Result<S::Ok, S::Error> {
-    let key_hex = to_hex(&privk.serialize());
+    let key_hex = to_hex(privk.as_ref());
     s.serialize_str(key_hex.as_str())
 }
 
 fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(
     d: D,
-) -> Result<LibSecp256k1PrivateKey, D::Error> {
+) -> Result<[u8; 32], D::Error> {
     let key_hex = String::deserialize(d)?;
     let key_bytes = hex_bytes(&key_hex).map_err(de_Error::custom)?;
-
-    LibSecp256k1PrivateKey::parse_slice(&key_bytes[..]).map_err(de_Error::custom)
+    K256SecretKey::from_slice(&key_bytes).map_err(de_Error::custom)?;
+    key_bytes
+        .try_into()
+        .map_err(|_| de_Error::custom("expected 32 bytes for private key"))
 }
 
 pub fn secp256k1_recover(
     message_arr: &[u8],
     serialized_signature_arr: &[u8],
-) -> Result<[u8; 33], LibSecp256k1Error> {
-    let recovery_id = libsecp256k1::RecoveryId::parse(serialized_signature_arr[64])?;
-    let message = LibSecp256k1Message::parse_slice(message_arr)?;
-    let signature = LibSecp256k1Signature::parse_standard_slice(&serialized_signature_arr[..64])?;
-    let recovered_pub = libsecp256k1::recover(&message, &signature, &recovery_id)?;
-    Ok(recovered_pub.serialize_compressed())
+) -> Result<[u8; 33], Error> {
+    if message_arr.len() != 32 {
+        return Err(Error::InvalidMessage);
+    }
+    if serialized_signature_arr.len() < 65 {
+        return Err(Error::InvalidInputLength);
+    }
+
+    let raw_recovery_byte = serialized_signature_arr[64];
+    // Validate the recovery ID before potentially modifying it.
+    K256RecoveryId::from_byte(raw_recovery_byte).ok_or(Error::InvalidRecoveryId)?;
+
+    let mut sig = K256Signature::from_slice(&serialized_signature_arr[..64])
+        .map_err(|_| Error::InvalidSignature)?;
+
+    // k256's recover_from_prehash calls verify_prehash internally, which rejects
+    // high-S signatures.  Normalise high-S → low-S here; when s is negated the
+    // corresponding R-point flips its y-coordinate, so we also flip bit-0 of the
+    // recovery ID (the is_y_odd bit).
+    let recovery_byte = match sig.normalize_s() {
+        Some(normalized) => {
+            sig = normalized;
+            raw_recovery_byte ^ 1
+        }
+        None => raw_recovery_byte,
+    };
+
+    let recovery_id = K256RecoveryId::from_byte(recovery_byte).ok_or(Error::InvalidRecoveryId)?;
+
+    let verifying_key = VerifyingKey::recover_from_prehash(message_arr, &sig, recovery_id)
+        .map_err(|_| Error::InvalidSignature)?;
+    let pub_key = K256PublicKey::from(&verifying_key);
+    let encoded = pub_key.to_encoded_point(true);
+    let mut result = [0u8; 33];
+    result.copy_from_slice(encoded.as_bytes());
+    Ok(result)
 }
 
 pub fn secp256k1_verify(
     message_arr: &[u8],
     serialized_signature_arr: &[u8],
     pubkey_arr: &[u8],
-) -> Result<(), LibSecp256k1Error> {
-    let message = LibSecp256k1Message::parse_slice(message_arr)?;
-    let signature = LibSecp256k1Signature::parse_standard_slice(&serialized_signature_arr[..64])?; // ignore 65th byte if present
-    let pubkey = LibSecp256k1PublicKey::parse_slice(
-        pubkey_arr,
-        Some(libsecp256k1::PublicKeyFormat::Compressed),
-    )?;
+) -> Result<(), Error> {
+    use k256::ecdsa::signature::hazmat::PrehashVerifier;
+
+    let sig = K256Signature::from_slice(&serialized_signature_arr[..64])
+        .map_err(|_| Error::InvalidSignature)?;
     // Reject high-S signatures to prevent malleability (consistent with Bitcoin secp256k1)
-    if !is_low_s(&signature) {
-        return Err(LibSecp256k1Error::InvalidSignature);
+    if !is_low_s(&sig) {
+        return Err(Error::InvalidSignature);
     }
-    if libsecp256k1::verify(&message, &signature, &pubkey) {
-        Ok(())
-    } else {
-        Err(LibSecp256k1Error::InvalidSignature)
-    }
+    let pub_key =
+        K256PublicKey::from_sec1_bytes(pubkey_arr).map_err(|_| Error::InvalidPublicKey)?;
+    let verifying_key = VerifyingKey::from(&pub_key);
+    verifying_key
+        .verify_prehash(message_arr, &sig)
+        .map_err(|_| Error::InvalidSignature)
 }
 
 #[cfg(test)]
@@ -504,7 +572,7 @@ mod tests {
         let (low_sig, recid) = sig
             .to_secp256k1_recoverable()
             .expect("signature must be parseable");
-        let compact = low_sig.serialize(); // [r (32) || s (32)]
+        let compact: [u8; 64] = low_sig.to_bytes().into();
 
         // Build the complementary high-S RSV form:
         //   s_complement = n - s   (always has the opposite S-parity)
@@ -526,12 +594,12 @@ mod tests {
 
         // Use whichever form is high-S
         let (high_s, high_v) = if comp_is_high {
-            (s_comp, recid.serialize() ^ 1)
+            (s_comp, recid.to_byte() ^ 1)
         } else {
             // original s is already high-S
             let mut orig = [0u8; 32];
             orig.copy_from_slice(&compact[32..]);
-            (orig, recid.serialize())
+            (orig, recid.to_byte())
         };
 
         let mut sig_rsv = [0u8; 65];
@@ -628,12 +696,11 @@ mod tests {
             KeyFixture {
                 input: "0233d78f74de8ef4a1de815b6d5c5c129c073786305c0826c499b1811c9a12cee5",
                 result: Some(Secp256k1PublicKey {
-                    key: LibSecp256k1PublicKey::parse_slice(
+                    key: K256PublicKey::from_sec1_bytes(
                         &hex_bytes(
                             "0233d78f74de8ef4a1de815b6d5c5c129c073786305c0826c499b1811c9a12cee5",
                         )
-                        .unwrap()[..],
-                        Some(libsecp256k1::PublicKeyFormat::Compressed),
+                        .unwrap(),
                     )
                     .unwrap(),
                     compressed: true,
@@ -642,10 +709,9 @@ mod tests {
             KeyFixture {
                 input: "044a83ad59dbae1e2335f488dbba5f8604d00f612a43ebaae784b5b7124cc38c3aaf509362787e1a8e25131724d57fec81b87889aabb4edf7bd89f5c4daa4f8aa7",
                 result: Some(Secp256k1PublicKey {
-                    key: LibSecp256k1PublicKey::parse_slice(
+                    key: K256PublicKey::from_sec1_bytes(
                         &hex_bytes("044a83ad59dbae1e2335f488dbba5f8604d00f612a43ebaae784b5b7124cc38c3aaf509362787e1a8e25131724d57fec81b87889aabb4edf7bd89f5c4daa4f8aa7")
-                            .unwrap()[..],
-                        Some(libsecp256k1::PublicKeyFormat::Full),
+                            .unwrap(),
                     )
                     .unwrap(),
                     compressed: false,
@@ -968,7 +1034,8 @@ mod tests {
             .expect("to_der_signature must succeed for a valid signature");
 
         let (raw_sig, _recid) = sig.to_secp256k1_recoverable().unwrap();
-        let der_via_fn = super::secp256k1_der_encode(&raw_sig.serialize());
+        let compact: [u8; 64] = raw_sig.to_bytes().into();
+        let der_via_fn = super::secp256k1_der_encode(&compact);
 
         assert_eq!(der_via_method, der_via_fn);
 
