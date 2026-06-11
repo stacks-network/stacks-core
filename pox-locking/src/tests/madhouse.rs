@@ -15,13 +15,14 @@
 
 //! Stateful PBT for the pox-5 locking primitives. A random sequence of
 //! `Stake`, `StakeUpdateExtend`, `StakeUpdateIncrease`, `Unstake`,
-//! `AdvanceBurnHeight` commands runs against `MemoryBackingStore` plus a
-//! settable burn-height oracle, with a shadow model kept in lockstep.
+//! `AdvanceBurnHeight`, `AdvanceToUnlockHeight` commands run against
+//! `MemoryBackingStore` plus a settable burn-height oracle, with a shadow
+//! model kept in lockstep.
 //!
 //! Invariants checked after every command:
 //! 1. conservation: available + locked == TOTAL_USTX
 //! 2. auto-unlock: burn_height >= unlock_height implies locked_ustx == 0 on
-//!    the SUT
+//!    the SUT (`AdvanceToUnlockHeight` pins the inclusive `==` boundary)
 //! 3. monotonic locking: StakeUpdateExtend keeps and StakeUpdateIncrease only
 //!    raises locked_ustx
 //!
@@ -652,6 +653,63 @@ impl Command<Pox5StakerState, Pox5Context> for AdvanceBurnHeight {
     }
 }
 
+/// Jump the burn height to exactly the current `unlock_height`; the
+/// auto-unlock boundary. Production expires the lock at `burn_height >=
+/// unlock_height` (inclusive); a regression to strict `>` would keep the lock
+/// live for one extra block. Random `AdvanceBurnHeight` deltas essentially
+/// never land on this exact height, so this command is the only thing that
+/// pins the `>=` boundary. Legal only when locked with the unlock height still
+/// in the future.
+struct AdvanceToUnlockHeight {
+    ctx: Arc<Pox5Context>,
+}
+
+impl Command<Pox5StakerState, Pox5Context> for AdvanceToUnlockHeight {
+    fn check(&self, state: &Pox5StakerState) -> bool {
+        if let AccountState::Locked { unlock_height, .. } = &state.account {
+            *unlock_height > state.current_burn_height
+        } else {
+            false
+        }
+    }
+
+    fn apply(&self, state: &mut Pox5StakerState) {
+        let unlock_height = match &state.account {
+            AccountState::Locked { unlock_height, .. } => *unlock_height,
+            AccountState::Unlocked => {
+                unreachable!("AdvanceToUnlockHeight.check guarantees a locked account")
+            }
+        };
+        // Land on the boundary exactly: current == unlock_height.
+        state.current_burn_height = unlock_height;
+        {
+            let sut = &state.sut;
+            sut.set_burn_height(state.current_burn_height);
+        }
+        // Production unlocks on `burn >= unlock` (inclusive). A regression to
+        // strict `>`.
+        assert!(
+            !state.sut.has_locked_tokens(),
+            "auto-unlock boundary: at current == unlock_height ({unlock_height}), the SUT \
+             must report no locked tokens — production unlocks on `burn >= unlock`, not `>`",
+        );
+        state.maybe_auto_unlock();
+        check_invariants(state, &self.ctx);
+    }
+
+    fn label(&self) -> String {
+        "ADVANCE_TO_UNLOCK_HEIGHT".to_string()
+    }
+
+    fn build(
+        ctx: Arc<Pox5Context>,
+    ) -> impl Strategy<Value = CommandWrapper<Pox5StakerState, Pox5Context>> {
+        Just(CommandWrapper::new(AdvanceToUnlockHeight {
+            ctx: ctx.clone(),
+        }))
+    }
+}
+
 /// Round `h` up to the next multiple of `REWARD_CYCLE_LENGTH` (strictly > h).
 fn next_reward_cycle_start(h: u64) -> u64 {
     let n = h / REWARD_CYCLE_LENGTH;
@@ -898,6 +956,7 @@ fn madhouse_pox5_staker_lifecycle() {
         StakeUpdateIncrease,
         Unstake,
         AdvanceBurnHeight,
+        AdvanceToUnlockHeight,
         IllegalStakeWhileLocked,
         IllegalStakeUpdateOnUnlocked,
         IllegalUnstakeOnUnlocked,
