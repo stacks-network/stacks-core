@@ -16,7 +16,9 @@
 //! Sortition side-table copy tests.
 
 use rusqlite::{params, Connection};
-use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, SortitionId, TrieHash};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, TrieHash,
+};
 use tempfile::tempdir;
 
 use super::super::common::{unclassified_tables, MARF_INFRA_TABLES};
@@ -24,75 +26,34 @@ use super::super::sortition::{
     copy_sortition_side_tables, copy_sortition_side_tables_with_boundary, SortitionTipCopyBoundary,
 };
 use super::{hex_id, label_block_id};
-use crate::chainstate::burn::db::sortdb::{
-    SORTITION_DB_INITIAL_SCHEMA, SORTITION_DB_SCHEMA_10, SORTITION_DB_SCHEMA_11,
-    SORTITION_DB_SCHEMA_2, SORTITION_DB_SCHEMA_3, SORTITION_DB_SCHEMA_4, SORTITION_DB_SCHEMA_5,
-    SORTITION_DB_SCHEMA_6, SORTITION_DB_SCHEMA_7, SORTITION_DB_SCHEMA_8, SORTITION_DB_SCHEMA_9,
-    SORTITION_DB_VERSION,
-};
+use crate::burnchains::PoxConstants;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
+use crate::core::{StacksEpoch, StacksEpochExtension};
 
-/// Create a sortition source DB with the real schema (all migrations
-/// through schema 11). Applies only the DDL; epoch data inserts are
-/// skipped since tests only need the table structure.
-fn create_sortition_source_db(path: &std::path::Path) -> Connection {
-    let conn = Connection::open(path).unwrap();
-    for cmd in SORTITION_DB_INITIAL_SCHEMA {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_2 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_3 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_4 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_5 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_6 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_7 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_8 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_9 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_10 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in SORTITION_DB_SCHEMA_11 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    // Sentinel: a new sortition schema bumps SORTITION_DB_VERSION; this
-    // fixture must then replay the new migration too.
-    assert_eq!(
-        SORTITION_DB_VERSION, 11,
-        "sortition schema changed: replay the new migration in this fixture"
-    );
-    conn.execute(
-        "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-        params![SORTITION_DB_VERSION.to_string()],
+/// Create a sortition source DB via the production initializer
+/// ([`SortitionDB::connect`]), so the fixture always carries the current
+/// schema instead of replaying migrations by hand. `connect` also seeds
+/// the genesis snapshot and the epoch rows. Returns a connection to the
+/// underlying sqlite file along with its path.
+fn create_sortition_source_db(dir: &std::path::Path) -> (Connection, std::path::PathBuf) {
+    let db_dir = dir.join("src_sort");
+    let _db = SortitionDB::connect(
+        db_dir.to_str().unwrap(),
+        0,
+        &BurnchainHeaderHash([0u8; 32]),
+        0,
+        &StacksEpoch::unit_test_3_4(0),
+        PoxConstants::test_default(),
+        None,
+        true,
+        None,
     )
-    .unwrap();
-    // Same reason as `create_source_db`: satisfy the strict
-    // src-has-table check in `copy_canonical_fork_storage`.
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS __fork_storage (
-            value_hash TEXT NOT NULL,
-            value TEXT NOT NULL,
-            PRIMARY KEY(value_hash)
-        );",
-    )
-    .unwrap();
-    conn
+    .expect("sortition DB init failed");
+    let db_path = db_dir.join("marf.sqlite");
+    let conn = Connection::open(&db_path).unwrap();
+    (conn, db_path)
 }
 
 /// Insert a snapshot row for the given sortition_id and burn_header_hash labels.
@@ -188,16 +149,6 @@ fn insert_stack_stx(conn: &Connection, burn_header_hash: &str, txid: &str) {
     .unwrap();
 }
 
-/// Insert an epochs row.
-fn insert_epoch(conn: &Connection, start: u32, epoch_id: u32) {
-    conn.execute(
-        "INSERT INTO epochs (start_block_height, end_block_height, epoch_id, \
-             block_limit, network_epoch) VALUES (?1, ?2, ?3, '{}', 1)",
-        params![start, start + 100, epoch_id],
-    )
-    .unwrap();
-}
-
 /// Create a sortition dest DB simulating a squashed MARF with the given
 /// canonical sortition-ID labels.
 ///
@@ -243,8 +194,7 @@ fn sortition_test_tip_boundary(max_stacks_height: u64) -> SortitionTipCopyBounda
 #[test]
 fn test_sortition_copy_excludes_fork_data() {
     let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src_sort.sqlite");
-    let conn = create_sortition_source_db(&src_path);
+    let (conn, src_path) = create_sortition_source_db(dir.path());
 
     // Canonical chain: sort_0 at height 0, sort_1 at height 1.
     insert_snapshot(&conn, "sort_0", "bhh_0", 0);
@@ -261,7 +211,6 @@ fn test_sortition_copy_excludes_fork_data() {
     insert_block_commit_parent(&conn, "sort_1_fork");
     insert_stack_stx(&conn, "bhh_1", "stx_tx_canon");
     insert_stack_stx(&conn, "bhh_1_fork", "stx_tx_fork");
-    insert_epoch(&conn, 0, 1);
 
     // Transition ops.
     conn.execute(
@@ -331,6 +280,15 @@ fn test_sortition_copy_excludes_fork_data() {
         params![MARFValue([0xee; 40]).to_hex()],
     )
     .unwrap();
+    // `connect` seeds the epochs and one db_config row per migration, so
+    // the full-copy expectations come from the source itself.
+    let (src_epochs, src_db_config): (u64, u64) = conn
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM epochs), (SELECT COUNT(*) FROM db_config)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
     drop(conn);
 
     // Only sort_0 and sort_1 are canonical.
@@ -359,8 +317,8 @@ fn test_sortition_copy_excludes_fork_data() {
         "only sort_1 reward set"
     );
     assert_eq!(stats.stack_stx_rows, 1, "only bhh_1 stack_stx");
-    assert_eq!(stats.epochs_rows, 1, "epochs full copy");
-    assert_eq!(stats.db_config_rows, 1, "db_config full copy");
+    assert_eq!(stats.epochs_rows, src_epochs, "epochs full copy");
+    assert_eq!(stats.db_config_rows, src_db_config, "db_config full copy");
     assert_eq!(stats.fork_storage_rows, 1, "only the canonical leaf row");
 
     // Copied rows carry their source content; fork rows are absent by key.
@@ -391,8 +349,7 @@ fn test_sortition_copy_excludes_fork_data() {
 #[test]
 fn test_sortition_burn_header_hash_filtering() {
     let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src_sort.sqlite");
-    let conn = create_sortition_source_db(&src_path);
+    let (conn, src_path) = create_sortition_source_db(dir.path());
 
     insert_snapshot(&conn, "sort_0", "bhh_canon", 0);
     insert_snapshot(&conn, "sort_0_fork", "bhh_fork", 0);
@@ -438,7 +395,6 @@ fn test_sortition_burn_header_hash_filtering() {
         .unwrap();
     }
 
-    insert_epoch(&conn, 0, 1);
     drop(conn);
 
     // Only sort_0 is canonical -> bhh_canon is the only canonical burn hash.
@@ -483,11 +439,9 @@ fn test_sortition_burn_header_hash_filtering() {
 #[test]
 fn test_sortition_copy_rejects_fabricated_canonical_set() {
     let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src_sort.sqlite");
-    let conn = create_sortition_source_db(&src_path);
+    let (conn, src_path) = create_sortition_source_db(dir.path());
 
     insert_snapshot(&conn, "sort_0", "bhh_0", 0);
-    insert_epoch(&conn, 0, 1);
     drop(conn);
 
     // Destination claims sort_0 AND sort_fake as canonical.
@@ -510,13 +464,11 @@ fn test_sortition_copy_rejects_fabricated_canonical_set() {
 #[test]
 fn test_sortition_stacks_chain_tips_by_burn_view_copied() {
     let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src_sort.sqlite");
-    let conn = create_sortition_source_db(&src_path);
+    let (conn, src_path) = create_sortition_source_db(dir.path());
 
     // Insert canonical snapshots.
     insert_snapshot(&conn, "sort_0", "bhh_0", 0);
     insert_snapshot(&conn, "sort_1", "bhh_1", 1);
-    insert_epoch(&conn, 0, 2);
 
     // Insert stacks_chain_tips_by_burn_view rows (schema 11 table).
     // consensus_hash and burn_view_consensus_hash must reference
@@ -577,12 +529,10 @@ fn test_sortition_stacks_chain_tips_by_burn_view_copied() {
 #[test]
 fn test_sortition_tip_copy_rewrites_rows_above_stacks_boundary() {
     let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src_sort.sqlite");
-    let conn = create_sortition_source_db(&src_path);
+    let (conn, src_path) = create_sortition_source_db(dir.path());
 
     insert_snapshot(&conn, "sort_0", "bhh_0", 0);
     insert_snapshot(&conn, "sort_1", "bhh_1", 1);
-    insert_epoch(&conn, 0, 2);
 
     let boundary = sortition_test_tip_boundary(10);
     let anchor_ch = boundary.anchor_consensus_hash.to_string();
@@ -656,10 +606,14 @@ fn test_sortition_tip_copy_rewrites_rows_above_stacks_boundary() {
 #[test]
 fn test_no_unclassified_sortition_tables() {
     let dir = tempdir().unwrap();
-    let conn = create_sortition_source_db(&dir.path().join("src.sqlite"));
+    let (conn, _src_path) = create_sortition_source_db(dir.path());
+    // `snapshot_burn_distributions` only exists in test/testing builds
+    // (`store_burn_distribution` is cfg-gated); production sources never
+    // have it, so the copy rightly ignores it.
     let known: Vec<&str> = super::super::sortition::REQUIRED_TABLES
         .iter()
         .chain(MARF_INFRA_TABLES.iter())
+        .chain(["snapshot_burn_distributions"].iter())
         .copied()
         .collect();
     let extra = unclassified_tables(&conn, &known);

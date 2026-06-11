@@ -487,7 +487,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
 
 pub const SORTITION_DB_VERSION: u32 = 11;
 
-pub(crate) const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
+const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
     PRAGMA foreign_keys = ON;
     "#,
@@ -622,7 +622,7 @@ pub(crate) const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
 ];
 
-pub(crate) const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
+const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
      CREATE TABLE epochs (
          start_block_height INTEGER NOT NULL,
          end_block_height INTEGER NOT NULL,
@@ -632,7 +632,7 @@ pub(crate) const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
 
-pub(crate) const SORTITION_DB_SCHEMA_3: &[&str] = &[r#"
+const SORTITION_DB_SCHEMA_3: &[&str] = &[r#"
     CREATE TABLE block_commit_parents (
         block_commit_txid TEXT NOT NULL,
         block_commit_sortition_id TEXT NOT NULL,
@@ -643,7 +643,7 @@ pub(crate) const SORTITION_DB_SCHEMA_3: &[&str] = &[r#"
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
 
-pub(crate) const SORTITION_DB_SCHEMA_4: &[&str] = &[
+const SORTITION_DB_SCHEMA_4: &[&str] = &[
     r#"
     CREATE TABLE delegate_stx (
         txid TEXT NOT NULL,
@@ -668,16 +668,16 @@ pub(crate) const SORTITION_DB_SCHEMA_4: &[&str] = &[
 
 /// The changes for version five *just* replace the existing epochs table
 ///  by deleting all the current entries and inserting the new epochs definition.
-pub(crate) const SORTITION_DB_SCHEMA_5: &[&str] = &[r#"
+const SORTITION_DB_SCHEMA_5: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-pub(crate) const SORTITION_DB_SCHEMA_6: &[&str] = &[r#"
+const SORTITION_DB_SCHEMA_6: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-pub(crate) const SORTITION_DB_SCHEMA_7: &[&str] = &[r#"
+const SORTITION_DB_SCHEMA_7: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-pub(crate) const SORTITION_DB_SCHEMA_8: &[&str] = &[
+const SORTITION_DB_SCHEMA_8: &[&str] = &[
     r#"DELETE FROM epochs;"#,
     r#"DROP INDEX IF EXISTS index_user_burn_support_txid;"#,
     r#"DROP INDEX IF EXISTS index_user_burn_support_sortition_id_vtxindex;"#,
@@ -722,11 +722,11 @@ pub(crate) const SORTITION_DB_SCHEMA_8: &[&str] = &[
     );"#,
 ];
 
-pub(crate) static SORTITION_DB_SCHEMA_9: &[&str] =
+static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
-pub(crate) static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
+static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
 
-pub(crate) static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
+static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
     -- replacement for `stacks_chain_tips`, which considers the Nakamoto block burn view.
     -- Unlike `stacks_chain_tips`, rows in this table are only inserted for Nakamoto blocks
     -- if they happen to have the same burn view as the given sortition.
