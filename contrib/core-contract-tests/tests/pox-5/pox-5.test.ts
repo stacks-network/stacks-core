@@ -24,6 +24,7 @@ import {
   getAllStakers,
   isSignerInCycle,
   registerSigner,
+  registerSignerManager,
   sbtc,
   sbtcBalance,
   signerAddress,
@@ -5173,4 +5174,29 @@ test('transfer-from-reserve fails when amount exceeds the reserve balance', () =
   );
   expect(transfer.value).toBe(pox5Errors.ERR_INSUFFICIENT_RESERVE_BALANCE);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
+});
+
+test('stake locks STX in simnet', () => {
+  registerSignerManager();
+
+  const staker = simnet.getAccounts().get('wallet_1')!;
+  const stakeAmount = 1_000_000_000_000n;
+  const startBurnHt = simnet.burnBlockHeight;
+
+  const { result: stake } = simnet.callPublicFn(
+    'ST000000000000000000002AMW42H.pox-5',
+    'stake',
+    [
+      Cl.contractPrincipal(simnet.deployer, 'signer-manager'),
+      Cl.uint(stakeAmount),
+      Cl.uint(1),
+      Cl.uint(startBurnHt),
+      Cl.none(),
+    ],
+    staker,
+  );
+
+  expect(stake).toBeOk(expect.anything());
+
+  expect(stxAccount(staker).locked).toBe(stakeAmount);
 });
