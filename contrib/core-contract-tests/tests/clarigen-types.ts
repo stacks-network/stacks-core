@@ -4856,21 +4856,6 @@ export const contracts = {
         args: [],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<[], Response<boolean, bigint>>,
-      allowContractCaller: {
-        name: 'allow-contract-caller',
-        access: 'public',
-        args: [
-          { name: 'caller', type: 'principal' },
-          { name: 'until-burn-ht', type: { optional: 'uint128' } },
-        ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [
-          caller: TypedAbiArg<string, 'caller'>,
-          untilBurnHt: TypedAbiArg<number | bigint | null, 'untilBurnHt'>,
-        ],
-        Response<boolean, bigint>
-      >,
       announceL1EarlyExit: {
         name: 'announce-l1-early-exit',
         access: 'public',
@@ -5064,15 +5049,6 @@ export const contracts = {
           },
           bigint
         >
-      >,
-      disallowContractCaller: {
-        name: 'disallow-contract-caller',
-        access: 'public',
-        args: [{ name: 'caller', type: 'principal' }],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [caller: TypedAbiArg<string, 'caller'>],
-        Response<boolean, bigint>
       >,
       grantSignerKey: {
         name: 'grant-signer-key',
@@ -5799,12 +5775,6 @@ export const contracts = {
         [height: TypedAbiArg<number | bigint, 'height'>],
         bigint
       >,
-      checkCallerAllowed: {
-        name: 'check-caller-allowed',
-        access: 'read_only',
-        args: [],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
-      } as TypedAbiFunction<[], Response<boolean, bigint>>,
       checkPoxLockPeriod: {
         name: 'check-pox-lock-period',
         access: 'read_only',
@@ -6783,22 +6753,6 @@ export const contracts = {
       >,
     },
     maps: {
-      allowanceContractCallers: {
-        name: 'allowance-contract-callers',
-        key: {
-          tuple: [
-            { name: 'contract-caller', type: 'principal' },
-            { name: 'sender', type: 'principal' },
-          ],
-        },
-        value: { optional: 'uint128' },
-      } as TypedAbiMap<
-        {
-          contractCaller: string;
-          sender: string;
-        },
-        bigint | null
-      >,
       protocolBondAllowances: {
         name: 'protocol-bond-allowances',
         key: {
@@ -7618,16 +7572,6 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_UNAUTHORIZED_CALLER: {
-        name: 'ERR_UNAUTHORIZED_CALLER',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_UNAUTHORIZED_SIGNER_REGISTRATION: {
         name: 'ERR_UNAUTHORIZED_SIGNER_REGISTRATION',
         type: {
@@ -7964,10 +7908,6 @@ export const contracts = {
       ERR_UNAUTHORIZED: {
         isOk: false,
         value: 1n,
-      },
-      ERR_UNAUTHORIZED_CALLER: {
-        isOk: false,
-        value: 22n,
       },
       ERR_UNAUTHORIZED_SIGNER_REGISTRATION: {
         isOk: false,
