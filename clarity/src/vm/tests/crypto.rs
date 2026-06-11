@@ -558,6 +558,28 @@ fn test_secp256k1_verify_valid_signature_returns_true() {
 }
 
 #[test]
+fn test_secp256k1_recover_high_s_signature_succeeds() {
+    // secp256k1-recover? must succeed (return ok) for high-S signatures even though
+    // secp256k1-verify rejects the same signature.
+    let message = "0x89171d7815da4bc1f644665a3234bc99d1680afa0b3285eff4878f4275fbfa89";
+    let signature = "0x54cd3f378a424a3e50ff1c911b7d80cf424e1b86dddecadbcf39077e62fa1e54ee6514347c1608df2c3995e7356f2d60a1fab60878214642134d78cd923ce27a01";
+
+    let program = format!("(is-ok (secp256k1-recover? {message} {signature}))");
+
+    assert_eq!(
+        Value::Bool(true),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
 fn test_secp256k1_verify_valid_high_s_signature_returns_false() {
     let message = "0x89171d7815da4bc1f644665a3234bc99d1680afa0b3285eff4878f4275fbfa89";
     let signature = "0x54cd3f378a424a3e50ff1c911b7d80cf424e1b86dddecadbcf39077e62fa1e54ee6514347c1608df2c3995e7356f2d60a1fab60878214642134d78cd923ce27a01";
