@@ -877,6 +877,81 @@ mod tests {
             prop_assert_ne!(key_a, key_b);
         }
 
+        /// Two different aggregate signer pubkeys must produce different
+        /// deposit addresses, with everything else fixed. The pubkey is pushed
+        /// into the deposit leaf (`OP_PUSHBYTES_32 <x-only>`); a collision
+        /// would let two distinct signer sets share one watched deposit
+        /// address.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_pubkey(
+            pubkey_a in arb_valid_xonly_pubkey(),
+            pubkey_b in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(pubkey_a != pubkey_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_a, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_b, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// Two different reclaim `lock_time` values must produce different
+        /// deposit addresses, with everything else fixed. `lock_time` is
+        /// CScriptNum-encoded into the reclaim leaf (`<lock_time> OP_CSV …`);
+        /// a collision would let the timelock change without moving the
+        /// watched address.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_lock_time(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time_a in any::<u16>(),
+            lock_time_b in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(lock_time_a != lock_time_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time_a, &user_reclaim,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time_b, &user_reclaim,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// Two different user-supplied reclaim scripts must produce different
+        /// deposit addresses, with everything else fixed. The user bytes are
+        /// appended into the reclaim leaf (`… OP_CSV <user bytes>`); a
+        /// collision would let the reclaim spend path change without moving
+        /// the watched address.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_user_reclaim_script(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim_a in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+            user_reclaim_b in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(user_reclaim_a != user_reclaim_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim_a,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim_b,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
         /// Arbitrary 32-byte input that is not a valid x-only secp256k1
         /// point must return `Err`, never panic. The first thing the
         /// derivation does is validate the pubkey on-curve; a regression
