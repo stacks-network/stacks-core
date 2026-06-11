@@ -273,7 +273,7 @@ fn is_low_s(sig: &K256Signature) -> bool {
     ];
     // GenericArray<u8, U64> derefs to [u8]
     let bytes = sig.to_bytes();
-    &bytes[32..64] <= &HALF_ORDER[..]
+    bytes[32..64] <= HALF_ORDER[..]
 }
 
 impl Secp256k1PrivateKey {
