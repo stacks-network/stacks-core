@@ -2270,13 +2270,10 @@ mod tests {
 
             // Lock every available ustx (new_total == total). Must be
             // accepted — comparator is strict `<`, not `<=`.
-            let result = pox_lock_update_v5(
-                &mut gc.database, &staker, new_unlock, total_amount,
-            );
-            prop_assert!(
-                result.is_ok(),
-                "exact-balance lock should be accepted, got {result:?}"
-            );
+            let balance = pox_lock_update_v5(&mut gc.database, &staker, new_unlock, total_amount)
+                .expect("exact-balance (new_total == total) lock should be accepted");
+            prop_assert_eq!(balance.amount_locked(), total_amount);
+            prop_assert_eq!(balance.unlock_height(), new_unlock);
         }
 
         /// Symmetric pin for `pox_lock_v5`: locking exactly the full balance
@@ -2293,12 +2290,16 @@ mod tests {
             let mut store = MemoryBackingStore::new();
             let mut gc = setup_global_context(&mut store, &staker, balance);
 
-            // Lock the entire available balance. Must succeed.
-            let result = pox_lock_v5(&mut gc.database, &staker, balance, unlock_height);
-            prop_assert!(
-                result.is_ok(),
-                "full-balance lock should be accepted, got {result:?}"
-            );
+            // Lock the entire available balance. Must succeed and apply
+            // exactly.
+            pox_lock_v5(&mut gc.database, &staker, balance, unlock_height)
+                .expect("full-balance lock should be accepted");
+            let bal = gc
+                .database
+                .get_account_stx_balance(&staker)
+                .expect("read back balance");
+            prop_assert_eq!(bal.amount_locked(), balance);
+            prop_assert_eq!(bal.unlock_height(), unlock_height);
         }
 
         /// Rule: `pox_unstake_v5` on an account that holds no lock fails with

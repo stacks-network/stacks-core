@@ -27,7 +27,9 @@ use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
-use stacks_common::deps_common::bitcoin::network::serialize::serialize as btc_serialize;
+use stacks_common::deps_common::bitcoin::network::serialize::{
+    deserialize as btc_deserialize, serialize as btc_serialize,
+};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
@@ -228,40 +230,97 @@ proptest! {
         prop_assert_eq!(expected, execute(&snippet));
     }
 
-    /// Feeding arbitrary bytes as `tx-bytes` must never panic or surface a
-    /// runtime error. The builtin must always produce a Clarity Response —
-    /// `(ok ...)` if the bytes happen to parse as a tx (vanishingly rare on
-    /// random input), `(err uN)` otherwise. `execute()` itself would
-    /// `panic!` on a runtime error, so reaching the assertion at all
-    /// already proves the no-leak guarantee; the Response-shape check pins
-    /// down that we got a usable value, not e.g. a runtime trap masked into
-    /// some other Value variant.
+    /// Tx-bytes that do not deserialize as a Bitcoin transaction must surface
+    /// as `(err u1)` (`InvalidTx`) — never a panic, never a spurious `(ok …)`.
+    /// The `prop_filter` discards the vanishingly rare random byte string that
+    /// happens to parse (negligible rejection); it uses the same
+    /// `btc_deserialize::<Transaction>` the builtin's parse path does, so the
+    /// kept inputs are exactly those the builtin rejects as `InvalidTx`. `vout`
+    /// is left arbitrary (any in-range `u64`) to show the parse failure
+    /// short-circuits before any vout handling; the happy "valid parse" path is
+    /// covered by `_roundtrip`.
     #[tag(t_prop)]
     #[test]
     fn prop_clarity_get_bitcoin_tx_output_garbage_bytes(
-        tx_bytes in prop::collection::vec(any::<u8>(), 0..=2048),
-        vout in any::<u128>(),
+        tx_bytes in prop::collection::vec(any::<u8>(), 0..=2048)
+            .prop_filter("must not parse as a tx", |b| {
+                btc_deserialize::<Transaction>(b).is_err()
+            }),
+        vout in any::<u64>(),
     ) {
         let snippet = format!(
             "(get-bitcoin-tx-output? {tx_bytes} u{vout})",
             tx_bytes = buff_literal(&tx_bytes),
             vout = vout,
         );
-        let result = execute(&snippet);
-        prop_assert!(matches!(result, Value::Response(_)));
+        prop_assert_eq!(Value::err_uint(1), execute(&snippet));
     }
 
-    /// Off-by-one boundary on `GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN` (1024
-    /// bytes). A script of exactly 1024 bytes must be accepted as
-    /// `(ok ...)`; one byte over (1025) must be rejected as `(err u3)`
-    /// (`ScriptTooLarge`). The randomized script body and amount catch any
-    /// content-dependent regression in the boundary check.
+    /// At the `GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN` (1024-byte) cap, the
+    /// output must be returned as an exact `(ok {script, amount, txid})`. The
+    /// randomized script body and amount catch any content-dependent
+    /// regression in the boundary check.
     #[tag(t_prop)]
     #[test]
-    fn prop_clarity_get_bitcoin_tx_output_script_at_boundary(
+    fn prop_clarity_get_bitcoin_tx_output_script_at_cap(
         script in prop::collection::vec(
             any::<u8>(),
-            GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN + 1,
+            GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN,
+        ),
+        amount in any::<u64>(),
+    ) {
+        let tx = Transaction {
+            version: 1,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Sha256dHash([0u8; 32]),
+                    vout: 0,
+                },
+                script_sig: Script::from(Vec::<u8>::new()),
+                sequence: 0xffffffff,
+                witness: vec![],
+            }],
+            output: vec![TxOut {
+                value: amount,
+                script_pubkey: Script::from(script.clone()),
+            }],
+        };
+        let expected_txid = tx.txid().0;
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u0)",
+            tx_bytes = buff_literal(&bytes),
+        );
+        let expected_inner = TupleData::from_data(vec![
+            (
+                ClarityName::from_literal("script"),
+                Value::buff_from(script.clone()).expect("1024-byte script fits in (buff 1024)"),
+            ),
+            (
+                ClarityName::from_literal("amount"),
+                Value::UInt(u128::from(amount)),
+            ),
+            (
+                ClarityName::from_literal("txid"),
+                Value::buff_from(expected_txid.to_vec())
+                    .expect("32-byte txid is a valid (buff 32)"),
+            ),
+        ])
+        .expect("ok-tuple should construct");
+        let expected = Value::okay(Value::Tuple(expected_inner))
+            .expect("response wrapping should succeed");
+        prop_assert_eq!(expected, execute(&snippet));
+    }
+
+    /// One byte over the `GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN` cap (1025
+    /// bytes) must always be rejected as `(err u3)` (`ScriptTooLarge`).
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_script_over_cap(
+        script in prop::collection::vec(
+            any::<u8>(),
+            GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN + 1,
         ),
         amount in any::<u64>(),
     ) {
@@ -287,17 +346,6 @@ proptest! {
             "(get-bitcoin-tx-output? {tx_bytes} u0)",
             tx_bytes = buff_literal(&bytes),
         );
-        let result = execute(&snippet);
-        if script.len() == GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN {
-            // At the cap — must be accepted.
-            prop_assert!(
-                matches!(&result, Value::Response(r) if r.committed),
-                "1024-byte script must yield (ok ...), got {:?}",
-                result,
-            );
-        } else {
-            // One over the cap — must surface as (err u3).
-            prop_assert_eq!(Value::err_uint(3), result);
-        }
+        prop_assert_eq!(Value::err_uint(3), execute(&snippet));
     }
 }

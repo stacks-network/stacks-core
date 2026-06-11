@@ -952,32 +952,28 @@ mod tests {
             prop_assert_ne!(key_a, key_b);
         }
 
-        /// Arbitrary 32-byte input that is not a valid x-only secp256k1
-        /// point must return `Err`, never panic. The first thing the
-        /// derivation does is validate the pubkey on-curve; a regression
-        /// that bypasses that guard would land here. Inputs that *do*
-        /// parse as valid x-coords are allowed either result (Ok or Err)
-        /// — we only pin the no-panic behavior in that branch.
+        /// An x-only input that is not a valid secp256k1 point must be
+        /// rejected with `Err`, never a panic. The derivation validates the
+        /// pubkey on-curve before any script work, so an off-curve key can
+        /// never produce a deposit address. The `prop_filter` keeps only
+        /// off-curve inputs; the happy path (valid key → Ok) is covered by
+        /// `prop_sbtc_key_deterministic`.
         #[tag(t_prop)]
         #[test]
-        fn prop_sbtc_key_invalid_pubkey_no_panic(
-            pubkey_xonly in any::<[u8; 32]>(),
+        fn prop_sbtc_key_off_curve_pubkey_rejected(
+            pubkey_xonly in any::<[u8; 32]>().prop_filter(
+                "off-curve x-only only",
+                |b| XOnlyPublicKey::from_slice(b).is_err(),
+            ),
             recipient in arb_principal_data(),
             max_fee in any::<u64>(),
             lock_time in any::<u16>(),
             user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
         ) {
-            let is_valid_xonly = XOnlyPublicKey::from_slice(&pubkey_xonly).is_ok();
             let result = sbtc_deposit_taproot_output_key(
                 &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim,
             );
-            if !is_valid_xonly {
-                prop_assert!(
-                    result.is_err(),
-                    "off-curve x-coord must return Err, got {:?}", result.is_ok(),
-                );
-            }
-            // Either branch: reaching here without panic is the property.
+            prop_assert!(result.is_err(), "off-curve x-only must be rejected, got Ok");
         }
 
         /// The PoX-5 wrapper must be an exact specialization of the
