@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Instant;
+
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
@@ -150,6 +152,29 @@ pub struct RPCNakamotoBlockReplayRequestHandler {
     pub profiler: bool,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BlockReplayExecutionTracker {
+    #[serde(skip, default = "Instant::now")]
+    start_instant: Instant,
+    pub secs: f64,
+    pub nanos: u128,
+}
+
+impl BlockReplayExecutionTracker {
+    fn new() -> Self {
+        Self {
+            start_instant: Instant::now(),
+            secs: 0.0,
+            nanos: 0,
+        }
+    }
+    fn collect(&mut self) {
+        let elapsed = self.start_instant.elapsed();
+        self.secs = elapsed.as_secs_f64();
+        self.nanos = elapsed.as_nanos();
+    }
+}
+
 pub fn remine_nakamoto_block<F0, F1>(
     block_id: &StacksBlockId,
     sortdb: &SortitionDB,
@@ -261,8 +286,10 @@ where
     for (i, tx) in transactions.iter().enumerate() {
         let tx_len = tx.tx_len();
 
+        let mut execution_tracker = BlockReplayExecutionTracker::new();
+
         let mut profiler: Option<BlockReplayProfiler> = None;
-        let mut profiler_result = BlockReplayProfilerResult::default();
+        let mut profiler_result = None;
 
         if enable_profiler {
             profiler = Some(BlockReplayProfiler::new());
@@ -280,12 +307,14 @@ where
         );
 
         if let Some(profiler) = profiler {
-            profiler_result = profiler.collect();
+            profiler_result = Some(profiler.collect());
         }
+
+        execution_tracker.collect();
 
         let err = match tx_result {
             TransactionResult::Success(tx_result) => {
-                txs_receipts.push((tx_result.receipt, profiler_result));
+                txs_receipts.push((tx_result.receipt, execution_tracker, profiler_result));
                 Ok(())
             }
             TransactionResult::ProcessingError(e) => {
@@ -318,8 +347,12 @@ where
     let mut rpc_replayed_block =
         RPCReplayedBlock::from_block(&replayed_block, block_fees, tenure_id, parent_block_id);
 
-    for (receipt, profiler_result) in &txs_receipts {
-        let transaction = RPCReplayedBlockTransaction::from_receipt(receipt, &profiler_result);
+    for (receipt, execution_duration, profiler_result) in &txs_receipts {
+        let transaction = RPCReplayedBlockTransaction::from_receipt(
+            receipt,
+            execution_duration,
+            &profiler_result,
+        );
         rpc_replayed_block.transactions.push(transaction);
     }
 
@@ -367,6 +400,14 @@ impl RPCNakamotoBlockReplayRequestHandler {
     }
 }
 
+/// profiling data based on linux perf_events
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RPCReplayedBlockTransactionProfiler {
+    pub cpu_instructions: Option<u64>,
+    pub cpu_cycles: Option<u64>,
+    pub cpu_ref_cycles: Option<u64>,
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RPCReplayedBlockTransaction {
     /// transaction id
@@ -390,16 +431,15 @@ pub struct RPCReplayedBlockTransaction {
     pub post_condition_aborted: bool,
     /// optional vm error
     pub vm_error: Option<String>,
-    /// profiling data based on linux perf_events
-    pub cpu_instructions: Option<u64>,
-    pub cpu_cycles: Option<u64>,
-    pub cpu_ref_cycles: Option<u64>,
+    pub profiler: Option<RPCReplayedBlockTransactionProfiler>,
+    pub execution_stats: BlockReplayExecutionTracker,
 }
 
 impl RPCReplayedBlockTransaction {
     pub fn from_receipt(
         receipt: &StacksTransactionReceipt,
-        profiler_result: &BlockReplayProfilerResult,
+        execution_tracker: &BlockReplayExecutionTracker,
+        profiler_result: &Option<BlockReplayProfilerResult>,
     ) -> Self {
         let events = if receipt.post_condition_aborted {
             vec![]
@@ -434,9 +474,16 @@ impl RPCReplayedBlockTransaction {
             events,
             post_condition_aborted: receipt.post_condition_aborted,
             vm_error: receipt.vm_error.clone(),
-            cpu_instructions: profiler_result.cpu_instructions,
-            cpu_cycles: profiler_result.cpu_cycles,
-            cpu_ref_cycles: profiler_result.cpu_ref_cycles,
+            profiler: if let Some(profiler_result) = profiler_result {
+                Some(RPCReplayedBlockTransactionProfiler {
+                    cpu_instructions: profiler_result.cpu_instructions,
+                    cpu_cycles: profiler_result.cpu_cycles,
+                    cpu_ref_cycles: profiler_result.cpu_ref_cycles,
+                })
+            } else {
+                None
+            },
+            execution_stats: execution_tracker.clone(),
         }
     }
 }
