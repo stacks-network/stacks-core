@@ -1,0 +1,53 @@
+[package]
+name = "stacks-bench"
+version = "0.0.1"
+license = "GPLv3"
+homepage = "https://github.com/stacks-network/stacks-core"
+repository = "https://github.com/stacks-network/stacks-core"
+description = "Stacks benchmarking tools"
+keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
+edition = "2024"
+
+[lib]
+name = "stacks_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "stacks-bench"
+path = "src/main.rs"
+
+[dependencies]
+# Local dependencies
+clarity = { path = "../../clarity", features = ["rusqlite"] }
+stackslib = { path = "../../stackslib", features = ["profiler"] }
+stacks-common = { path = "../../stacks-common" }
+stx_genesis = { path = "../../stx-genesis", package = "stx-genesis" }
+stacks-profiler.workspace = true
+# Filesystem
+tempfile.workspace = true
+reflink-copy.workspace = true
+ignore.workspace = true
+globset.workspace = true
+# Console/CLI
+clap.workspace = true
+cliclack.workspace = true
+console.workspace = true
+# Database
+diesel.workspace = true
+diesel_migrations.workspace = true
+diesel-async.workspace = true
+# Async
+tokio.workspace = true
+futures.workspace = true
+# Utility
+anyhow.workspace = true
+chrono.workspace = true
+hex.workspace = true
+home.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+erased-serde.workspace = true
+sha2.workspace = true
+# MCP
+rmcp.workspace = true
+schemars.workspace = true

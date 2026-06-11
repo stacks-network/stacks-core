@@ -1,0 +1,1 @@
+Added `stacks-bench` as a contrib benchmarking CLI for indexing chainstate data and replaying benchmark runs.
