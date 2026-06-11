@@ -5,7 +5,8 @@ name: Docker Image
 on:
   workflow_dispatch:
   schedule:
-    - cron: "00 05 * * *" # 0500 UTC daily
+    - cron: "00 05 * * *" # 0500 UTC daily (nightly develop build)
+    - cron: "00 02 * * *" # 0200 UTC daily == 10pm ET (EDT) (pox-wf-integration build)
 
 # Set default permissions
 permissions:
@@ -56,13 +57,19 @@ jobs:
       branch: ${{ steps.set-vars.outputs.branch }}
     steps:
       # Set local env vars.
-      #     - If the event is a schedule, use develop branch; otherwise use ref_name
+      #     - For a manual run, use the selected ref_name
+      #     - For the 0500 UTC schedule, use develop (nightly)
+      #     - For the 0200 UTC schedule (10pm ET), use pox-wf-integration
       - name: Set Local Vars
         id: set-vars
         run: |
           var_branch="${{ github.ref_name }}"
           if [ "${{ github.event_name }}" == "schedule" ]; then
-            var_branch="develop"
+            if [ "${{ github.event.schedule }}" == "00 02 * * *" ]; then
+              var_branch="pox-wf-integration"
+            else
+              var_branch="develop"
+            fi
           fi
           echo "branch=${var_branch}" >> "$GITHUB_OUTPUT"
 
@@ -133,8 +140,13 @@ jobs:
           var_annotation_pattern="${{ needs.build-binaries.outputs.branch }}" # default to use the branch name
           var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository }}"
           if [ "${{ github.event_name }}" == "schedule" ]; then
-            var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/stacks-nightly"
-            var_annotation_pattern="Nightly" # for scheduled (nightly) builds, use 'Nightly'
+            if [ "${{ github.event.schedule }}" == "00 02 * * *" ]; then
+              # 10pm ET pox-wf-integration build: publish to the default image, tagged by branch name
+              var_annotation_pattern="pox-wf-integration"
+            else
+              var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/stacks-nightly"
+              var_annotation_pattern="Nightly" # for scheduled (nightly) builds, use 'Nightly'
+            fi
           fi
           {
             echo "docker_images=${var_default_image}"
@@ -185,8 +197,10 @@ jobs:
           tags: |
             # if trigger is workflow_dispatch
             type=ref,event=branch,enable=${{ github.event_name == 'workflow_dispatch' }}
-            # if trigger is schedule, use a timestamp
-            type=schedule,pattern={{date 'YYYYMMDD'}}
+            # if trigger is the nightly (0500 UTC) schedule, use a timestamp
+            type=schedule,pattern={{date 'YYYYMMDD'}},enable=${{ github.event.schedule == '00 05 * * *' }}
+            # if trigger is the 10pm ET (0200 UTC) schedule, tag with the branch name
+            type=raw,value=pox-wf-integration,enable=${{ github.event.schedule == '00 02 * * *' }}
 
       # Build and push the docker image(s)
       - name: Build and Push
