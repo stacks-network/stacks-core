@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2024-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::StacksEpochId;
 
@@ -282,4 +283,57 @@ fn handle_req_unknown_burn_block() {
 
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 400);
+}
+
+/// Assert that the peer accepts a block in which a transaction signature
+/// is not normalized to a low S. Miners should no longer mine such a block
+/// and signers will not sign it, but it is still legal under consensus rules.
+///
+/// Thus *if* the signers have signed the block, it should be accepted.
+#[test]
+fn handle_req_high_s_in_transaction_signature_is_accepted() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &observer);
+
+    let (next_block, ..) = rpc_test.peer_1.single_block_tenure(
+        &rpc_test.privk1,
+        |_| {},
+        |burn_ops| {
+            rpc_test.peer_2.next_burnchain_block(burn_ops.clone());
+        },
+        |block| {
+            block.txs[0] = block.txs[0].with_negated_s_in_signature();
+            // tweaking the signature changes the transaction id (which is
+            // the main problem with high-S signatures), so we need to update
+            // the transaction merkle root
+            let txid_vecs: Vec<_> = block
+                .txs
+                .iter()
+                .map(|tx| tx.txid().as_bytes().to_vec())
+                .collect();
+
+            let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+            let tx_merkle_root = merkle_tree.root();
+
+            block.header.tx_merkle_root = tx_merkle_root;
+            true
+        },
+    );
+
+    let requests = vec![StacksHttpRequest::new_post_block_v3(
+        addr.into(),
+        &next_block,
+    )];
+
+    let mut responses = rpc_test.run(requests);
+    let response = responses.remove(0);
+    info!(
+        "Response: {}",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let (preamble, body) = response.destruct();
+    assert_eq!(preamble.status_code, 200);
 }
