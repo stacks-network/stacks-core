@@ -204,6 +204,7 @@ fn test_try_make_response() {
         };
         assert_eq!(resp_tx.events.len(), expected_events);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
+        assert!(resp_tx.execution_stats.secs >= 0.0);
         assert!(!resp_tx.post_condition_aborted);
     }
 
