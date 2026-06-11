@@ -16,6 +16,8 @@ import { RevokeSignerGrantNonexistent } from './commands/RevokeSignerGrantNonexi
 import { RotateSignerKey } from './commands/RotateSignerKey';
 import { Stake } from './commands/Stake';
 import { StakeErrAlreadyStaked } from './commands/StakeErrAlreadyStaked';
+import { StakeErrGrantRevoked } from './commands/StakeErrGrantRevoked';
+import { StakeErrInPreparePhase } from './commands/StakeErrInPreparePhase';
 import { StakeErrInvalidNumCycles } from './commands/StakeErrInvalidNumCycles';
 import { StakeErrSignerNotFound } from './commands/StakeErrSignerNotFound';
 import { StakeExtend } from './commands/StakeExtend';
@@ -98,6 +100,8 @@ test(
       StakeErrAlreadyStaked(accounts),
       StakeErrSignerNotFound(accounts),
       StakeErrInvalidNumCycles(accounts),
+      StakeErrInPreparePhase(accounts),
+      StakeErrGrantRevoked(accounts),
       UnstakeErrInPreparePhase(accounts),
       MineBitcoinBlocks(),
       AssertSignerInvariants(),
