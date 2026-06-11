@@ -398,7 +398,7 @@ where
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
 
     result.collect()
@@ -412,11 +412,11 @@ where
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let query_result = conn.query_row_and_then(sql_query, sql_args, |row| T::from_row(row));
-    match query_result {
-        Ok(x) => Ok(Some(x)),
-        Err(Error::SqliteError(sqlite_error::QueryReturnedNoRows)) => Ok(None),
-        Err(e) => Err(e),
+    let mut stmt = conn.prepare_cached(sql_query)?;
+    let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
+    match result.next() {
+        Some(value) => Ok(Some(value?)),
+        None => Ok(None),
     }
 }
 
@@ -432,7 +432,7 @@ where
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
     let mut return_value = None;
     if let Some(value) = result.next() {
@@ -458,7 +458,7 @@ where
     F: FnOnce() -> String,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
     let mut return_value = None;
     if let Some(value) = result.next() {
@@ -482,7 +482,7 @@ where
     T: FromColumn<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
 
     // gather
@@ -509,7 +509,7 @@ where
     T: FromColumn<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
 
     // gather
@@ -531,7 +531,7 @@ where
     P: Params,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
     let mut row_data = None;
     while let Some(row) = rows.next().map_err(Error::SqliteError)? {
@@ -736,6 +736,10 @@ pub fn sqlite_open<P: AsRef<Path>>(
 ) -> Result<Connection, sqlite_error> {
     let db = inner_connection_open(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
+    // The node's long-lived connections run far more distinct statements than
+    // rusqlite's default cache of 16 holds (sortition, headers, staging, MARF, ...),
+    // so `prepare_cached` would LRU-thrash and re-parse anyway.
+    db.set_prepared_statement_cache_capacity(200);
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
     if foreign_keys {
@@ -774,7 +778,7 @@ pub fn get_ancestor_block_height<T: MarfTrieId>(
 /// Load some index data
 fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>, Error> {
     let mut stmt = conn
-        .prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2")
+        .prepare_cached("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2")
         .map_err(Error::SqliteError)?;
     let mut rows = stmt
         .query(params![marf_value.to_hex()])

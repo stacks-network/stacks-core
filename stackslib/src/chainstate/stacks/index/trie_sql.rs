@@ -217,11 +217,8 @@ pub fn read_squashed_block_root_hash_by_height(
     height: u32,
 ) -> Result<Option<TrieHash>, Error> {
     let result: Option<Vec<u8>> = conn
-        .query_row(
-            "SELECT marf_root_hash FROM marf_squashed_blocks WHERE height = ?1",
-            params![i64::from(height)],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT marf_root_hash FROM marf_squashed_blocks WHERE height = ?1")?
+        .query_row(params![i64::from(height)], |row| row.get(0))
         .optional()?;
 
     match result {
@@ -246,11 +243,8 @@ pub fn read_squashed_block_root_hash_by_hash<T: MarfTrieId>(
     block_hash: &T,
 ) -> Result<Option<TrieHash>, Error> {
     let result: Option<Vec<u8>> = conn
-        .query_row(
-            "SELECT marf_root_hash FROM marf_squashed_blocks WHERE block_hash = ?1",
-            params![block_hash.as_bytes()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT marf_root_hash FROM marf_squashed_blocks WHERE block_hash = ?1")?
+        .query_row(params![block_hash.as_bytes()], |row| row.get(0))
         .optional()?;
 
     match result {
@@ -276,11 +270,8 @@ pub fn read_squashed_block_height_by_hash<T: MarfTrieId>(
     block_hash: &T,
 ) -> Result<Option<u32>, Error> {
     let result: Option<i64> = conn
-        .query_row(
-            "SELECT height FROM marf_squashed_blocks WHERE block_hash = ?1",
-            params![block_hash.as_bytes()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT height FROM marf_squashed_blocks WHERE block_hash = ?1")?
+        .query_row(params![block_hash.as_bytes()], |row| row.get(0))
         .optional()?;
 
     result
@@ -298,11 +289,8 @@ pub fn read_squashed_block_hash_by_height<T: MarfTrieId>(
     height: u32,
 ) -> Result<Option<T>, Error> {
     let result: Option<Vec<u8>> = conn
-        .query_row(
-            "SELECT block_hash FROM marf_squashed_blocks WHERE height = ?1",
-            params![i64::from(height)],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT block_hash FROM marf_squashed_blocks WHERE height = ?1")?
+        .query_row(params![i64::from(height)], |row| row.get(0))
         .optional()?;
 
     match result {
@@ -490,12 +478,9 @@ pub fn ensure_no_migration_necessary<T: MarfTrieId>(conn: &mut Connection) -> Re
 }
 
 pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
-    conn.query_row(
-        "SELECT block_id FROM marf_data WHERE block_hash = ?",
-        &[bhh],
-        |row| row.get("block_id"),
-    )
-    .map_err(|e| e.into())
+    conn.prepare_cached("SELECT block_id FROM marf_data WHERE block_hash = ?")?
+        .query_row(&[bhh], |row| row.get("block_id"))
+        .map_err(|e| e.into())
 }
 
 pub fn get_mined_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
@@ -511,26 +496,20 @@ pub fn get_confirmed_block_identifier<T: MarfTrieId>(
     conn: &Connection,
     bhh: &T,
 ) -> Result<Option<u32>, Error> {
-    conn.query_row(
-        "SELECT block_id FROM marf_data WHERE block_hash = ? AND unconfirmed = 0",
-        &[bhh],
-        |row| row.get("block_id"),
-    )
-    .optional()
-    .map_err(|e| e.into())
+    conn.prepare_cached("SELECT block_id FROM marf_data WHERE block_hash = ? AND unconfirmed = 0")?
+        .query_row(&[bhh], |row| row.get("block_id"))
+        .optional()
+        .map_err(|e| e.into())
 }
 
 pub fn get_unconfirmed_block_identifier<T: MarfTrieId>(
     conn: &Connection,
     bhh: &T,
 ) -> Result<Option<u32>, Error> {
-    conn.query_row(
-        "SELECT block_id FROM marf_data WHERE block_hash = ? AND unconfirmed = 1",
-        &[bhh],
-        |row| row.get("block_id"),
-    )
-    .optional()
-    .map_err(|e| e.into())
+    conn.prepare_cached("SELECT block_id FROM marf_data WHERE block_hash = ? AND unconfirmed = 1")?
+        .query_row(&[bhh], |row| row.get("block_id"))
+        .optional()
+        .map_err(|e| e.into())
 }
 
 pub fn get_latest_confirmed_block_hash<T: MarfTrieId>(conn: &Connection) -> Result<T, Error> {
@@ -544,11 +523,8 @@ pub fn get_latest_confirmed_block_hash<T: MarfTrieId>(conn: &Connection) -> Resu
 
 pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result<T, Error> {
     let result = conn
-        .query_row(
-            "SELECT block_hash FROM marf_data WHERE block_id = ?",
-            params![local_id],
-            |row| row.get("block_hash"),
-        )
+        .prepare_cached("SELECT block_hash FROM marf_data WHERE block_id = ?")?
+        .query_row(params![local_id], |row| row.get("block_hash"))
         .optional()?;
     result.ok_or_else(|| {
         error!("Failed to get block header hash of local ID {}", local_id);
