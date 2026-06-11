@@ -15,6 +15,8 @@
 
 //! Sortition side-table copy tests.
 
+use std::path::{Path, PathBuf};
+
 use rusqlite::{params, Connection};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, TrieHash,
@@ -24,20 +26,21 @@ use tempfile::tempdir;
 use super::super::common::{unclassified_tables, MARF_INFRA_TABLES};
 use super::super::sortition::{
     copy_sortition_side_tables, copy_sortition_side_tables_with_boundary, SortitionTipCopyBoundary,
+    REQUIRED_TABLES,
 };
 use super::{hex_id, label_block_id};
 use crate::burnchains::PoxConstants;
+use crate::chainstate::burn::db::sortdb::tests::{make_fork_run, test_append_snapshot};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 use crate::core::{StacksEpoch, StacksEpochExtension};
-
 /// Create a sortition source DB via the production initializer
 /// ([`SortitionDB::connect`]), so the fixture always carries the current
 /// schema instead of replaying migrations by hand. `connect` also seeds
 /// the genesis snapshot and the epoch rows. Returns a connection to the
 /// underlying sqlite file along with its path.
-fn create_sortition_source_db(dir: &std::path::Path) -> (Connection, std::path::PathBuf) {
+fn create_sortition_source_db(dir: &Path) -> (Connection, PathBuf) {
     let db_dir = dir.join("src_sort");
     let _db = SortitionDB::connect(
         db_dir.to_str().unwrap(),
@@ -150,15 +153,12 @@ fn insert_stack_stx(conn: &Connection, burn_header_hash: &str, txid: &str) {
 }
 
 /// Create a sortition dest DB simulating a squashed MARF with the given
-/// canonical sortition-ID labels.
-///
-/// Each label is stored as a 32-byte zero-padded id so its hex form matches
-/// the `hex_id`-encoded sortition_id that test chainstate inserts use
-/// (sortition IDs in `snapshots` are TEXT).
-fn create_sortition_dest_db(path: &std::path::Path, canonical_sortition_ids: &[&str]) {
+/// canonical sortition IDs.
+fn create_sortition_dest_db_with_ids(path: &Path, canonical_ids: &[SortitionId]) {
     // A real (tiny) MARF so the leaf walk in `collect_canonical_leaf_hashes`
     // succeeds; its single leaf is irrelevant to the sortition assertions
-    // (src `__fork_storage` is empty, so nothing matches it anyway).
+    // (src `__fork_storage` holds no matching value hash, so nothing is
+    // copied from it).
     let mut marf = MARF::<SortitionId>::from_path(path.to_str().unwrap(), MARFOpenOpts::default())
         .expect("MARF init failed");
     marf.begin(&SortitionId::sentinel(), &SortitionId([0x99; 32]))
@@ -168,15 +168,22 @@ fn create_sortition_dest_db(path: &std::path::Path, canonical_sortition_ids: &[&
     drop(marf);
 
     let conn = Connection::open(path).unwrap();
-    for (h, sid) in canonical_sortition_ids.iter().enumerate() {
-        trie_sql::test_insert_squashed_block(
-            &conn,
-            h as u32,
-            &SortitionId(label_block_id(sid).0),
-            &TrieHash([0u8; 32]),
-        )
-        .unwrap();
+    for (h, sid) in canonical_ids.iter().enumerate() {
+        trie_sql::test_insert_squashed_block(&conn, h as u32, sid, &TrieHash([0u8; 32])).unwrap();
     }
+}
+
+/// [`create_sortition_dest_db_with_ids`] for canonical sortition-ID labels.
+///
+/// Each label is stored as a 32-byte zero-padded id so its hex form matches
+/// the `hex_id`-encoded sortition_id that test chainstate inserts use
+/// (sortition IDs in `snapshots` are TEXT).
+fn create_sortition_dest_db(path: &Path, canonical_sortition_ids: &[&str]) {
+    let ids: Vec<SortitionId> = canonical_sortition_ids
+        .iter()
+        .map(|sid| SortitionId(label_block_id(sid).0))
+        .collect();
+    create_sortition_dest_db_with_ids(path, &ids);
 }
 
 fn sortition_test_tip_boundary(max_stacks_height: u64) -> SortitionTipCopyBoundary {
@@ -470,7 +477,7 @@ fn test_sortition_stacks_chain_tips_by_burn_view_copied() {
     insert_snapshot(&conn, "sort_0", "bhh_0", 0);
     insert_snapshot(&conn, "sort_1", "bhh_1", 1);
 
-    // Insert stacks_chain_tips_by_burn_view rows (schema 11 table).
+    // Insert stacks_chain_tips_by_burn_view rows.
     // consensus_hash and burn_view_consensus_hash must reference
     // existing snapshots(consensus_hash) due to FK constraints.
     conn.execute(
@@ -601,16 +608,72 @@ fn test_sortition_tip_copy_rewrites_rows_above_stacks_boundary() {
     );
 }
 
+/// Production-path integration: the source is seeded exclusively through
+/// SortitionDB's own write paths ([`SortitionDB::connect`],
+/// [`test_append_snapshot`], [`make_fork_run`]), so the fixture cannot
+/// drift from what production actually writes. The copy keeps the
+/// canonical chain's rows and drops the fork's.
+#[test]
+fn test_sortition_copy_with_production_seeded_source() {
+    let dir = tempdir().unwrap();
+    let db_dir = dir.path().join("src_sort");
+    let mut db = SortitionDB::connect(
+        db_dir.to_str().unwrap(),
+        0,
+        &BurnchainHeaderHash([0u8; 32]),
+        0,
+        &StacksEpoch::unit_test_3_4(0),
+        PoxConstants::test_default(),
+        None,
+        true,
+        None,
+    )
+    .expect("sortition DB init failed");
+
+    let genesis = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+    // Canonical chain: two snapshots appended at the tip.
+    let sn1 = test_append_snapshot(&mut db, BurnchainHeaderHash([0x11; 32]), &[]);
+    let sn2 = test_append_snapshot(&mut db, BurnchainHeaderHash([0x12; 32]), &[]);
+    // A two-block fork branching off sn1.
+    let fork = make_fork_run(&mut db, &sn1, 2, 0x80);
+    assert_eq!(fork.len(), 2);
+    drop(db);
+    let src_path = db_dir.join("marf.sqlite");
+
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db_with_ids(
+        &dst_path,
+        &[
+            genesis.sortition_id.clone(),
+            sn1.sortition_id.clone(),
+            sn2.sortition_id.clone(),
+        ],
+    );
+
+    let stats =
+        copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+    assert_eq!(stats.snapshots_rows, 3, "genesis + two canonical snapshots");
+
+    let dst_conn = Connection::open(&dst_path).unwrap();
+    for fork_sn in &fork {
+        let count: i64 = dst_conn
+            .query_row(
+                "SELECT COUNT(*) FROM snapshots WHERE sortition_id = ?1",
+                params![fork_sn.sortition_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "fork snapshot must not be copied");
+    }
+}
+
 /// Drift guard: every table the sortition migrations create must be
 /// classified, so a future migration can't silently drop one from the copy.
 #[test]
 fn test_no_unclassified_sortition_tables() {
     let dir = tempdir().unwrap();
     let (conn, _src_path) = create_sortition_source_db(dir.path());
-    // `snapshot_burn_distributions` only exists in test/testing builds
-    // (`store_burn_distribution` is cfg-gated); production sources never
-    // have it, so the copy rightly ignores it.
-    let known: Vec<&str> = super::super::sortition::REQUIRED_TABLES
+    let known: Vec<&str> = REQUIRED_TABLES
         .iter()
         .chain(MARF_INFRA_TABLES.iter())
         .chain(["snapshot_burn_distributions"].iter())
