@@ -1068,7 +1068,7 @@ fn runtime_check_error_kind_circular_reference_ccall() {
         QualifiedContractIdentifier::parse(&format!("{}.dispatch-contract", *FAUCET_ADDRESS))
             .unwrap();
 
-    // The main contract is required because `contract_call_consensus_test!` needs a deployed contract.
+    // The main contract is required because `contract_call_consensus_snap_test!` needs a deployed contract.
     // As a result, `dispatch-contract` cannot be used directly, because need to be passed as `function_args`,
     // and the consensus test mangles the `contract_name`.
     let main_contract = "(use-trait trait-1 .trait-contract.trait-1)

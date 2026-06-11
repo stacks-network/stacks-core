@@ -2075,7 +2075,7 @@ macro_rules! contract_deploy_consensus_snap_test {
 }
 pub(crate) use contract_deploy_consensus_snap_test;
 
-/// Contract deployment that must occur before `contract_call_consensus_test!` or `contract_deploy_consensus_test!` runs its own logic.
+/// Contract deployment that must occur before `contract_call_consensus_snap_test!` or `contract_deploy_consensus_snap_test!` runs its own logic.
 ///
 /// These setups are useful when the primary contract references other contracts (traits, functions, etc.)
 /// that need to exist ahead of time with deterministic names and versions.
@@ -2271,7 +2271,7 @@ fn test_append_stx_transfers_success() {
     insta::assert_ron_snapshot!(result);
 }
 
-/// Example of using the `contract_call_consensus_test!` macro
+/// Example of using the `contract_call_consensus_snap_test!` macro
 /// Deploys a contract to each epoch, for each Clarity version,
 /// then calls a function in that contract and snapshots the results.
 #[test]
@@ -2284,7 +2284,7 @@ fn test_successfully_deploy_and_call() {
     );
 }
 
-/// Example of using the `contract_deploy_consensus_test!` macro
+/// Example of using the `contract_deploy_consensus_snap_test!` macro
 /// Deploys a contract to all epoch, for each Clarity version
 #[test]
 fn test_successfully_deploy() {
