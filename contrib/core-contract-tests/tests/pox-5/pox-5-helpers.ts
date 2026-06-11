@@ -46,6 +46,10 @@ export const BASIS_POINTS = 10000n;
 export const MAX_UINT128 = 2n ** 128n - 1n;
 /** Cap on simultaneously-deployed signer-manager contracts. */
 export const MAX_SIGNERS = 10;
+/** Cycles between consecutive bond-period starts (contract `BOND_GAP_CYCLES`). */
+export const BOND_GAP_CYCLES = 2n;
+/** Length of a bond period in cycles (contract `BOND_LENGTH_CYCLES`). */
+export const BOND_LENGTH_CYCLES = 12n;
 
 export const deployer = accounts.deployer.address;
 
@@ -488,6 +492,9 @@ export function initBootPox5() {
     }),
     deployer,
   );
+  // Hand bond-admin from the shipped mainnet placeholder to the deployer so
+  // the stateful test can drive `setup-bond`.
+  txOk(pox5.setBondAdmin(deployer), 'SP000000000000000000002Q6VF78');
 }
 
 export function sbtcTransfer(

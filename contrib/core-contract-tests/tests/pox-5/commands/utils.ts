@@ -58,6 +58,38 @@ export function isInPreparePhase(model: Readonly<Model>): boolean {
   return model.burnBlockHeight >= nextCycleStart - model.prepareCycleLength;
 }
 
+/**
+ * The bond-index whose `setup-bond` window is open right now, or undefined.
+ * Setup is allowed only in the BOND_GAP_CYCLES cycles before a bond starts,
+ * and those windows are adjacent, so the eligible bond's start cycle is the
+ * unique value in {current+1 … current+BOND_GAP_CYCLES} congruent to
+ * `firstBondPeriodCycle` mod BOND_GAP_CYCLES. Bond N starts at
+ * `firstBondPeriodCycle + N*BOND_GAP_CYCLES`.
+ */
+export function eligibleBondIndex(model: Readonly<Model>): bigint | undefined {
+  const current = currentRewardCycle(model);
+  const fbpc = model.firstBondPeriodCycle;
+  for (
+    let startCycle = current + 1n;
+    startCycle <= current + BOND_GAP_CYCLES;
+    startCycle++
+  ) {
+    if (startCycle >= fbpc && (startCycle - fbpc) % BOND_GAP_CYCLES === 0n) {
+      return (startCycle - fbpc) / BOND_GAP_CYCLES;
+    }
+  }
+  return undefined;
+}
+
+/** `model.bondAllowances` key: one entry per `protocol-bond-allowances` row. */
+export function bondAllowanceKey(bondIndex: bigint, staker: string): string {
+  return `${bondIndex}|${staker}`;
+}
+
+/**
+ * Keep the model in lockstep with the chain. The contract silently expires a
+ * staker at its unlock cycle, so prune them here to match.
+ */
 export function refreshModel(model: Model, real: Real) {
   model.burnBlockHeight = BigInt(real.network.burnBlockHeight);
   const cycle = currentRewardCycle(model);
@@ -211,7 +243,17 @@ export function grantedSigners(model: Readonly<Model>): string[] {
   );
 }
 
-/** `model.usedGrants` key: one entry per consumed `used-signer-key-grants` row. */
+/**
+ * Registered signers whose current key's grant has been revoked. A new stake
+ * with them reverts `ERR_SIGNER_KEY_GRANT_NOT_FOUND`.
+ */
+export function revokedSigners(model: Readonly<Model>): string[] {
+  return [...model.signers.keys()].filter(
+    (s) => !signerHasActiveGrant(model, s),
+  );
+}
+
+/** `model.usedGrants` key: one entry per `used-signer-key-grants` row. */
 export function usedGrantKey(
   signerKey: Uint8Array,
   signerManager: string,

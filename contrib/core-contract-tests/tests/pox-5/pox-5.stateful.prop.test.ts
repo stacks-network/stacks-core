@@ -14,6 +14,11 @@ import { RevokeSignerGrant } from './commands/RevokeSignerGrant';
 import { RevokeSignerGrantErrUnauthorized } from './commands/RevokeSignerGrantErrUnauthorized';
 import { RevokeSignerGrantNonexistent } from './commands/RevokeSignerGrantNonexistent';
 import { RotateSignerKey } from './commands/RotateSignerKey';
+import { SetupBond } from './commands/SetupBond';
+import { SetupBondErrAlreadySetup } from './commands/SetupBondErrAlreadySetup';
+import { SetupBondErrTooLate } from './commands/SetupBondErrTooLate';
+import { SetupBondErrTooSoon } from './commands/SetupBondErrTooSoon';
+import { SetupBondErrUnauthorized } from './commands/SetupBondErrUnauthorized';
 import { Stake } from './commands/Stake';
 import { StakeErrAlreadyStaked } from './commands/StakeErrAlreadyStaked';
 import { StakeErrGrantRevoked } from './commands/StakeErrGrantRevoked';
@@ -82,6 +87,9 @@ test(
       rewardCycleLength: REWARD_CYCLE_LENGTH,
       firstBurnHeight: 0n,
       prepareCycleLength: 10n,
+      bonds: new Map(),
+      bondAllowances: new Map(),
+      firstBondPeriodCycle: 1n,
       statistics: new Map(),
     };
 
@@ -103,6 +111,11 @@ test(
       StakeErrInPreparePhase(accounts),
       StakeErrGrantRevoked(accounts),
       UnstakeErrInPreparePhase(accounts),
+      SetupBond(accounts),
+      SetupBondErrUnauthorized(accounts),
+      SetupBondErrAlreadySetup(accounts),
+      SetupBondErrTooLate(accounts),
+      SetupBondErrTooSoon(accounts),
       MineBitcoinBlocks(),
       AssertSignerInvariants(),
       AssertStakerInvariants(accounts),
