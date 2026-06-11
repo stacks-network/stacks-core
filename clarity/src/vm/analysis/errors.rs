@@ -1246,7 +1246,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::BadSyntaxBinding(binding_error) => format!("invalid syntax binding: {}", &binding_error.message()),
             StaticCheckErrorKind::MaxContextDepthReached => "reached depth limit".into(),
             StaticCheckErrorKind::UndefinedVariable(var_name) if var_name == DISCARD_IDENTIFIER => {
-                format!("{DISCARD_IDENTIFIER} is reserved as a discard pattern; it cannot be referenced as a variable")
+                format!("'{DISCARD_IDENTIFIER}' is reserved as a discard pattern; it cannot be referenced as a variable")
             }
             StaticCheckErrorKind::UndefinedVariable(var_name) => format!("use of unresolved variable '{var_name}'"),
             StaticCheckErrorKind::RequiresAtLeastArguments(expected, found) => format!("expecting >= {expected} arguments, got {found}"),
