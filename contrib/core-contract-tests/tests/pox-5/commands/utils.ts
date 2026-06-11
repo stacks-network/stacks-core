@@ -1,6 +1,11 @@
 import type { Model, Real, StakerState } from './types';
 import { accounts } from '../../clarigen-types';
-import { BOND_GAP_CYCLES, MAX_SIGNERS, testSigner } from '../pox-5-helpers';
+import {
+  BOND_GAP_CYCLES,
+  BOND_LENGTH_CYCLES,
+  MAX_SIGNERS,
+  testSigner,
+} from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
 import { hex } from '@scure/base';
 import { cvToValue, hexToCV } from '@stacks/transactions';
@@ -82,6 +87,73 @@ export function eligibleBondIndex(model: Readonly<Model>): bigint | undefined {
 /** `model.bondAllowances` key: one entry per `protocol-bond-allowances` row. */
 export function bondAllowanceKey(bondIndex: bigint, staker: string): string {
   return `${bondIndex}|${staker}`;
+}
+
+/** Reward cycle a bond's lock starts: `firstBondPeriodCycle + index * gap`. */
+export function bondStartCycle(
+  model: Readonly<Model>,
+  bondIndex: bigint,
+): bigint {
+  return model.firstBondPeriodCycle + bondIndex * BOND_GAP_CYCLES;
+}
+
+/**
+ * Bonds the staker can freshly register for now: set up, not yet started, with
+ * a positive allowance, and the staker not already a member. Fresh-only (no
+ * rollover), so a current member is excluded until their bond is unwound.
+ */
+export function registrableBondsForStaker(
+  model: Readonly<Model>,
+  staker: string,
+): bigint[] {
+  if (model.bondMemberships.has(staker)) return [];
+  const result: bigint[] = [];
+  for (const [bondIndex] of model.bonds) {
+    const allowance = model.bondAllowances.get(
+      bondAllowanceKey(bondIndex, staker),
+    );
+    if (allowance === undefined || allowance === 0n) continue;
+    const startHeight = rewardCycleToBurnHeight(
+      model,
+      bondStartCycle(model, bondIndex),
+    );
+    if (model.burnBlockHeight < startHeight) result.push(bondIndex);
+  }
+  return result;
+}
+
+/**
+ * Contract's `min-ustx-for-sats-amount`: the floor uSTX a staker must lock for
+ * `sats`. Integer division at each step, matching the contract's truncation.
+ */
+export function minUstxForSats(
+  sats: bigint,
+  stxValueRatio: bigint,
+  minUstxRatio: bigint,
+): bigint {
+  return (((stxValueRatio * sats) / 100n) * minUstxRatio) / 10000n;
+}
+
+/** Cycle a bond's lock ends (exclusive): `bondStartCycle + BOND_LENGTH_CYCLES`. */
+export function bondEndCycle(
+  model: Readonly<Model>,
+  bondIndex: bigint,
+): bigint {
+  return bondStartCycle(model, bondIndex) + BOND_LENGTH_CYCLES;
+}
+
+/**
+ * True while `get-bond-membership` still resolves for `staker`: a membership
+ * exists and the current cycle is before the bond's end (the contract returns
+ * none once the term is over).
+ */
+export function isActiveBondMember(
+  model: Readonly<Model>,
+  staker: string,
+): boolean {
+  const membership = model.bondMemberships.get(staker);
+  if (membership === undefined) return false;
+  return currentRewardCycle(model) < bondEndCycle(model, membership.bondIndex);
 }
 
 /**
@@ -303,6 +375,30 @@ function stakerSignerCycleKey(
   return `${staker}|${signer}|${cycle}`;
 }
 
+// Bond (some bond-index) variant key encoders. Lead with cycle then bondIndex
+// so the prefix matches the contract's tuple ordering for these maps.
+
+function bondTotalCycleKey(cycle: bigint, bondIndex: bigint): string {
+  return `${cycle}|${bondIndex}`;
+}
+
+function bondSignerCycleKey(
+  cycle: bigint,
+  bondIndex: bigint,
+  signer: string,
+): string {
+  return `${cycle}|${bondIndex}|${signer}`;
+}
+
+function bondStakerCycleKey(
+  cycle: bigint,
+  bondIndex: bigint,
+  signer: string,
+  staker: string,
+): string {
+  return `${cycle}|${bondIndex}|${signer}|${staker}`;
+}
+
 // Per-cycle model writes mirroring the contract's `add-staker-to-signer-for-
 // cycle` / `remove-staker-from-signer-for-cycle` folds, for the four
 // unconditional-write maps only (the threshold-gated `signer-shares` /
@@ -311,7 +407,8 @@ function stakerSignerCycleKey(
 
 /**
  * Mirror of `add-staker-to-signer-cycles`: add `staker`/`signer`/`amountUstx`
- * across `[firstCycle, firstCycle + numCycles)`.
+ * across `[firstCycle, firstCycle + numCycles)`. Bonds pass `isStxStaking`
+ * false, so the stx-only staker-shares stay 0 (the contract's `stake-amount`).
  */
 export function modelAddStakerToCycles(
   model: Model,
@@ -320,6 +417,7 @@ export function modelAddStakerToCycles(
   firstCycle: bigint,
   numCycles: bigint,
   amountUstx: bigint,
+  isStxStaking = true,
 ): void {
   for (let i = 0n; i < numCycles; i++) {
     const cycle = firstCycle + i;
@@ -334,7 +432,7 @@ export function modelAddStakerToCycles(
     );
     model.stakerSharesStakedForCycle.set(
       stakerSignerCycleKey(staker, signer, cycle),
-      amountUstx,
+      isStxStaking ? amountUstx : 0n,
     );
     model.ustxDelegatedPerCycle.set(
       cycle,
@@ -377,6 +475,80 @@ export function modelRemoveStakerFromCycles(
     model.ustxDelegatedPerCycle.set(
       cycle,
       (model.ustxDelegatedPerCycle.get(cycle) ?? 0n) - amountUstx,
+    );
+  }
+}
+
+// Bond per-cycle model writes mirroring `add-staker-to-bond-for-cycle` /
+// `remove-staker-from-bond-for-cycle`. Unlike the none variant these always
+// move (no threshold gate), so they are fully derivable. Call them in the
+// Act's "Update model" step so each touched cycle holds what the contract
+// committed. staker-shares is an absolute set (not a delta).
+
+/**
+ * Mirror of `add-staker-to-bond-cycles`: across `[firstCycle, firstCycle +
+ * numCycles)`, `total += amountSats`, `signer += amountSats`, and the staker's
+ * shares are set absolute to `amountSats`.
+ */
+export function modelAddStakerToBondCycles(
+  model: Model,
+  staker: string,
+  signer: string,
+  bondIndex: bigint,
+  firstCycle: bigint,
+  numCycles: bigint,
+  amountSats: bigint,
+): void {
+  for (let i = 0n; i < numCycles; i++) {
+    const cycle = firstCycle + i;
+    const totalKey = bondTotalCycleKey(cycle, bondIndex);
+    model.bondTotalSharesForCycle.set(
+      totalKey,
+      (model.bondTotalSharesForCycle.get(totalKey) ?? 0n) + amountSats,
+    );
+    const signerKey = bondSignerCycleKey(cycle, bondIndex, signer);
+    model.bondSignerSharesForCycle.set(
+      signerKey,
+      (model.bondSignerSharesForCycle.get(signerKey) ?? 0n) + amountSats,
+    );
+    // Absolute set, matching the contract's `(map-set ... amount-sats)`.
+    model.bondStakerSharesForCycle.set(
+      bondStakerCycleKey(cycle, bondIndex, signer, staker),
+      amountSats,
+    );
+  }
+}
+
+/**
+ * Mirror of `remove-staker-from-bond-cycles`: across `[firstCycle, firstCycle +
+ * numCycles)`, `total -= amountSats`, `signer -= amountSats`, and the staker's
+ * shares are set to `0n` (the contract sets `u0`, it does not delete the row).
+ */
+export function modelRemoveStakerFromBondCycles(
+  model: Model,
+  staker: string,
+  signer: string,
+  bondIndex: bigint,
+  firstCycle: bigint,
+  numCycles: bigint,
+  amountSats: bigint,
+): void {
+  for (let i = 0n; i < numCycles; i++) {
+    const cycle = firstCycle + i;
+    const totalKey = bondTotalCycleKey(cycle, bondIndex);
+    model.bondTotalSharesForCycle.set(
+      totalKey,
+      (model.bondTotalSharesForCycle.get(totalKey) ?? 0n) - amountSats,
+    );
+    const signerKey = bondSignerCycleKey(cycle, bondIndex, signer);
+    model.bondSignerSharesForCycle.set(
+      signerKey,
+      (model.bondSignerSharesForCycle.get(signerKey) ?? 0n) - amountSats,
+    );
+    // Set to zero, not deleted, matching the contract's `(map-set ... u0)`.
+    model.bondStakerSharesForCycle.set(
+      bondStakerCycleKey(cycle, bondIndex, signer, staker),
+      0n,
     );
   }
 }
@@ -432,6 +604,71 @@ export function assertStakerSharesForCycle(
   ).toBe(
     model.stakerSharesStakedForCycle.get(
       stakerSignerCycleKey(staker, signer, cycle),
+    ) ?? 0n,
+  );
+}
+
+// Bond (some bond-index) variant per-cycle asserts. Each reads one getter
+// with the real bondIndex (the stx-only `assertStakerSharesForCycle` passes
+// null) and compares to the model map, defaulting 0n when absent to match the
+// contract getters' `default-to u0`.
+
+export function assertBondTotalSharesForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint,
+): void {
+  expect(
+    rov(real.contracts.pox5.getTotalSharesStakedForCycle(cycle, bondIndex)),
+  ).toBe(
+    model.bondTotalSharesForCycle.get(bondTotalCycleKey(cycle, bondIndex)) ??
+      0n,
+  );
+}
+
+export function assertBondSignerSharesForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint,
+  signer: string,
+): void {
+  expect(
+    rov(
+      real.contracts.pox5.getSignerSharesStakedForCycle(
+        signer,
+        cycle,
+        bondIndex,
+      ),
+    ),
+  ).toBe(
+    model.bondSignerSharesForCycle.get(
+      bondSignerCycleKey(cycle, bondIndex, signer),
+    ) ?? 0n,
+  );
+}
+
+export function assertBondStakerSharesForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint,
+  signer: string,
+  staker: string,
+): void {
+  expect(
+    rov(
+      real.contracts.pox5.getStakerSharesStakedForCycle(
+        staker,
+        cycle,
+        bondIndex,
+        signer,
+      ),
+    ),
+  ).toBe(
+    model.bondStakerSharesForCycle.get(
+      bondStakerCycleKey(cycle, bondIndex, signer, staker),
     ) ?? 0n,
   );
 }

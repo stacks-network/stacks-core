@@ -26,6 +26,15 @@ export type BondConfig = {
   earlyUnlockBytes: Uint8Array;
 };
 
+/** Mirrors a `protocol-bond-memberships` row. */
+export type BondMembership = {
+  bondIndex: bigint;
+  amountUstx: bigint;
+  signer: string;
+  isL1Lock: boolean;
+  amountSats: bigint;
+};
+
 export interface Model {
   /** Per-address staker state. Absent means not staking. */
   stakers: Map<string, StakerState>;
@@ -46,6 +55,26 @@ export interface Model {
    * `${staker}|${signer}|${cycle}` to uSTX amount.
    */
   stakerSharesStakedForCycle: Map<string, bigint>;
+  // The next three maps mirror the bond (some bond-index) variants of the
+  // shares maps, which `add/remove-staker-from-bond-for-cycle` always move
+  // (not threshold gated), so they are fully derivable. The none variant of
+  // these maps is threshold gated and stays out of scope.
+  /**
+   * Mirrors `total-shares-staked-for-cycle` (some bond-index), keyed
+   * `${cycle}|${bondIndex}` to total sats staked in that bond that cycle.
+   */
+  bondTotalSharesForCycle: Map<string, bigint>;
+  /**
+   * Mirrors `signer-shares-staked-for-cycle` (some bond-index), keyed
+   * `${cycle}|${bondIndex}|${signer}` to the signer's sats that cycle.
+   */
+  bondSignerSharesForCycle: Map<string, bigint>;
+  /**
+   * Mirrors `staker-shares-staked-for-cycle` (some bond-index), keyed
+   * `${cycle}|${bondIndex}|${signer}|${staker}` to the staker's sats that
+   * cycle. Set absolute on add, zeroed (not deleted) on remove.
+   */
+  bondStakerSharesForCycle: Map<string, bigint>;
   /**
    * Every signer-manager contract deployed so far. `size` names the next
    * deploy.
@@ -87,6 +116,14 @@ export interface Model {
    * cycle `firstBondPeriodCycle + N * BOND_GAP_CYCLES`.
    */
   firstBondPeriodCycle: bigint;
+  /** Per-principal sBTC balance, mirroring the sbtc-token ledger. */
+  sbtcBalances: Map<string, bigint>;
+  /** Mirrors the contract's `total-sbtc-staked` var. */
+  totalSbtcStaked: bigint;
+  /** Mirrors `protocol-bond-memberships`: staker to bond membership. */
+  bondMemberships: Map<string, BondMembership>;
+  /** Mirrors `protocol-bonds-total-staked`: bond-index to total sats. */
+  bondTotalStaked: Map<bigint, bigint>;
   /** Command execution counts, for the end-of-run report. */
   statistics: Map<string, number>;
 }

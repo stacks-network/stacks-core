@@ -39,6 +39,8 @@ export const Stake = (accounts: Real['accounts']) =>
           // blocks it. The run picks from these.
           grantedSigners(model).length > 0 &&
           !isStakerActive(model, r.sender) &&
+          // Keep stx-stakers and bond members disjoint.
+          !model.bondMemberships.has(r.sender) &&
           // stake reverts with ERR_STAKE_IN_PREPARE_PHASE in the prepare phase.
           !isInPreparePhase(model),
         run: (model: Model, real: Real) => {

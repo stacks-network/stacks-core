@@ -8,6 +8,14 @@ import { AssertSignerInvariants } from './commands/AssertSignerInvariants';
 import { AssertStakerInvariants } from './commands/AssertStakerInvariants';
 import { DeploySigner } from './commands/DeploySigner';
 import { MineBitcoinBlocks } from './commands/MineBlocks';
+import { RegisterForBond } from './commands/RegisterForBond';
+import { RegisterForBondErrAlreadyStaked } from './commands/RegisterForBondErrAlreadyStaked';
+import { RegisterForBondErrBondAlreadyStarted } from './commands/RegisterForBondErrBondAlreadyStarted';
+import { RegisterForBondErrBondNotFound } from './commands/RegisterForBondErrBondNotFound';
+import { RegisterForBondErrInPreparePhase } from './commands/RegisterForBondErrInPreparePhase';
+import { RegisterForBondErrInsufficientStx } from './commands/RegisterForBondErrInsufficientStx';
+import { RegisterForBondErrNotAllowlisted } from './commands/RegisterForBondErrNotAllowlisted';
+import { RegisterForBondErrTooMuchSats } from './commands/RegisterForBondErrTooMuchSats';
 import { RegisterSigner } from './commands/RegisterSigner';
 import { RegisterSignerErrGrantUsed } from './commands/RegisterSignerErrGrantUsed';
 import { RevokeSignerGrant } from './commands/RevokeSignerGrant';
@@ -29,6 +37,11 @@ import { StakeExtend } from './commands/StakeExtend';
 import { StakeUpdate } from './commands/StakeUpdate';
 import { Unstake } from './commands/Unstake';
 import { UnstakeErrInPreparePhase } from './commands/UnstakeErrInPreparePhase';
+import { UpdateBondRegistration } from './commands/UpdateBondRegistration';
+import { UpdateBondRegistrationErrInPreparePhase } from './commands/UpdateBondRegistrationErrInPreparePhase';
+import { UpdateBondRegistrationErrInvalidOldSignerManager } from './commands/UpdateBondRegistrationErrInvalidOldSignerManager';
+import { UpdateBondRegistrationErrNotBondParticipant } from './commands/UpdateBondRegistrationErrNotBondParticipant';
+import { UpdateBondRegistrationErrUpdateBondSameSigner } from './commands/UpdateBondRegistrationErrUpdateBondSameSigner';
 import { Model, Real } from './commands/types';
 import { reportCommandRuns } from './commands/utils';
 import { initSimnet } from '@stacks/clarinet-sdk';
@@ -36,6 +49,7 @@ import {
   REWARD_CYCLE_LENGTH,
   initBootPox5,
   pox5,
+  sbtcBalance,
   testSigner,
 } from './pox-5-helpers';
 
@@ -71,12 +85,21 @@ test(
     // stake against).
     initBootPox5();
 
+    // sBTC genesis balances come from the simnet plan; seed the model from the
+    // live ledger so it matches whatever was allocated.
+    const sbtcBalances = new Map(
+      Object.values(accounts).map((a) => [a.address, sbtcBalance(a.address)]),
+    );
+
     const model: Model = {
       stakers: new Map(),
       ustxDelegatedPerCycle: new Map(),
       signerDelegatedPerCycle: new Map(),
       stakerSignerCycleMemberships: new Map(),
       stakerSharesStakedForCycle: new Map(),
+      bondTotalSharesForCycle: new Map(),
+      bondSignerSharesForCycle: new Map(),
+      bondStakerSharesForCycle: new Map(),
       // The default test-pox-5-signer is already deployed via Clarinet.toml;
       // DeploySigner adds further instances during the run.
       deployedSigners: new Set([testSigner.identifier]),
@@ -90,6 +113,10 @@ test(
       bonds: new Map(),
       bondAllowances: new Map(),
       firstBondPeriodCycle: 1n,
+      sbtcBalances,
+      totalSbtcStaked: 0n,
+      bondMemberships: new Map(),
+      bondTotalStaked: new Map(),
       statistics: new Map(),
     };
 
@@ -105,6 +132,11 @@ test(
       StakeUpdate(accounts),
       StakeExtend(accounts),
       Unstake(accounts),
+      UpdateBondRegistration(accounts),
+      UpdateBondRegistrationErrNotBondParticipant(accounts),
+      UpdateBondRegistrationErrInPreparePhase(accounts),
+      UpdateBondRegistrationErrInvalidOldSignerManager(accounts),
+      UpdateBondRegistrationErrUpdateBondSameSigner(accounts),
       StakeErrAlreadyStaked(accounts),
       StakeErrSignerNotFound(accounts),
       StakeErrInvalidNumCycles(accounts),
@@ -112,6 +144,14 @@ test(
       StakeErrGrantRevoked(accounts),
       UnstakeErrInPreparePhase(accounts),
       SetupBond(accounts),
+      RegisterForBond(accounts),
+      RegisterForBondErrBondNotFound(accounts),
+      RegisterForBondErrNotAllowlisted(accounts),
+      RegisterForBondErrInPreparePhase(accounts),
+      RegisterForBondErrInsufficientStx(accounts),
+      RegisterForBondErrBondAlreadyStarted(accounts),
+      RegisterForBondErrAlreadyStaked(accounts),
+      RegisterForBondErrTooMuchSats(accounts),
       SetupBondErrUnauthorized(accounts),
       SetupBondErrAlreadySetup(accounts),
       SetupBondErrTooLate(accounts),
