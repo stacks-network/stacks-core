@@ -1057,6 +1057,7 @@ check_dependencies() {
                     ;;
                 "cargo")
                     install_cargo
+                    continue
                     ;;
                 "pgrep")
                     package="procps"
