@@ -729,24 +729,26 @@ fn inner_connection_open<P: AsRef<Path>>(
 }
 
 /// Open a database connection and set some typically-used pragmas.
-/// Connections are always opened in SQLite multi-thread (`NO_MUTEX`) mode: a
-/// `FULL_MUTEX` request is rejected in debug builds and overridden in release.
+/// Connections are always opened in SQLite multi-thread (`NO_MUTEX`) mode;
+/// passing `FULL_MUTEX` panics.
 pub fn sqlite_open<P: AsRef<Path>>(
     path: P,
-    flags: OpenFlags,
+    mut flags: OpenFlags,
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
     // Without an explicit mutex flag the bundled SQLite defaults to serialized
     // mode, whose per-connection mutex is pure overhead here: `Connection` is
     // `!Sync`, so no thread can ever contend on it.
-    debug_assert!(
+    assert!(
         !flags.contains(OpenFlags::SQLITE_OPEN_FULL_MUTEX),
         "sqlite_open always opens in multi-thread mode; FULL_MUTEX is not supported"
     );
-    let flags = flags | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    flags.insert(OpenFlags::SQLITE_OPEN_NO_MUTEX);
     let db = inner_connection_open(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
-    inner_sql_pragma(&db, "journal_mode", &"WAL")?;
+    if !flags.contains(OpenFlags::SQLITE_OPEN_READ_ONLY) {
+        inner_sql_pragma(&db, "journal_mode", &"WAL")?;
+    }
     inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
     if foreign_keys {
         inner_sql_pragma(&db, "foreign_keys", &true)?;
