@@ -59,7 +59,7 @@ use std::time::{Duration, Instant};
 use std::{fs, io, process, thread};
 
 use libstackerdb::StackerDBChunkData;
-use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
+use rusqlite::{Error as SqliteError, OpenFlags, params};
 use serde_json::{Value, json};
 use stacks_common::codec::{StacksMessageCodec, read_next};
 use stacks_common::types::MempoolCollectionBehavior;
@@ -617,7 +617,7 @@ fn main() {
             let tip = BlockHeaderHash::from_hex(&block_hash).unwrap();
             let consensus = ConsensusHash::from_hex(&consensus_hash).unwrap();
 
-            let conn = Connection::open(&db_path).unwrap();
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false).unwrap();
             let mut cur_consensus = consensus.clone();
             let mut cur_tip = tip.clone();
             loop {
@@ -648,8 +648,7 @@ fn main() {
             db_path,
             byte_prefix,
         } => {
-            let conn =
-                Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false).unwrap();
             let query = format!("SELECT value FROM data_table WHERE key LIKE \"{byte_prefix}%\"");
             let mut stmt = conn.prepare(&query).unwrap();
             let mut rows = stmt.query(NO_PARAMS).unwrap();

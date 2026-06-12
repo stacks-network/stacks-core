@@ -26,7 +26,7 @@ pub use cli::{
     ContractHashArgs, ReplayMockMiningArgs, TryMineArgs, ValidateBlockArgs, ValidateBlockMode,
 };
 use regex::Regex;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::OpenFlags;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Hash160;
@@ -54,7 +54,7 @@ use stackslib::config::{Config, DEFAULT_MAINNET_CONFIG};
 use stackslib::core::*;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
-use stackslib::util_lib::db::IndexDBTx;
+use stackslib::util_lib::db::{IndexDBTx, sqlite_open};
 
 #[derive(Debug, Default)]
 pub struct CommonOpts {
@@ -186,11 +186,14 @@ fn limit_reached(limit: Option<u64>, current: usize) -> bool {
 
 fn count_epoch2_index_entries(db_path: &str) -> u64 {
     let staging_blocks_db_path = format!("{db_path}/chainstate/vm/index.sqlite");
-    let conn =
-        Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap_or_else(|e| {
-                panic!("Failed to open staging blocks DB at {staging_blocks_db_path}: {e}");
-            });
+    let conn = sqlite_open(
+        &staging_blocks_db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+        false,
+    )
+    .unwrap_or_else(|e| {
+        panic!("Failed to open staging blocks DB at {staging_blocks_db_path}: {e}");
+    });
     let sql = "SELECT COUNT(*) FROM staging_blocks WHERE orphaned = 0";
     let mut stmt = conn.prepare(sql).unwrap_or_else(|e| {
         panic!("Failed to prepare query over staging_blocks: {e}");
@@ -224,11 +227,14 @@ fn collect_epoch2_entries(
     }
 
     let staging_blocks_db_path = format!("{db_path}/chainstate/vm/index.sqlite");
-    let conn =
-        Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap_or_else(|e| {
-                panic!("Failed to open staging blocks DB at {staging_blocks_db_path}: {e}");
-            });
+    let conn = sqlite_open(
+        &staging_blocks_db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+        false,
+    )
+    .unwrap_or_else(|e| {
+        panic!("Failed to open staging blocks DB at {staging_blocks_db_path}: {e}");
+    });
     let sql = format!("SELECT index_block_hash FROM staging_blocks {clause}");
     let mut stmt = conn.prepare(&sql).unwrap_or_else(|e| {
         panic!("Failed to prepare query over staging_blocks: {e}");
