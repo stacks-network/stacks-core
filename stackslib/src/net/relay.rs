@@ -898,13 +898,6 @@ impl Relayer {
         obtained_method: NakamotoBlockObtainMethod,
         force_broadcast: bool,
     ) -> Result<BlockAcceptResponse, chainstate_error> {
-        info!(
-            "Handle incoming Nakamoto block {}/{} obtained via {}",
-            &block.header.consensus_hash,
-            &block.header.block_hash(),
-            &obtained_method;
-            "block_id" => %block.header.block_id(),
-        );
         if block.is_shadow_block() {
             // drop, since we can get these from ourselves when downloading a tenure that ends in
             // a shadow block.
@@ -942,6 +935,13 @@ impl Relayer {
                 return Ok(BlockAcceptResponse::AlreadyStored);
             }
         }
+
+        info!(
+            "Handle incoming Nakamoto block {}/{} obtained via {obtained_method}",
+            &block.header.consensus_hash,
+            &block.header.block_hash();
+            "block_id" => %block.header.block_id(),
+        );
 
         let block_sn =
             SortitionDB::get_block_snapshot_consensus(sort_handle, &block.header.consensus_hash)?
