@@ -2632,6 +2632,240 @@ test('bond staker can update signer and fully unstake sbtc in the same cycle', (
 });
 
 /**
+ * A staker that updates its signer and then *partially* unstakes in the same
+ * cycle keeps the old signer for the current cycle but the new signer for
+ * future cycles. Each cycle's per-signer and total share buckets must be
+ * debited under the correct signer. The full-unstake sibling test above can't
+ * observe this because it zeroes every bucket regardless of signer.
+ */
+test('bond staker can update signer and partially unstake sbtc in the same cycle', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner(
+    'bond-update-then-partial-unstake-signer-2',
+  ).identifier;
+  const aliceSbtc = 480000n;
+  const unstakeSats = 180000n;
+  const remaining = aliceSbtc - unstakeSats;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSbtc, staker: alice }]);
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + 1n);
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      oldSignerManager: signer1,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer2,
+      amountToWithdrawalSats: unstakeSats,
+    }),
+    alice,
+  );
+
+  // Current cycle (1): the staker stayed on signer1, so the debit must land on
+  // signer1's bucket and signer2 must remain empty for this cycle.
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 1n, 0n, signer1))).toBe(
+    remaining,
+  );
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer1, 1n, 0n))).toBe(
+    remaining,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 1n, 0n, signer2))).toBe(
+    0n,
+  );
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer2, 1n, 0n))).toBe(0n);
+  expect(rov(pox5.getTotalSharesStakedForCycle(1n, 0n))).toBe(remaining);
+
+  // Future cycles (2..12): the staker moved to signer2, so the debit must land
+  // on signer2's bucket and signer1 must have been emptied by the update.
+  for (let cycle = 2n; cycle < 13n; cycle++) {
+    expect(
+      rov(pox5.getStakerSharesStakedForCycle(alice, cycle, 0n, signer2)),
+    ).toBe(remaining);
+    expect(rov(pox5.getSignerSharesStakedForCycle(signer2, cycle, 0n))).toBe(
+      remaining,
+    );
+    expect(rov(pox5.getSignerSharesStakedForCycle(signer1, cycle, 0n))).toBe(
+      0n,
+    );
+    expect(rov(pox5.getTotalSharesStakedForCycle(cycle, 0n))).toBe(remaining);
+  }
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(remaining);
+});
+
+/**
+ * With a single staker the per-signer and total share buckets are identical,
+ * so a single-staker test can't distinguish "debited the right signer bucket"
+ * from "debited the total and got lucky". Here Alice updates her signer and
+ * partially unstakes while Bob stays on the original signer: Bob's shares and
+ * the per-signer totals on both signers must stay exactly correct.
+ */
+test('partial unstake after signer update leaves a co-staker on the old signer untouched', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner(
+    'bond-multi-staker-unstake-signer-2',
+  ).identifier;
+  const aliceSbtc = 300000n;
+  const bobSbtc = 200000n;
+  const unstakeSats = 120000n;
+  const aliceRemaining = aliceSbtc - unstakeSats;
+
+  registerSigner();
+  setupBondForAllowlist([
+    { maxSats: aliceSbtc, staker: alice },
+    { maxSats: bobSbtc, staker: bob },
+  ]);
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + 1n);
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      oldSignerManager: signer1,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer2,
+      amountToWithdrawalSats: unstakeSats,
+    }),
+    alice,
+  );
+
+  // Current cycle (1): both stakers are still on signer1.
+  expect(rov(pox5.getStakerSharesStakedForCycle(alice, 1n, 0n, signer1))).toBe(
+    aliceRemaining,
+  );
+  expect(rov(pox5.getStakerSharesStakedForCycle(bob, 1n, 0n, signer1))).toBe(
+    bobSbtc,
+  );
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer1, 1n, 0n))).toBe(
+    aliceRemaining + bobSbtc,
+  );
+  expect(rov(pox5.getSignerSharesStakedForCycle(signer2, 1n, 0n))).toBe(0n);
+  expect(rov(pox5.getTotalSharesStakedForCycle(1n, 0n))).toBe(
+    aliceRemaining + bobSbtc,
+  );
+
+  // Future cycles (2..12): Alice moved to signer2, Bob still on signer1.
+  for (let cycle = 2n; cycle < 13n; cycle++) {
+    expect(
+      rov(pox5.getStakerSharesStakedForCycle(alice, cycle, 0n, signer2)),
+    ).toBe(aliceRemaining);
+    expect(
+      rov(pox5.getStakerSharesStakedForCycle(bob, cycle, 0n, signer1)),
+    ).toBe(bobSbtc);
+    expect(rov(pox5.getSignerSharesStakedForCycle(signer2, cycle, 0n))).toBe(
+      aliceRemaining,
+    );
+    expect(rov(pox5.getSignerSharesStakedForCycle(signer1, cycle, 0n))).toBe(
+      bobSbtc,
+    );
+    expect(rov(pox5.getTotalSharesStakedForCycle(cycle, 0n))).toBe(
+      aliceRemaining + bobSbtc,
+    );
+  }
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(aliceRemaining + bobSbtc);
+});
+
+/**
+ * After updating signer and partially unstaking, a reward distributed in the
+ * current cycle must still accrue to the old signer (the staker's current-cycle
+ * signer), scaled to the post-unstake share amount. The full-unstake sibling
+ * test can't see this because it leaves zero shares behind.
+ */
+test('current-cycle rewards accrue to the old signer after a signer update and partial unstake', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner(
+    'bond-update-unstake-reward-routing-signer-2',
+  ).identifier;
+  const aliceSbtc = 480000n;
+  const unstakeSats = 120000n;
+  const remaining = aliceSbtc - unstakeSats;
+  // `setupBondForAllowlist` configures the bond with this target rate.
+  const targetRate = 1200n;
+  const expectedYield = bondTargetYieldPerCalculation({
+    sats: remaining,
+    targetRate,
+  });
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSbtc, staker: alice }]);
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + 1n);
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      oldSignerManager: signer1,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer2,
+      amountToWithdrawalSats: unstakeSats,
+    }),
+    alice,
+  );
+
+  sbtcTransfer(1000n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  // The current cycle's reward must land on signer1 (where Alice still is for
+  // cycle 1), scaled to her remaining shares — not on the new signer.
+  expect(rov(pox5.getEarned(signer1, 1n, 0n))).toBe(expectedYield);
+  expect(rov(pox5.getEarned(signer2, 1n, 0n))).toBe(0n);
+});
+
+/**
  * Regression: changing signer for an active bond must not let the staker
  * double-collect already-distributed bond rewards on the new signer. Before
  * the fix, `update-bond-registration` did not settle the staker's per-token
