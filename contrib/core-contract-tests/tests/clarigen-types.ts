@@ -4498,6 +4498,123 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      unstakeSbtcFromBondCycle: {
+        name: 'unstake-sbtc-from-bond-cycle',
+        access: 'private',
+        args: [
+          { name: 'cycle-index', type: 'uint128' },
+          {
+            name: 'accumulator-res',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    { name: 'amount-to-withdrawal-sats', type: 'uint128' },
+                    { name: 'bond-index', type: 'uint128' },
+                    { name: 'first-reward-cycle', type: 'uint128' },
+                    { name: 'new-amount-sats', type: 'uint128' },
+                    { name: 'staker', type: 'principal' },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-to-withdrawal-sats', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'new-amount-sats', type: 'uint128' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          cycleIndex: TypedAbiArg<number | bigint, 'cycleIndex'>,
+          accumulatorRes: TypedAbiArg<
+            Response<
+              {
+                amountToWithdrawalSats: number | bigint;
+                bondIndex: number | bigint;
+                firstRewardCycle: number | bigint;
+                newAmountSats: number | bigint;
+                staker: string;
+              },
+              number | bigint
+            >,
+            'accumulatorRes'
+          >,
+        ],
+        Response<
+          {
+            amountToWithdrawalSats: bigint;
+            bondIndex: bigint;
+            firstRewardCycle: bigint;
+            newAmountSats: bigint;
+            staker: string;
+          },
+          bigint
+        >
+      >,
+      unstakeSbtcFromBondCycles: {
+        name: 'unstake-sbtc-from-bond-cycles',
+        access: 'private',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'first-reward-cycle', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'amount-to-withdrawal-sats', type: 'uint128' },
+          { name: 'new-amount-sats', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-to-withdrawal-sats', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'new-amount-sats', type: 'uint128' },
+                  { name: 'staker', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          firstRewardCycle: TypedAbiArg<number | bigint, 'firstRewardCycle'>,
+          numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
+          amountToWithdrawalSats: TypedAbiArg<
+            number | bigint,
+            'amountToWithdrawalSats'
+          >,
+          newAmountSats: TypedAbiArg<number | bigint, 'newAmountSats'>,
+        ],
+        Response<
+          {
+            amountToWithdrawalSats: bigint;
+            bondIndex: bigint;
+            firstRewardCycle: bigint;
+            newAmountSats: bigint;
+            staker: string;
+          },
+          bigint
+        >
+      >,
       updateClaimableBondRewards: {
         name: 'update-claimable-bond-rewards',
         access: 'private',

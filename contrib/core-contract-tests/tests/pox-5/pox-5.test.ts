@@ -2575,6 +2575,63 @@ test('bond signer update keeps current-cycle uncrystallized rewards with old sig
   expect(rov(pox5.getEarned(signer2, 1n, 0n))).toBe(0n);
 });
 
+test('bond staker can update signer and fully unstake sbtc in the same cycle', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner(
+    'bond-update-then-unstake-signer-2',
+  ).identifier;
+  const aliceSbtc = 480000n;
+
+  registerSigner();
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 1500n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + 1n);
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signer2,
+      oldSignerManager: signer1,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signer2,
+      amountToWithdrawalSats: aliceSbtc,
+    }),
+    alice,
+  );
+
+  sbtcTransfer(1200n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n]), deployer);
+
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(0n);
+  expect(rov(pox5.getEarned(signer1, 1n, 0n))).toBe(0n);
+  expect(rov(pox5.getEarned(signer2, 1n, 0n))).toBe(0n);
+});
+
 /**
  * Regression: changing signer for an active bond must not let the staker
  * double-collect already-distributed bond rewards on the new signer. Before
