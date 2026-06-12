@@ -548,6 +548,7 @@ pub fn make_simple_block_commit(
         block_height,
         burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
         burn_header_hash: burn_header.block_hash.clone(),
+        descends_from_anchor_block: true,
     };
 
     if burnchain.is_in_prepare_phase(block_height) {

@@ -1241,6 +1241,7 @@ impl RelayerThread {
             txid: Txid([0u8; 32]),
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
+            descends_from_anchor_block: true,
         };
 
         if std::env::var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL") == Ok("1".to_string()) {

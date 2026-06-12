@@ -249,6 +249,9 @@ pub struct LeaderBlockCommitOp {
     // PoX sunset burn
     pub sunset_burn: u64,
 
+    /// Whether or not this block-commit descended from its reward cycle's anchor block.
+    pub descends_from_anchor_block: bool,
+
     // common to all transactions
     pub txid: Txid,                            // transaction ID
     pub vtxindex: u32,                         // index in the block where this tx occurs

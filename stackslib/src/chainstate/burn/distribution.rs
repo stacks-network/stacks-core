@@ -518,6 +518,7 @@ mod tests {
                 BURN_BLOCK_MINED_AT_MODULUS as u8 - 1
             },
             burn_header_hash: BurnchainHeaderHash([0; 32]),
+            descends_from_anchor_block: false,
         }
     }
 
@@ -912,6 +913,7 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
+            descends_from_anchor_block: false,
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
@@ -958,6 +960,7 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
+            descends_from_anchor_block: false,
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
@@ -1004,6 +1007,7 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
+            descends_from_anchor_block: false,
         };
 
         /*
