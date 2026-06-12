@@ -25,6 +25,7 @@ use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 
 mod index;
+mod sortition;
 
 /// Create a source `index.sqlite`
 fn create_source_db(path: &std::path::Path) -> Connection {
