@@ -4179,6 +4179,114 @@ test("stake rejects a bond rollover attempt before the bond's L1 unlock window",
 });
 
 /**
+ * Rollover intentionally keeps the old bond's final-cycle shares (L1 parity).
+ *
+ * A bond → STX-only `stake` rollover only opens in the bond's *final* active
+ * cycle: `verify-bond-rollover-window` gates it behind
+ * `get-bond-l1-unlock-height` (the midpoint of the bond's last cycle) and
+ * `bond-overlaps-new-position?` forces the new stake to start the next cycle.
+ * By design the rollover does NOT tear down the old bond's per-cycle shares or
+ * signer delegation (unlike `unstake-sbtc` / `update-bond-registration`). The
+ * old bond keeps earning its final-cycle reward and the new position starts
+ * the following cycle. The collateral, meanwhile, is released at this same
+ * height (sBTC is refunded here, native STX drops to the new lock amount).
+ */
+test('stake rollover intentionally preserves the old bond final-cycle shares (L1 parity)', () => {
+  const signer = testSigner.identifier;
+  const stxValueRatio = 10000000n;
+  const minUstxRatio = 1000n;
+  const sbtcAmount = 5000000n;
+  // With these ratios the bond's *minimum* STX is 50k, but the bond is
+  // registered with 80k (over-collateralized is allowed: amount-ustx >= min).
+  const bondAmount = stxToUStx(80_000);
+  const stakeAmount = stxToUStx(50_000);
+  expect(
+    rov(pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio)),
+  ).toBe(stxToUStx(50_000));
+  registerSigner({ caller: deployer });
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate: 300n,
+      stxValueRatio,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: [{ maxSats: sbtcAmount, staker: alice }],
+    }),
+    deployer,
+  );
+  // Register directly so we can lock 80k STX (more than the 50k minimum).
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: bondAmount,
+      btcLockup: err(sbtcAmount),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Bond 0 runs cycles [1, 13); its last active cycle is 12. The L1 unlock
+  // height is the midpoint of cycle 12, so the rollover opens while cycle 12
+  // is still active. The bond delegates the full 80k and stakes 5M sats there.
+  const lastBondCycle = 12n;
+  mineUntil(rov(pox5.getBondL1UnlockHeight(0n)));
+  expect(rov(pox5.currentPoxRewardCycle())).toBe(lastBondCycle);
+  expect(rov(pox5.getBondMembership(alice))).not.toBeNull();
+  expect(rov(pox5.getAmountDelegatedForSigner(signer, lastBondCycle))).toBe(
+    bondAmount,
+  );
+  expect(rov(pox5.getTotalSharesStakedForCycle(lastBondCycle, 0n))).toBe(
+    sbtcAmount,
+  );
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(sbtcAmount);
+
+  // Roll the bond into a 50k STX-only stake -- accepted.
+  const stakeResult = txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      numCycles: 4n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  expect(stakeResult.value).toMatchObject({
+    staker: alice,
+    amountUstx: stakeAmount,
+    firstRewardCycle: lastBondCycle + 1n,
+  });
+
+  // The bond's sBTC custody is fully refunded (the contract no longer holds
+  // any of Alice's collateral) and the new stake records only 50k.
+  expect(rov(pox5.getTotalSbtcStaked())).toBe(0n);
+  expect(rov(pox5.getBondMembership(alice))).toBeNull();
+  expect(rov(pox5.getStakerInfo(alice))!.amountUstx).toBe(stakeAmount);
+
+  // The old bond's final cycle (12) intentionally keeps its full
+  // delegation (80k) and reward shares (5M sats), exactly as an L1 bond would
+  // after its timelock expires at this same height.
+  expect(rov(pox5.getAmountDelegatedForSigner(signer, lastBondCycle))).toBe(
+    bondAmount,
+  );
+  expect(rov(pox5.getTotalSharesStakedForCycle(lastBondCycle, 0n))).toBe(
+    sbtcAmount,
+  );
+
+  // The new stake's own cycle (13) delegates the lower 50k and carries no bond
+  // shares -- the positions don't overlap, so there's no double-counting.
+  expect(
+    rov(pox5.getAmountDelegatedForSigner(signer, lastBondCycle + 1n)),
+  ).toBe(stakeAmount);
+  expect(rov(pox5.getTotalSharesStakedForCycle(lastBondCycle + 1n, 0n))).toBe(
+    0n,
+  );
+});
+
+/**
  * Anti-stuck-collateral analog of the `register-for-bond after old bond
  * expires nets sBTC forward` regression, but via `stake`: after a bond
  * expires naturally, calling `stake` rolls the staker out of the bond,

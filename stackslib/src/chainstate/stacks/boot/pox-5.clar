@@ -764,6 +764,9 @@
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
         )
+        ;; A roll-over from an ending bond ADDS the new bond's shares but does
+        ;; NOT tear down the old bond's per-cycle shares/delegation (unlike
+        ;; `update-bond-registration`, which removes then re-adds).
         (try! (add-staker-to-bond-cycles tx-sender signer bond-index first-reward-cycle
             BOND_LENGTH_CYCLES sats-total
         ))
@@ -1040,8 +1043,8 @@
 
         ;; If this was a roll-over from a bond, clear the bond membership so
         ;; `unstake-sbtc` / `update-bond-registration` can no longer reach
-        ;; the old bond. The old bond's reward shares stay through its term;
-        ;; only the management pointer is gone.
+        ;; the old bond. The old bond's reward shares and signer delegation
+        ;; stay through its term; only the management pointer is gone.
         (map-delete protocol-bond-memberships tx-sender)
 
         (let ((result {
