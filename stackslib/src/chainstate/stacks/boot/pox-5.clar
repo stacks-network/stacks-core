@@ -1204,13 +1204,9 @@
             ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED
         )
 
-        ;; Settle rewards before updating state
-        (settle-rewards signer current-cycle (some bond-index))
-        (settle-staker-rewards signer current-cycle (some bond-index) staker)
-
-        (try! (remove-staker-from-bond-cycles staker signer bond-index
+        (try! (unstake-sats-from-bond-cycles staker bond-index
             first-changed-reward-cycle
-            (- bond-end-cycle first-changed-reward-cycle) amount-sats
+            (- bond-end-cycle first-changed-reward-cycle) amount-sats u0
         ))
 
         (map-set protocol-bond-memberships staker
@@ -1285,7 +1281,7 @@
         ;; cycle vs future cycles (through `update-bond-registration`), we must
         ;; derive the signer from each cycle individually (instead of using
         ;; `remove-staker-from-bond-cycles`).
-        (try! (unstake-sbtc-from-bond-cycles staker bond-index
+        (try! (unstake-sats-from-bond-cycles staker bond-index
             first-changed-reward-cycle num-cycles amount-to-withdrawal-sats
             new-amount-sats
         ))
@@ -1325,7 +1321,7 @@
     )
 )
 
-(define-private (unstake-sbtc-from-bond-cycles
+(define-private (unstake-sats-from-bond-cycles
         (staker principal)
         (bond-index uint)
         (first-reward-cycle uint)
@@ -1333,7 +1329,7 @@
         (amount-to-withdrawal-sats uint)
         (new-amount-sats uint)
     )
-    (ok (try! (fold unstake-sbtc-from-bond-cycle
+    (ok (try! (fold unstake-sats-from-bond-cycle
         (unwrap-panic (slice? (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11) u0 num-cycles))
         (ok {
             staker: staker,
@@ -1345,11 +1341,11 @@
     )))
 )
 
-;; Unstake an amount of sBTC from a staker for a given cycle.
+;; Remove a staker's bond shares for a given cycle.
 ;; For the provided cycle, the signer is derived from `staker-signer-cycle-memberships`.
 ;; Rewards are settled, even if this is a future cycle.
 ;; Finally, state is mutated.
-(define-private (unstake-sbtc-from-bond-cycle
+(define-private (unstake-sats-from-bond-cycle
         (cycle-index uint)
         (accumulator-res (response {
             staker: principal,

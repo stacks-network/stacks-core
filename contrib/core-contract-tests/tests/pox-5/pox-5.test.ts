@@ -2606,6 +2606,7 @@ test('bond staker can update signer and fully unstake sbtc in the same cycle', (
     alice,
   );
 
+  sbtcTransfer(1200n, deployer, pox5.identifier);
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + 1n);
   txOk(
     pox5.updateBondRegistration({
@@ -2622,8 +2623,6 @@ test('bond staker can update signer and fully unstake sbtc in the same cycle', (
     }),
     alice,
   );
-
-  sbtcTransfer(1200n, deployer, pox5.identifier);
   mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
   txOk(pox5.calculateRewards([0n]), deployer);
 

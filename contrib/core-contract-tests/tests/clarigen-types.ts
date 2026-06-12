@@ -4498,8 +4498,8 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
-      unstakeSbtcFromBondCycle: {
-        name: 'unstake-sbtc-from-bond-cycle',
+      unstakeSatsFromBondCycle: {
+        name: 'unstake-sats-from-bond-cycle',
         access: 'private',
         args: [
           { name: 'cycle-index', type: 'uint128' },
@@ -4565,8 +4565,8 @@ export const contracts = {
           bigint
         >
       >,
-      unstakeSbtcFromBondCycles: {
-        name: 'unstake-sbtc-from-bond-cycles',
+      unstakeSatsFromBondCycles: {
+        name: 'unstake-sats-from-bond-cycles',
         access: 'private',
         args: [
           { name: 'staker', type: 'principal' },
