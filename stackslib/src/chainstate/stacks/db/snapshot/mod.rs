@@ -27,8 +27,10 @@
 pub(crate) mod common;
 pub(crate) mod fork_storage;
 mod index;
+mod spv;
 
 #[cfg(test)]
 mod tests;
 
 pub use index::{copy_index_side_tables, IndexSideTableStats};
+pub use spv::{copy_spv_headers, SpvHeadersCopyStats};

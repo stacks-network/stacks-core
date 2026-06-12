@@ -54,6 +54,14 @@ pub const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &str =
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
 const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in seconds
 
+/// Number of complete difficulty intervals at `burn_height`: interval `k`
+/// is complete iff its last header height,
+/// `(k + 1) * BLOCK_DIFFICULTY_CHUNK_SIZE - 1`, is at or below
+/// `burn_height`.
+pub(crate) fn num_complete_chain_work_intervals(burn_height: u64) -> u64 {
+    burn_height.saturating_add(1) / BLOCK_DIFFICULTY_CHUNK_SIZE
+}
+
 pub const SPV_DB_VERSION: &str = "3";
 
 const SPV_INITIAL_SCHEMA: &[&str] = &[
@@ -913,6 +921,22 @@ impl SpvClient {
         headers: Vec<LoneBlockHeader>,
     ) -> Result<(), btc_error> {
         self.write_block_headers(height, headers)
+    }
+
+    /// Insert a `chain_work` interval row directly (test fixtures only;
+    /// production rows go through [`SpvClient::update_chain_work`]).
+    #[cfg(test)]
+    pub fn test_insert_chain_work(
+        conn: &DBConn,
+        interval: u64,
+        work: &str,
+    ) -> Result<(), btc_error> {
+        conn.execute(
+            "INSERT INTO chain_work (interval, work) VALUES (?1, ?2)",
+            params![u64_to_sql(interval)?, work],
+        )
+        .map_err(|e| btc_error::from(db_error::SqliteError(e)))?;
+        Ok(())
     }
 
     /// Insert block headers into the headers DB.
