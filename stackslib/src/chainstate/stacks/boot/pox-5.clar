@@ -1204,13 +1204,9 @@
             ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED
         )
 
-        ;; Settle rewards before updating state
-        (settle-rewards signer current-cycle (some bond-index))
-        (settle-staker-rewards signer current-cycle (some bond-index) staker)
-
-        (try! (remove-staker-from-bond-cycles staker signer bond-index
+        (try! (unstake-sats-from-bond-cycles staker bond-index
             first-changed-reward-cycle
-            (- bond-end-cycle first-changed-reward-cycle) amount-sats
+            (- bond-end-cycle first-changed-reward-cycle) amount-sats u0
         ))
 
         (map-set protocol-bond-memberships staker
@@ -1280,17 +1276,14 @@
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
 
-        ;; Take a snapshot of the staker's and signer's current rewards
-        (settle-rewards signer current-cycle (some bond-index))
-        (settle-staker-rewards signer current-cycle (some bond-index) tx-sender)
-
-        ;; We need to update each affected cycle with this staker's new amount. Instead of
-        ;; mutating each cycle, we instead re-use existing "remove" and "add" helpers.
-        (try! (remove-staker-from-bond-cycles staker signer bond-index
-            first-changed-reward-cycle num-cycles current-amount-sats
-        ))
-        (try! (add-staker-to-bond-cycles staker signer bond-index
-            first-changed-reward-cycle num-cycles new-amount-sats
+        ;; Unstake this staker's sBTC from the current and future cycles.
+        ;; N.B. Because the staker might use a different signer for the current
+        ;; cycle vs future cycles (through `update-bond-registration`), we must
+        ;; derive the signer from each cycle individually (instead of using
+        ;; `remove-staker-from-bond-cycles`).
+        (try! (unstake-sats-from-bond-cycles staker bond-index
+            first-changed-reward-cycle num-cycles amount-to-withdrawal-sats
+            new-amount-sats
         ))
 
         (map-set protocol-bond-memberships staker
@@ -1325,6 +1318,85 @@
             (print (merge { topic: "unstake-sbtc" } result))
             (ok result)
         )
+    )
+)
+
+(define-private (unstake-sats-from-bond-cycles
+        (staker principal)
+        (bond-index uint)
+        (first-reward-cycle uint)
+        (num-cycles uint)
+        (amount-to-withdrawal-sats uint)
+        (new-amount-sats uint)
+    )
+    (ok (try! (fold unstake-sats-from-bond-cycle
+        (unwrap-panic (slice? (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11) u0 num-cycles))
+        (ok {
+            staker: staker,
+            bond-index: bond-index,
+            first-reward-cycle: first-reward-cycle,
+            amount-to-withdrawal-sats: amount-to-withdrawal-sats,
+            new-amount-sats: new-amount-sats,
+        })
+    )))
+)
+
+;; Reduce (or remove) a staker's bond shares for a given cycle.
+;; For the provided cycle, the signer is derived from `staker-signer-cycle-memberships`.
+;; Rewards are settled for this cycle before mutating state.
+;; Finally, cycle stake state is updated.
+(define-private (unstake-sats-from-bond-cycle
+        (cycle-index uint)
+        (accumulator-res (response {
+            staker: principal,
+            bond-index: uint,
+            first-reward-cycle: uint,
+            amount-to-withdrawal-sats: uint,
+            new-amount-sats: uint,
+        }
+            uint
+        ))
+    )
+    (let (
+            (accumulator (try! accumulator-res))
+            (reward-cycle (+ cycle-index (get first-reward-cycle accumulator)))
+            (staker (get staker accumulator))
+            (bond-index (get bond-index accumulator))
+            (amount-to-withdrawal-sats (get amount-to-withdrawal-sats accumulator))
+            (new-amount-sats (get new-amount-sats accumulator))
+            (signer (get signer
+                (unwrap! (get-signer-cycle-membership staker reward-cycle)
+                    ERR_NOT_STAKING
+                )))
+            (current-total-staked (get-total-shares-staked-for-cycle reward-cycle (some bond-index)))
+            (current-signer-staked (get-signer-shares-staked-for-cycle signer reward-cycle
+                (some bond-index)
+            ))
+        )
+        (settle-rewards signer reward-cycle (some bond-index))
+        (settle-staker-rewards signer reward-cycle (some bond-index) staker)
+        (map-set total-shares-staked-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: (some bond-index),
+        }
+            (- current-total-staked amount-to-withdrawal-sats)
+        )
+        (map-set signer-shares-staked-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: (some bond-index),
+            signer: signer,
+        }
+            (- current-signer-staked amount-to-withdrawal-sats)
+        )
+        (map-set staker-shares-staked-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: (some bond-index),
+            signer: signer,
+            staker: staker,
+        }
+            new-amount-sats
+        )
+        (ok accumulator)
     )
 )
 
