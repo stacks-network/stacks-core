@@ -165,12 +165,20 @@ resolve_repo() {
         REPO_URL="${REPO_LABELS[${arg}]}"
         REPO_DIR="${WORK_DIR}/${arg}"
         TRACK_REV=1
-    # Git URL  
+    # Git URL
     elif [[ "${arg}" =~ ^(https?|git|ssh)://|^git@ ]]; then
         REPO_URL="${arg}"
-        local base
-        base=$(basename "${arg}")
-        REPO_DIR="${WORK_DIR}/${base%.git}"
+        # Derive REPO_DIR as <repo>, appending -<owner> for third-party forks, e.g.
+        # https://github.com/hello-stacks/stacks-core.git -> stacks-core-hello-stacks
+        # Owners stx-labs / stacks-network are treated as canonical and not appended.
+        local path="${arg%.git}"        # strip trailing .git
+        local repo="${path##*/}"        # last path component = repo name
+        local rest="${path%/*}"         # drop the repo name
+        local owner="${rest##*[/:]}"    # component after the last / or : = owner
+        case "${owner}" in
+            stx-labs|stacks-network) REPO_DIR="${WORK_DIR}/${repo}" ;;
+            *)                       REPO_DIR="${WORK_DIR}/${repo}-${owner}" ;;
+        esac
         TRACK_REV=1
     # Existing local directory
     elif [ -d "${arg}" ]; then
