@@ -73,12 +73,6 @@ fn sqlite_has_entry(conn: &Connection, key: &str) -> Result<bool, VmExecutionErr
     Ok(sqlite_get(conn, key)?.is_some())
 }
 
-/// Log `e` and wrap it in the VM's generic SQL failure error.
-fn sqlite_fail(e: rusqlite::Error) -> VmExecutionError {
-    error!("SQL failure in Clarity side storage: {e:?}");
-    VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into()
-}
-
 pub fn sqlite_get_contract_hash(
     store: &mut dyn ClarityBackingStore,
     contract: &QualifiedContractIdentifier,
@@ -186,28 +180,25 @@ impl SqliteConnection {
         key: &str,
         blockhash: &str,
         value: &str,
-    ) -> Result<(), VmExecutionError> {
-        conn.prepare_cached("INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)")
-            .map_err(sqlite_fail)?
-            .execute(params![blockhash, key, value])
-            .map_err(sqlite_fail)?;
+    ) -> Result<(), rusqlite::Error> {
+        conn.prepare_cached("INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)")?
+            .execute(params![blockhash, key, value])?;
         Ok(())
     }
 
     /// Visit every `metadata_table` row on `conn` as `(key, blockhash, value)`.
     /// Used by the snapshot copy.
-    pub fn visit_metadata_rows<F>(conn: &Connection, mut visit: F) -> Result<(), VmExecutionError>
+    pub fn visit_metadata_rows<E, F>(conn: &Connection, mut visit: F) -> Result<(), E>
     where
-        F: FnMut(&str, &str, &str) -> Result<(), VmExecutionError>,
+        E: From<rusqlite::Error>,
+        F: FnMut(&str, &str, &str) -> Result<(), E>,
     {
-        let mut stmt = conn
-            .prepare("SELECT key, blockhash, value FROM metadata_table")
-            .map_err(sqlite_fail)?;
-        let mut rows = stmt.query(NO_PARAMS).map_err(sqlite_fail)?;
-        while let Some(row) = rows.next().map_err(sqlite_fail)? {
-            let key: String = row.get(0).map_err(sqlite_fail)?;
-            let blockhash: String = row.get(1).map_err(sqlite_fail)?;
-            let value: String = row.get(2).map_err(sqlite_fail)?;
+        let mut stmt = conn.prepare("SELECT key, blockhash, value FROM metadata_table")?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            let key: String = row.get(0)?;
+            let blockhash: String = row.get(1)?;
+            let value: String = row.get(2)?;
             visit(&key, &blockhash, &value)?;
         }
         Ok(())
@@ -215,27 +206,25 @@ impl SqliteConnection {
 
     /// Visit every `metadata_table` key on `conn` in ascending key order
     /// (deterministic for scans that aggregate by contract).
-    pub fn visit_metadata_keys<F>(conn: &Connection, mut visit: F) -> Result<(), VmExecutionError>
+    pub fn visit_metadata_keys<E, F>(conn: &Connection, mut visit: F) -> Result<(), E>
     where
-        F: FnMut(&str) -> Result<(), VmExecutionError>,
+        E: From<rusqlite::Error>,
+        F: FnMut(&str) -> Result<(), E>,
     {
-        let mut stmt = conn
-            .prepare("SELECT key FROM metadata_table ORDER BY key")
-            .map_err(sqlite_fail)?;
-        let mut rows = stmt.query(NO_PARAMS).map_err(sqlite_fail)?;
-        while let Some(row) = rows.next().map_err(sqlite_fail)? {
-            let key: String = row.get(0).map_err(sqlite_fail)?;
+        let mut stmt = conn.prepare("SELECT key FROM metadata_table ORDER BY key")?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            let key: String = row.get(0)?;
             visit(&key)?;
         }
         Ok(())
     }
 
     /// Number of rows in `data_table`.
-    pub fn count_data_rows(conn: &Connection) -> Result<u64, VmExecutionError> {
+    pub fn count_data_rows(conn: &Connection) -> Result<u64, rusqlite::Error> {
         conn.query_row("SELECT COUNT(*) FROM data_table", NO_PARAMS, |row| {
             row.get(0)
         })
-        .map_err(sqlite_fail)
     }
 
     pub fn commit_metadata_to(

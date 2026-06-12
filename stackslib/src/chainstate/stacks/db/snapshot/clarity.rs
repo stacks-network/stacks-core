@@ -18,7 +18,6 @@ use std::time::Instant;
 
 use clarity::vm::database::clarity_store::make_contract_hash_key;
 use clarity::vm::database::SqliteConnection;
-use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -74,7 +73,7 @@ pub fn copy_clarity_side_tables(
 
             let t = Instant::now();
             let src_data_count =
-                SqliteConnection::count_data_rows(&src_conn).map_err(clarity_db_error)?;
+                SqliteConnection::count_data_rows(&src_conn).map_err(Error::SQLError)?;
             let needed_count = needed_keys.len() as u64;
             let pruned_count = src_data_count.saturating_sub(needed_count);
             info!(
@@ -114,11 +113,6 @@ fn open_readonly_clarity_db(path: &str) -> Result<Connection, Error> {
     sqlite_open(path, OpenFlags::SQLITE_OPEN_READ_ONLY, false).map_err(Error::SQLError)
 }
 
-/// Map a Clarity side-storage error into the snapshot error domain.
-fn clarity_db_error(e: VmExecutionError) -> Error {
-    Error::CorruptionError(format!("Clarity side-table access failed: {e:?}"))
-}
-
 /// Stream the source `metadata_table` into the destination, keeping only
 /// rows whose contract id is in `required`. Rows whose key is not in the
 /// [`SqliteConnection`] metadata format are skipped.
@@ -130,19 +124,21 @@ fn copy_required_metadata_rows(
 ) -> Result<(u64, u64), Error> {
     let mut scanned: u64 = 0;
     let mut copied: u64 = 0;
-    SqliteConnection::visit_metadata_rows(src_conn, |key, blockhash, value| {
-        scanned += 1;
-        let Some((contract_id, _meta_key)) = SqliteConnection::parse_metadata_key(key) else {
-            return Ok(());
-        };
-        if !required.contains(contract_id) {
-            return Ok(());
-        }
-        SqliteConnection::insert_metadata_row(dst_conn, key, blockhash, value)?;
-        copied += 1;
-        Ok(())
-    })
-    .map_err(clarity_db_error)?;
+    SqliteConnection::visit_metadata_rows(
+        src_conn,
+        |key, blockhash, value| -> Result<(), Error> {
+            scanned += 1;
+            let Some((contract_id, _meta_key)) = SqliteConnection::parse_metadata_key(key) else {
+                return Ok(());
+            };
+            if !required.contains(contract_id) {
+                return Ok(());
+            }
+            SqliteConnection::insert_metadata_row(dst_conn, key, blockhash, value)?;
+            copied += 1;
+            Ok(())
+        },
+    )?;
     Ok((scanned, copied))
 }
 
@@ -151,15 +147,14 @@ fn copy_required_metadata_rows(
 fn scan_metadata_contract_ids(conn: &Connection) -> Result<Vec<String>, Error> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut ordered: Vec<String> = Vec::new();
-    SqliteConnection::visit_metadata_keys(conn, |key| {
+    SqliteConnection::visit_metadata_keys(conn, |key| -> Result<(), Error> {
         if let Some((contract_id, _meta_key)) = SqliteConnection::parse_metadata_key(key) {
             if seen.insert(contract_id.to_string()) {
                 ordered.push(contract_id.to_string());
             }
         }
         Ok(())
-    })
-    .map_err(clarity_db_error)?;
+    })?;
     Ok(ordered)
 }
 
