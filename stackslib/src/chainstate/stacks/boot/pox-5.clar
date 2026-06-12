@@ -675,6 +675,7 @@
             (stx-balance (stx-account tx-sender))
             (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
         (try! (verify-not-prepare-phase))
         ;; Verify that they're sending enough STX
         (asserts!
@@ -836,6 +837,7 @@
             (amount-sats (get amount-sats current-membership))
             (num-cycles (- bond-end-cycle first-reward-cycle))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
         (try! (verify-not-prepare-phase))
 
         ;; Check that the old signer is the current signer
@@ -967,6 +969,7 @@
             (stx-balance (stx-account tx-sender))
             (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
         (try! (verify-not-prepare-phase))
 
         ;; Validate that the staker can join this signer
@@ -1081,6 +1084,7 @@
             (first-reward-cycle (+ current-cycle u1))
             (num-cycles (- unlock-cycle current-cycle u1))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
         (try! (verify-not-prepare-phase))
 
         ;; Validate that the staker can join this signer
@@ -1182,6 +1186,9 @@
             (first-changed-reward-cycle (clamp current-cycle bond-start-cycle bond-end-cycle))
             (amount-sats (get amount-sats membership))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
+        (try! (verify-not-prepare-phase))
+
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
 
@@ -1256,6 +1263,9 @@
                 ERR_INVALID_UNSTAKE_SBTC_AMOUNT
             )))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
+        (try! (verify-not-prepare-phase))
+
         ;; `signer-manager` must match the current signer
         (asserts! (is-eq (contract-of signer-manager) signer)
             ERR_INVALID_OLD_SIGNER_MANAGER

@@ -1,0 +1,1 @@
+Fix the minimum threshold reported by /v2/pox when pox-5 is the active contract.
