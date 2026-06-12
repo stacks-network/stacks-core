@@ -1985,4 +1985,83 @@ mod tests {
             other => panic!("Expected STXLockEvent, got: {other:?}"),
         }
     }
+
+    /// The dispatcher must record a position-altering PoX action for the
+    /// `tx-sender` whenever one of the gated function names is invoked, so that
+    /// transaction-level `Pox` post-conditions and `with-pox` allowances can
+    /// constrain the staker.
+    #[test]
+    fn handle_contract_call_logs_pox_action_for_position_altering_functions() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+
+        for function_name in [
+            "unstake-sbtc",
+            "update-bond-registration",
+            "announce-l1-early-exit",
+        ] {
+            let mut store = MemoryBackingStore::new();
+            let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+            let contract_id = boot_code_id(POX_5_NAME, global_context.mainnet);
+
+            let response = Value::okay(Value::Bool(true)).unwrap();
+            handle_contract_call(
+                &mut global_context,
+                Some(&staker),
+                &contract_id,
+                function_name,
+                &[],
+                &response,
+            )
+            .unwrap_or_else(|e| panic!("dispatch of {function_name} should succeed: {e:?}"));
+
+            assert!(
+                global_context
+                    .get_readonly_asset_map()
+                    .expect("asset map should exist")
+                    .did_pox_action(&staker),
+                "{function_name} must record a PoX action for the tx-sender",
+            );
+        }
+    }
+
+    /// `unstake` must also record a PoX action but it requires some setup.
+    #[test]
+    fn handle_contract_call_unstake_logs_pox_action() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 1_000_000;
+        let lock_amount = 600_000u128;
+        let initial_unlock = 12_000u64;
+        let early_unlock = 5_000u64;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+        let contract_id = boot_code_id(POX_5_NAME, global_context.mainnet);
+
+        pox_lock_v5(
+            &mut global_context.database,
+            &staker,
+            lock_amount,
+            initial_unlock,
+        )
+        .expect("initial lock should succeed");
+
+        let response = make_unstake_ok_response(&staker, lock_amount, early_unlock);
+        handle_contract_call(
+            &mut global_context,
+            Some(&staker),
+            &contract_id,
+            "unstake",
+            &[],
+            &response,
+        )
+        .expect("dispatch should succeed");
+
+        assert!(
+            global_context
+                .get_readonly_asset_map()
+                .expect("asset map should exist")
+                .did_pox_action(&staker),
+            "unstake must record a PoX action for the tx-sender",
+        );
+    }
 }

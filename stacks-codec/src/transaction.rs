@@ -2495,7 +2495,7 @@ impl StacksMessageCodec for TransactionPostCondition {
             }
             _ => {
                 return Err(codec_error::DeserializeError(format!(
-                    "Failed to aprse transaction: unknown asset info ID {}",
+                    "Failed to parse transaction: unknown asset info ID {}",
                     asset_info_id
                 )));
             }
