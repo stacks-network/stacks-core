@@ -24,6 +24,7 @@
 //!
 //! Detectable violations surface as `CorruptionError`s.
 
+mod burnchain;
 pub(crate) mod common;
 pub(crate) mod fork_storage;
 mod index;
@@ -31,4 +32,5 @@ mod index;
 #[cfg(test)]
 mod tests;
 
+pub use burnchain::{copy_burnchain_db, BurnchainDbCopyStats};
 pub use index::{copy_index_side_tables, IndexSideTableStats};

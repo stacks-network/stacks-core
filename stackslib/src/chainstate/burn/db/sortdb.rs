@@ -4513,6 +4513,17 @@ impl SortitionDB {
         query_row(conn, qry, NO_PARAMS).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
     }
 
+    /// Get the distinct burn header hashes of all snapshots, forks included.
+    /// Only on a squashed sortition DB is this exactly the canonical
+    /// burnchain.
+    pub(crate) fn get_all_snapshot_burn_header_hashes(
+        conn: &Connection,
+    ) -> Result<Vec<BurnchainHeaderHash>, db_error> {
+        let mut stmt = conn.prepare("SELECT DISTINCT burn_header_hash FROM snapshots")?;
+        let rows = stmt.query_map(NO_PARAMS, |row| row.get(0))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_error::from)
+    }
+
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_chain_tip_bhh(conn: &Connection) -> Result<BurnchainHeaderHash, db_error> {
