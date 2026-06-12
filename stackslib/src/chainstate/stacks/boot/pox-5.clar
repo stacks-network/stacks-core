@@ -1341,10 +1341,10 @@
     )))
 )
 
-;; Remove a staker's bond shares for a given cycle.
+;; Reduce (or remove) a staker's bond shares for a given cycle.
 ;; For the provided cycle, the signer is derived from `staker-signer-cycle-memberships`.
-;; Rewards are settled, even if this is a future cycle.
-;; Finally, state is mutated.
+;; Rewards are settled for this cycle before mutating state.
+;; Finally, cycle stake state is updated.
 (define-private (unstake-sats-from-bond-cycle
         (cycle-index uint)
         (accumulator-res (response {
