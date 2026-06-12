@@ -736,6 +736,12 @@ impl NakamotoBlockProposal {
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
+        // Even if consensus allows high-S signatures, we want to refuse to sign blocks that
+        // contain them. If they're allowed in the current epoch, we therefore have to check
+        // for them ourselves.
+        let consensus_allow_high_s_tx_sig =
+            tenure_tx.get_epoch().allows_tx_signatures_with_high_s();
+
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
         let per_tx_max_execution_time = Duration::from_secs(max_tx_execution_time_secs);
         let mut receipts_total = 0u64;
@@ -763,14 +769,34 @@ impl NakamotoBlockProposal {
                 tenure_tx.set_abort_callback(make_mem_abort_callback(max_tx_mem_bytes));
             }
 
-            let tx_result = builder.try_mine_tx_with_len(
-                &mut tenure_tx,
-                tx,
-                tx_len,
-                &BlockLimitFunction::NO_LIMIT_HIT,
-                Some(per_tx_max_execution_time),
-                &mut receipts_total,
-            );
+            let tx_result = {
+                // If consensus allows high-S transaction signatures, then `try_mine_tx_with_len`
+                // would allow such a transaction, so we perform the stricter verification first,
+                // and only call `try_mine_tx_with_len` if successful. If consensus forbids it,
+                // we don't have to do this, because `try_mine_tx_with_len` will do it itself.
+                let high_s_check_result = if consensus_allow_high_s_tx_sig {
+                    match tx.verify(
+                        stacks_codec::transaction::TransactionAuthVerificationMode::EnforceLowS,
+                    ) {
+                        Ok(()) => Ok(()),
+                        Err(error) => Err(TransactionResult::error(tx, error.into())),
+                    }
+                } else {
+                    Ok(())
+                };
+
+                match high_s_check_result {
+                    Ok(()) => builder.try_mine_tx_with_len(
+                        &mut tenure_tx,
+                        tx,
+                        tx_len,
+                        &BlockLimitFunction::NO_LIMIT_HIT,
+                        Some(per_tx_max_execution_time),
+                        &mut receipts_total,
+                    ),
+                    Err(e) => e,
+                }
+            };
 
             tenure_tx.set_abort_callback(AbortCallback::None);
 
