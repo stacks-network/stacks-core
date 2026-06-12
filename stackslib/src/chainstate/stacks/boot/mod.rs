@@ -70,6 +70,9 @@ pub const POX_2_NAME: &str = "pox-2";
 pub const POX_3_NAME: &str = "pox-3";
 pub const POX_4_NAME: &str = "pox-4";
 pub const POX_5_NAME: &str = "pox-5";
+/// pox-5's flat minimum to participate as a stacker, mirroring
+/// `SIGNER_SET_MIN_USTX` in `pox-5.clar` (`u50000000000` = 50,000 STX).
+pub const POX_5_SIGNER_SET_MIN_USTX: u64 = 50_000_000_000;
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";

@@ -166,20 +166,19 @@ fn test_squash_info_detected_on_open() {
             Ok((
                 conn.is_squashed(),
                 info.archival_marf_root_hash,
-                info.height,
+                info.squash_height,
             ))
         })
         .unwrap();
 
     // Cross-check with the SQL table directly.
-    let (sql_root, _sql_squash_root, sql_height) =
-        trie_sql::read_squash_info(squashed.sqlite_conn())
-            .unwrap()
-            .expect("SQL squash info missing");
+    let sql_info = trie_sql::read_squash_info(squashed.sqlite_conn())
+        .unwrap()
+        .expect("SQL squash info missing");
 
     assert!(is_squashed);
-    assert_eq!(info_root, sql_root);
-    assert_eq!(info_height, sql_height);
+    assert_eq!(info_root, sql_info.archival_marf_root_hash);
+    assert_eq!(info_height, sql_info.squash_height);
     assert_eq!(info_height, 1);
 }
 
@@ -229,6 +228,54 @@ fn test_squashed_marf_can_extend_past_snapshot_height() {
     assert_eq!(v4, MARFValue::from_value("v5"));
     let own_height = squashed.get(&b4, OWN_BLOCK_HEIGHT_KEY).unwrap().unwrap();
     assert_eq!(own_height, MARFValue::from(3u32));
+}
+
+/// The read guard short-circuits reads of the in-RAM block being extended (always above the
+/// squash height, so never in `marf_squashed_blocks`). Verify a squashed MARF can be extended
+/// past the snapshot and the new block read back, while a pre-squash read is still rejected.
+#[test]
+fn test_squash_uncommitted_extension_read_allowed() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("index.sqlite");
+    let (_, blocks, _) = setup_marf(src_path.to_str().unwrap(), 64, 4);
+
+    let squash_height: u32 = 48;
+    let (squashed_path, _) = squash_helper(
+        src_path.to_str().unwrap(),
+        &dir.path().join("squashed"),
+        blocks.last().unwrap(),
+        squash_height,
+    );
+
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut squashed = MARF::from_path(squashed_path.to_str().unwrap(), open_opts).unwrap();
+
+    // Extend past the squash tip; committing reads the uncommitted block via the short-circuit.
+    let parent = blocks[squash_height as usize].clone();
+    let new_block = StacksBlockId::from_bytes(&[0xab; 32]).unwrap();
+    squashed.begin(&parent, &new_block).unwrap();
+    squashed
+        .insert("k_post_squash", MARFValue::from_value("v_post_squash"))
+        .unwrap();
+    squashed.commit().unwrap();
+
+    // The post-squash block is above the squash height, so the read is allowed.
+    assert_eq!(
+        squashed.get(&new_block, "k_post_squash").unwrap(),
+        Some(MARFValue::from_value("v_post_squash")),
+    );
+
+    // The guard still rejects a genuine pre-squash historical read.
+    match squashed.get(&blocks[10], "k1") {
+        Err(Error::HistoricalReadInSquashedRange {
+            block_height,
+            squash_height: sh,
+        }) => {
+            assert_eq!(block_height, 10);
+            assert_eq!(sh, squash_height);
+        }
+        other => panic!("expected HistoricalReadInSquashedRange, got {other:?}"),
+    }
 }
 
 /// Verify that `get_root_hash_at` and `get_block_height_of` return correct
@@ -303,7 +350,7 @@ fn test_squash_info_sql_squash_root_asserted() {
     let mut squashed =
         MARF::<StacksBlockId>::from_path(dst_db_path.to_str().unwrap(), open_opts).unwrap();
 
-    let (_, sql_squash_root, _) = trie_sql::read_squash_info(squashed.sqlite_conn())
+    let sql_info = trie_sql::read_squash_info(squashed.sqlite_conn())
         .unwrap()
         .expect("SQL squash info missing");
 
@@ -313,8 +360,10 @@ fn test_squash_info_sql_squash_root_asserted() {
         })
         .unwrap();
 
-    let sql_root = sql_squash_root.expect("squash_root_node_hash should be set after squash");
-    assert_eq!(sql_root, cached_root, "cached vs SQL squash root mismatch");
+    assert_eq!(
+        sql_info.squash_root_node_hash, cached_root,
+        "cached vs SQL squash root mismatch"
+    );
 
     assert_ne!(
         cached_root,

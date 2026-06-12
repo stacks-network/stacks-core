@@ -81,3 +81,6 @@ epoch = 4.0
 panic = "off"
 case_fn = "off"
 # unused_map = "off"
+
+[project.override_boot_contracts_source]
+pox-5 = "./contracts/pox-5.clar"

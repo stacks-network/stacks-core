@@ -668,6 +668,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         let conn = self.conn();
@@ -720,6 +721,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         None
@@ -728,6 +730,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -737,6 +740,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -746,6 +750,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant

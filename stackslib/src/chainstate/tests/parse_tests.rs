@@ -17,14 +17,14 @@
 
 use std::collections::HashMap;
 
+use clarity::types::StacksEpochId;
 use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_STRING_LEN};
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::types::MAX_VALUE_SIZE;
-use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
+    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils,
     TestBlock, EPOCHS_TO_TEST,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
@@ -227,7 +227,7 @@ fn test_cost_balance_exceeded() {
 /// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn test_stack_depth_too_deep_case_1_tuple_only_parsing() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             // In parse v2, open brace '{' have a stack count of 2.
@@ -245,7 +245,7 @@ fn test_stack_depth_too_deep_case_1_tuple_only_parsing() {
 /// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn test_stack_depth_too_deep_case_2_list_only_parsing() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             // In parse v2, open parenthesis '(' have a stack count of 1.
@@ -262,7 +262,7 @@ fn test_stack_depth_too_deep_case_2_list_only_parsing() {
 /// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn test_stack_depth_too_deep_case_3_list_only_checker() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             // In parse v2, open parenthesis '(' have a stack count of 1.
@@ -279,7 +279,7 @@ fn test_stack_depth_too_deep_case_3_list_only_checker() {
 /// Outcome: block rejected
 #[test]
 fn test_stack_depth_too_deep_case_4_tuple_only_parsing_latest_limit() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             // In parse v2, open brace '{' have a stack count of 2.
@@ -297,7 +297,7 @@ fn test_stack_depth_too_deep_case_4_tuple_only_parsing_latest_limit() {
 /// Outcome: block rejected
 #[test]
 fn test_stack_depth_too_deep_case_5_list_only_parsing_latest_limit() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             // In parse v2, open parenthesis '(' have a stack count of 1.
@@ -314,7 +314,7 @@ fn test_stack_depth_too_deep_case_5_list_only_parsing_latest_limit() {
 /// Outcome: block rejected
 #[test]
 fn test_stack_depth_too_deep_case_6_list_only_checker_latest_limit() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             // In parse v2, open parenthesis '(' have a stack count of 1.
@@ -331,7 +331,7 @@ fn test_stack_depth_too_deep_case_6_list_only_checker_latest_limit() {
 /// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn test_vary_stack_depth_too_deep_checker() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             let count = StackDepthLimits::for_epoch(StacksEpochId::Epoch33).max_nesting_depth() - 1;
@@ -347,7 +347,7 @@ fn test_vary_stack_depth_too_deep_checker() {
 /// Outcome: block rejected
 #[test]
 fn test_vary_stack_depth_too_deep_checker_latest_limit() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             let count = StackDepthLimits::for_epoch(StacksEpochId::latest()).max_nesting_depth() - 1;
@@ -363,7 +363,7 @@ fn test_vary_stack_depth_too_deep_checker_latest_limit() {
 /// Outcome: block accepted
 #[test]
 fn test_failed_parsing_int_value() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(define-data-var my-int int 340282366920938463463374607431768211455)",
     );
@@ -374,7 +374,7 @@ fn test_failed_parsing_int_value() {
 /// Outcome: block accepted
 #[test]
 fn test_failed_parsing_uint_value() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(define-data-var my-uint uint u999340282366920938463463374607431768211455)",
     );
@@ -385,7 +385,7 @@ fn test_failed_parsing_uint_value() {
 /// Outcome: block accepted
 #[test]
 fn test_circular_reference() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "
             (define-constant my-a my-b)
@@ -399,7 +399,7 @@ fn test_circular_reference() {
 /// Outcome: block accepted
 #[test]
 fn test_named_already_used() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "
             (define-trait trait-1 (
@@ -415,7 +415,7 @@ fn test_named_already_used() {
 /// Outcome: block accepted
 #[test]
 fn test_trait_ref_not_allowed() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "
             (define-trait trait-1 (
@@ -430,7 +430,7 @@ fn test_trait_ref_not_allowed() {
 /// Outcome: block accepted
 #[test]
 fn test_import_trait_bad_signature() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(use-trait)",
     );
@@ -441,7 +441,7 @@ fn test_import_trait_bad_signature() {
 /// Outcome: block accepted
 #[test]
 fn test_define_trait_bad_signature() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(define-trait)",
     );
@@ -452,7 +452,7 @@ fn test_define_trait_bad_signature() {
 /// Outcome: block accepted
 #[test]
 fn test_impl_trait_bad_signature() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(impl-trait)",
     );
@@ -463,7 +463,7 @@ fn test_impl_trait_bad_signature() {
 /// Outcome: block accepted
 #[test]
 fn test_trait_reference_unknown() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(+ 1 <my-trait>)",
     );
@@ -474,7 +474,7 @@ fn test_trait_reference_unknown() {
 /// Outcome: block accepted
 #[test]
 fn test_lexer_unknown_symbol() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(define-data-var my-uint uint _)",
     );
@@ -485,7 +485,7 @@ fn test_lexer_unknown_symbol() {
 /// Outcome: block accepted
 #[test]
 fn test_expected_closing() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(",
     );
@@ -496,7 +496,7 @@ fn test_expected_closing() {
 /// Outcome: block accepted
 #[test]
 fn test_expected_white_space() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         //miss space between (get-one) and (ok u1)
         contract_code: "(define-public (get-one)(ok u1))",
@@ -508,7 +508,7 @@ fn test_expected_white_space() {
 /// Outcome: block accepted
 #[test]
 fn test_unexpected_token() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(define-public (get-one) (ok u1)) )",
     );
@@ -519,7 +519,7 @@ fn test_unexpected_token() {
 /// Outcome: block accepted
 #[test]
 fn test_name_too_long() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             let name = "n".repeat(MAX_STRING_LEN + 1);
@@ -533,7 +533,7 @@ fn test_name_too_long() {
 /// Outcome: block accepted
 #[test]
 fn test_invalid_principal_literal() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",
     );
@@ -544,7 +544,7 @@ fn test_invalid_principal_literal() {
 /// Outcome: block accepted.
 #[test]
 fn principal_wrong_byte_length() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "wrong-byte-length",
         contract_code: "
 ;; This literal decodes via c32 but has the wrong byte length
@@ -557,7 +557,7 @@ fn principal_wrong_byte_length() {
 /// Outcome: block accepted
 #[test]
 fn test_expected_contract_identifier() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.)",
     );
@@ -568,7 +568,7 @@ fn test_expected_contract_identifier() {
 /// Outcome: block accepted
 #[test]
 fn test_expected_trait_identifier() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-trait-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.contract.)",
     );
@@ -579,7 +579,7 @@ fn test_expected_trait_identifier() {
 /// Outcome: block accepted
 #[test]
 fn test_tuple_colon_expected_v2() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "{ a 1 }",
     );
@@ -590,7 +590,7 @@ fn test_tuple_colon_expected_v2() {
 /// Outcome: block accepted
 #[test]
 fn test_tuple_comma_expected_v2() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "{ a : 1  b : 2 }",
     );
@@ -601,7 +601,7 @@ fn test_tuple_comma_expected_v2() {
 /// Outcome: block accepted
 #[test]
 fn test_tuple_value_expected() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: "{ a : ",
     );
@@ -612,7 +612,7 @@ fn test_tuple_value_expected() {
 /// Outcome: block accepted
 #[test]
 fn test_contract_name_too_long() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             let name = "a".repeat(MAX_CONTRACT_NAME_LEN + 1);
@@ -626,7 +626,7 @@ fn test_contract_name_too_long() {
 /// Outcome: block accepted
 #[test]
 fn test_illegal_ascii_string() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "my-contract",
         contract_code: &{
             let string = "a".repeat(MAX_VALUE_SIZE as usize + 1);

@@ -675,6 +675,7 @@
             (stx-balance (stx-account tx-sender))
             (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
         (try! (verify-not-prepare-phase))
         ;; Verify that they're sending enough STX
         (asserts!
@@ -791,6 +792,16 @@
                 unlock-burn-height: (reward-cycle-to-burn-height unlock-cycle),
                 unlock-cycle: unlock-cycle,
                 is-l1-lock: (is-ok btc-lockup),
+                btc-lockup: (match btc-lockup
+                    l1-info {
+                        type: "l1",
+                        txs: (some (map get-l1-lockup-summary (get outputs l1-info))),
+                    }
+                    sbtc-amount {
+                        type: "l2",
+                        txs: none,
+                    }
+                ),
             }))
             (print (merge { topic: "register-for-bond" } result))
             (ok result)
@@ -826,6 +837,7 @@
             (amount-sats (get amount-sats current-membership))
             (num-cycles (- bond-end-cycle first-reward-cycle))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
         (try! (verify-not-prepare-phase))
 
         ;; Check that the old signer is the current signer
@@ -957,6 +969,7 @@
             (stx-balance (stx-account tx-sender))
             (total-balance (+ (get locked stx-balance) (get unlocked stx-balance)))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
         (try! (verify-not-prepare-phase))
 
         ;; Validate that the staker can join this signer
@@ -1071,6 +1084,7 @@
             (first-reward-cycle (+ current-cycle u1))
             (num-cycles (- unlock-cycle current-cycle u1))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
         (try! (verify-not-prepare-phase))
 
         ;; Validate that the staker can join this signer
@@ -1165,7 +1179,6 @@
             (membership (unwrap! (get-bond-membership staker) ERR_NOT_BOND_PARTICIPANT))
             (bond-index (get bond-index membership))
             (signer (get signer membership))
-            (bond (unwrap-panic (get-protocol-bond bond-index)))
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
             (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
@@ -1173,6 +1186,9 @@
             (first-changed-reward-cycle (clamp current-cycle bond-start-cycle bond-end-cycle))
             (amount-sats (get amount-sats membership))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
+        (try! (verify-not-prepare-phase))
+
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
 
@@ -1184,8 +1200,7 @@
         )
         (asserts! (get is-l1-lock membership) ERR_CANNOT_ANNOUNCE_L1_EARLY_UNLOCK)
         (asserts! (is-eq old-signer signer) ERR_INVALID_OLD_SIGNER_MANAGER)
-        (asserts!
-            (not (has-announced-l1-early-exit bond-index staker))
+        (asserts! (not (has-announced-l1-early-exit bond-index staker))
             ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED
         )
 
@@ -1248,6 +1263,9 @@
                 ERR_INVALID_UNSTAKE_SBTC_AMOUNT
             )))
         )
+        ;; Reject during the prepare phase since next-cycle data is mutated
+        (try! (verify-not-prepare-phase))
+
         ;; `signer-manager` must match the current signer
         (asserts! (is-eq (contract-of signer-manager) signer)
             ERR_INVALID_OLD_SIGNER_MANAGER
@@ -1976,6 +1994,22 @@
     )
 )
 
+(define-private (get-l1-lockup-summary (lockup {
+    height: uint,
+    tx: (buff 100000),
+    output-index: uint,
+    header: (buff 80),
+    leaf-hashes: (list 14 (buff 32)),
+    tx-count: uint,
+    tx-index: uint,
+    amount: uint,
+}))
+    {
+        txid: (get-reversed-txid (get tx lockup)),
+        output-index: (get output-index lockup),
+    }
+)
+
 ;;; Reward calculation
 
 ;; Returns the total balance of rewards received by the contract
@@ -2648,7 +2682,7 @@
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
 
-        ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
+        ;; Validate that `contract-caller` has the same pubkey hash as `signer-key`
         (asserts!
             (is-eq
                 (unwrap-panic (principal-construct?
@@ -2658,7 +2692,7 @@
                     )
                     (hash160 signer-key)
                 ))
-                tx-sender
+                contract-caller
             )
             ERR_UNAUTHORIZED
         )
