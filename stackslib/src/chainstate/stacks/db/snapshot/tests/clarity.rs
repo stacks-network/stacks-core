@@ -220,15 +220,15 @@ fn test_squashed_clarity_marf_data_reads_work() {
 
     // Stale overwritten values are pruned from the content-addressed
     // data_table: only the tip value of clarity_key_1 survives.
-    let stale: i64 = rusqlite::Connection::open(&squashed_db)
-        .unwrap()
-        .query_row(
-            "SELECT COUNT(*) FROM data_table \
-             WHERE value LIKE 'clarity_val_1%' AND value != 'clarity_val_1_at_3'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
+    let conn = rusqlite::Connection::open(&squashed_db).unwrap();
+    let mut stale = 0;
+    SqliteConnection::visit_data_rows(&conn, |_key, value| {
+        if value.starts_with("clarity_val_1") && value != "clarity_val_1_at_3" {
+            stale += 1;
+        }
+        Ok(())
+    })
+    .unwrap();
     assert_eq!(stale, 0, "overwritten values must be pruned");
 }
 
@@ -276,14 +276,20 @@ fn test_metadata_exclusions() {
     // Rogue rows in src: a contract with no trie commitment and a key
     // outside the metadata format.
     let src_conn = rusqlite::Connection::open(clarity_marf_db_path(&src_dir)).unwrap();
-    src_conn
-        .execute(
-            "INSERT INTO metadata_table (key, blockhash, value) VALUES \
-             ('clr-meta::ST000000000000000000002AMW42H.ghost::source', ?1, 'ghost'), \
-             ('not-a-metadata-key', ?1, 'junk')",
-            rusqlite::params![blocks[0]],
-        )
-        .unwrap();
+    SqliteConnection::insert_metadata_row(
+        &src_conn,
+        "clr-meta::ST000000000000000000002AMW42H.ghost::source",
+        &blocks[0].to_hex(),
+        "ghost",
+    )
+    .unwrap();
+    SqliteConnection::insert_metadata_row(
+        &src_conn,
+        "not-a-metadata-key",
+        &blocks[0].to_hex(),
+        "junk",
+    )
+    .unwrap();
     drop(src_conn);
 
     let squashed_db = squash_clarity_marf(
@@ -293,15 +299,15 @@ fn test_metadata_exclusions() {
         3,
     );
 
-    let rogue: i64 = rusqlite::Connection::open(&squashed_db)
-        .unwrap()
-        .query_row(
-            "SELECT COUNT(*) FROM metadata_table \
-             WHERE key LIKE '%ghost%' OR key = 'not-a-metadata-key'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
+    let conn = rusqlite::Connection::open(&squashed_db).unwrap();
+    let mut rogue = 0;
+    SqliteConnection::visit_metadata_keys(&conn, |key| {
+        if key.contains("ghost") || key == "not-a-metadata-key" {
+            rogue += 1;
+        }
+        Ok(())
+    })
+    .unwrap();
     assert_eq!(rogue, 0, "unrequired/malformed metadata must not be copied");
 }
 

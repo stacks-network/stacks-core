@@ -173,8 +173,7 @@ impl SqliteConnection {
     }
 
     /// Insert a `metadata_table` row verbatim: `key` is already in the
-    /// [`Self::make_metadata_key`] format. Used by the snapshot copy to
-    /// preserve source rows byte-for-byte.
+    /// [`Self::make_metadata_key`] format.
     pub fn insert_metadata_row(
         conn: &Connection,
         key: &str,
@@ -187,7 +186,6 @@ impl SqliteConnection {
     }
 
     /// Visit every `metadata_table` row on `conn` as `(key, blockhash, value)`.
-    /// Used by the snapshot copy.
     pub fn visit_metadata_rows<F>(conn: &Connection, mut visit: F) -> Result<(), rusqlite::Error>
     where
         F: FnMut(&str, &str, &str) -> Result<(), rusqlite::Error>,
@@ -214,6 +212,21 @@ impl SqliteConnection {
         while let Some(row) = rows.next()? {
             let key: String = row.get(0)?;
             visit(&key)?;
+        }
+        Ok(())
+    }
+
+    /// Visit every `data_table` row on `conn` as `(key, value)`.
+    pub fn visit_data_rows<F>(conn: &Connection, mut visit: F) -> Result<(), rusqlite::Error>
+    where
+        F: FnMut(&str, &str) -> Result<(), rusqlite::Error>,
+    {
+        let mut stmt = conn.prepare("SELECT key, value FROM data_table")?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            let key: String = row.get(0)?;
+            let value: String = row.get(1)?;
+            visit(&key, &value)?;
         }
         Ok(())
     }

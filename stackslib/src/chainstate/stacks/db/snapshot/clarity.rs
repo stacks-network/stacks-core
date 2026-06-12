@@ -25,7 +25,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use super::common::{clone_schemas_from_source, with_indexes_dropped, with_offline_write_session};
 use super::fork_storage::{collect_leaf_value_hashes, copy_leaf_referenced_rows};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _, MARF};
-use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
+use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
 use crate::chainstate::stacks::index::Error;
 use crate::util_lib::db::sqlite_open;
 
@@ -112,6 +112,14 @@ fn open_readonly_clarity_db(path: &str) -> Result<Connection, Error> {
     sqlite_open(path, OpenFlags::SQLITE_OPEN_READ_ONLY, false).map_err(Error::SQLError)
 }
 
+/// Open the MARF at `db_path` strictly read-only: contract probes must
+/// never take a write lock (the source may be a live node's file).
+fn open_readonly_marf(db_path: &str) -> Result<MARF<StacksBlockId>, Error> {
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let storage = TrieFileStorage::open_readonly(db_path, open_opts)?;
+    Ok(MARF::from_storage(storage))
+}
+
 /// Stream the source `metadata_table` into the destination, keeping only
 /// rows whose contract id is in `required`. Rows whose key is not in the
 /// [`SqliteConnection`] metadata format are skipped.
@@ -162,8 +170,7 @@ fn filter_required_contracts(
     tip: &StacksBlockId,
     contract_ids: &[String],
 ) -> Result<HashSet<String>, Error> {
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
-    let mut marf = MARF::<StacksBlockId>::from_path(db_path, open_opts)?;
+    let mut marf = open_readonly_marf(db_path)?;
     let mut required: HashSet<String> = HashSet::new();
     for contract_id in contract_ids {
         let contract = QualifiedContractIdentifier::parse(contract_id).map_err(|e| {
