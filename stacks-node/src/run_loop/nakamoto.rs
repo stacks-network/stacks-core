@@ -559,13 +559,9 @@ impl RunLoop {
             // wait for the p2p state-machine to do at least one pass
             debug!("Runloop: Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
 
-            // TODO: for now, we just set initial block download false.
-            //   I think that the sync watchdog probably needs to change a fair bit
-            //   for nakamoto. There may be some opportunity to refactor this runloop
-            //   as well (e.g., the `mine_start` should be integrated with the
-            //   watchdog so that there's just one source of truth about ibd),
-            //   but I think all of this can be saved for post-neon work.
-            let ibd = false;
+            let ibd = burnchain_tip.block_snapshot.block_height
+                + u64::from(burnchain_config.stable_confirmations)
+                < remote_chain_height;
             self.pox_watchdog_comms.set_ibd(ibd);
 
             // calculate burnchain sync percentage

@@ -21,3 +21,7 @@ pub mod nakamoto;
 pub use inv2x::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 
 pub use crate::net::inv::epoch2x as inv2x;
+
+/// Maximum allows amount of time for which we will cache peer inventories
+/// that have not been subsequently modified.
+pub const MAX_INVENTORY_AGE: u64 = 3600;

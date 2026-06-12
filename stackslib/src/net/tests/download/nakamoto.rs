@@ -1482,14 +1482,44 @@ fn test_make_tenure_downloaders() {
 
         let nakamoto_tip = peer.network.stacks_tip.block_id();
         let chainstate = peer.chainstate();
+        let dummy_available: HashMap<NeighborAddress, AvailableTenures> = HashMap::new();
         NakamotoDownloadStateMachine::inner_update_processed_wanted_tenures(
             nakamoto_start,
             &mut wanted_tenures,
             chainstate,
             &nakamoto_tip,
+            &HashMap::new(),
+            &HashMap::new(),
+            &dummy_available,
         )
         .unwrap();
 
+        // they must all be unprocessed since none of them have even been attempted yet
+        for wt in wanted_tenures.iter() {
+            if wt.processed {
+                warn!("erroneously marked processed: {:?}", &wt);
+            }
+            assert!(!wt.processed);
+        }
+
+        // mark all attempted
+        let attempted: HashMap<_, _> = wanted_tenures
+            .iter()
+            .map(|wt| (wt.tenure_id_consensus_hash.clone(), 1u64))
+            .collect();
+
+        NakamotoDownloadStateMachine::inner_update_processed_wanted_tenures(
+            nakamoto_start,
+            &mut wanted_tenures,
+            chainstate,
+            &nakamoto_tip,
+            &HashMap::new(),
+            &attempted,
+            &dummy_available,
+        )
+        .unwrap();
+
+        // all marked as processed now, since we can check chainstate
         for wt in wanted_tenures {
             if !wt.processed {
                 warn!("not processed: {:?}", &wt);
@@ -2065,7 +2095,7 @@ fn test_make_tenure_downloaders() {
 }
 
 #[test]
-fn test_nakamoto_download_run_2_peers() {
+fn test_nakamoto_download_run_2_peers_plain() {
     let observer = TestEventObserver::new();
     let bitvecs = vec![
         // a reward cycle with one prepare phase sortition at the start
