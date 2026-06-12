@@ -30,8 +30,8 @@ use stacks_inspect::{
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
-    StacksTransactionSigner, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionVersion,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
+    TransactionAuthVerificationMode, TransactionPayload, TransactionVersion,
 };
 use stackslib::config::{Config, ConfigFile};
 use stackslib::core::{
@@ -59,7 +59,7 @@ use std::time::{Duration, Instant};
 use std::{fs, io, process, thread};
 
 use libstackerdb::StackerDBChunkData;
-use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
+use rusqlite::{Error as SqliteError, OpenFlags, params};
 use serde_json::{Value, json};
 use stacks_common::codec::{StacksMessageCodec, read_next};
 use stacks_common::types::MempoolCollectionBehavior;
@@ -412,7 +412,16 @@ fn main() {
                 })
                 .unwrap();
 
-            println!("Verified: {:#?}", tx.verify());
+            let verified_strict = tx.verify(TransactionAuthVerificationMode::EnforceLowS);
+            if verified_strict.is_ok() {
+                println!("Verified: {:#?}", verified_strict);
+            } else {
+                let verified_lenient = tx.verify(TransactionAuthVerificationMode::AllowHighS);
+                println!("Verified: {:#?}", verified_lenient);
+                if verified_lenient.is_ok() {
+                    println!("WARNING: Transaction signature has high-S");
+                }
+            }
             let address = tx.auth.origin().get_address(tx.is_mainnet());
             println!("Address: {address}");
 
@@ -608,7 +617,7 @@ fn main() {
             let tip = BlockHeaderHash::from_hex(&block_hash).unwrap();
             let consensus = ConsensusHash::from_hex(&consensus_hash).unwrap();
 
-            let conn = Connection::open(&db_path).unwrap();
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false).unwrap();
             let mut cur_consensus = consensus.clone();
             let mut cur_tip = tip.clone();
             loop {
@@ -639,8 +648,7 @@ fn main() {
             db_path,
             byte_prefix,
         } => {
-            let conn =
-                Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false).unwrap();
             let query = format!("SELECT value FROM data_table WHERE key LIKE \"{byte_prefix}%\"");
             let mut stmt = conn.prepare(&query).unwrap();
             let mut rows = stmt.query(NO_PARAMS).unwrap();

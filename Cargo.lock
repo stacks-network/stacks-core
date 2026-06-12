@@ -4515,6 +4515,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "slog",
+ "stacks-codec",
  "stacks-common 0.0.1",
  "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "stacks-inspect",
