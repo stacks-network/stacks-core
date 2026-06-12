@@ -629,17 +629,27 @@ pub fn stacking_allowance_snippets() -> impl Strategy<Value = String> {
     any::<u128>().prop_map(|amount| format!("(with-staking u{amount})"))
 }
 
+/// A strategy that generates Clarity code snippets for PoX-action allowances.
+/// `with-pox` takes no amount; its presence simply permits position-altering
+/// PoX actions (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+/// `announce-l1-early-exit`).
+pub fn pox_allowance_snippets() -> impl Strategy<Value = String> {
+    Just("(with-pox)".to_string())
+}
+
 /// A strategy that generates Clarity code snippets for allowances.
 pub fn allowance_snippets() -> impl Strategy<Value = String> {
     let stx_allowance = stx_allowance_snippets();
     let ft_allowance = ft_allowance_snippets();
     let nft_allowance = nft_allowance_snippets();
     let stacking_allowance = stacking_allowance_snippets();
+    let pox_allowance = pox_allowance_snippets();
     prop_oneof![
         stx_allowance,
         ft_allowance,
         nft_allowance,
-        stacking_allowance
+        stacking_allowance,
+        pox_allowance
     ]
 }
 
