@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::representations::ClarityName;
+use clarity_types::representations::{ClarityName, DISCARD_IDENTIFIER};
 use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
@@ -306,13 +306,19 @@ fn eval_with_new_binding(
             .ok_or_else(|| CostErrors::CostOverflow)?;
         checker.add_memory(memory_use)?;
     }
-    checker.contract_context.check_name_used(&bind_name)?;
+    // Clarity 6: bare `_` discards the matched value — don't place the
+    // name in the typing context for the branch body.
+    let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER
+        && checker.clarity_version.allows_underscore_prefix();
+    if !is_discard {
+        checker.contract_context.check_name_used(&bind_name)?;
 
-    if inner_context.lookup_variable_type(&bind_name).is_some() {
-        return Err(StaticCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
+        if inner_context.lookup_variable_type(&bind_name).is_some() {
+            return Err(StaticCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
+        }
+
+        inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
     }
-
-    inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
 
     let result = checker.type_check(body, &inner_context);
     if checker.epoch.analysis_memory() {

@@ -34,18 +34,22 @@ fn assert_regex_unchanged(actual: &str, expected: &str) {
 /// This function creates a branched strategy based on the `CLARITY_NAME_REGEX_STRING` pattern.
 ///
 /// The strategy covers three categories of valid names:
-/// - Letter-based names starting with a letter followed by alphanumeric or symbol characters
+/// - Identifier names starting with a letter or `_` (Clarity 6 added
+///   the `_` leading position, including the bare `_` discard name) followed
+///   by zero or more alphanumeric or symbol characters
 /// - Single arithmetic operators (`-`, `+`, `=`, `/`, `*`)
 /// - Comparison operators (`<`, `>`, `<=`, `>=`)
 fn any_valid_clarity_name() -> impl Strategy<Value = String> {
     // Ensure the regex branches match the actual validator.
     assert_regex_unchanged(
         CLARITY_NAME_REGEX_STRING.as_str(),
-        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$",
+        "^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$",
     );
 
-    let letter_names = string_regex(&format!(
-        "[a-zA-Z][a-zA-Z0-9_!?+<>=/*-]{{0,{}}}",
+    // Identifier names: letter-or-underscore start (the `_` case includes the
+    // bare `_` because the body length floor is 0).
+    let identifier_names = string_regex(&format!(
+        "[a-zA-Z_][a-zA-Z0-9_!?+<>=/*-]{{0,{}}}",
         (MAX_STRING_LEN as usize).saturating_sub(1)
     ))
     .unwrap();
@@ -65,7 +69,7 @@ fn any_valid_clarity_name() -> impl Strategy<Value = String> {
         Just(">=".to_string()),
     ];
 
-    prop_oneof![letter_names, single_ops, comparison_ops]
+    prop_oneof![identifier_names, single_ops, comparison_ops]
 }
 
 #[tag(t_prop)]
@@ -87,20 +91,20 @@ fn prop_clarity_name_valid_patterns() {
 /// by `ClarityName::try_from()` validation by systematically violating each valid branch.
 ///
 /// The strategy generates names that violate the three valid branches:
-/// - Branch 1 violations: Invalid starting characters or invalid characters in letter-based names
+/// - Branch 1 violations: Invalid starting characters or invalid characters in identifier names
 /// - Branch 2 violations: Multi-character strings starting with single operators
 /// - Branch 3 violations: Invalid extensions to comparison operators
 /// - General violations: Empty strings and length violations
 ///
 /// Valid branches being violated:
-/// 1. `^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$` - Letter-based names
-/// 2. `^[-+=/*]$` - Single arithmetic operators
-/// 3. `^[<>]=?$` - Comparison operators
+/// 1. `^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$` - Identifier names (letter- or `_`-led)
+/// 2. `^[-+=/*]$`                              - Single arithmetic operators
+/// 3. `^[<>]=?$`                               - Comparison operators
 fn any_invalid_clarity_name() -> impl Strategy<Value = String> {
     // Ensure the regex branches match the actual validator.
     assert_regex_unchanged(
         CLARITY_NAME_REGEX_STRING.as_str(),
-        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$",
+        "^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$",
     );
 
     let empty_string = Just("".to_string());

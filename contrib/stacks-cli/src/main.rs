@@ -24,8 +24,9 @@ use std::{env, fs, io};
 
 use clarity::vm::ast::errors::ParseError;
 use clarity::vm::errors::{ClarityEvalError, ClarityTypeError, VmExecutionError};
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity::vm::{ClarityVersion, ContractName, Value};
 use clarity_cli::vm_execute;
 use stacks_common::address::{AddressHashMode, b58};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};

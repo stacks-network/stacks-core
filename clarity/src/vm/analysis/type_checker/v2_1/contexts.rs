@@ -20,7 +20,7 @@ use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::is_reserved_word;
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::representations::ClarityName;
+use crate::vm::representations::{ClarityName, DISCARD_IDENTIFIER};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 
@@ -167,6 +167,11 @@ impl ContractContext {
     }
 
     pub fn check_name_used(&self, name: &str) -> Result<(), StaticCheckError> {
+        if name == DISCARD_IDENTIFIER {
+            return Err(StaticCheckError::new(
+                StaticCheckErrorKind::BareUnderscoreReserved,
+            ));
+        }
         if is_reserved_word(name, self.clarity_version) {
             return Err(StaticCheckError::new(StaticCheckErrorKind::ReservedWord(
                 name.to_string(),

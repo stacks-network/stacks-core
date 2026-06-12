@@ -187,8 +187,8 @@ mod test {
     use std::io::{Read, Write};
 
     use clarity::types::StacksEpochId;
-    use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::Value;
+    use clarity::vm::representations::{ClarityName, ContractName};
     use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;

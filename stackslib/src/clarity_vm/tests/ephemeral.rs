@@ -15,8 +15,9 @@
 
 use std::fs;
 
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::{ClarityName, ContractName};
+use clarity::vm::ContractName;
 use pinny::tag;
 use proptest::prelude::*;
 use rand::seq::SliceRandom;

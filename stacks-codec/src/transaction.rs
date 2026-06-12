@@ -2038,7 +2038,7 @@ impl TransactionAuth {
     }
 }
 
-/// A transaction that calls into a smart contract
+/// A transaction that calls into a smart contract.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionContractCall {
     pub address: StacksAddress,
@@ -2133,7 +2133,7 @@ impl StacksMessageCodec for TransactionSmartContract {
     }
 }
 
-/// Encoding of an asset type identifier
+/// Encoding of an asset type identifier.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetInfo {
     pub contract_address: StacksAddress,
@@ -3691,6 +3691,69 @@ mod tests {
                 .to_string()
                 .contains("Failed to parse Clarity name")
         );
+    }
+
+    /// The wide `ClarityName` codec admits leading-`_` bytes — Clarity 6's
+    /// relaxation lives at the codec layer. Consensus during the upgrade
+    /// window is preserved by `StacksBlock::validate_transaction_static_epoch`,
+    /// which rejects the resulting `TransactionContractCall` at admission
+    /// when the active epoch is pre-Clarity-6; see the admission tests in
+    /// `chainstate/stacks/block.rs`.
+    #[test]
+    fn tx_contract_call_function_name_with_leading_underscore_round_trips() {
+        let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let contract_name = ContractName::try_from("hello-contract-name").unwrap();
+        let function_name_str = "_admin";
+        let mut function_name_bytes = vec![function_name_str.len() as u8];
+        function_name_bytes.extend_from_slice(function_name_str.as_bytes());
+
+        let function_args: Vec<Value> = vec![];
+
+        let mut contract_call_bytes = vec![];
+        address
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+        contract_name
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+        contract_call_bytes.extend_from_slice(&function_name_bytes);
+        function_args
+            .consensus_serialize(&mut contract_call_bytes)
+            .unwrap();
+
+        let mut tx_bytes = vec![TransactionPayloadID::ContractCall as u8];
+        tx_bytes.append(&mut contract_call_bytes);
+
+        let payload = TransactionPayload::consensus_deserialize(&mut &tx_bytes[..])
+            .expect("leading-`_` function_name should round-trip at the codec layer");
+        let TransactionPayload::ContractCall(cc) = payload else {
+            panic!("expected ContractCall payload");
+        };
+        assert_eq!(cc.function_name.as_str(), "_admin");
+    }
+
+    /// Analogous to the function_name test: leading-`_` `asset_name`
+    /// round-trips at the `AssetInfo` codec layer; admission gates it.
+    #[test]
+    fn tx_asset_info_asset_name_with_leading_underscore_round_trips() {
+        let contract_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let contract_name = ContractName::try_from("hello-contract-name").unwrap();
+        let asset_name_str = "_admin";
+        let mut asset_name_bytes = vec![asset_name_str.len() as u8];
+        asset_name_bytes.extend_from_slice(asset_name_str.as_bytes());
+
+        let mut asset_info_bytes = vec![];
+        contract_address
+            .consensus_serialize(&mut asset_info_bytes)
+            .unwrap();
+        contract_name
+            .consensus_serialize(&mut asset_info_bytes)
+            .unwrap();
+        asset_info_bytes.extend_from_slice(&asset_name_bytes);
+
+        let info = AssetInfo::consensus_deserialize(&mut &asset_info_bytes[..])
+            .expect("leading-`_` asset_name should round-trip at the codec layer");
+        assert_eq!(info.asset_name.as_str(), "_admin");
     }
 
     #[test]

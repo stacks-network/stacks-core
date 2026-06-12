@@ -489,7 +489,7 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::representations::ContractName;
     use clarity::vm::ClarityVersion;
     use stacks_common::bitvec::BitVec;
     use stacks_common::util::get_epoch_time_secs;

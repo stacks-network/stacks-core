@@ -1164,10 +1164,7 @@ impl Value {
 
     /// Try to deserialize a value without type information. This *does not* perform sanitization
     ///  so it should not be used when decoding clarity database values.
-    /// Public for testing purposes only.
-    pub(crate) fn try_deserialize_bytes_untyped(
-        bytes: &Vec<u8>,
-    ) -> Result<Value, SerializationError> {
+    pub fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, SerializationError> {
         Value::deserialize_read(&mut bytes.as_slice(), None, false)
     }
 

@@ -2523,9 +2523,9 @@ mod tests {
     use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
     use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
     use clarity::vm::database::{ClarityBackingStore, STXBalance, SqliteConnection};
+    use clarity::vm::representations::ClarityName;
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
     use clarity::vm::types::{StandardPrincipalData, TupleData, Value};
-    use clarity::vm::ClarityName;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
     use stacks_common::types::sqlite::NO_PARAMS;

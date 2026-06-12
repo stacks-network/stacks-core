@@ -24,7 +24,7 @@ use crate::vm::errors::{
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::{ClarityName, DISCARD_IDENTIFIER, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value, parse_name_type_pairs,
@@ -123,6 +123,9 @@ fn check_legal_define(
     name: &str,
     contract_context: &ContractContext,
 ) -> Result<(), RuntimeCheckErrorKind> {
+    if name == DISCARD_IDENTIFIER {
+        return Err(RuntimeCheckErrorKind::BareUnderscoreReserved);
+    }
     if contract_context.is_name_used(name) {
         Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()))
     } else {
@@ -294,8 +297,17 @@ fn handle_define_trait(
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }
 
-fn handle_use_trait(name: &ClarityName, trait_identifier: &TraitIdentifier) -> DefineResult {
-    DefineResult::UseTrait(name.clone(), trait_identifier.clone())
+fn handle_use_trait(
+    name: &ClarityName,
+    trait_identifier: &TraitIdentifier,
+) -> Result<DefineResult, VmExecutionError> {
+    if name.as_str() == DISCARD_IDENTIFIER {
+        return Err(RuntimeCheckErrorKind::BareUnderscoreReserved.into());
+    }
+    Ok(DefineResult::UseTrait(
+        name.clone(),
+        trait_identifier.clone(),
+    ))
 }
 
 fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> DefineResult {
@@ -498,7 +510,7 @@ pub fn evaluate_define(
             DefineFunctionsParsed::UseTrait {
                 name,
                 trait_identifier,
-            } => Ok(handle_use_trait(name, trait_identifier)),
+            } => handle_use_trait(name, trait_identifier),
             DefineFunctionsParsed::ImplTrait { trait_identifier } => {
                 Ok(handle_impl_trait(trait_identifier))
             }

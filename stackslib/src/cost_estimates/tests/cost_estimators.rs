@@ -16,8 +16,9 @@
 use std::env;
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::vm::{ContractName, Value};
 use rand::Rng;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{to_hex, Hash160};

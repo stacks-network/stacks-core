@@ -30,9 +30,10 @@ use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TupleData, TypeSignature, UTF8Data,
+    Value,
 };
-use crate::vm::{ClarityVersion, execute_v2, execute_with_parameters};
+use crate::vm::{ClarityName, ClarityVersion, execute_v2, execute_with_parameters};
 
 #[test]
 fn test_simple_buff_to_int_le() {
@@ -622,6 +623,86 @@ fn test_from_consensus_buff_unexpected_serialization_epoch_gate(
     assert_eq!(
         err,
         RuntimeCheckErrorKind::Unreachable("UnexpectedSerialization".into()).into()
+    );
+}
+
+/// A `from-consensus-buff?` buffer encoding a tuple with a leading-`_` key
+/// must deserialize to `none` pre-Clarity-6 and to the typed-sanitized tuple
+/// from Clarity 6 onward.
+#[apply(test_clarity_versions)]
+fn test_from_consensus_buff_rejects_underscore_tuple_key_pre_clarity6(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) {
+    // `from-consensus-buff?` is only available in Clarity 2+.
+    if version < ClarityVersion::Clarity2 {
+        return;
+    }
+
+    let tuple_with_underscore = Value::Tuple(
+        TupleData::from_data(vec![
+            (ClarityName::from_literal("a"), Value::Int(456)),
+            (ClarityName::from_literal("_x"), Value::Int(123)),
+        ])
+        .expect("construction of `_x` tuple should succeed with the relaxed regex"),
+    );
+    let hex = tuple_with_underscore
+        .serialize_to_hex()
+        .expect("serialize tuple to hex");
+
+    let program = format!("(from-consensus-buff? {{a: int}} 0x{hex})");
+    let result = execute_with_parameters(&program, version, epoch, false)
+        .expect("from-consensus-buff? must not crash")
+        .expect("from-consensus-buff? must produce a value");
+
+    if epoch < StacksEpochId::Epoch40 {
+        assert_eq!(
+            result,
+            Value::none(),
+            "pre-Clarity-6 epochs must reject `_`-prefixed tuple keys at runtime to match unpatched-node behavior"
+        );
+    } else {
+        let expected = Value::some(Value::Tuple(
+            TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(456))]).unwrap(),
+        ))
+        .unwrap();
+        assert_eq!(
+            result, expected,
+            "Clarity 6+ should accept the buffer and return the typed-sanitized tuple"
+        );
+    }
+}
+
+/// A `from-consensus-buff?` buffer encoding a tuple keyed by bare `_` must
+/// always deserialize to `none`; bare `_` is an invalid tuple key at every
+/// epoch (rejected by the codec pre-Clarity-6, reserved as the discard
+/// pattern from Clarity 6 onward).
+#[apply(test_clarity_versions)]
+fn test_from_consensus_buff_rejects_bare_underscore_tuple_key(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) {
+    if version < ClarityVersion::Clarity2 {
+        return;
+    }
+
+    let tuple_with_bare_underscore = Value::Tuple(
+        TupleData::from_data(vec![(ClarityName::from_literal("_"), Value::Int(7))])
+            .expect("construction of bare-`_` tuple should succeed with the relaxed regex"),
+    );
+    let hex = tuple_with_bare_underscore
+        .serialize_to_hex()
+        .expect("serialize tuple to hex");
+
+    let program = format!("(from-consensus-buff? {{a: int}} 0x{hex})");
+    let result = execute_with_parameters(&program, version, epoch, false)
+        .expect("from-consensus-buff? must not crash")
+        .expect("from-consensus-buff? must produce a value");
+
+    assert_eq!(
+        result,
+        Value::none(),
+        "bare `_` is reserved as the discard pattern at every epoch and must never appear as a runtime tuple key"
     );
 }
 
