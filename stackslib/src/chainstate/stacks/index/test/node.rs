@@ -17,6 +17,7 @@
 use std::io::Cursor;
 
 use super::*;
+use crate::chainstate::stacks::index::bits::{get_node_byte_len, get_node_max_byte_len};
 use crate::chainstate::stacks::index::*;
 
 #[test]
@@ -5382,4 +5383,62 @@ fn test_node_copy_update_ptrs_preserves_nonzero_back_block() {
     let mut ptrs = [orig];
     node_copy_update_ptrs(&mut ptrs, 42);
     assert_eq!(ptrs[0], orig, "existing backptr must not be touched");
+}
+
+/// `get_node_max_byte_len` must bound the real serialized size of each node
+/// type and stay in step with the wire format (guards the mirrored Node48
+/// index array and leaf `MARFValue`). Archival (u32) sizing matches a
+/// freshly built node exactly; squashed (u64) sizing widens each pointer.
+#[test]
+fn test_get_node_max_byte_len() {
+    let path = [0u8; 32]; // longest a MARF path can be
+    let cases: Vec<(u8, usize, TrieNodeType)> = vec![
+        (
+            TrieNodeID::Leaf as u8,
+            0,
+            TrieNodeType::Leaf(TrieLeaf::new(&path, &[0u8; 40])),
+        ),
+        (
+            TrieNodeID::Node4 as u8,
+            4,
+            TrieNodeType::Node4(TrieNode4::new(&path)),
+        ),
+        (
+            TrieNodeID::Node16 as u8,
+            16,
+            TrieNodeType::Node16(TrieNode16::new(&path)),
+        ),
+        (
+            TrieNodeID::Node48 as u8,
+            48,
+            TrieNodeType::Node48(Box::new(TrieNode48::new(&path))),
+        ),
+        (
+            TrieNodeID::Node256 as u8,
+            256,
+            TrieNodeType::Node256(Box::new(TrieNode256::new(&path))),
+        ),
+    ];
+    // Bytes one child pointer grows when its offset widens from u32 to u64.
+    let ptr_widen = TriePtr::widest_encoded().encoded_size() - TriePtr::default().encoded_size();
+
+    for (id, n_ptrs, node) in cases {
+        // u32-width sizing must equal a freshly built node's serialized size
+        // (default pointers, longest path): pins the helper to the wire format.
+        assert_eq!(
+            get_node_max_byte_len(id, false).unwrap(),
+            get_node_byte_len(&node),
+            "u32 size mismatch for id {id:#x}"
+        );
+        // u64-width sizing widens every child pointer.
+        assert_eq!(
+            get_node_max_byte_len(id, true).unwrap(),
+            get_node_max_byte_len(id, false).unwrap() + n_ptrs * ptr_widen,
+            "u64 widening mismatch for id {id:#x}"
+        );
+    }
+
+    // Node types the prefetch path never sizes.
+    assert!(get_node_max_byte_len(TrieNodeID::Empty as u8, false).is_err());
+    assert!(get_node_max_byte_len(TrieNodeID::Patch as u8, false).is_err());
 }

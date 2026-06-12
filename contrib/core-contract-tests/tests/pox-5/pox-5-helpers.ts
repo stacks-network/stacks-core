@@ -28,10 +28,7 @@ const contracts = projectFactory(project, 'simnet');
 // `pox5` handle points there. The local [contracts.pox-5] still deploys but is
 // unused.
 export const POX5_BOOT_ID: string = 'ST000000000000000000002AMW42H.pox-5';
-export const pox5 = contractFactory(
-  project.contracts.pox5,
-  POX5_BOOT_ID,
-) as typeof contracts.pox5;
+export const pox5 = contractFactory(project.contracts.pox5, POX5_BOOT_ID);
 export const errorCodes = projectErrors(project).pox5;
 export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);

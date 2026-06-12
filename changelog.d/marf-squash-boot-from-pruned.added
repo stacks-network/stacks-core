@@ -1,0 +1,1 @@
+Allow nodes booted from a squashed MARF snapshot to resolve coinbase heights and Nakamoto reward sets in the pruned range by reading the underlying immutable keys at the canonical chain tip

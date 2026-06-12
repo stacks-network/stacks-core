@@ -24,6 +24,7 @@ import {
   getAllStakers,
   isSignerInCycle,
   registerSigner,
+  registerSignerManager,
   sbtc,
   sbtcBalance,
   signerAddress,
@@ -1549,7 +1550,9 @@ test('has-announced-l1-early-exit defaults to false', () => {
 
 test('update-bond-registration in the final bond cycle leaves no future shares', () => {
   const signer1 = testSigner.identifier;
-  const signer2 = deployTestSigner('bond-update-final-cycle-signer-2').identifier;
+  const signer2 = deployTestSigner(
+    'bond-update-final-cycle-signer-2',
+  ).identifier;
   const aliceSbtc = 100000n;
 
   registerSigner();
@@ -3434,12 +3437,9 @@ test('STX-only staker can unstake and roll into a bond on the same cycle', () =>
   // STX lock carried from the (truncated) stx-only stake onto bond 1 — the
   // lock never released across the stake → bond hand-off. Bond 1's unlock
   // is at `bond-period-to-burn-height(1 + 6) = bond-period-to-burn-height(7)`.
-  //
-  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
-  // in simnet.
-  // const aliceLock = stxAccount(alice);
-  // expect(aliceLock.locked).toBe(stakeAmount);
-  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(7n)));
+  const aliceLock = stxAccount(alice);
+  expect(aliceLock.locked).toBe(stakeAmount);
+  expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(7n)));
 });
 
 test('concurrent bonds with the same stx-value-ratio accept ascending bond-index order', () => {
@@ -3631,15 +3631,11 @@ test('register-for-bond rolls a staker forward into bond N+6 with equal sBTC (no
 
   // STX lock is carried forward — same locked amount, but the unlock height
   // is rescheduled from bond 0's end to bond 6's end (`bond + 6 = 12`).
-  //
-  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
-  // in simnet. The same invariant is asserted in
-  // `check_pox_5_register_for_second_bond_no_downtime` (nakamoto integ).
-  // const aliceLock = stxAccount(alice);
-  // expect(aliceLock.locked).toBe(
-  //   rov(pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio)),
-  // );
-  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
+  const aliceLock = stxAccount(alice);
+  expect(aliceLock.locked).toBe(
+    rov(pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio)),
+  );
+  expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
 });
 
 /**
@@ -3716,14 +3712,11 @@ test('register-for-bond rolls forward and nets a larger sBTC amount from the sta
 
   // STX lock is rescheduled to bond 6's unlock; locked amount increases to
   // bond 6's `min-ustx-for-sats-amount` drawn from Alice's unlocked balance.
-  //
-  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
-  // in simnet.
-  // const aliceLock = stxAccount(alice);
-  // expect(aliceLock.locked).toBe(
-  //   rov(pox5.minUstxForSatsAmount(bond6Sbtc, stxValueRatio, minUstxRatio)),
-  // );
-  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
+  const aliceLock = stxAccount(alice);
+  expect(aliceLock.locked).toBe(
+    rov(pox5.minUstxForSatsAmount(bond6Sbtc, stxValueRatio, minUstxRatio)),
+  );
+  expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
 });
 
 /**
@@ -3794,14 +3787,11 @@ test('register-for-bond rolls forward and refunds when the new sBTC amount is sm
   // STX lock is reduced to bond 6's smaller `min-ustx-for-sats-amount` and
   // rescheduled; the freed STX returns to Alice's unlocked balance
   // (exercising `set_lock_v5`'s amount-down path).
-  //
-  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
-  // in simnet.
-  // const aliceLock = stxAccount(alice);
-  // expect(aliceLock.locked).toBe(
-  //   rov(pox5.minUstxForSatsAmount(bond6Sbtc, stxValueRatio, minUstxRatio)),
-  // );
-  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
+  const aliceLock = stxAccount(alice);
+  expect(aliceLock.locked).toBe(
+    rov(pox5.minUstxForSatsAmount(bond6Sbtc, stxValueRatio, minUstxRatio)),
+  );
+  expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(12n)));
 });
 
 /**
@@ -3884,10 +3874,8 @@ test('register-for-bond after old bond expires nets sBTC forward (no stuck colla
   // STX lock was carried forward to bond 7's unlock height (the bond
   // re-acquired no fresh lock — the existing bond 0 lock simply extends).
   //
-  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
-  // in simnet.
-  // const bond7Unlock = rov(pox5.bondPeriodToBurnHeight(13n));
-  // expect(stxAccount(alice).unlockHeight).toBe(bond7Unlock);
+  const bond7Unlock = rov(pox5.bondPeriodToBurnHeight(13n));
+  expect(stxAccount(alice).unlockHeight).toBe(bond7Unlock);
 
   // Recover everything via the new bond's `unstake-sbtc`. Alice ends up with
   // her original sBTC balance restored and no sBTC stuck in the contract.
@@ -3904,12 +3892,9 @@ test('register-for-bond after old bond expires nets sBTC forward (no stuck colla
   // `unstake-sbtc` only moves the bond's sBTC custody — the STX lock is
   // untouched. Alice is still locked through bond 7's unlock height even
   // though her sBTC backing is now 0.
-  //
-  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
-  // in simnet.
-  // const lock = stxAccount(alice);
-  // expect(lock.locked).toBeGreaterThan(0n);
-  // expect(lock.unlockHeight).toBe(bond7Unlock);
+  const lock = stxAccount(alice);
+  expect(lock.locked).toBeGreaterThan(0n);
+  expect(lock.unlockHeight).toBe(bond7Unlock);
 });
 
 /**
@@ -4069,12 +4054,9 @@ test('stake rolls a bond participant forward into STX-only with sBTC refunded', 
   // lock never released even though sBTC was fully refunded. Stake's
   // `first-reward-cycle = current + 1 = 13`, `num-cycles = 4`, so
   // `unlock-cycle = 17`.
-  //
-  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
-  // in simnet.
-  // const aliceLock = stxAccount(alice);
-  // expect(aliceLock.locked).toBe(stakeAmount);
-  // expect(aliceLock.unlockHeight).toBe(rov(pox5.rewardCycleToBurnHeight(17n)));
+  const aliceLock = stxAccount(alice);
+  expect(aliceLock.locked).toBe(stakeAmount);
+  expect(aliceLock.unlockHeight).toBe(rov(pox5.rewardCycleToBurnHeight(17n)));
 });
 
 /**
@@ -4272,14 +4254,11 @@ test('register-for-bond after stx-only stake expires registers fresh on the new 
   // Stake's lock was released at cycle 2 (its natural unlock), so
   // register-for-bond(1) takes the fresh-lock path and locks Alice's STX
   // for bond 1's term — unlock at `bond-period-to-burn-height(1 + 6)`.
-  //
-  // TODO(clarinet-sdk-wasm refresh): re-enable once pox-5 STX locks apply
-  // in simnet.
-  // const aliceLock = stxAccount(alice);
-  // expect(aliceLock.locked).toBe(
-  //   rov(pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio)),
-  // );
-  // expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(7n)));
+  const aliceLock = stxAccount(alice);
+  expect(aliceLock.locked).toBe(
+    rov(pox5.minUstxForSatsAmount(sbtcAmount, stxValueRatio, minUstxRatio)),
+  );
+  expect(aliceLock.unlockHeight).toBe(rov(pox5.bondPeriodToBurnHeight(7n)));
 });
 
 /**
@@ -5199,4 +5178,29 @@ test('transfer-from-reserve fails when amount exceeds the reserve balance', () =
   );
   expect(transfer.value).toBe(pox5Errors.ERR_INSUFFICIENT_RESERVE_BALANCE);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
+});
+
+test('stake locks STX in simnet', () => {
+  registerSignerManager();
+
+  const staker = simnet.getAccounts().get('wallet_1')!;
+  const stakeAmount = 1_000_000_000_000n;
+  const startBurnHt = simnet.burnBlockHeight;
+
+  const { result: stake } = simnet.callPublicFn(
+    'ST000000000000000000002AMW42H.pox-5',
+    'stake',
+    [
+      Cl.contractPrincipal(simnet.deployer, 'signer-manager'),
+      Cl.uint(stakeAmount),
+      Cl.uint(1),
+      Cl.uint(startBurnHt),
+      Cl.none(),
+    ],
+    staker,
+  );
+
+  expect(stake).toBeOk(expect.anything());
+
+  expect(stxAccount(staker).locked).toBe(stakeAmount);
 });
