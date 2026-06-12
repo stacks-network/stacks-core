@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -798,8 +798,11 @@ impl NakamotoBlockHeader {
 
     pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
         let signed_hash = self.miner_signature_hash();
-        let recovered_pk =
-            StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature).ok()?;
+        let recovered_pk = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            signed_hash.bits(),
+            &self.miner_signature,
+        )
+        .ok()?;
 
         Some(recovered_pk)
     }
@@ -873,13 +876,16 @@ impl NakamotoBlockHeader {
             .collect();
 
         for signature in self.signer_signature.iter() {
-            let public_key = Secp256k1PublicKey::recover_to_pubkey(message.bits(), signature)
-                .map_err(|_| {
-                    ChainstateError::InvalidStacksBlock(format!(
-                        "Unable to recover public key from signature {}",
-                        signature.to_hex()
-                    ))
-                })?;
+            let public_key = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+                message.bits(),
+                signature,
+            )
+            .map_err(|_| {
+                ChainstateError::InvalidStacksBlock(format!(
+                    "Unable to recover public key from signature {}",
+                    signature.to_hex()
+                ))
+            })?;
 
             let mut public_key_bytes = [0u8; 33];
             public_key_bytes.copy_from_slice(&public_key.to_bytes_compressed()[..]);
@@ -3708,9 +3714,11 @@ impl NakamotoChainState {
     ) -> Result<(), ChainstateError> {
         let signer_sighash = block.header.signer_signature_hash();
         for signer_signature in &block.header.signer_signature {
-            let signer_pubkey =
-                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), signer_signature)
-                    .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
+            let signer_pubkey = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+                signer_sighash.bits(),
+                signer_signature,
+            )
+            .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
             let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
             let params = params![signer_pubkey.to_hex(), reward_cycle];
             tx.execute(sql, params)?;

@@ -62,6 +62,7 @@ stdext = "0.3.1"
 stx-genesis = { path = "../stx-genesis"}
 clarity = { features = ["default", "testing"], path = "../clarity" }
 stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
+stacks-codec = { features = ["default", "testing"], path = "../stacks-codec" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 mutants = "0.0.3"

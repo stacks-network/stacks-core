@@ -614,11 +614,17 @@ impl StacksChainState {
         Ok(fee)
     }
 
-    /// Pre-check a transaction -- make sure it's well-formed
+    /// Pre-check a transaction -- make sure it's well-formed.
+    ///
+    /// If `auth_verification_mode_override` is `Some(_)`, it specifies whether
+    /// transaction signatures should be verified to be the low-S variant, or if
+    /// high-S is allowed. If it's `None`, this decision is made based on consensus
+    /// rules for the specified epoch.
     pub fn process_transaction_precheck(
         config: &DBConfig,
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
+        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
     ) -> Result<(), Error> {
         // valid auth?
         if !tx.auth.is_supported_in_epoch(epoch_id) {
@@ -630,7 +636,15 @@ impl StacksChainState {
 
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
-        tx.verify()?;
+        let verification_mode = auth_verification_mode_override.unwrap_or_else(|| {
+            if epoch_id.allows_tx_signatures_with_high_s() {
+                TransactionAuthVerificationMode::AllowHighS
+            } else {
+                TransactionAuthVerificationMode::EnforceLowS
+            }
+        });
+
+        tx.verify(verification_mode)?;
 
         // destined for us?
         if config.chain_id != tx.chain_id {
@@ -1690,7 +1704,7 @@ impl StacksChainState {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
