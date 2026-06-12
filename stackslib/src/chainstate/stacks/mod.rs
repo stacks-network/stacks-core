@@ -408,12 +408,13 @@ pub use stacks_codec::transaction::{
     AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
     MultisigSpendingCondition, NonfungibleConditionCode, OrderIndependentMultisigHashMode,
     OrderIndependentMultisigSpendingCondition, PostConditionPrincipal, PostConditionPrincipalID,
-    SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction,
-    TenureChangeCause, TenureChangeError, TenureChangePayload, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuth, TransactionAuthField, TransactionAuthFieldID,
-    TransactionAuthFlags, TransactionContractCall, TransactionPayload, TransactionPayloadID,
-    TransactionPostCondition, TransactionPostConditionMode, TransactionPublicKeyEncoding,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    PoxConditionCode, SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader,
+    StacksTransaction, TenureChangeCause, TenureChangeError, TenureChangePayload,
+    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionAuthField,
+    TransactionAuthFieldID, TransactionAuthFlags, TransactionContractCall, TransactionPayload,
+    TransactionPayloadID, TransactionPostCondition, TransactionPostConditionMode,
+    TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
+    TransactionVersion,
 };
 
 #[derive(Debug, Clone, PartialEq)]

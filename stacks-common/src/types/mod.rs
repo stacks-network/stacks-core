@@ -769,6 +769,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch34
     }
 
+    /// Does this epoch support transaction-level `Staking` post-conditions,
+    /// which constrain how much STX a principal may stake (lock for PoX)
+    /// during a transaction?
+    pub fn supports_staking_post_conditions(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }

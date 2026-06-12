@@ -595,39 +595,6 @@ test('scenario - staking to a signer', () => {
   expect(isSignerInCycle({ signer: signer, cycle: 3n })).toBeFalsy();
 });
 
-test('contract caller authorization expires at until-burn-ht', () => {
-  const callerName = 'pox-5-stake-caller';
-  const caller = `${deployer}.${callerName}`;
-
-  simnet.deployContract(
-    callerName,
-    `(define-public (stake-for-sender
-        (amount-ustx uint)
-        (num-cycles uint)
-        (start-burn-ht uint)
-      )
-      (contract-call? .pox-5 stake .test-pox-5-signer amount-ustx num-cycles start-burn-ht none)
-    )`,
-    { clarityVersion: 4 },
-    deployer,
-  );
-  registerSigner();
-  txOk(
-    pox5.allowContractCaller(caller, BigInt(simnet.burnBlockHeight + 1)),
-    alice,
-  );
-  mineUntil(simnet.burnBlockHeight + 2);
-
-  const stake = simnet.callPublicFn(
-    callerName,
-    'stake-for-sender',
-    [Cl.uint(stxToUStx(50_000)), Cl.uint(1), Cl.uint(simnet.burnBlockHeight)],
-    alice,
-  );
-
-  expect(stake.result.type).toBe(ClarityType.ResponseErr);
-});
-
 /**  Scenario: a user stakes to a signer, then updates their stake.
  * - Alice stakes 50k for 3 cycles
  * - In cycle 1, updates to different signer

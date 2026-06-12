@@ -227,6 +227,8 @@ impl ArithmeticOnlyChecker<'_> {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
+            | AllowanceWithStaking
+            | AllowanceWithPox
             | AllowanceAll => Err(Error::FunctionNotPermitted(function)),
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 Err(Error::FunctionNotPermitted(function))

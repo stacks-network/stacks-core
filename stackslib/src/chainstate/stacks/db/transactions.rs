@@ -688,6 +688,19 @@ impl StacksChainState {
                 }
             }
         }
+        // check if Staking/Pox post-conditions are supported in this epoch
+        if !epoch_id.supports_staking_post_conditions() {
+            for post_condition in tx.post_conditions.iter() {
+                if matches!(
+                    post_condition,
+                    TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
+                ) {
+                    let msg = "Invalid Stacks transaction: Staking/Pox post-condition is not supported before Stacks 4.0".to_string();
+                    info!("{}", &msg; "txid" => %tx.txid());
+                    return Err(Error::InvalidStacksTransaction(msg, false));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -701,6 +714,7 @@ impl StacksChainState {
         post_condition_mode: &TransactionPostConditionMode,
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
+        epoch_id: StacksEpochId,
         txid: Txid,
     ) -> Result<Option<String>, VmExecutionError> {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
@@ -709,6 +723,14 @@ impl StacksChainState {
             PrincipalData,
             HashMap<AssetIdentifier, HashSet<HashableClarityValue>>,
         > = HashMap::new();
+        // Principals whose staking (STX locked for PoX) was covered by a
+        // `Staking` post-condition, and whose position-altering PoX actions
+        // (unstake / unstake-sbtc / update-bond-registration /
+        // announce-l1-early-exit) were covered by a `Pox` post-condition. Used
+        // for the unchecked-asset enforcement below, in epochs that support
+        // staking post-conditions.
+        let mut checked_staking: HashSet<PrincipalData> = HashSet::new();
+        let mut checked_pox: HashSet<PrincipalData> = HashSet::new();
         let enforce_unchecked_assets_for_principal =
             |principal: &PrincipalData| match post_condition_mode {
                 TransactionPostConditionMode::Allow => false,
@@ -841,6 +863,40 @@ impl StacksChainState {
                         checked_nonfungible_assets.insert(account_principal, asset_id_map);
                     }
                 }
+                TransactionPostCondition::Staking(
+                    ref principal,
+                    ref condition_code,
+                    ref amount_staked_condition,
+                ) => {
+                    let account_principal = principal.to_principal_data(&origin_account.principal);
+
+                    let amount_staked = asset_map.get_stacking(&account_principal).unwrap_or(0);
+
+                    if !condition_code.check(u128::from(*amount_staked_condition), amount_staked) {
+                        let reason = format!(
+                            "Post-condition check failure on STX staked by {account_principal}: {amount_staked_condition:?} {condition_code:?} {amount_staked}",
+                        );
+                        info!("{reason}"; "txid" => %txid);
+                        return Ok(Some(reason));
+                    }
+
+                    checked_staking.insert(account_principal);
+                }
+                TransactionPostCondition::Pox(ref principal, ref condition_code) => {
+                    let account_principal = principal.to_principal_data(&origin_account.principal);
+
+                    let performed = asset_map.did_pox_action(&account_principal);
+
+                    if !condition_code.check(performed) {
+                        let reason = format!(
+                            "Post-condition check failure on PoX action by {account_principal}: {condition_code:?} performed={performed}",
+                        );
+                        info!("{reason}"; "txid" => %txid);
+                        return Ok(Some(reason));
+                    }
+
+                    checked_pox.insert(account_principal);
+                }
             }
         }
 
@@ -909,6 +965,44 @@ impl StacksChainState {
                 }
             }
         }
+
+        // make sure every principal that staked STX is covered by a `Staking` post-condition, and
+        // every principal that performed a position-altering PoX action is covered by a `Pox`
+        // post-condition, if the current mode requires it. The staking map and pox-action set are
+        // intentionally excluded from `to_table`, so they are enforced separately here. Only
+        // enforced in epochs that support staking post-conditions, since these were previously
+        // unchecked at the tx level.
+        if epoch_id.supports_staking_post_conditions() {
+            for (principal, amount_staked) in asset_map.get_all_stacking() {
+                if *amount_staked == 0 {
+                    continue;
+                }
+                if !enforce_unchecked_assets_for_principal(principal) {
+                    continue;
+                }
+                if !checked_staking.contains(principal) {
+                    let reason = format!(
+                        "Post-condition check failure: {amount_staked} STX was staked by {principal} but not checked"
+                    );
+                    info!("{reason}"; "txid" => %txid);
+                    return Ok(Some(reason));
+                }
+            }
+
+            for principal in asset_map.get_all_pox_actions() {
+                if !enforce_unchecked_assets_for_principal(principal) {
+                    continue;
+                }
+                if !checked_pox.contains(principal) {
+                    let reason = format!(
+                        "Post-condition check failure: {principal} performed a PoX action but it was not checked"
+                    );
+                    info!("{reason}"; "txid" => %txid);
+                    return Ok(Some(reason));
+                }
+            }
+        }
+
         return Ok(None);
     }
 
@@ -1191,6 +1285,7 @@ impl StacksChainState {
                             &tx.post_condition_mode,
                             origin_account,
                             asset_map,
+                            epoch_id,
                             tx.txid(),
                         )
                         .expect("FATAL: error while evaluating post-conditions")
@@ -1453,6 +1548,7 @@ impl StacksChainState {
                             &tx.post_condition_mode,
                             origin_account,
                             asset_map,
+                            epoch_id,
                             tx.txid(),
                         )
                         .expect("FATAL: error while evaluating post-conditions")
@@ -7056,6 +7152,7 @@ pub mod test {
                 mode,
                 origin,
                 &ft_transfer_2,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7402,6 +7499,7 @@ pub mod test {
                 mode,
                 origin,
                 &nft_transfer_2,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7485,6 +7583,7 @@ pub mod test {
                 &mode,
                 &make_account(&origin, 1, 123),
                 &mixed_stx_transfer,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7494,6 +7593,206 @@ pub mod test {
                 "test failed:\nasset map: {mixed_stx_transfer:?}\nscenario: {post_conditions:?} mode={mode:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_check_postconditions_staking() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let origin_addr = auth.origin().address_testnet();
+        let origin = origin_addr.to_account_principal();
+
+        // Asset map in which the origin staked 100 uSTX.
+        let mut stacked = AssetMap::new();
+        stacked.add_stacking(&origin, 100);
+
+        // (expected_pass, post_conditions, mode, epoch)
+        let tests = vec![
+            // Allow mode: uncovered stacking is permitted.
+            (
+                true,
+                vec![],
+                TransactionPostConditionMode::Allow,
+                StacksEpochId::Epoch40,
+            ),
+            // Deny mode: uncovered stacking is forbidden.
+            (
+                false,
+                vec![],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // Deny mode with a covering allowance (stacked <= limit) passes.
+            (
+                true,
+                vec![TransactionPostCondition::Staking(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentLe,
+                    100,
+                )],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // A limit that is too small (stacked > limit) fails the condition.
+            (
+                false,
+                vec![TransactionPostCondition::Staking(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentLe,
+                    99,
+                )],
+                TransactionPostConditionMode::Allow,
+                StacksEpochId::Epoch40,
+            ),
+            // SentEq matching the exact stacked amount passes even in Deny mode.
+            (
+                true,
+                vec![TransactionPostCondition::Staking(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentEq,
+                    100,
+                )],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // Before epoch 4.0, stacking is not enforced even in Deny mode.
+            (
+                true,
+                vec![],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch33,
+            ),
+        ];
+
+        for (expected_pass, post_conditions, mode, epoch) in tests {
+            let result = StacksChainState::check_transaction_postconditions(
+                &post_conditions,
+                &mode,
+                &make_account(&origin, 1, 123),
+                &stacked,
+                epoch,
+                Txid([0; 32]),
+            )
+            .unwrap();
+            assert_eq!(
+                result.is_none(),
+                expected_pass,
+                "test failed:\nscenario: {post_conditions:?} mode={mode:?} epoch={epoch:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_check_postconditions_pox() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let origin_addr = auth.origin().address_testnet();
+        let origin = origin_addr.to_account_principal();
+
+        // Asset map in which the origin performed a position-altering PoX action.
+        let mut pox_acted = AssetMap::new();
+        pox_acted.add_pox_action(&origin);
+
+        let forbid_pox = || {
+            TransactionPostCondition::Pox(
+                PostConditionPrincipal::Origin,
+                PoxConditionCode::NotPerformed,
+            )
+        };
+        let allow_pox = || {
+            TransactionPostCondition::Pox(
+                PostConditionPrincipal::Origin,
+                PoxConditionCode::MaybePerformed,
+            )
+        };
+        let require_pox = || {
+            TransactionPostCondition::Pox(
+                PostConditionPrincipal::Origin,
+                PoxConditionCode::Performed,
+            )
+        };
+
+        // (expected_pass, post_conditions, mode, epoch)
+        let tests = vec![
+            // Allow mode: uncovered unstaking is permitted.
+            (
+                true,
+                vec![],
+                TransactionPostConditionMode::Allow,
+                StacksEpochId::Epoch40,
+            ),
+            // Deny mode: uncovered unstaking is forbidden.
+            (
+                false,
+                vec![],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // `MaybeUnstaked` opts in, so an unstake passes even in Deny mode.
+            (
+                true,
+                vec![allow_pox()],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // `Unstaked` (must) is satisfied since an unstake occurred.
+            (
+                true,
+                vec![require_pox()],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // `NotUnstaked` fails in allow mode because an unstake occurred.
+            (
+                false,
+                vec![forbid_pox()],
+                TransactionPostConditionMode::Allow,
+                StacksEpochId::Epoch40,
+            ),
+            // Before epoch 4.0, unstaking is not enforced even in Deny mode.
+            (
+                true,
+                vec![],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch33,
+            ),
+        ];
+
+        for (expected_pass, post_conditions, mode, epoch) in tests {
+            let result = StacksChainState::check_transaction_postconditions(
+                &post_conditions,
+                &mode,
+                &make_account(&origin, 1, 123),
+                &pox_acted,
+                epoch,
+                Txid([0; 32]),
+            )
+            .unwrap();
+            assert_eq!(
+                result.is_none(),
+                expected_pass,
+                "test failed:\nscenario: {post_conditions:?} mode={mode:?} epoch={epoch:?}"
+            );
+        }
+
+        // `NotUnstaked` passes when no unstake occurred.
+        let empty = AssetMap::new();
+        let result = StacksChainState::check_transaction_postconditions(
+            &[forbid_pox()],
+            &TransactionPostConditionMode::Allow,
+            &make_account(&origin, 1, 123),
+            &empty,
+            StacksEpochId::Epoch40,
+            Txid([0; 32]),
+        )
+        .unwrap();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -7586,6 +7885,7 @@ pub mod test {
                 &mode,
                 &make_account(&origin, 1, 123),
                 asset_map,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7651,6 +7951,7 @@ pub mod test {
                 &TransactionPostConditionMode::Originator,
                 &make_account(&origin, 1, 123),
                 &asset_map,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7717,6 +8018,7 @@ pub mod test {
                 &mode,
                 &make_account(&origin, 1, 123),
                 &asset_map,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -8532,6 +8834,7 @@ pub mod test {
                     post_condition_mode,
                     origin_account,
                     asset_map,
+                    StacksEpochId::latest(),
                     Txid([0; 32]),
                 )
                 .unwrap();
