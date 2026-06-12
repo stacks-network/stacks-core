@@ -130,6 +130,20 @@ pub fn sqlite_get_metadata_manual(
 }
 
 impl SqliteConnection {
+    /// Build a `metadata_table` key: `clr-meta::<contract id>::<metadata key>`.
+    fn make_metadata_key(contract_id: &str, key: &str) -> String {
+        format!("clr-meta::{contract_id}::{key}")
+    }
+
+    /// Split a `metadata_table` key produced by [`Self::make_metadata_key`]
+    /// back into `(contract id, metadata key)`. Returns `None` if `key` is
+    /// not in that format. The contract id never contains `::`, so the first
+    /// separator after the prefix is the boundary (the metadata key may
+    /// itself contain `::`).
+    pub fn parse_metadata_key(key: &str) -> Option<(&str, &str)> {
+        key.strip_prefix("clr-meta::")?.split_once("::")
+    }
+
     pub fn put(conn: &Connection, key: &str, value: &str) -> Result<(), VmExecutionError> {
         sqlite_put(conn, key, value)
     }
@@ -145,7 +159,7 @@ impl SqliteConnection {
         key: &str,
         value: &str,
     ) -> Result<(), VmExecutionError> {
-        let key = format!("clr-meta::{contract_hash}::{key}");
+        let key = Self::make_metadata_key(contract_hash, key);
         let params = params![bhh, key, value];
 
         if let Err(e) = conn.execute(
@@ -156,6 +170,72 @@ impl SqliteConnection {
             return Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
+    }
+
+    /// Insert a `metadata_table` row verbatim: `key` is already in the
+    /// [`Self::make_metadata_key`] format.
+    pub fn insert_metadata_row(
+        conn: &Connection,
+        key: &str,
+        blockhash: &str,
+        value: &str,
+    ) -> Result<(), rusqlite::Error> {
+        conn.prepare_cached("INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)")?
+            .execute(params![blockhash, key, value])?;
+        Ok(())
+    }
+
+    /// Visit every `metadata_table` row on `conn` as `(key, blockhash, value)`.
+    pub fn visit_metadata_rows<F>(conn: &Connection, mut visit: F) -> Result<(), rusqlite::Error>
+    where
+        F: FnMut(&str, &str, &str) -> Result<(), rusqlite::Error>,
+    {
+        let mut stmt = conn.prepare("SELECT key, blockhash, value FROM metadata_table")?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            let key: String = row.get(0)?;
+            let blockhash: String = row.get(1)?;
+            let value: String = row.get(2)?;
+            visit(&key, &blockhash, &value)?;
+        }
+        Ok(())
+    }
+
+    /// Visit every `metadata_table` key on `conn` in ascending key order
+    /// (deterministic for scans that aggregate by contract).
+    pub fn visit_metadata_keys<F>(conn: &Connection, mut visit: F) -> Result<(), rusqlite::Error>
+    where
+        F: FnMut(&str) -> Result<(), rusqlite::Error>,
+    {
+        let mut stmt = conn.prepare("SELECT key FROM metadata_table ORDER BY key")?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            let key: String = row.get(0)?;
+            visit(&key)?;
+        }
+        Ok(())
+    }
+
+    /// Visit every `data_table` row on `conn` as `(key, value)`.
+    pub fn visit_data_rows<F>(conn: &Connection, mut visit: F) -> Result<(), rusqlite::Error>
+    where
+        F: FnMut(&str, &str) -> Result<(), rusqlite::Error>,
+    {
+        let mut stmt = conn.prepare("SELECT key, value FROM data_table")?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            let key: String = row.get(0)?;
+            let value: String = row.get(1)?;
+            visit(&key, &value)?;
+        }
+        Ok(())
+    }
+
+    /// Number of rows in `data_table`.
+    pub fn count_data_rows(conn: &Connection) -> Result<u64, rusqlite::Error> {
+        conn.query_row("SELECT COUNT(*) FROM data_table", NO_PARAMS, |row| {
+            row.get(0)
+        })
     }
 
     pub fn commit_metadata_to(
@@ -191,7 +271,7 @@ impl SqliteConnection {
         contract_hash: &str,
         key: &str,
     ) -> Result<Option<String>, VmExecutionError> {
-        let key = format!("clr-meta::{contract_hash}::{key}");
+        let key = Self::make_metadata_key(contract_hash, key);
         let params = params![bhh, key];
 
         match conn
