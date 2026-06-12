@@ -33,7 +33,6 @@ import {
   sbtcTransfer,
   pox5,
   initPox5,
-  registerSignerManager,
 } from './pox-5-helpers';
 
 const pox5Errors = extractErrors(pox5);
