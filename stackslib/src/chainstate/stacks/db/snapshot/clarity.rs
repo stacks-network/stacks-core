@@ -72,8 +72,7 @@ pub fn copy_clarity_side_tables(
             clone_schemas_from_source(conn, CLARITY_SIDE_TABLES)?;
 
             let t = Instant::now();
-            let src_data_count =
-                SqliteConnection::count_data_rows(&src_conn).map_err(Error::SQLError)?;
+            let src_data_count = SqliteConnection::count_data_rows(&src_conn)?;
             let needed_count = needed_keys.len() as u64;
             let pruned_count = src_data_count.saturating_sub(needed_count);
             info!(
@@ -124,21 +123,18 @@ fn copy_required_metadata_rows(
 ) -> Result<(u64, u64), Error> {
     let mut scanned: u64 = 0;
     let mut copied: u64 = 0;
-    SqliteConnection::visit_metadata_rows(
-        src_conn,
-        |key, blockhash, value| -> Result<(), Error> {
-            scanned += 1;
-            let Some((contract_id, _meta_key)) = SqliteConnection::parse_metadata_key(key) else {
-                return Ok(());
-            };
-            if !required.contains(contract_id) {
-                return Ok(());
-            }
-            SqliteConnection::insert_metadata_row(dst_conn, key, blockhash, value)?;
-            copied += 1;
-            Ok(())
-        },
-    )?;
+    SqliteConnection::visit_metadata_rows(src_conn, |key, blockhash, value| {
+        scanned += 1;
+        let Some((contract_id, _meta_key)) = SqliteConnection::parse_metadata_key(key) else {
+            return Ok(());
+        };
+        if !required.contains(contract_id) {
+            return Ok(());
+        }
+        SqliteConnection::insert_metadata_row(dst_conn, key, blockhash, value)?;
+        copied += 1;
+        Ok(())
+    })?;
     Ok((scanned, copied))
 }
 
@@ -147,7 +143,7 @@ fn copy_required_metadata_rows(
 fn scan_metadata_contract_ids(conn: &Connection) -> Result<Vec<String>, Error> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut ordered: Vec<String> = Vec::new();
-    SqliteConnection::visit_metadata_keys(conn, |key| -> Result<(), Error> {
+    SqliteConnection::visit_metadata_keys(conn, |key| {
         if let Some((contract_id, _meta_key)) = SqliteConnection::parse_metadata_key(key) {
             if seen.insert(contract_id.to_string()) {
                 ordered.push(contract_id.to_string());

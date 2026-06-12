@@ -188,10 +188,9 @@ impl SqliteConnection {
 
     /// Visit every `metadata_table` row on `conn` as `(key, blockhash, value)`.
     /// Used by the snapshot copy.
-    pub fn visit_metadata_rows<E, F>(conn: &Connection, mut visit: F) -> Result<(), E>
+    pub fn visit_metadata_rows<F>(conn: &Connection, mut visit: F) -> Result<(), rusqlite::Error>
     where
-        E: From<rusqlite::Error>,
-        F: FnMut(&str, &str, &str) -> Result<(), E>,
+        F: FnMut(&str, &str, &str) -> Result<(), rusqlite::Error>,
     {
         let mut stmt = conn.prepare("SELECT key, blockhash, value FROM metadata_table")?;
         let mut rows = stmt.query(NO_PARAMS)?;
@@ -206,10 +205,9 @@ impl SqliteConnection {
 
     /// Visit every `metadata_table` key on `conn` in ascending key order
     /// (deterministic for scans that aggregate by contract).
-    pub fn visit_metadata_keys<E, F>(conn: &Connection, mut visit: F) -> Result<(), E>
+    pub fn visit_metadata_keys<F>(conn: &Connection, mut visit: F) -> Result<(), rusqlite::Error>
     where
-        E: From<rusqlite::Error>,
-        F: FnMut(&str) -> Result<(), E>,
+        F: FnMut(&str) -> Result<(), rusqlite::Error>,
     {
         let mut stmt = conn.prepare("SELECT key FROM metadata_table ORDER BY key")?;
         let mut rows = stmt.query(NO_PARAMS)?;
