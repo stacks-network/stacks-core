@@ -1328,5 +1328,101 @@ mod tests {
             let cost = cost_input_get_bitcoin_tx_output(&args).unwrap();
             prop_assert_eq!(cost, tx_bytes.len() as u64);
         }
+
+        /// `verify-merkle-proof` with any arity other than 5 must return an
+        /// error, never panic. Guards the `try_into::<[Value; 5]>` arity check
+        /// on consensus input.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_native_verify_merkle_proof_wrong_arity(
+            arity in prop_oneof![0usize..=4, 6usize..=12],
+        ) {
+            let args: Vec<Value> = (0..arity).map(|_| Value::UInt(0)).collect();
+            prop_assert!(
+                native_verify_merkle_proof(args).is_err(),
+                "non-5 arity must error, not panic"
+            );
+        }
+
+        /// A single mis-typed argument (non-32 buff leaf/root, non-uint
+        /// index/count, or non-list siblings) must return an error, never
+        /// panic. Pins the per-argument coercion guards.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_native_verify_merkle_proof_wrong_arg_type(
+            which in 0usize..=4,
+            short_len in 0usize..=31,
+        ) {
+            let buff32 = Value::buff_from(vec![0u8; 32]).unwrap();
+            let mut args = vec![
+                buff32.clone(),
+                buff32.clone(),
+                Value::UInt(1),
+                Value::UInt(2),
+                Value::cons_list_unsanitized(vec![buff32]).unwrap(),
+            ];
+            args[which] = match which {
+                0 | 1 => Value::buff_from(vec![0u8; short_len]).unwrap(),
+                2 | 3 => Value::Bool(true),
+                _ => Value::UInt(7),
+            };
+            prop_assert!(
+                native_verify_merkle_proof(args).is_err(),
+                "mis-typed arg {which} must error, not panic"
+            );
+        }
+
+        /// A siblings list longer than the depth-24 cap (well past it) must be
+        /// handled without panic: the depth check rejects it (`Bool(false)`).
+        /// Defends against an oversized consensus list crashing the verifier.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_native_verify_merkle_proof_oversized_siblings(
+            extra in 1usize..=40,
+            leaf in any::<[u8; 32]>(),
+            root in any::<[u8; 32]>(),
+        ) {
+            let n = VERIFY_MERKLE_PROOF_MAX_DEPTH as usize + extra;
+            let siblings: Vec<Value> = (0..n)
+                .map(|_| Value::buff_from(vec![0u8; 32]).unwrap())
+                .collect();
+            // tx_count = 2 has canonical depth 1, so any n > 24 mismatches.
+            let args = vec![
+                Value::buff_from(leaf.to_vec()).unwrap(),
+                Value::buff_from(root.to_vec()).unwrap(),
+                Value::UInt(1),
+                Value::UInt(2),
+                Value::cons_list_unsanitized(siblings).unwrap(),
+            ];
+            let result = native_verify_merkle_proof(args)
+                .expect("well-typed args must not error, only reject");
+            prop_assert_eq!(result, Value::Bool(false));
+        }
+
+        /// `get-bitcoin-tx-output?` with a non-buff `tx-bytes` or a non-uint
+        /// `vout` must return an error, never panic.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_native_get_bitcoin_tx_output_wrong_arg_type(corrupt_tx in any::<bool>()) {
+            let (tx_value, vout_value) = if corrupt_tx {
+                (Value::UInt(0), Value::UInt(0))
+            } else {
+                (Value::buff_from(vec![0u8; 4]).unwrap(), Value::Bool(true))
+            };
+            prop_assert!(
+                native_get_bitcoin_tx_output(tx_value, vout_value).is_err(),
+                "mis-typed get-bitcoin-tx-output? arg must error, not panic"
+            );
+        }
+
+        /// Any buffer whose length is not exactly 32 coerces to `None` (never
+        /// a `copy_from_slice` panic on a short buffer, a consensus crash
+        /// vector); a 32-byte buffer coerces to `Some`.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_buff_to_array_32_rejects_non_32(len in 0usize..=128) {
+            let v = Value::buff_from(vec![0xabu8; len]).unwrap();
+            prop_assert_eq!(buff_to_array::<32>(&v).is_some(), len == 32);
+        }
     }
 }
