@@ -35,11 +35,10 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 use crate::core::{StacksEpoch, StacksEpochExtension};
-/// Create a sortition source DB via the production initializer
-/// ([`SortitionDB::connect`]), so the fixture always carries the current
-/// schema instead of replaying migrations by hand. `connect` also seeds
-/// the genesis snapshot and the epoch rows. Returns a connection to the
-/// underlying sqlite file along with its path.
+
+/// Create a sortition source DB. `connect` also seeds the genesis
+/// snapshot and the epoch rows. Returns a connection to the sqlite
+/// file along with its path.
 fn create_sortition_source_db(dir: &Path) -> (Connection, PathBuf) {
     let db_dir = dir.join("src_sort");
     let _db = SortitionDB::connect(
@@ -63,8 +62,7 @@ fn create_sortition_source_db(dir: &Path) -> (Connection, PathBuf) {
 ///
 /// `sortition_id` is stored as its [`hex_id`] form so it joins against the
 /// canonical-sortitions temp table, which `populate_canonical_sortitions`
-/// fills with the lowercase-hex ids read via
-/// `trie_sql::bulk_read_squashed_blocks`.
+/// fills with the lowercase-hex ids read via `trie_sql::bulk_read_squashed_blocks`.
 fn insert_snapshot(
     conn: &Connection,
     sortition_id_label: &str,
@@ -608,11 +606,8 @@ fn test_sortition_tip_copy_rewrites_rows_above_stacks_boundary() {
     );
 }
 
-/// Production-path integration: the source is seeded exclusively through
-/// SortitionDB's own write paths ([`SortitionDB::connect`],
-/// [`test_append_snapshot`], [`make_fork_run`]), so the fixture cannot
-/// drift from what production actually writes. The copy keeps the
-/// canonical chain's rows and drops the fork's.
+/// Production-path integration. The copy keeps the canonical chain's
+/// rows and drops the fork's.
 #[test]
 fn test_sortition_copy_with_production_seeded_source() {
     let dir = tempdir().unwrap();

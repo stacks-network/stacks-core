@@ -4495,6 +4495,23 @@ impl SortitionDB {
     }
 }
 
+/// Stacks-side boundary used when copying sortition tip memo tables.
+///
+/// The squash anchors the Stacks MARF at the boundary tenure's FIRST block,
+/// but the fully-synced source already processed the whole tenure, so its
+/// `stacks_chain_tips*` memo rows for that burn view point at the tenure's
+/// LAST block. Copied verbatim, those memos would make a booting node treat
+/// the dropped intra-tenure descendants as already processed; rewriting them
+/// down to the anchor makes the node re-fetch and process them from peers.
+#[derive(Debug, Clone)]
+pub struct SortitionTipCopyBoundary {
+    pub max_stacks_height: u64,
+    pub anchor_consensus_hash: ConsensusHash,
+    pub anchor_burn_view_consensus_hash: ConsensusHash,
+    pub anchor_block_hash: BlockHeaderHash,
+    pub anchor_block_height: u64,
+}
+
 // Querying methods
 impl SortitionDB {
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
@@ -4511,6 +4528,71 @@ impl SortitionDB {
         let qry =
             "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         query_row(conn, qry, NO_PARAMS).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
+    }
+
+    /// Get the burn header hash of the snapshot with the given sortition
+    /// ID, or `None` if no such snapshot exists. Used by the offline
+    /// snapshot copy to derive its canonical burn-hash set. Returns the raw
+    /// stored TEXT, so the copy preserves the value byte-for-byte.
+    pub(crate) fn get_snapshot_burn_header_hash(
+        conn: &Connection,
+        sortition_id: &SortitionId,
+    ) -> Result<Option<String>, db_error> {
+        conn.prepare_cached("SELECT burn_header_hash FROM snapshots WHERE sortition_id = ?1")?
+            .query_row(params![sortition_id], |row| row.get(0))
+            .optional()
+            .map_err(db_error::from)
+    }
+
+    /// Source-projection SQL for copying a Stacks-tip memo table
+    /// (`stacks_chain_tips`, or `stacks_chain_tips_by_burn_view` with
+    /// `include_burn_view`) from the schema `from`, keeping rows whose
+    /// `sortition_id` is in `sortition_id_sql`. With a `boundary`, memo
+    /// rows above its Stacks height are rewritten down to the anchor (see
+    /// [`SortitionTipCopyBoundary`])
+    pub(crate) fn stacks_tip_memo_copy_sql(
+        table: &str,
+        from: &str,
+        sortition_id_sql: &str,
+        include_burn_view: bool,
+        boundary: Option<&SortitionTipCopyBoundary>,
+    ) -> String {
+        let Some(boundary) = boundary else {
+            return format!(
+                "SELECT * FROM {from}.{table} WHERE sortition_id IN ({sortition_id_sql})"
+            );
+        };
+        let max_height = boundary.max_stacks_height;
+        let anchor_height = boundary.anchor_block_height;
+        let anchor_ch = &boundary.anchor_consensus_hash;
+        let anchor_bhh = &boundary.anchor_block_hash;
+        let anchor_burn_view_ch = &boundary.anchor_burn_view_consensus_hash;
+        let burn_view_column = if include_burn_view {
+            format!(
+                "CASE WHEN block_height > {max_height} THEN '{anchor_burn_view_ch}' \
+                      ELSE burn_view_consensus_hash END, "
+            )
+        } else {
+            String::new()
+        };
+        let anchor_match = if include_burn_view {
+            format!(
+                "(consensus_hash = '{anchor_ch}' \
+                  AND burn_view_consensus_hash = '{anchor_burn_view_ch}')"
+            )
+        } else {
+            format!("consensus_hash = '{anchor_ch}'")
+        };
+        format!(
+            "SELECT sortition_id, \
+                    CASE WHEN block_height > {max_height} THEN '{anchor_ch}' ELSE consensus_hash END, \
+                    {burn_view_column}\
+                    CASE WHEN block_height > {max_height} THEN '{anchor_bhh}' ELSE block_hash END, \
+                    CASE WHEN block_height > {max_height} THEN {anchor_height} ELSE block_height END \
+             FROM {from}.{table} \
+             WHERE sortition_id IN ({sortition_id_sql}) \
+               AND (block_height <= {max_height} OR {anchor_match})"
+        )
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
