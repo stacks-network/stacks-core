@@ -21,6 +21,8 @@ pub(crate) mod stacks_client;
 
 use std::time::Duration;
 
+use std::error::Error as _;
+
 use clarity::vm::errors::ClarityTypeError;
 use clarity::vm::types::serialization::SerializationError;
 use libsigner::RPCError;
@@ -59,7 +61,7 @@ pub enum ClientError {
     #[error("Failed to call read only function. {0}")]
     ReadOnlyFailure(String),
     /// Reqwest specific error occurred
-    #[error("{0}")]
+    #[error("{0}: {}", .0.source().map(|e: &dyn std::error::Error| e.to_string()).unwrap_or_default())]
     ReqwestError(#[from] reqwest::Error),
     /// Failed to build and sign a new Stacks transaction.
     #[error("Failed to generate transaction from a transaction signer: {0}")]
