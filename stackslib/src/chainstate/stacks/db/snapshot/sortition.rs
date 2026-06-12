@@ -26,7 +26,7 @@ use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_sto
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 pub use crate::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
 use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
-use crate::util_lib::db::{sqlite_open, u64_to_sql};
+use crate::util_lib::db::sqlite_open;
 
 /// Required sortition tables always present in production.
 pub(super) const REQUIRED_TABLES: &[&str] = &[
@@ -144,36 +144,11 @@ fn populate_canonical_sortitions(
 
 fn validate_tip_boundary(boundary: Option<&SortitionTipCopyBoundary>) -> Result<(), Error> {
     if let Some(boundary) = boundary {
-        if boundary.anchor_block_height > boundary.max_stacks_height {
-            return Err(Error::CorruptionError(format!(
-                "sortition tip rewrite anchor height {} exceeds Stacks boundary {}",
-                boundary.anchor_block_height, boundary.max_stacks_height
-            )));
-        }
-        u64_to_sql(boundary.max_stacks_height)?;
-        u64_to_sql(boundary.anchor_block_height)?;
+        boundary
+            .validate()
+            .map_err(|e| Error::CorruptionError(e.to_string()))?;
     }
     Ok(())
-}
-
-fn sortition_tip_heights_within_boundary(
-    conn: &Connection,
-    boundary: Option<&SortitionTipCopyBoundary>,
-) -> Result<bool, Error> {
-    let Some(boundary) = boundary else {
-        return Ok(true);
-    };
-    let max_height = u64_to_sql(boundary.max_stacks_height)?;
-    conn.query_row(
-        "SELECT COUNT(*) = 0 FROM ( \
-             SELECT block_height FROM stacks_chain_tips WHERE block_height > ?1 \
-             UNION ALL \
-             SELECT block_height FROM stacks_chain_tips_by_burn_view WHERE block_height > ?1 \
-         )",
-        params![max_height],
-        |row| row.get(0),
-    )
-    .map_err(Error::SQLError)
 }
 
 /// Build the copy specs for sortition side tables.
@@ -321,7 +296,9 @@ fn copy_sortition_tables_inner(
     // Execute descriptor-driven copies.
     let specs = sortition_copy_specs(stacks_boundary);
     let results = execute_copy_specs(session_conn, &specs)?;
-    if !sortition_tip_heights_within_boundary(session_conn, stacks_boundary)? {
+    if !SortitionDB::stacks_tip_memos_within_boundary(session_conn, stacks_boundary)
+        .map_err(|e| Error::CorruptionError(format!("cannot check sortition tip boundary: {e}")))?
+    {
         return Err(Error::CorruptionError(
             "copied sortition tip row points past the Stacks MARF boundary".into(),
         ));

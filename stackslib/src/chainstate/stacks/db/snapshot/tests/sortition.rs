@@ -30,7 +30,15 @@ use super::super::sortition::{
 };
 use super::{hex_id, label_block_id};
 use crate::burnchains::PoxConstants;
-use crate::chainstate::burn::db::sortdb::tests::{make_fork_run, test_append_snapshot};
+use crate::chainstate::burn::db::sortdb::tests::{
+    make_fork_run, test_append_snapshot, test_insert_block_commit_parent_row,
+    test_insert_block_commit_row, test_insert_delegate_stx_row, test_insert_leader_key_row,
+    test_insert_missed_commit_row, test_insert_preprocessed_reward_set_row,
+    test_insert_snapshot_row, test_insert_snapshot_transition_ops_row, test_insert_stack_stx_row,
+    test_insert_stacks_chain_tip_by_burn_view_row, test_insert_stacks_chain_tip_row,
+    test_insert_transfer_stx_row, test_insert_vote_for_aggregate_key_row,
+    test_set_snapshot_consensus_hash,
+};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
@@ -69,85 +77,50 @@ fn insert_snapshot(
     burn_header_hash: &str,
     block_height: u32,
 ) {
-    conn.execute(
-        "INSERT INTO snapshots (
-                block_height, burn_header_hash, sortition_id, parent_sortition_id,
-                burn_header_timestamp, parent_burn_header_hash, consensus_hash,
-                ops_hash, total_burn, sortition, sortition_hash,
-                winning_block_txid, winning_stacks_block_hash, index_root,
-                num_sortitions, stacks_block_accepted, stacks_block_height,
-                arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash,
-                canonical_stacks_tip_consensus_hash, pox_valid,
-                accumulated_coinbase_ustx, pox_payouts, miner_pk_hash
-            ) VALUES (
-                ?1, ?2, ?3, 'parent_sort', 1000, 'parent_bhh', ?4,
-                'ops', '0', 1, 'shash', 'wbtxid', 'wsbh', ?5,
-                ?1, 0, 0, ?1, 0, 'csth', 'cstch', 1, '0', '[]', NULL
-            )",
-        params![
-            block_height,
-            burn_header_hash,
-            hex_id(sortition_id_label),
-            format!("ch_{sortition_id_label}"),
-            format!("ir_{sortition_id_label}"),
-        ],
+    test_insert_snapshot_row(
+        conn,
+        block_height,
+        burn_header_hash,
+        &hex_id(sortition_id_label),
+        &format!("ch_{sortition_id_label}"),
+        &format!("ir_{sortition_id_label}"),
     )
     .unwrap();
 }
 
 /// Insert a leader_keys row for the given sortition_id label.
 fn insert_leader_key(conn: &Connection, sortition_id_label: &str) {
-    conn.execute(
-        "INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, \
-             sortition_id, consensus_hash, public_key, memo) \
-             VALUES (?1, 0, 1, 'bhh', ?2, 'ch', 'pk', 'memo')",
-        params![
-            format!("lk_tx_{sortition_id_label}"),
-            hex_id(sortition_id_label),
-        ],
+    test_insert_leader_key_row(
+        conn,
+        &format!("lk_tx_{sortition_id_label}"),
+        &hex_id(sortition_id_label),
     )
     .unwrap();
 }
 
 /// Insert a block_commits row for the given sortition_id label.
 fn insert_block_commit(conn: &Connection, sortition_id_label: &str) {
-    conn.execute(
-        "INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, \
-             sortition_id, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, \
-             key_block_ptr, key_vtxindex, memo, commit_outs, burn_fee, sunset_burn, \
-             input, apparent_sender, burn_parent_modulus, punished) \
-             VALUES (?1, 0, 1, 'bhh', ?2, 'bhh', 'seed', 0, 0, 0, 0, '', '', '0', '0', \
-             'input', 'sender', 0, NULL)",
-        params![
-            format!("bc_tx_{sortition_id_label}"),
-            hex_id(sortition_id_label),
-        ],
+    test_insert_block_commit_row(
+        conn,
+        &format!("bc_tx_{sortition_id_label}"),
+        &hex_id(sortition_id_label),
     )
     .unwrap();
 }
 
 /// Insert a block_commit_parents row.
 fn insert_block_commit_parent(conn: &Connection, sortition_id_label: &str) {
-    conn.execute(
-        "INSERT INTO block_commit_parents (block_commit_txid, block_commit_sortition_id, \
-             parent_sortition_id) VALUES (?1, ?2, 'parent_sort')",
-        params![
-            format!("bc_tx_{sortition_id_label}"),
-            hex_id(sortition_id_label),
-        ],
+    test_insert_block_commit_parent_row(
+        conn,
+        &format!("bc_tx_{sortition_id_label}"),
+        &hex_id(sortition_id_label),
     )
     .unwrap();
 }
 
 /// Insert a stack_stx row for the given burn_header_hash.
 fn insert_stack_stx(conn: &Connection, burn_header_hash: &str, txid: &str) {
-    conn.execute(
-        "INSERT INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, \
-             sender_addr, reward_addr, stacked_ustx, num_cycles, signer_key, max_amount, auth_id) \
-             VALUES (?1, 0, 1, ?2, 'sender', 'reward', '1000', 1, NULL, NULL, NULL)",
-        params![txid, burn_header_hash],
-    )
-    .unwrap();
+    test_insert_stack_stx_row(conn, txid, burn_header_hash).unwrap();
 }
 
 /// Create a sortition dest DB simulating a squashed MARF with the given
@@ -218,60 +191,20 @@ fn test_sortition_copy_excludes_fork_data() {
     insert_stack_stx(&conn, "bhh_1_fork", "stx_tx_fork");
 
     // Transition ops.
-    conn.execute(
-        "INSERT INTO snapshot_transition_ops (sortition_id, accepted_ops, consumed_keys) \
-             VALUES (?1, '[]', '[]')",
-        params![hex_id("sort_1")],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO snapshot_transition_ops (sortition_id, accepted_ops, consumed_keys) \
-             VALUES (?1, '[]', '[]')",
-        params![hex_id("sort_1_fork")],
-    )
-    .unwrap();
+    test_insert_snapshot_transition_ops_row(&conn, &hex_id("sort_1")).unwrap();
+    test_insert_snapshot_transition_ops_row(&conn, &hex_id("sort_1_fork")).unwrap();
 
     // Stacks chain tips.
-    conn.execute(
-        "INSERT INTO stacks_chain_tips (sortition_id, consensus_hash, block_hash, block_height) \
-             VALUES (?1, 'ch', 'bh', 1)",
-        params![hex_id("sort_1")],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO stacks_chain_tips (sortition_id, consensus_hash, block_hash, block_height) \
-             VALUES (?1, 'ch2', 'bh2', 1)",
-        params![hex_id("sort_1_fork")],
-    )
-    .unwrap();
+    test_insert_stacks_chain_tip_row(&conn, &hex_id("sort_1"), "ch", "bh", 1).unwrap();
+    test_insert_stacks_chain_tip_row(&conn, &hex_id("sort_1_fork"), "ch2", "bh2", 1).unwrap();
 
     // Missed commits.
-    conn.execute(
-        "INSERT INTO missed_commits (txid, input, intended_sortition_id) \
-             VALUES ('mc_tx', 'input', ?1)",
-        params![hex_id("sort_1")],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO missed_commits (txid, input, intended_sortition_id) \
-             VALUES ('mc_tx_fork', 'input', ?1)",
-        params![hex_id("sort_1_fork")],
-    )
-    .unwrap();
+    test_insert_missed_commit_row(&conn, "mc_tx", &hex_id("sort_1")).unwrap();
+    test_insert_missed_commit_row(&conn, "mc_tx_fork", &hex_id("sort_1_fork")).unwrap();
 
     // Preprocessed reward sets.
-    conn.execute(
-        "INSERT INTO preprocessed_reward_sets (sortition_id, reward_set) \
-             VALUES (?1, '{}')",
-        params![hex_id("sort_1")],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO preprocessed_reward_sets (sortition_id, reward_set) \
-             VALUES (?1, '{}')",
-        params![hex_id("sort_1_fork")],
-    )
-    .unwrap();
+    test_insert_preprocessed_reward_set_row(&conn, &hex_id("sort_1")).unwrap();
+    test_insert_preprocessed_reward_set_row(&conn, &hex_id("sort_1_fork")).unwrap();
 
     // src __fork_storage: the dest fixture's single MARF leaf ([0xff; 40])
     // is canonical; an unreferenced entry must be dropped.
@@ -364,40 +297,15 @@ fn test_sortition_burn_header_hash_filtering() {
     insert_stack_stx(&conn, "bhh_fork", "stx_fork");
 
     // transfer_stx at canonical and fork.
-    conn.execute(
-        "INSERT INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, \
-             sender_addr, recipient_addr, transfered_ustx, memo) \
-             VALUES ('xfer_canon', 0, 0, 'bhh_canon', 's', 'r', '100', 'x')",
-        [],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, \
-             sender_addr, recipient_addr, transfered_ustx, memo) \
-             VALUES ('xfer_fork', 0, 0, 'bhh_fork', 's', 'r', '100', 'x')",
-        [],
-    )
-    .unwrap();
+    test_insert_transfer_stx_row(&conn, "xfer_canon", "bhh_canon").unwrap();
+    test_insert_transfer_stx_row(&conn, "xfer_fork", "bhh_fork").unwrap();
 
     // delegate_stx and vote_for_aggregate_key at canonical and fork.
     for (txid, bhh) in [("del_canon", "bhh_canon"), ("del_fork", "bhh_fork")] {
-        conn.execute(
-            "INSERT INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, \
-                 sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) \
-                 VALUES (?1, 0, 0, ?2, 's', 'd', 'r', '100', NULL)",
-            params![txid, bhh],
-        )
-        .unwrap();
+        test_insert_delegate_stx_row(&conn, txid, bhh).unwrap();
     }
     for (txid, bhh) in [("vote_canon", "bhh_canon"), ("vote_fork", "bhh_fork")] {
-        conn.execute(
-            "INSERT INTO vote_for_aggregate_key (txid, vtxindex, block_height, \
-                 burn_header_hash, sender_addr, aggregate_key, round, reward_cycle, \
-                 signer_index, signer_key) \
-                 VALUES (?1, 0, 0, ?2, 's', 'k', 0, 0, 0, 'sk')",
-            params![txid, bhh],
-        )
-        .unwrap();
+        test_insert_vote_for_aggregate_key_row(&conn, txid, bhh).unwrap();
     }
 
     drop(conn);
@@ -478,18 +386,22 @@ fn test_sortition_stacks_chain_tips_by_burn_view_copied() {
     // Insert stacks_chain_tips_by_burn_view rows.
     // consensus_hash and burn_view_consensus_hash must reference
     // existing snapshots(consensus_hash) due to FK constraints.
-    conn.execute(
-        "INSERT INTO stacks_chain_tips_by_burn_view \
-         (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
-         VALUES (?1, 'ch_sort_0', 'ch_sort_0', 'bh_0', 0)",
-        params![hex_id("sort_0")],
+    test_insert_stacks_chain_tip_by_burn_view_row(
+        &conn,
+        &hex_id("sort_0"),
+        "ch_sort_0",
+        "ch_sort_0",
+        "bh_0",
+        0,
     )
     .unwrap();
-    conn.execute(
-        "INSERT INTO stacks_chain_tips_by_burn_view \
-         (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
-         VALUES (?1, 'ch_sort_1', 'ch_sort_1', 'bh_1', 1)",
-        params![hex_id("sort_1")],
+    test_insert_stacks_chain_tip_by_burn_view_row(
+        &conn,
+        &hex_id("sort_1"),
+        "ch_sort_1",
+        "ch_sort_1",
+        "bh_1",
+        1,
     )
     .unwrap();
     drop(conn);
@@ -545,28 +457,16 @@ fn test_sortition_tip_copy_rewrites_rows_above_stacks_boundary() {
     let anchor_bhh = boundary.anchor_block_hash.to_string();
     let source_tip_bhh = BlockHeaderHash([0x33; 32]).to_string();
 
-    conn.execute(
-        "UPDATE snapshots SET consensus_hash = ?1 WHERE sortition_id = ?2",
-        params![&anchor_burn_view_ch, hex_id("sort_1")],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO stacks_chain_tips \
-         (sortition_id, consensus_hash, block_hash, block_height) \
-         VALUES (?1, ?2, ?3, 20)",
-        params![hex_id("sort_1"), &anchor_ch, &source_tip_bhh],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO stacks_chain_tips_by_burn_view \
-         (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
-         VALUES (?1, ?2, ?3, ?4, 20)",
-        params![
-            hex_id("sort_1"),
-            &anchor_ch,
-            &anchor_burn_view_ch,
-            &source_tip_bhh
-        ],
+    test_set_snapshot_consensus_hash(&conn, &hex_id("sort_1"), &anchor_burn_view_ch).unwrap();
+    test_insert_stacks_chain_tip_row(&conn, &hex_id("sort_1"), &anchor_ch, &source_tip_bhh, 20)
+        .unwrap();
+    test_insert_stacks_chain_tip_by_burn_view_row(
+        &conn,
+        &hex_id("sort_1"),
+        &anchor_ch,
+        &anchor_burn_view_ch,
+        &source_tip_bhh,
+        20,
     )
     .unwrap();
     drop(conn);
