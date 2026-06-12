@@ -39,6 +39,14 @@ export const sbtc = contracts.sbtcToken;
 export const REWARD_CYCLE_LENGTH = 100n;
 export const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
 export const BASIS_POINTS = 10000n;
+/** Largest value a Clarity `uint` (uint128) can hold. */
+export const MAX_UINT128 = 2n ** 128n - 1n;
+/** Cap on simultaneously-deployed signer-manager contracts. */
+export const MAX_SIGNERS = 10;
+/** Cycles between consecutive bond-period starts (contract `BOND_GAP_CYCLES`). */
+export const BOND_GAP_CYCLES = 2n;
+/** Length of a bond period in cycles (contract `BOND_LENGTH_CYCLES`). */
+export const BOND_LENGTH_CYCLES = 12n;
 
 export const deployer = accounts.deployer.address;
 
@@ -282,28 +290,73 @@ export function signPerTransactionAuth({
   return hex.decode(data.slice(2) + data.slice(0, 2));
 }
 
-// /** Register the test signer with a valid signer key grant. Returns the signer key and pox address. */
-export function registerSigner(
-  { caller }: { caller: string } = { caller: deployer },
-) {
-  const signerSk = secp256k1.utils.randomSecretKey();
+/**
+ * Register a test-pox-5-signer instance with a valid signer key grant.
+ *
+ * Defaults to the project's `testSigner`; pass `signerManager` to register a
+ * different deployed instance (e.g. one returned by `deployTestSignerContract`).
+ * Passing both `seed` and `authId` makes the call fully deterministic;
+ * omitting them uses fresh entropy and the module-level auth-id counter.
+ */
+export function registerSigner({
+  signerManager = testSigner,
+  caller = deployer,
+  seed,
+  authId,
+}: {
+  signerManager?: typeof testSigner;
+  caller?: string;
+  seed?: Uint8Array;
+  authId?: bigint;
+} = {}) {
+  const signerSk = secp256k1.utils.randomSecretKey(seed);
   const signerKey = secp256k1.getPublicKey(signerSk, true);
-  const authId = grantAuthIdCounter++;
+  const resolvedAuthId = authId ?? grantAuthIdCounter++;
   const signature = signSignerKeyGrant({
-    signerManager: testSigner.identifier,
-    authId,
+    signerManager: signerManager.identifier,
+    authId: resolvedAuthId,
     signerSk,
   });
   txOk(
-    testSigner.registerSelf({
+    signerManager.registerSelf({
       signerKey,
-      signerManager: testSigner.identifier,
-      authId,
+      signerManager: signerManager.identifier,
+      authId: resolvedAuthId,
       signerSig: signature,
     }),
     caller,
   );
-  return { signerKey, signer: testSigner.identifier };
+  return { signerKey, signer: signerManager.identifier };
+}
+
+/**
+ * Deploy a fresh test-pox-5-signer contract instance (using the same source
+ * as the default `testSigner`) but do NOT register it. Returns a typed
+ * contract handle that can be passed to `registerSigner({ signerManager })`.
+ */
+export function deployTestSignerContract(name: string) {
+  const newId = `${accounts.deployer.address}.${name}`;
+  const signerSource = simnet.getContractSource(testSigner.identifier)!;
+  simnet.deployContract(
+    name,
+    signerSource,
+    // @ts-ignore
+    { clarityVersion: 6 },
+    accounts.deployer.address,
+  );
+  return testSignerHandle(newId);
+}
+
+/**
+ * Reconstruct a typed test-pox-5-signer contract handle for an identifier
+ * that was already deployed earlier in the session (e.g. tracked in the
+ * stateful test model).
+ */
+export function testSignerHandle(identifier: string): typeof testSigner {
+  return contractFactory(
+    project.contracts.testPox5Signer,
+    identifier,
+  ) as typeof testSigner;
 }
 
 export function registerSignerManager() {
@@ -402,6 +455,9 @@ export function expectAllSignersHaveKeys() {
 }
 
 export function initPox5() {
+  // With `override_boot_contracts_source`, the boot pox-5 is our raw
+  // pox-5.clar, so its initial bond-admin is the mainnet placeholder it ships
+  // with.
   const INITIAL_BOND_ADMIN = 'SP000000000000000000002Q6VF78';
 
   txOk(
@@ -414,6 +470,28 @@ export function initPox5() {
     deployer,
   );
   txOk(pox5.setBondAdmin(deployer), INITIAL_BOND_ADMIN);
+}
+
+//  The boot-deployed pox-5 (`ST0…AMW42H.pox-5`) that clarinet-sdk recognizes
+//  and applies STX locking to. `signer-manager.clar` now targets this instance,
+//  so the test infra must register/stake against it. The local
+//  `[contracts.pox-5]` is not lock-aware in simnet. Typed via the local ABI
+//  re-pointed at the boot id.
+
+/** `initPox5` for the boot instance: burnchain params only (no bond-admin). */
+export function initBootPox5() {
+  txOk(
+    pox5.setBurnchainParameters({
+      firstBurnHeight: 0n,
+      prepareCycleLength: 10n,
+      rewardCycleLength: REWARD_CYCLE_LENGTH,
+      beginPox5RewardCycle: 1n,
+    }),
+    deployer,
+  );
+  // Hand bond-admin from the shipped mainnet placeholder to the deployer so
+  // the stateful test can drive `setup-bond`.
+  txOk(pox5.setBondAdmin(deployer), 'SP000000000000000000002Q6VF78');
 }
 
 export function sbtcTransfer(

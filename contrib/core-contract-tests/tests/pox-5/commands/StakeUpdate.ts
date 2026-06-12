@@ -1,0 +1,201 @@
+import fc from 'fast-check';
+import type { Model, Real, StakerState } from './types';
+import {
+  assertSignerCycleMembership,
+  assertSignerDelegationForCycle,
+  assertStakerLock,
+  assertStakerSharesForCycle,
+  assertTotalDelegatedForCycle,
+  currentRewardCycle,
+  getWalletNameByAddress,
+  grantedSigners,
+  isInPreparePhase,
+  isStakerActive,
+  logCommand,
+  modelAddStakerToCycles,
+  modelRemoveStakerFromCycles,
+  refreshModel,
+  rewardCycleToBurnHeight,
+  trackCommandRun,
+} from './utils';
+import { rov, txOk } from '@clarigen/test';
+import { expect } from 'vitest';
+
+export const StakeUpdate = (accounts: Real['accounts']) =>
+  fc
+    .record({
+      sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
+      cyclesToExtend: fc.bigInt({ min: 1n, max: 12n }),
+      amountIncrease: fc.bigInt({ min: 0n, max: 1000000000000n }),
+      signerIndex: fc.nat(),
+    })
+    .map((r) => {
+      let pickedSigner: string | undefined;
+      return {
+        // Gate the internal num-cycles (new-unlock - current - 1) into the
+        // contract's [1, 96] band, else stake-update rejects with
+        // ERR_INVALID_NUM_CYCLES.
+        check: (model: Readonly<Model>) => {
+          // The new signer needs a live grant; revoke blocks stake-update.
+          if (grantedSigners(model).length === 0) return false;
+          // stake-update reverts with ERR_STAKE_IN_PREPARE_PHASE in the
+          // prepare phase.
+          if (isInPreparePhase(model)) return false;
+          if (!isStakerActive(model, r.sender)) return false;
+          const prev = model.stakers.get(r.sender)!;
+          const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
+          const newUnlockCycle = prevUnlockCycle + r.cyclesToExtend;
+          const internalNumCycles =
+            newUnlockCycle - currentRewardCycle(model) - 1n;
+          return internalNumCycles >= 1n && internalNumCycles <= 96n;
+        },
+        run: (model: Model, real: Real) => {
+          refreshModel(model, real);
+          trackCommandRun(model, 'stake-update');
+
+          // Arrange
+          const registered = grantedSigners(model);
+          const newSigner = registered[r.signerIndex % registered.length];
+          pickedSigner = newSigner;
+          const bitcoinHeightBefore = real.network.burnBlockHeight;
+          const stacksHeightBefore = real.network.stacksBlockHeight;
+          const currentCycle = currentRewardCycle(model);
+          const prev = model.stakers.get(r.sender)!;
+          const prevUnlockCycle = prev.firstRewardCycle + prev.numCycles;
+          const expectedUnlockCycle = prevUnlockCycle + r.cyclesToExtend;
+          const expectedUnlockBurnHeight = rewardCycleToBurnHeight(
+            model,
+            expectedUnlockCycle,
+          );
+          const expectedAmountUstx = prev.amountUstx + r.amountIncrease;
+          // Contract keeps the original first-reward-cycle and bumps
+          // num-cycles by cyclesToExtend.
+          const expectedNumCycles = prev.numCycles + r.cyclesToExtend;
+          const stakerInfoBefore = rov(
+            real.contracts.pox5.getStakerInfo(r.sender),
+          );
+          const newStakerState: StakerState = {
+            amountUstx: expectedAmountUstx,
+            firstRewardCycle: prev.firstRewardCycle,
+            numCycles: expectedNumCycles,
+            unlockBurnHeight: expectedUnlockBurnHeight,
+            unlockCycle: expectedUnlockCycle,
+            signer: newSigner,
+          };
+          // Boundaries of the affected range: the contract removes from
+          // [current+1, prev-unlock) and re-adds [current+1, new-unlock). With
+          // cyclesToExtend >= 1 the new range extends past the old, so these
+          // two cycles cover both ends.
+          const firstAffectedCycle = currentCycle + 1n;
+          const lastAffectedCycle = expectedUnlockCycle - 1n;
+
+          // Act
+          const receipt = txOk(
+            real.contracts.pox5.stakeUpdate({
+              signerManager: newSigner,
+              oldSignerManager: prev.signer,
+              cyclesToExtend: r.cyclesToExtend,
+              amountIncrease: r.amountIncrease,
+              signerCalldata: null,
+            }),
+            r.sender,
+          );
+
+          // Update model
+
+          // Replay the contract's remove-then-add across the affected cycles.
+          // The remove reads the stored (pre-update) memberships, so
+          // amount/signer changes net out per cycle as the contract computes
+          // them. Before the asserts so they compare against the committed
+          // mirror.
+          modelRemoveStakerFromCycles(
+            model,
+            r.sender,
+            firstAffectedCycle,
+            prevUnlockCycle - currentCycle - 1n,
+          );
+          modelAddStakerToCycles(
+            model,
+            r.sender,
+            newSigner,
+            firstAffectedCycle,
+            expectedUnlockCycle - currentCycle - 1n,
+            expectedAmountUstx,
+          );
+          model.stakers.set(r.sender, newStakerState);
+
+          // Assert
+
+          // Pre-state: contract's view matched the model's pre-update record.
+          expect(stakerInfoBefore).toEqual({
+            amountUstx: prev.amountUstx,
+            firstRewardCycle: prev.firstRewardCycle,
+            numCycles: prev.numCycles,
+            signer: prev.signer,
+          });
+          // Receipt reflects the recomputed unlock cycle and new amount/signer.
+          expect(receipt.value.unlockCycle).toBe(expectedUnlockCycle);
+          expect(receipt.value.unlockBurnHeight).toBe(expectedUnlockBurnHeight);
+          expect(receipt.value.prevUnlockHeight).toBe(prevUnlockCycle);
+          expect(receipt.value.amountUstx).toBe(expectedAmountUstx);
+          expect(receipt.value.signer).toBe(newSigner);
+          expect(receipt.value.staker).toBe(r.sender);
+          // Post-state staker-info matches the updated record.
+          expect(rov(real.contracts.pox5.getStakerInfo(r.sender))).toEqual({
+            amountUstx: expectedAmountUstx,
+            firstRewardCycle: prev.firstRewardCycle,
+            numCycles: expectedNumCycles,
+            signer: newSigner,
+          });
+          // Lock now reflects the new amount and extended unlock height.
+          assertStakerLock(model, real, r.sender);
+          // Per-cycle invariants at the first and last affected cycles.
+          assertSignerDelegationForCycle(
+            model,
+            real,
+            firstAffectedCycle,
+            newSigner,
+          );
+          assertSignerCycleMembership(
+            model,
+            real,
+            firstAffectedCycle,
+            r.sender,
+          );
+          assertTotalDelegatedForCycle(model, real, firstAffectedCycle);
+          assertStakerSharesForCycle(
+            model,
+            real,
+            firstAffectedCycle,
+            r.sender,
+            newSigner,
+          );
+
+          assertSignerDelegationForCycle(
+            model,
+            real,
+            lastAffectedCycle,
+            newSigner,
+          );
+          assertSignerCycleMembership(model, real, lastAffectedCycle, r.sender);
+          assertTotalDelegatedForCycle(model, real, lastAffectedCycle);
+          assertStakerSharesForCycle(
+            model,
+            real,
+            lastAffectedCycle,
+            r.sender,
+            newSigner,
+          );
+
+          logCommand({
+            sender: getWalletNameByAddress(r.sender),
+            action: 'stake-update',
+            value: `extend: ${r.cyclesToExtend} +ustx: ${r.amountIncrease} signer: ${newSigner}`,
+            bitcoinHeightBefore,
+            stacksHeightBefore,
+          });
+        },
+        toString: () =>
+          `stake-update(${getWalletNameByAddress(r.sender)}, +${r.cyclesToExtend}c, +${r.amountIncrease}u${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+      };
+    });
