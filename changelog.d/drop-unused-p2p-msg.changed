@@ -1,0 +1,1 @@
+Drop unused p2p message types (BlocksAvailable, MicroblocsAvailable, BlocksData)

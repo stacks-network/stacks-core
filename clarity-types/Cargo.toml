@@ -18,6 +18,7 @@ serde_json = { version = "1.0", default-features = false, optional = true }
 serde_derive = { workspace = true }
 slog = { workspace = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
+variant_count = { workspace = true }
 
 [dev-dependencies]
 mutants = "0.0.3"

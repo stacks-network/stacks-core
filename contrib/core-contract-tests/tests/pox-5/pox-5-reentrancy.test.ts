@@ -9,6 +9,7 @@ import {
   errorCodes,
   initPox5,
   pox5,
+  POX5_BOOT_ID,
   registerSigner,
   sbtcBalance,
   signSignerKeyGrant,
@@ -40,15 +41,21 @@ test('reentrancy via validate-stake! is blocked with ERR_REENTRANT_CALL', () => 
   // validate-stake! re-enters pox-5 by calling unstake-sbtc on Alice's
   // current signer (signer1). The guard is already set, so unstake-sbtc
   // immediately returns ERR_REENTRANT_CALL, which propagates via try!.
+  //
+  // It must re-enter the boot pox-5: the lock-aware instance the test drives,
+  // on which update-bond-registration sets the guard. A bare `.pox-5` would
+  // target the local instance, where Alice has no bond membership, so
+  // unstake-sbtc returns ERR_NOT_BOND_PARTICIPANT before reaching the guard.
+  const pox5Ref = `'${POX5_BOOT_ID}`;
   const maliciousSource = `\
-(impl-trait .pox-5.signer-manager-trait)
-(use-trait signer-manager-trait .pox-5.signer-manager-trait)
+(impl-trait ${pox5Ref}.signer-manager-trait)
+(use-trait signer-manager-trait ${pox5Ref}.signer-manager-trait)
 (define-public (validate-stake!
     (staker principal) (first-index uint) (num-indexes uint)
     (amount-ustx uint) (amount-sats uint) (is-bond bool)
     (signer-calldata (optional (buff 500))))
   (begin
-    (try! (contract-call? .pox-5 unstake-sbtc .${signer1Name} amount-sats))
+    (try! (contract-call? ${pox5Ref} unstake-sbtc .${signer1Name} amount-sats))
     (ok true)))
 (define-public (checkpoint-staker
     (staker principal) (first-index uint) (num-indexes uint) (is-bond bool))
@@ -57,10 +64,15 @@ test('reentrancy via validate-stake! is blocked with ERR_REENTRANT_CALL', () => 
     (signer-manager <signer-manager-trait>) (signer-key (buff 33))
     (auth-id uint) (signer-sig (buff 65)))
   (as-contract? ()
-    (try! (contract-call? .pox-5 grant-signer-key signer-key current-contract auth-id signer-sig))
-    (try! (contract-call? .pox-5 register-signer signer-manager signer-key))))`;
+    (try! (contract-call? ${pox5Ref} grant-signer-key signer-key current-contract auth-id signer-sig))
+    (try! (contract-call? ${pox5Ref} register-signer signer-manager signer-key))))`;
 
-  simnet.deployContract(maliciousName, maliciousSource, { clarityVersion: 4 }, deployer);
+  simnet.deployContract(
+    maliciousName,
+    maliciousSource,
+    { clarityVersion: 4 },
+    deployer,
+  );
 
   const maliciousSk = secp256k1.utils.randomSecretKey();
   const maliciousKey = secp256k1.getPublicKey(maliciousSk, true);
@@ -70,7 +82,10 @@ test('reentrancy via validate-stake! is blocked with ERR_REENTRANT_CALL', () => 
     authId: maliciousAuthId,
     signerSk: maliciousSk,
   });
-  const maliciousContract = contractFactory(project.contracts.testPox5Signer, maliciousId);
+  const maliciousContract = contractFactory(
+    project.contracts.testPox5Signer,
+    maliciousId,
+  );
   txOk(
     maliciousContract.registerSelf({
       signerKey: maliciousKey,
