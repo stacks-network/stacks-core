@@ -2927,12 +2927,23 @@ pub mod test {
     use std::{env, fs};
 
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
+    use clarity::vm::ClarityVersion;
     use stx_genesis::GenesisData;
 
     use super::*;
+    use crate::chainstate::stacks::boot::{
+        BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
+    };
     use crate::chainstate::stacks::*;
-    use crate::util_lib::boot::boot_code_test_addr;
+    use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
 
+    /// Create a fresh chainstate for testing under `test_name`, wiping any
+    /// existing state at that path. Genesis deploys the standard boot contracts
+    /// (`pox`, `costs`, `cost-voting`, `bns`, `genesis`); of the cost contracts,
+    /// only `costs` (v1) is present. The later `costs-N` contracts are installed
+    /// by the real epoch transitions as the chain advances. Use
+    /// [`instantiate_chainstate_with_all_costs`] instead if the test needs those
+    /// later cost contracts available directly at genesis.
     pub fn instantiate_chainstate(
         mainnet: bool,
         chain_id: u32,
@@ -2941,6 +2952,8 @@ pub mod test {
         instantiate_chainstate_with_balances(mainnet, chain_id, test_name, vec![])
     }
 
+    /// Like [`instantiate_chainstate`] but seeds the given accounts with initial
+    /// STX balances at genesis.
     pub fn instantiate_chainstate_with_balances(
         mainnet: bool,
         chain_id: u32,
@@ -2975,6 +2988,88 @@ pub mod test {
             .0
     }
 
+    /// Like [`instantiate_chainstate`] but also deploys the later `costs-N`
+    /// contracts (e.g. `costs-2`, `costs-3`, ...) during genesis so that
+    /// [`LimitedCostTracker`] can load cost contracts for any epoch.
+    pub fn instantiate_chainstate_with_all_costs(
+        mainnet: bool,
+        chain_id: u32,
+        test_name: &str,
+    ) -> StacksChainState {
+        instantiate_chainstate_with_all_costs_and_balances(mainnet, chain_id, test_name, vec![])
+    }
+
+    /// Like [`instantiate_chainstate_with_balances`] but also deploys the later
+    /// `costs-N` contracts (e.g. `costs-2`, `costs-3`, ...) during genesis so that
+    /// [`LimitedCostTracker`] can load cost contracts for any epoch.
+    pub fn instantiate_chainstate_with_all_costs_and_balances(
+        mainnet: bool,
+        chain_id: u32,
+        test_name: &str,
+        balances: Vec<(StacksAddress, u64)>,
+    ) -> StacksChainState {
+        let path = chainstate_path(test_name);
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
+        };
+
+        let initial_balances = balances
+            .into_iter()
+            .map(|(addr, balance)| (PrincipalData::from(addr), balance))
+            .collect();
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            post_flight_callback: Some(Box::new(move |clarity_tx| {
+                let conn = clarity_tx.connection();
+
+                // Temporarily set the epoch to Epoch33 so Clarity2 contracts
+                // (costs-3, costs-4) can be analyzed and deployed.
+                conn.set_epoch(StacksEpochId::Epoch33);
+
+                let contracts: &[(&str, ClarityVersion, &str)] = &[
+                    (COSTS_2_NAME, ClarityVersion::Clarity1, BOOT_CODE_COSTS_2),
+                    (COSTS_3_NAME, ClarityVersion::Clarity2, BOOT_CODE_COSTS_3),
+                    (COSTS_4_NAME, ClarityVersion::Clarity2, BOOT_CODE_COSTS_4),
+                ];
+
+                for (name, version, code) in contracts {
+                    conn.as_transaction(|clarity_db| {
+                        let (ast, _) = clarity_db
+                            .analyze_smart_contract(&boot_code_id(name, mainnet), *version, code)
+                            .unwrap();
+                        clarity_db
+                            .initialize_smart_contract(
+                                &boot_code_id(name, mainnet),
+                                *version,
+                                &ast,
+                                code,
+                                None,
+                                |_, _| None,
+                                None,
+                            )
+                            .unwrap();
+                    });
+                }
+
+                // restore genesis epoch
+                conn.set_epoch(GENESIS_EPOCH);
+            })),
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::testnet_default(),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
+        };
+
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data), None)
+            .unwrap()
+            .0
+    }
+
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
         StacksChainState::open(mainnet, chain_id, &path, None)
@@ -2983,6 +3078,7 @@ pub mod test {
     }
 
     pub fn chainstate_path(test_name: &str) -> String {
+        let test_name = test_name.replace("::", "-");
         format!("/tmp/stacks-node-tests/cs-{}", test_name)
     }
 
