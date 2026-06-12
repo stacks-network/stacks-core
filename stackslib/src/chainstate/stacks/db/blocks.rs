@@ -409,24 +409,22 @@ impl StagingMicroblock {
     }
 }
 
+pub(crate) fn index_block_hash_to_rel_path(index_block_hash: &StacksBlockId) -> PathBuf {
+    let block_hash_bytes = index_block_hash.as_bytes();
+
+    PathBuf::from(to_hex(&block_hash_bytes[0..2]))
+        .join(to_hex(&block_hash_bytes[2..4]))
+        .join(index_block_hash.to_string())
+}
+
 impl StacksChainState {
-    fn get_index_block_pathbuf(blocks_dir: &str, index_block_hash: &StacksBlockId) -> PathBuf {
-        let block_hash_bytes = index_block_hash.as_bytes();
-        let mut block_path = PathBuf::from(blocks_dir);
-
-        block_path.push(to_hex(&block_hash_bytes[0..2]));
-        block_path.push(to_hex(&block_hash_bytes[2..4]));
-        block_path.push(index_block_hash.to_string());
-
-        block_path
-    }
-
     /// Get the path to a block in the chunk store
     pub fn get_index_block_path(
         blocks_dir: &str,
         index_block_hash: &StacksBlockId,
     ) -> Result<String, Error> {
-        let block_path = StacksChainState::get_index_block_pathbuf(blocks_dir, index_block_hash);
+        let block_path =
+            PathBuf::from(blocks_dir).join(index_block_hash_to_rel_path(index_block_hash));
 
         let blocks_path_str = block_path
             .to_str()
@@ -678,7 +676,7 @@ impl StacksChainState {
             let random_bytes_str = to_hex(&random_bytes);
             let index_block_hash = StacksBlockId::new(consensus_hash, block_header_hash);
             let mut invalid_path =
-                StacksChainState::get_index_block_pathbuf(blocks_dir, &index_block_hash);
+                PathBuf::from(blocks_dir).join(index_block_hash_to_rel_path(&index_block_hash));
             invalid_path
                 .file_name()
                 .expect("FATAL: index block path did not have file name");

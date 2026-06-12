@@ -168,6 +168,102 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_5: &[&str] = &[
 
 pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 5;
 
+/// Columns of `nakamoto_staging_blocks`, in schema order.
+const NAKAMOTO_STAGING_BLOCK_COLUMNS: &[&str] = &[
+    "block_hash",
+    "consensus_hash",
+    "parent_block_id",
+    "is_tenure_start",
+    "burn_attachable",
+    "processed",
+    "orphaned",
+    "height",
+    "index_block_hash",
+    "processed_time",
+    "obtain_method",
+    "signing_weight",
+    "data",
+];
+
+/// Comma-joined [`NAKAMOTO_STAGING_BLOCK_COLUMNS`], for SQL column lists.
+pub(crate) fn nakamoto_staging_block_columns() -> String {
+    NAKAMOTO_STAGING_BLOCK_COLUMNS.join(", ")
+}
+
+// SQL builders for the offline snapshot copy of `nakamoto_staging_blocks`.
+// All of them assume the snapshot session's ATTACH aliases: the source
+// staging DB as `src` and the squashed index DB as `idx`.
+
+/// Predicate: the aliased staging row's block is in the squashed index
+/// headers.
+fn nakamoto_staging_blocks_index_canonical_predicate(source_alias: &str) -> String {
+    format!(
+        "{source_alias}.index_block_hash IN (SELECT index_block_hash FROM idx.nakamoto_block_headers)"
+    )
+}
+
+/// Predicate selecting the staging rows the squash retains: every non-orphan
+/// canonical block, i.e. one present in the squashed index headers.
+pub(crate) fn nakamoto_staging_blocks_membership_predicate(source_alias: &str) -> String {
+    let canonical_by_index = nakamoto_staging_blocks_index_canonical_predicate(source_alias);
+    format!("{source_alias}.orphaned = 0 AND {canonical_by_index}")
+}
+
+/// Full projection of `src.nakamoto_staging_blocks`, derived from
+/// [`NAKAMOTO_STAGING_BLOCK_COLUMNS`] so its column order can never drift
+/// from the INSERT list built from the same array.
+pub(crate) fn nakamoto_staging_blocks_source_select(source_alias: &str) -> String {
+    let columns = NAKAMOTO_STAGING_BLOCK_COLUMNS
+        .iter()
+        .map(|col| format!("{source_alias}.{col}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("SELECT {columns} FROM src.nakamoto_staging_blocks {source_alias}")
+}
+
+/// Copy `db_version` verbatim from `src` into `main`.
+pub(crate) fn nakamoto_staging_copy_db_version(conn: &Connection) -> Result<(), DBError> {
+    conn.execute(
+        "INSERT INTO db_version SELECT * FROM src.db_version",
+        NO_PARAMS,
+    )
+    .map_err(DBError::from)?;
+    Ok(())
+}
+
+/// Insert a minimal `nakamoto_staging_blocks` row directly (snapshot-copy
+/// test fixtures; production rows go through
+/// [`NakamotoStagingBlocksTx::store_block`]).
+#[cfg(test)]
+pub(crate) fn test_insert_nakamoto_staging_block_row(
+    conn: &Connection,
+    block_hash: &str,
+    consensus_hash: &str,
+    parent_block_id: &str,
+    height: i64,
+    index_block_hash: &str,
+    obtain_method: &str,
+    data: &[u8],
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO nakamoto_staging_blocks \
+         (block_hash, consensus_hash, parent_block_id, is_tenure_start, \
+          burn_attachable, processed, orphaned, height, index_block_hash, \
+          processed_time, obtain_method, signing_weight, data) \
+         VALUES (?1, ?2, ?3, 1, 1, 1, 0, ?4, ?5, 0, ?6, 100, ?7)",
+        params![
+            block_hash,
+            consensus_hash,
+            parent_block_id,
+            height,
+            index_block_hash,
+            obtain_method,
+            data,
+        ],
+    )?;
+    Ok(())
+}
+
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
 
 impl Deref for NakamotoStagingBlocksConn {
