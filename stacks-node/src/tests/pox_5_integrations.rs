@@ -3492,6 +3492,45 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "announce-l1-early-exit should zero out the staker's bond shares"
     );
 
+    let post_announce_signer_shares = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-signer-shares-staked-for-cycle",
+        vec![
+            &Value::Principal(test_signer_principal.clone()),
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
+        ],
+    )
+    .result()
+    .expect("get-signer-shares-staked-for-cycle failed")
+    .expect_u128()
+    .expect("get-signer-shares-staked-for-cycle should return a uint");
+    assert_eq!(
+        post_announce_signer_shares, 0,
+        "announce-l1-early-exit should remove the staker's current-cycle shares from the signer total"
+    );
+
+    let post_announce_total_shares = call_read_only(
+        &naka_conf,
+        &pox_5_addr,
+        "pox-5",
+        "get-total-shares-staked-for-cycle",
+        vec![
+            &Value::UInt(reward_cycle),
+            &Value::some(Value::UInt(bond_index)).unwrap(),
+        ],
+    )
+    .result()
+    .expect("get-total-shares-staked-for-cycle failed")
+    .expect_u128()
+    .expect("get-total-shares-staked-for-cycle should return a uint");
+    assert_eq!(
+        post_announce_total_shares, 0,
+        "announce-l1-early-exit should remove the staker's current-cycle shares from the bond total"
+    );
+
     let post_announce_flag = call_read_only(
         &naka_conf,
         &pox_5_addr,
