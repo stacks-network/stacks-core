@@ -809,6 +809,7 @@ dependencies = [
  "criterion",
  "integer-sqrt",
  "lazy_static",
+ "madhouse",
  "mutants",
  "pinny",
  "proptest",
@@ -3147,7 +3148,10 @@ name = "pox-locking"
 version = "2.4.0"
 dependencies = [
  "clarity 0.0.1",
+ "madhouse",
  "mutants",
+ "pinny",
+ "proptest",
  "slog",
  "stacks-common 0.0.1",
 ]

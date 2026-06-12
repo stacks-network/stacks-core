@@ -40,6 +40,9 @@ mod pox_3;
 mod pox_4;
 mod pox_5;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum LockingError {
@@ -78,6 +81,33 @@ pub enum LockingError {
 impl From<VmExecutionError> for LockingError {
     fn from(e: VmExecutionError) -> LockingError {
         LockingError::Clarity(e)
+    }
+}
+
+#[cfg(test)]
+impl LockingError {
+    /// A stable, per-variant code for exact-equality assertions in tests.
+    ///
+    /// `LockingError` can't `derive(PartialEq)` because its
+    /// `Clarity(VmExecutionError)` variant wraps a type that isn't
+    /// `PartialEq`, so tests compare error codes rather than the errors
+    /// themselves. The code identifies the variant only; wrapped contents (the
+    /// `Clarity` error, the `PoxMalformedResponse` message) are not compared.
+    pub(crate) fn as_error_code(&self) -> u32 {
+        match self {
+            LockingError::DefunctPoxContract => 0,
+            LockingError::PoxAlreadyLocked => 1,
+            LockingError::PoxInsufficientBalance => 2,
+            LockingError::PoxExtendNotLocked => 3,
+            LockingError::PoxIncreaseOnV1 => 4,
+            LockingError::PoxInvalidIncrease => 5,
+            LockingError::Clarity(_) => 6,
+            LockingError::PoxUnstakeNotLocked => 7,
+            LockingError::PoxInvalidLockAmount => 8,
+            LockingError::PoxInvalidUnlockHeight => 9,
+            LockingError::PoxBalanceOverflow => 10,
+            LockingError::PoxMalformedResponse(_) => 11,
+        }
     }
 }
 

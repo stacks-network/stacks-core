@@ -810,8 +810,9 @@ mod tests {
         let bogus = Value::UInt(0);
         let err =
             parse_pox_stake_result(&bogus).expect_err("non-response value must surface as error");
-        assert!(
-            matches!(err, LockingError::PoxMalformedResponse(_)),
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxMalformedResponse(String::new()).as_error_code(),
             "unexpected error: {err:?}"
         );
 
@@ -819,8 +820,9 @@ mod tests {
         let ok_not_tuple = Value::okay(Value::UInt(1)).unwrap();
         let err = parse_pox_stake_result(&ok_not_tuple)
             .expect_err("non-tuple ok payload must surface as error");
-        assert!(
-            matches!(err, LockingError::PoxMalformedResponse(_)),
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxMalformedResponse(String::new()).as_error_code(),
             "unexpected error: {err:?}"
         );
     }
@@ -1574,7 +1576,10 @@ mod tests {
             total_amount + 1,
         )
         .expect_err("expected PoxInsufficientBalance");
-        assert!(matches!(err, LockingError::PoxInsufficientBalance));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInsufficientBalance.as_error_code()
+        );
     }
 
     #[test]
@@ -1603,7 +1608,37 @@ mod tests {
             initial_lock - 1,
         )
         .expect_err("expected PoxInvalidIncrease");
-        assert!(matches!(err, LockingError::PoxInvalidIncrease));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInvalidIncrease.as_error_code()
+        );
+    }
+
+    /// `pox_lock_update_v5` after `pox_unstake_v5` must succeed and re-commit
+    /// the lock: there is no node-level unstake gate, and the lock is still
+    /// active (its rescheduled unlock is in the future), so the update raises
+    /// or extends it as usual, overriding the pending unstake.
+    #[test]
+    fn pox_lock_update_v5_after_unstake_succeeds() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let total_amount = 10_000_000u128;
+        let initial_lock = 1_000_000u128;
+
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, total_amount);
+
+        pox_lock_v5(&mut global_context.database, &staker, initial_lock, 5_000)
+            .expect("initial lock should succeed");
+        // Unstake reschedules the unlock; the lock stays active.
+        pox_unstake_v5(&mut global_context.database, &staker, 8_000)
+            .expect("unstake should reschedule the unlock");
+
+        // Update after the unstake must succeed, raising the lock and
+        // rescheduling the unlock (the pending unstake is overridden).
+        let balance = pox_lock_update_v5(&mut global_context.database, &staker, 9_000, 2_000_000)
+            .expect("update after unstake should succeed");
+        assert_eq!(balance.amount_locked(), 2_000_000);
+        assert_eq!(balance.unlock_height(), 9_000);
     }
 
     // ── Direct tests for pox_rollover_v5 ──
@@ -1738,7 +1773,10 @@ mod tests {
             500_000,
         )
         .expect_err("expected PoxInvalidUnlockHeight");
-        assert!(matches!(err, LockingError::PoxInvalidUnlockHeight));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInvalidUnlockHeight.as_error_code()
+        );
     }
 
     /// A roll-over to an earlier unlock height (before the current one) is
@@ -1765,7 +1803,10 @@ mod tests {
             500_000,
         )
         .expect_err("expected PoxInvalidUnlockHeight");
-        assert!(matches!(err, LockingError::PoxInvalidUnlockHeight));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInvalidUnlockHeight.as_error_code()
+        );
     }
 
     /// A zero `new_total_locked` is an invalid request (pre-snapshot check).
@@ -1777,7 +1818,10 @@ mod tests {
 
         let err = pox_rollover_v5(&mut global_context.database, &staker, 10_000, 0)
             .expect_err("expected PoxInvalidLockAmount");
-        assert!(matches!(err, LockingError::PoxInvalidLockAmount));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInvalidLockAmount.as_error_code()
+        );
     }
 
     /// Calling `pox_rollover_v5` on an account that isn't currently locked
@@ -1792,7 +1836,10 @@ mod tests {
         // No prior lock — has_locked_tokens is false.
         let err = pox_rollover_v5(&mut global_context.database, &staker, 10_000, 500_000)
             .expect_err("expected PoxExtendNotLocked");
-        assert!(matches!(err, LockingError::PoxExtendNotLocked));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxExtendNotLocked.as_error_code()
+        );
     }
 
     /// A rollover that asks to lock more than the account holds (unlocked +
@@ -1823,7 +1870,10 @@ mod tests {
             total_amount + 1,
         )
         .expect_err("expected PoxInsufficientBalance");
-        assert!(matches!(err, LockingError::PoxInsufficientBalance));
+        assert_eq!(
+            err.as_error_code(),
+            LockingError::PoxInsufficientBalance.as_error_code()
+        );
     }
 
     // ── unstake tests ──
@@ -1969,6 +2019,601 @@ mod tests {
                 assert_eq!(data.locked_address, staker);
             }
             other => panic!("Expected STXLockEvent, got: {other:?}"),
+        }
+    }
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Rule: `lock_amount == 0` is rejected before any DB work.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_zero_amount_rejected(
+            unlock_height in 1u64..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_lock_v5(&mut gc.database, &staker, 0, unlock_height)
+                .expect_err("zero amount must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidLockAmount.as_error_code(),
+                "expected PoxInvalidLockAmount, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: `unlock_burn_height == 0` is rejected before any DB work.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_zero_height_rejected(
+            amount in 1u128..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_lock_v5(&mut gc.database, &staker, amount, 0)
+                .expect_err("zero unlock_height must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidUnlockHeight.as_error_code(),
+                "expected PoxInvalidUnlockHeight, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: a second `pox_lock_v5` on an already-locked account must surface
+        /// `PoxAlreadyLocked` no matter what the second amount/height are.
+        /// `has_locked_tokens` is checked before `can_transfer`, so the rejection
+        /// applies even when the second amount would otherwise exceed the
+        /// available balance.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_double_lock_rejected(
+            first_amount in 1u128..=500_000,
+            first_unlock in 1_000u64..=1_000_000,
+            second_amount in 1u128..=10_000_000,
+            second_unlock in 1u64..=1_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let total_amount: u128 = 10_000_000;
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, first_amount, first_unlock)
+                .expect("first lock should succeed");
+            let err = pox_lock_v5(&mut gc.database, &staker, second_amount, second_unlock)
+                .expect_err("second lock must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxAlreadyLocked.as_error_code(),
+                "expected PoxAlreadyLocked, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: locking more than the available balance is rejected with
+        /// `PoxInsufficientBalance` (after the zero-amount/zero-height gates).
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_exceeds_balance(
+            balance in 1u128..=1_000_000,
+            extra in 1u128..=1_000_000,
+            unlock_height in 1u64..=1_000_000,
+        ) {
+            let lock_amount = balance.checked_add(extra).unwrap();
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, balance);
+
+            let err = pox_lock_v5(&mut gc.database, &staker, lock_amount, unlock_height)
+                .expect_err("over-balance lock must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInsufficientBalance.as_error_code(),
+                "expected PoxInsufficientBalance, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: `pox_lock_update_v5` cannot reduce `amount_locked`. Any
+        /// `new_total_locked < current_amount_locked` must return
+        /// `PoxInvalidIncrease` — there is no "decrease via stake-update" path.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_no_decrease(
+            initial_lock in 100u128..=1_000_000,
+            decrease in 1u128..=99,
+            initial_unlock in 1_000u64..=1_000_000,
+            new_unlock in 1_000u64..=1_000_000,
+        ) {
+            let new_total = initial_lock - decrease;
+            let total_amount: u128 = 10_000_000;
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("first lock should succeed");
+            let err = pox_lock_update_v5(&mut gc.database, &staker, new_unlock, new_total)
+                .expect_err("decrease must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidIncrease.as_error_code(),
+                "expected PoxInvalidIncrease, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: `pox_unstake_v5` with `unlock_burn_height == 0` is the FIRST
+        /// gate and produces `PoxInvalidUnlockHeight`, regardless of whether
+        /// the account is locked. Pins the gate ordering inside
+        /// `pox_unstake_v5`.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_unstake_v5_zero_height_rejected(
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_unstake_v5(&mut gc.database, &staker, 0)
+                .expect_err("zero unlock_burn_height must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidUnlockHeight.as_error_code(),
+                "expected PoxInvalidUnlockHeight, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: `pox_lock_update_v5` with `new_total_locked == 0` fails with
+        /// `PoxInvalidLockAmount`. Mirrors the `pox_lock_v5` zero-amount
+        /// gate but on the update path.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_zero_total_rejected(
+            unlock_height in 1u64..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_lock_update_v5(&mut gc.database, &staker, unlock_height, 0)
+                .expect_err("zero new_total must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidLockAmount.as_error_code(),
+                "expected PoxInvalidLockAmount, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: `pox_lock_update_v5` on an UNLOCKED account produces
+        /// `PoxExtendNotLocked` — you can't extend something you haven't
+        /// started.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_not_locked(
+            unlock_height in 1u64..=1_000_000,
+            new_total in 1u128..=1_000_000,
+            total_amount in 1_000_000u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_lock_update_v5(&mut gc.database, &staker, unlock_height, new_total)
+                .expect_err("update on unlocked must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxExtendNotLocked.as_error_code(),
+                "expected PoxExtendNotLocked, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: `pox_lock_update_v5` with `new_total > total_balance` fails
+        /// with `PoxInsufficientBalance`. The check is strict `<` (not `<=`)
+        /// — `new_total == total_balance` is accepted (full-balance lock).
+        /// Pins the comparator direction.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_exceeds_balance(
+            initial_lock in 100u128..=1_000,
+            initial_unlock in 1_000u64..=1_000_000,
+            new_unlock in 1_000u64..=1_000_000,
+            extra in 1u128..=1_000_000,
+        ) {
+            let total_amount: u128 = 100_000;
+            let new_total = total_amount.checked_add(extra).unwrap();
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("initial lock should succeed");
+            let err = pox_lock_update_v5(&mut gc.database, &staker, new_unlock, new_total)
+                .expect_err("new_total > total_balance must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInsufficientBalance.as_error_code(),
+                "expected PoxInsufficientBalance, got {:?}",
+                err
+            );
+        }
+
+        /// Locking exactly `total_balance` (not more) must be accepted.
+        /// The comparator in `pox_lock_update_v5` is strict `<`, so
+        /// `new_total == total_amount` is the legal full-balance lock —
+        /// pins the comparator direction at the boundary.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_update_v5_exact_balance_accepted(
+            initial_lock in 100u128..=10_000,
+            initial_unlock in 1_000u64..=1_000_000,
+            new_unlock in 1_000u64..=1_000_000,
+        ) {
+            let total_amount: u128 = 100_000;
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("initial lock should succeed");
+
+            // Lock every available ustx (new_total == total). Must be
+            // accepted — comparator is strict `<`, not `<=`.
+            let balance = pox_lock_update_v5(&mut gc.database, &staker, new_unlock, total_amount)
+                .expect("exact-balance (new_total == total) lock should be accepted");
+            prop_assert_eq!(balance.amount_locked(), total_amount);
+            prop_assert_eq!(balance.unlock_height(), new_unlock);
+        }
+
+        /// Symmetric pin for `pox_lock_v5`: locking exactly the full balance
+        /// from scratch (no prior lock) must succeed. The check is delegated
+        /// to `can_transfer`, so cargo-mutants can't surface a comparator
+        /// mutant directly, but the boundary test pins the documented contract.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_lock_v5_exact_balance_accepted(
+            balance in 1u128..=1_000_000,
+            unlock_height in 1u64..=1_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, balance);
+
+            // Lock the entire available balance. Must succeed and apply
+            // exactly.
+            pox_lock_v5(&mut gc.database, &staker, balance, unlock_height)
+                .expect("full-balance lock should be accepted");
+            let bal = gc
+                .database
+                .get_account_stx_balance(&staker)
+                .expect("read back balance");
+            prop_assert_eq!(bal.amount_locked(), balance);
+            prop_assert_eq!(bal.unlock_height(), unlock_height);
+        }
+
+        /// Rule: `pox_unstake_v5` on an account that holds no lock fails with
+        /// `PoxUnstakeNotLocked` regardless of the requested unlock height.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_unstake_v5_not_locked(
+            unlock_height in 1u64..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_unstake_v5(&mut gc.database, &staker, unlock_height)
+                .expect_err("unstake on unlocked must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxUnstakeNotLocked.as_error_code(),
+                "expected PoxUnstakeNotLocked, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: a Clarity tuple missing any of `staker`, `amount-ustx`, or
+        /// `unlock-burn-height` is rejected as `PoxMalformedResponse`. Pins the
+        /// contract <-> handler shape contract against future field renames.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_parse_pox_stake_result_malformed_missing_field(
+            which_field in 0u8..=2,
+            amount in any::<u128>(),
+            unlock_u64 in any::<u64>(),
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut fields: Vec<(ClarityName, Value)> = vec![
+                (ClarityName::from_literal("staker"), Value::Principal(staker)),
+                (ClarityName::from_literal("amount-ustx"), Value::UInt(amount)),
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(u128::from(unlock_u64)),
+                ),
+            ];
+            fields.remove(which_field as usize);
+            let tuple = TupleData::from_data(fields).unwrap();
+            let bad = Value::okay(Value::Tuple(tuple)).unwrap();
+            let err = parse_pox_stake_result(&bad)
+                .expect_err("missing field must surface as PoxMalformedResponse");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxMalformedResponse(String::new()).as_error_code(),
+                "expected PoxMalformedResponse, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: an `unlock-burn-height` u128 value above `u64::MAX` must surface
+        /// as `PoxMalformedResponse`. This is the only place the u128 -> u64
+        /// cast can overflow silently.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_parse_pox_stake_result_unlock_height_overflow(
+            unlock_overflow in ((u64::MAX as u128) + 1)..=u128::MAX,
+            amount in any::<u128>(),
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let fields: Vec<(ClarityName, Value)> = vec![
+                (ClarityName::from_literal("staker"), Value::Principal(staker)),
+                (ClarityName::from_literal("amount-ustx"), Value::UInt(amount)),
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(unlock_overflow),
+                ),
+            ];
+            let tuple = TupleData::from_data(fields).unwrap();
+            let bad = Value::okay(Value::Tuple(tuple)).unwrap();
+            let err = parse_pox_stake_result(&bad)
+                .expect_err("u128 > u64::MAX must surface as PoxMalformedResponse");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxMalformedResponse(String::new()).as_error_code(),
+                "expected PoxMalformedResponse, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: a pox-5 `(err ...)` payload is typed `uint`; any non-uint err
+        /// payload must surface as `PoxMalformedResponse` (the `expect_u128`
+        /// gate on the err arm). Complements the ok-shape malformed properties.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_parse_pox_stake_result_err_non_uint(
+            b in any::<bool>(),
+            n in any::<i128>(),
+            which in 0u8..=1,
+        ) {
+            let payload = if which == 0 { Value::Bool(b) } else { Value::Int(n) };
+            let bad = Value::error(payload).unwrap();
+            let err = parse_pox_stake_result(&bad)
+                .expect_err("non-uint err payload must surface as PoxMalformedResponse");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxMalformedResponse(String::new()).as_error_code(),
+                "expected PoxMalformedResponse, got {:?}",
+                err
+            );
+        }
+
+        // ── pox_rollover_v5 property coverage ──
+
+        /// A valid roll-over moves the unlock height forward and resizes the
+        /// lock to `new_total`, up or down. Pins the exact returned balance.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_rollover_v5_reschedules_and_resizes(
+            initial_lock in 1u128..=1_000_000,
+            new_total in 1u128..=1_000_000,
+            initial_unlock in 1_000u64..=1_000_000,
+            forward_delta in 1u64..=1_000_000,
+        ) {
+            let total_amount: u128 = 1_000_000;
+            let next_unlock = initial_unlock + forward_delta;
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("initial lock should succeed");
+            let balance = pox_rollover_v5(&mut gc.database, &staker, next_unlock, new_total)
+                .expect("valid roll-over should succeed");
+            prop_assert_eq!(balance.amount_locked(), new_total);
+            prop_assert_eq!(balance.unlock_height(), next_unlock);
+            prop_assert_eq!(balance.amount_unlocked(), total_amount - new_total);
+        }
+
+        /// Rule: `new_total_locked == 0` fails with `PoxInvalidLockAmount`,
+        /// checked before the has-locked gate (so no prior lock is needed).
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_rollover_v5_zero_total_rejected(
+            unlock_height in 1u64..=1_000_000,
+            total_amount in 1u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_rollover_v5(&mut gc.database, &staker, unlock_height, 0)
+                .expect_err("zero new_total must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidLockAmount.as_error_code(),
+                "expected PoxInvalidLockAmount, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: a roll-over with no existing lock fails with
+        /// `PoxExtendNotLocked`; it carries a lock forward, never starts one.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_rollover_v5_not_locked(
+            unlock_height in 1u64..=1_000_000,
+            new_total in 1u128..=1_000_000,
+            total_amount in 1_000_000u128..=1_000_000_000,
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            let err = pox_rollover_v5(&mut gc.database, &staker, unlock_height, new_total)
+                .expect_err("roll-over on unlocked must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxExtendNotLocked.as_error_code(),
+                "expected PoxExtendNotLocked, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: `new_total_locked > total_balance` fails with
+        /// `PoxInsufficientBalance`, even with a forward unlock (balance gate
+        /// is checked first).
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_rollover_v5_exceeds_balance(
+            initial_lock in 100u128..=1_000,
+            initial_unlock in 1_000u64..=1_000_000,
+            forward_delta in 1u64..=1_000_000,
+            extra in 1u128..=1_000_000,
+        ) {
+            let total_amount: u128 = 100_000;
+            let new_total = total_amount.checked_add(extra).unwrap();
+            let next_unlock = initial_unlock + forward_delta;
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("initial lock should succeed");
+            let err = pox_rollover_v5(&mut gc.database, &staker, next_unlock, new_total)
+                .expect_err("new_total > balance must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInsufficientBalance.as_error_code(),
+                "expected PoxInsufficientBalance, got {:?}",
+                err
+            );
+        }
+
+        /// Rule: a roll-over must move the unlock height forward; an
+        /// `unlock_burn_height <= current` (equal included) fails with
+        /// `PoxInvalidUnlockHeight`.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_pox_rollover_v5_non_forward_unlock_rejected(
+            initial_lock in 100u128..=100_000,
+            new_total in 1u128..=100_000,
+            initial_unlock in 1_000u64..=1_000_000,
+            back_delta in 0u64..=999,
+        ) {
+            let total_amount: u128 = 100_000;
+            let next_unlock = initial_unlock - back_delta;
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+
+            pox_lock_v5(&mut gc.database, &staker, initial_lock, initial_unlock)
+                .expect("initial lock should succeed");
+            let err = pox_rollover_v5(&mut gc.database, &staker, next_unlock, new_total)
+                .expect_err("non-forward unlock must be rejected");
+            prop_assert_eq!(
+                err.as_error_code(),
+                LockingError::PoxInvalidUnlockHeight.as_error_code(),
+                "expected PoxInvalidUnlockHeight, got {:?}",
+                err
+            );
+        }
+
+        // ── handle_contract_call dispatch property coverage ──
+
+        /// A `stake` `(ok ...)` response must lock the parsed `amount` at the
+        /// parsed `unlock` and append a matching `STXLockEvent`. Pins the
+        /// response-to-lock seam over random valid responses.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_handle_contract_call_routes_stake(
+            lock_amount in 1u128..=1_000_000,
+            unlock_height in 1u64..=1_000_000,
+        ) {
+            let total_amount: u128 = 1_000_000;
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, total_amount);
+            let contract_id = boot_code_id(POX_5_NAME, gc.mainnet);
+
+            let response = make_stake_ok_response(&staker, lock_amount, unlock_height);
+            handle_contract_call(&mut gc, None, &contract_id, "stake", &[], &response)
+                .expect("dispatch should succeed");
+
+            let balance = gc
+                .database
+                .get_account_stx_balance(&staker)
+                .expect("read back balance");
+            prop_assert_eq!(balance.amount_locked(), lock_amount);
+
+            let (batch, _) = gc.event_batches.last().expect("event batch should exist");
+            prop_assert_eq!(batch.events.len(), 1);
+            let StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) =
+                &batch.events[0]
+            else {
+                return Err(proptest::test_runner::TestCaseError::fail(format!(
+                    "expected STXLockEvent, got {:?}",
+                    batch.events[0]
+                )));
+            };
+            prop_assert_eq!(data.locked_amount, lock_amount);
+            prop_assert_eq!(data.unlock_height, unlock_height);
+        }
+
+        /// An unknown `function_name` is a no-op: no lock, no event, whatever
+        /// the response. Covers the dispatch catch-all over arbitrary names.
+        #[test]
+        #[cfg_attr(test, pinny::tag(t_prop))]
+        fn prop_handle_contract_call_unknown_function_is_noop(
+            function_name in prop::collection::vec(
+                prop_oneof![b'a'..=b'z', Just(b'-')],
+                1..=40,
+            )
+            .prop_map(|bytes| String::from_utf8(bytes).expect("ascii bytes"))
+            .prop_filter("not a pox-5 lock entry point", |f| {
+                !matches!(
+                    f.as_str(),
+                    "stake" | "register-for-bond" | "stake-update" | "unstake"
+                )
+            }),
+        ) {
+            let staker: PrincipalData = StandardPrincipalData::transient().into();
+            let mut store = MemoryBackingStore::new();
+            let mut gc = setup_global_context(&mut store, &staker, 1_000_000);
+            let contract_id = boot_code_id(POX_5_NAME, gc.mainnet);
+
+            let response = make_stake_ok_response(&staker, 500_000, 10_000);
+            handle_contract_call(&mut gc, None, &contract_id, &function_name, &[], &response)
+                .expect("dispatch should succeed");
+
+            let balance = gc
+                .database
+                .get_account_stx_balance(&staker)
+                .expect("read back balance");
+            prop_assert_eq!(balance.amount_locked(), 0u128);
+
+            let (batch, _) = gc.event_batches.last().expect("event batch should exist");
+            prop_assert!(batch.events.is_empty());
         }
     }
 }

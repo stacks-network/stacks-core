@@ -16,33 +16,28 @@
 //! sBTC P2TR (taproot) deposit-script derivation.
 //!
 //! The per-cycle sBTC recipient is a witness-v1 P2TR output committing to a
-//! script tree with two leaves:
+//! 2-leaf script tree:
 //!
-//! * **deposit**: `<deposit-data> OP_DROP OP_PUSHBYTES_32 <x-only-pubkey> OP_CHECKSIG`
+//! - deposit: `<deposit-data> OP_DROP OP_PUSHBYTES_32 <x-only-pubkey> OP_CHECKSIG`
 //!   where `<deposit-data> = <max-fee:u64-be> || <consensus-encoded recipient principal>`.
-//! * **reclaim**: `<lock_time push> OP_CSV <user-supplied-bytes>`. For PoX-5
-//!   scaffolding we use `lock_time = u16::MAX` and `[OP_RETURN]` as the
-//!   user-supplied bytes — that disables the reclaim path entirely.
+//! - reclaim: `<lock_time push> OP_CSV <user-supplied-bytes>`. PoX-5 scaffolding
+//!   uses `lock_time = u16::MAX` and `[OP_RETURN]` for user bytes, disabling
+//!   the reclaim path.
 //!
 //! The taproot internal key is the BIP-0341 NUMS x-coordinate (no known
-//! discrete logarithm), so neither leaf is reachable via key-path; only via
-//! script-path through the two leaves.
+//! discrete log), so neither leaf is reachable via key-path; only script-path
+//! through the two leaves.
 //!
-//! ## Vendoring note
+//! Taproot primitives (tagged hashes, leaf/branch hashing, key tweak) are
+//! implemented inline against `sha2::Sha256` and `secp256k1`'s
+//! `XOnlyPublicKey::add_tweak`. Pulling in the `bitcoin` crate would add a
+//! second `secp256k1` version and a `bitcoin::script::PushBytes` impl that
+//! ambiguates `[u8; N].as_ref()` elsewhere. The reference fixtures in the
+//! test module validate the inline impl byte-for-byte against the sBTC source.
 //!
-//! The taproot-specific primitives (tagged hashes, leaf hashing, branch
-//! hashing, key tweak) are implemented inline below using `sha2::Sha256`
-//! and `secp256k1`'s `XOnlyPublicKey::add_tweak`. This avoids a workspace
-//! dependency on the `bitcoin` crate (which would otherwise pull in a
-//! second `secp256k1` version and add a `bitcoin::script::PushBytes`
-//! impl that ambiguates `[u8; N].as_ref()` elsewhere in the codebase).
-//! The 5 reference fixtures in the test module validate the implementation
-//! byte-for-byte against an external sBTC source.
-//!
-//! This module imports `secp256k1` directly rather than going through the
-//! project's `Secp256k1PublicKey` wrapper. That's a deliberate exception:
-//! the wrapper doesn't expose `XOnlyPublicKey` or `add_tweak`, and adding
-//! that surface for one consumer isn't worth it.
+//! `secp256k1` is imported directly rather than via `Secp256k1PublicKey`
+//! because the project wrapper does not expose `XOnlyPublicKey` /
+//! `add_tweak`, and widening it for one consumer is not worth it.
 
 use clarity::vm::types::PrincipalData;
 use secp256k1::{Scalar, Secp256k1, XOnlyPublicKey};
@@ -226,11 +221,52 @@ fn write_compact_size(buf: &mut Vec<u8>, n: u64) {
 
 #[cfg(test)]
 mod tests {
-    use clarity::vm::types::PrincipalData;
+    use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
+    use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
+    use clarity::vm::ContractName;
     use serde::Deserialize;
     use stacks_common::util::hash::{hex_bytes, to_hex};
 
     use super::*;
+
+    /// Bitcoin varint reference table covering each branch + boundary of
+    /// `write_compact_size`:
+    /// - `n < 0xfd`: single byte
+    /// - `0xfd <= n <= 0xffff`: `0xfd` + u16 LE
+    /// - `0x10000 <= n <= 0xffff_ffff`: `0xfe` + u32 LE
+    /// - `n >= 0x1_0000_0000`: `0xff` + u64 LE
+    ///
+    /// A wrong encoding feeds into the sBTC P2TR deposit script and changes
+    /// the taproot output hash, sending funds to the wrong on-chain address.
+    /// Explicit fixtures pin each branch so a comparator flip surfaces.
+    #[test]
+    fn compact_size_boundary_table() {
+        let cases: &[(u64, &[u8])] = &[
+            (0, &[0x00]),
+            (1, &[0x01]),
+            (252, &[0xfc]),
+            (253, &[0xfd, 0xfd, 0x00]),
+            (0xffff, &[0xfd, 0xff, 0xff]),
+            (0x10000, &[0xfe, 0x00, 0x00, 0x01, 0x00]),
+            (0xffff_ffff, &[0xfe, 0xff, 0xff, 0xff, 0xff]),
+            (
+                0x1_0000_0000,
+                &[0xff, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00],
+            ),
+            (
+                u64::MAX,
+                &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+            ),
+        ];
+        for (n, expected) in cases {
+            let mut buf = Vec::new();
+            write_compact_size(&mut buf, *n);
+            assert_eq!(
+                buf, *expected,
+                "write_compact_size({n}) = {buf:?}, expected {expected:?}"
+            );
+        }
+    }
 
     /// Reference fixtures generated from stacks-sbtc/sbtc's
     /// `sbtc::deposits::to_script_pubkey` via
@@ -652,6 +688,318 @@ mod tests {
                 "{}: taproot_output_key",
                 fixture.name,
             );
+        }
+    }
+
+    // Property tests covering derivation invariants: determinism, per-input
+    // sensitivity, rejection of malformed pubkeys, and wrapper/generic
+    // agreement across a randomized search space the reference fixtures above
+    // cannot exhaustively cover.
+
+    use pinny::tag;
+    use proptest::prelude::*;
+
+    thread_local! {
+        /// Lazily-built `Secp256k1` context, reused across iterations.
+        /// `Secp256k1::new` precomputes multiplication tables; sharing the
+        /// context keeps the proptest budget on the property, not setup.
+        static SECP_CTX: Secp256k1<secp256k1::All> = Secp256k1::new();
+    }
+
+    /// 32 bytes that form a valid x-only secp256k1 point.
+    ///
+    /// Maps a uniform 32-byte input through `SecretKey -> PublicKey -> x`.
+    /// `SecretKey::from_slice` rejects only zero and `>= n` (curve order);
+    /// both have probability ~2^-128 over uniform input, so the rejection
+    /// budget is effectively untouched. `prop_filter_map` is kept for total
+    /// correctness rather than `unwrap`-ing.
+    fn arb_valid_xonly_pubkey() -> impl Strategy<Value = [u8; 32]> {
+        any::<[u8; 32]>().prop_filter_map("scalar not in [1, n)", |sk_bytes| {
+            let sk = secp256k1::SecretKey::from_slice(&sk_bytes).ok()?;
+            SECP_CTX.with(|secp| {
+                let pk = secp256k1::PublicKey::from_secret_key(secp, &sk);
+                // Compressed: `[parity, x[0..32]]`; drop parity for x-only.
+                let compressed = pk.serialize();
+                let mut xonly = [0u8; 32];
+                xonly.copy_from_slice(&compressed[1..]);
+                Some(xonly)
+            })
+        })
+    }
+
+    /// 33-byte compressed secp256k1 pubkey: prefix `0x02`/`0x03` + valid
+    /// x-coordinate. Matches `get-current-aggregate-pubkey`'s output.
+    fn arb_valid_compressed_pubkey_33() -> impl Strategy<Value = [u8; 33]> {
+        (
+            arb_valid_xonly_pubkey(),
+            prop_oneof![Just(0x02u8), Just(0x03u8)],
+        )
+            .prop_map(|(xonly, prefix)| {
+                let mut compressed = [0u8; 33];
+                compressed[0] = prefix;
+                compressed[1..].copy_from_slice(&xonly);
+                compressed
+            })
+    }
+
+    /// Standard principal (version < 32, arbitrary 20-byte hash).
+    /// `version < 32` is enforced by the range, so construction is total.
+    fn arb_standard_principal() -> impl Strategy<Value = StandardPrincipalData> {
+        (0u8..32u8, any::<[u8; 20]>()).prop_map(|(version, bytes)| {
+            StandardPrincipalData::new(version, bytes).expect("version < 32 by construction")
+        })
+    }
+
+    /// Valid Clarity contract name spanning the full structural domain: a
+    /// leading `[a-zA-Z]` followed by `0..CONTRACT_MAX_NAME_LENGTH` body chars
+    /// from `[a-zA-Z0-9-_]`, for a total length of
+    /// `1..=CONTRACT_MAX_NAME_LENGTH`.
+    fn arb_contract_name() -> impl Strategy<Value = ContractName> {
+        let lead = prop_oneof![b'a'..=b'z', b'A'..=b'Z'];
+        let body = prop::collection::vec(
+            prop_oneof![
+                b'a'..=b'z',
+                b'A'..=b'Z',
+                b'0'..=b'9',
+                Just(b'-'),
+                Just(b'_')
+            ],
+            0..CONTRACT_MAX_NAME_LENGTH,
+        );
+        (lead, body).prop_map(|(lead, body)| {
+            let mut s = String::with_capacity(1 + body.len());
+            s.push(lead as char);
+            for c in body {
+                s.push(c as char);
+            }
+            ContractName::try_from(s).expect("structurally valid contract name")
+        })
+    }
+
+    /// Standard- or Contract-variant principal, uniformly weighted. The
+    /// recipient sensitivity tests below assume both shapes are exercised.
+    fn arb_principal_data() -> impl Strategy<Value = PrincipalData> {
+        prop_oneof![
+            arb_standard_principal().prop_map(PrincipalData::Standard),
+            (arb_standard_principal(), arb_contract_name()).prop_map(|(issuer, name)| {
+                PrincipalData::Contract(QualifiedContractIdentifier::new(issuer, name))
+            }),
+        ]
+    }
+
+    /// sBTC's `MAX_RECLAIM_SCRIPT_LENGTH` (2048). Larger inputs are rejected
+    /// upstream by the validator.
+    const MAX_USER_RECLAIM_SCRIPT_LEN: usize = 2048;
+
+    proptest! {
+        /// `tap_branch_hash` lex-sorts its inputs (BIP-341), so it is
+        /// commutative. Pins the sort directly: dropping or reversing it makes
+        /// `H(a || b) != H(b || a)` for `a != b`, failing this property. The
+        /// reference fixtures only exercise the sort when their two leaves
+        /// happen to reorder, so this is the direct guard.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_tap_branch_hash_commutes(
+            a in any::<[u8; 32]>(),
+            b in any::<[u8; 32]>(),
+        ) {
+            prop_assert_eq!(tap_branch_hash(a, b), tap_branch_hash(b, a));
+        }
+
+        /// The output key derivation is a pure function. Same inputs in,
+        /// same 32-byte key out, every time. Pins down that no hidden
+        /// stateful path (e.g. a thread-local secp context with mutable
+        /// state) leaks into the result.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_deterministic(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            let key1 = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("valid x-only pubkey should derive");
+            let key2 = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("valid x-only pubkey should derive");
+            prop_assert_eq!(key1, key2);
+        }
+
+        /// Two different recipients must produce different deposit
+        /// addresses, with everything else fixed. If they collided, two
+        /// stakers would share the same on-chain deposit address — a
+        /// fund-loss vector.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_recipient(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient_a in arb_principal_data(),
+            recipient_b in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(recipient_a != recipient_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient_a, max_fee, lock_time, &user_reclaim,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient_b, max_fee, lock_time, &user_reclaim,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// Two different `max_fee` values must produce different deposit
+        /// addresses, with everything else fixed. `max_fee` is encoded
+        /// inside the deposit script's data prefix; a collision would let
+        /// an attacker swap fee values without changing the on-chain
+        /// address that the signers watch.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_max_fee(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee_a in any::<u64>(),
+            max_fee_b in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(max_fee_a != max_fee_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee_a, lock_time, &user_reclaim,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee_b, lock_time, &user_reclaim,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// Two different aggregate signer pubkeys must produce different
+        /// deposit addresses, with everything else fixed. The pubkey is pushed
+        /// into the deposit leaf (`OP_PUSHBYTES_32 <x-only>`); a collision
+        /// would let two distinct signer sets share one watched deposit
+        /// address.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_pubkey(
+            pubkey_a in arb_valid_xonly_pubkey(),
+            pubkey_b in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(pubkey_a != pubkey_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_a, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_b, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// Two different reclaim `lock_time` values must produce different
+        /// deposit addresses, with everything else fixed. `lock_time` is
+        /// CScriptNum-encoded into the reclaim leaf (`<lock_time> OP_CSV …`);
+        /// a collision would let the timelock change without moving the
+        /// watched address.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_lock_time(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time_a in any::<u16>(),
+            lock_time_b in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(lock_time_a != lock_time_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time_a, &user_reclaim,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time_b, &user_reclaim,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// Two different user-supplied reclaim scripts must produce different
+        /// deposit addresses, with everything else fixed. The user bytes are
+        /// appended into the reclaim leaf (`… OP_CSV <user bytes>`); a
+        /// collision would let the reclaim spend path change without moving
+        /// the watched address.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_distinct_by_user_reclaim_script(
+            pubkey_xonly in arb_valid_xonly_pubkey(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim_a in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+            user_reclaim_b in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            prop_assume!(user_reclaim_a != user_reclaim_b);
+            let key_a = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim_a,
+            ).expect("valid");
+            let key_b = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim_b,
+            ).expect("valid");
+            prop_assert_ne!(key_a, key_b);
+        }
+
+        /// An x-only input that is not a valid secp256k1 point must be
+        /// rejected with `Err`, never a panic. The derivation validates the
+        /// pubkey on-curve before any script work, so an off-curve key can
+        /// never produce a deposit address. The `prop_filter` keeps only
+        /// off-curve inputs; the happy path (valid key → Ok) is covered by
+        /// `prop_sbtc_key_deterministic`.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_key_off_curve_pubkey_rejected(
+            pubkey_xonly in any::<[u8; 32]>().prop_filter(
+                "off-curve x-only only",
+                |b| XOnlyPublicKey::from_slice(b).is_err(),
+            ),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            let result = sbtc_deposit_taproot_output_key(
+                &pubkey_xonly, &recipient, max_fee, lock_time, &user_reclaim,
+            );
+            prop_assert!(result.is_err(), "off-curve x-only must be rejected, got Ok");
+        }
+
+        /// The PoX-5 wrapper must be an exact specialization of the
+        /// generic derivation: same x-only portion of the pubkey, same
+        /// recipient and fee, with `lock_time = u16::MAX` and
+        /// user-reclaim `[OP_RETURN]` baked in. Any drift between the two
+        /// would silently change the watched address for PoX-5 deposits.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_sbtc_pox5_wrapper_matches_generic(
+            pubkey_compressed in arb_valid_compressed_pubkey_33(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+        ) {
+            let xonly: [u8; 32] = pubkey_compressed[1..].try_into().expect("33 - 1 = 32");
+            let wrapper = sbtc_pox5_deposit_taproot_output_key(
+                &pubkey_compressed, &recipient, max_fee,
+            ).expect("valid pubkey");
+            let generic = sbtc_deposit_taproot_output_key(
+                &xonly,
+                &recipient,
+                max_fee,
+                u16::MAX,
+                &[Opcode::OP_RETURN as u8],
+            ).expect("valid pubkey");
+            prop_assert_eq!(wrapper, generic);
         }
     }
 }

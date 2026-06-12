@@ -56,6 +56,8 @@ use crate::vm::ClarityVersion;
 mod arithmetic;
 mod assets;
 pub(crate) mod bitcoin;
+#[cfg(test)]
+mod bitcoin_madhouse;
 mod boolean;
 mod conversions;
 mod crypto;
