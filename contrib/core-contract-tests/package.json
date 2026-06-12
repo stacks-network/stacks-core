@@ -19,7 +19,7 @@
     "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
     "@scure/btc-signer": "^2.0.1",
-    "@stacks/clarinet-sdk": "^3.19.0",
+    "@stacks/clarinet-sdk": "^3.20.0",
     "@stacks/clarunit": "0.1.0",
     "@stacks/rendezvous": "^1.0.0",
     "@stacks/stacking": "^7.4.0",
