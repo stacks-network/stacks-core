@@ -12,6 +12,7 @@ import {
   deserializeCV,
 } from '@stacks/transactions';
 import { hex } from '@scure/base';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { accounts } from '../clarigen-types';
 import { beforeEach, expect, test } from 'vitest';
 import { filterEvents, rov, rovErr, rovOk, txErr, txOk } from '@clarigen/test';
@@ -25,9 +26,11 @@ import {
   isSignerInCycle,
   registerSigner,
   registerSignerManager,
+  signerManager,
   sbtc,
   sbtcBalance,
   signerAddress,
+  signSignerKeyGrant,
   testSignerErrors,
   testSigner,
   sbtcTransfer,
@@ -359,6 +362,463 @@ test('scenario - setting up and starting a bond', () => {
   expectAllSignersHaveKeys();
 });
 
+// Shared default bond config for the setup-bond gate tests below.
+const defaultBondConfig = {
+  targetRate: 1200n,
+  stxValueRatio: 10n,
+  minUstxRatio: 100n,
+  earlyUnlockBytes: new Uint8Array(),
+};
+
+/**
+ * Only the bond admin (set to `deployer` by `initPox5`) may set up a bond.
+ */
+test('setup-bond rejects a non-admin caller', () => {
+  expect(
+    txErr(
+      pox5.setupBond({
+        bondIndex: 0n,
+        ...defaultBondConfig,
+        allowlist: [{ maxSats: 100000n, staker: alice }],
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_UNAUTHORIZED);
+});
+
+/**
+ * A bond can only be set up within `BOND_GAP_CYCLES` (2) cycles of its start.
+ * For a far-future bond period the configuration window has not opened yet, so
+ * the call must be rejected as too soon.
+ */
+test('setup-bond rejects setup that is too early', () => {
+  const bondIndex = 3n;
+  const windowOpens =
+    rov(pox5.bondPeriodToBurnHeight(bondIndex)) - 2n * REWARD_CYCLE_LENGTH;
+  // Premise: we are well before the configuration window opens.
+  expect(BigInt(simnet.burnBlockHeight)).toBeLessThan(windowOpens);
+
+  expect(
+    txErr(
+      pox5.setupBond({
+        bondIndex,
+        ...defaultBondConfig,
+        allowlist: [{ maxSats: 100000n, staker: alice }],
+      }),
+      deployer,
+    ).value,
+  ).toBe(pox5Errors.ERR_CANNOT_SETUP_BOND_TOO_SOON);
+});
+
+/**
+ * A bond cannot be set up at or after its start height (the `< burn-height
+ * bond-start-height` boundary).
+ */
+test('setup-bond rejects setup at or after the bond start', () => {
+  // Land exactly on bond 0's start height: `burn-height < bond-start` is now
+  // false, so setup is too late.
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)));
+
+  expect(
+    txErr(
+      pox5.setupBond({
+        bondIndex: 0n,
+        ...defaultBondConfig,
+        allowlist: [{ maxSats: 100000n, staker: alice }],
+      }),
+      deployer,
+    ).value,
+  ).toBe(pox5Errors.ERR_CANNOT_SETUP_BOND_TOO_LATE);
+});
+
+/**
+ * A bond index can only be configured once (`map-insert` of `protocol-bonds`).
+ */
+test('setup-bond rejects configuring the same bond index twice', () => {
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      ...defaultBondConfig,
+      allowlist: [{ maxSats: 100000n, staker: alice }],
+    }),
+    deployer,
+  );
+
+  expect(
+    txErr(
+      pox5.setupBond({
+        bondIndex: 0n,
+        ...defaultBondConfig,
+        allowlist: [{ maxSats: 100000n, staker: bob }],
+      }),
+      deployer,
+    ).value,
+  ).toBe(pox5Errors.ERR_BOND_ALREADY_SETUP);
+});
+
+/**
+ * The allowlist cannot list the same staker twice (`map-insert` of
+ * `protocol-bond-allowances` in the per-staker fold), which would otherwise
+ * corrupt the `sum-max-sats` accounting.
+ */
+test('setup-bond rejects a duplicate staker in the allowlist', () => {
+  expect(
+    txErr(
+      pox5.setupBond({
+        bondIndex: 0n,
+        ...defaultBondConfig,
+        allowlist: [
+          { maxSats: 100000n, staker: alice },
+          { maxSats: 200000n, staker: alice },
+        ],
+      }),
+      deployer,
+    ).value,
+  ).toBe(pox5Errors.ERR_STAKER_ALREADY_ADDED);
+});
+
+/**
+ * Registering for a bond index that was never configured fails before any
+ * signer/allowlist checks.
+ */
+test('register-for-bond rejects an unconfigured bond index', () => {
+  expect(
+    txErr(
+      pox5.registerForBond({
+        bondIndex: 0n,
+        signerManager: testSigner.identifier,
+        amountUstx: stxToUStx(50_000),
+        btcLockup: err(100000n),
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_BOND_NOT_FOUND);
+});
+
+/**
+ * Only allowlisted stakers may register for a bond. A caller absent from the
+ * bond's allowlist is rejected — this is the core access gate for who may bond.
+ */
+test('register-for-bond rejects a caller that is not allowlisted', () => {
+  // Bond allowlists bob, not alice.
+  setupBondForAllowlist([{ maxSats: 100000n, staker: bob }]);
+
+  expect(
+    txErr(
+      pox5.registerForBond({
+        bondIndex: 0n,
+        signerManager: testSigner.identifier,
+        amountUstx: stxToUStx(50_000),
+        btcLockup: err(100000n),
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_NOT_ALLOWLISTED);
+});
+
+/**
+ * The chosen signer must have been registered. With an allowlisted staker and a
+ * valid amount but an unregistered signer-manager, registration fails at the
+ * `get-signer-info` lookup.
+ */
+test('register-for-bond rejects an unregistered signer', () => {
+  // Note: deliberately NOT calling registerSigner(), so the signer has no
+  // `signers` entry.
+  setupBondForAllowlist([{ maxSats: 100000n, staker: alice }]);
+
+  expect(
+    txErr(
+      pox5.registerForBond({
+        bondIndex: 0n,
+        signerManager: testSigner.identifier,
+        amountUstx: stxToUStx(50_000),
+        btcLockup: err(100000n),
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_SIGNER_NOT_FOUND);
+});
+
+/**
+ * `stake-update` must be called with the staker's current signer as
+ * `old-signer-manager`; a mismatch is rejected. This guards a caller from
+ * rewriting state against a signer they are not currently bound to.
+ */
+test('stake-update rejects a mismatched old-signer-manager', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('stake-update-wrong-old-signer-2').identifier;
+
+  registerSigner();
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Alice's current signer is signer1, but she passes signer2 as the old one.
+  expect(
+    txErr(
+      pox5.stakeUpdate({
+        signerManager: signer1,
+        oldSignerManager: signer2,
+        cyclesToExtend: 1n,
+        amountIncrease: 0n,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INVALID_OLD_SIGNER_MANAGER);
+});
+
+/**
+ * The STX `unstake` likewise requires the current signer as
+ * `old-signer-manager`.
+ */
+test('unstake rejects a mismatched old-signer-manager', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('unstake-wrong-old-signer-2').identifier;
+
+  registerSigner();
+  txOk(
+    pox5.stake({
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(txErr(pox5.unstake(signer2), alice).value).toBe(
+    pox5Errors.ERR_INVALID_OLD_SIGNER_MANAGER,
+  );
+});
+
+/**
+ * `update-bond-registration` must be passed the staker's current bond signer as
+ * `old-signer-manager`.
+ */
+test('update-bond-registration rejects a mismatched old-signer-manager', () => {
+  const signer1 = testSigner.identifier;
+  const signer2 = deployTestSigner('update-bond-wrong-old-signer-2').identifier;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: 100000n, staker: alice }]);
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer1,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(100000n),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Current bond signer is signer1; passing signer2 as the old one is rejected.
+  expect(
+    txErr(
+      pox5.updateBondRegistration({
+        signerManager: signer2,
+        oldSignerManager: signer2,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INVALID_OLD_SIGNER_MANAGER);
+});
+
+/**
+ * `update-bond-registration` requires an existing bond membership.
+ */
+test('update-bond-registration rejects a non-bond-participant', () => {
+  registerSigner();
+
+  expect(
+    txErr(
+      pox5.updateBondRegistration({
+        signerManager: testSigner.identifier,
+        oldSignerManager: testSigner.identifier,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_NOT_BOND_PARTICIPANT);
+});
+
+/**
+ * The new signer in `update-bond-registration` must be registered. Here
+ * `signerManager` is deployed (so the trait call succeeds) but never
+ * registered in pox-5, so the `get-signer-info` lookup fails.
+ */
+test('update-bond-registration rejects an unregistered new signer', () => {
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: 100000n, staker: alice }]);
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: testSigner.identifier,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(100000n),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // signerManager is deployed but never registered (no registerSignerManager()).
+  expect(
+    txErr(
+      pox5.updateBondRegistration({
+        signerManager: signerManager.identifier,
+        oldSignerManager: testSigner.identifier,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_SIGNER_NOT_FOUND);
+});
+
+/**
+ * `stake`'s `start-burn-ht` must resolve to the next reward cycle; stakers
+ * cannot post-date their stake into a later cycle.
+ */
+test('stake rejects a start-burn-ht in a later cycle', () => {
+  registerSigner();
+
+  expect(
+    txErr(
+      pox5.stake({
+        signerManager: testSigner.identifier,
+        amountUstx: stxToUStx(50_000),
+        numCycles: 2n,
+        // A height two cycles out resolves to a later reward cycle than
+        // `current + 1`.
+        startBurnHt: simnet.burnBlockHeight + Number(2n * REWARD_CYCLE_LENGTH),
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INVALID_START_BURN_HEIGHT);
+});
+
+/**
+ * `stake`'s lock period must be within [1, MAX_NUM_CYCLES]; zero cycles is
+ * rejected.
+ */
+test('stake rejects a zero-cycle lock period', () => {
+  registerSigner();
+
+  expect(
+    txErr(
+      pox5.stake({
+        signerManager: testSigner.identifier,
+        amountUstx: stxToUStx(50_000),
+        numCycles: 0n,
+        startBurnHt: simnet.burnBlockHeight,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INVALID_NUM_CYCLES);
+});
+
+/**
+ * `stake` requires the staker's total (locked + unlocked) balance to cover the
+ * requested lock amount.
+ */
+test('stake rejects an amount exceeding the staker balance', () => {
+  registerSigner();
+
+  expect(
+    txErr(
+      pox5.stake({
+        signerManager: testSigner.identifier,
+        // Far more than any simnet wallet holds.
+        amountUstx: stxToUStx(1_000_000_000_000_000),
+        numCycles: 2n,
+        startBurnHt: simnet.burnBlockHeight,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INSUFFICIENT_STX);
+});
+
+/**
+ * `stake-update` checks only the *unlocked* balance against the requested
+ * increase (distinct from `stake`'s total-balance rule), since the existing
+ * stake is already locked.
+ */
+test('stake-update rejects an increase exceeding the unlocked balance', () => {
+  const signer = testSigner.identifier;
+  registerSigner();
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(
+    txErr(
+      pox5.stakeUpdate({
+        signerManager: signer,
+        oldSignerManager: signer,
+        cyclesToExtend: 1n,
+        amountIncrease: stxToUStx(1_000_000_000_000_000),
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INSUFFICIENT_STX);
+});
+
+/**
+ * `stake-update`'s effective lock period is computed from the extension; an
+ * over-long extension pushes it past `MAX_NUM_CYCLES` and is rejected.
+ */
+test('stake-update rejects an over-long extension', () => {
+  const signer = testSigner.identifier;
+  registerSigner();
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Extending by far more than MAX_NUM_CYCLES (96) exceeds the lock-period cap.
+  expect(
+    txErr(
+      pox5.stakeUpdate({
+        signerManager: signer,
+        oldSignerManager: signer,
+        cyclesToExtend: 200n,
+        amountIncrease: 0n,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INVALID_NUM_CYCLES);
+});
+
 /**
  * Revoking a signer key grant disables an already-registered manager from
  * accepting any *new* stake, even though its `signers` entry (and thus
@@ -412,6 +872,220 @@ test('revoking a grant blocks new stake to a registered signer', () => {
     bob,
   );
   expect(bobStakeErr.value).toEqual(pox5Errors.ERR_SIGNER_KEY_GRANT_NOT_FOUND);
+});
+
+/**
+ * `register-signer` may only be called by the signer-manager contract itself
+ * (`contract-caller` must equal the signer). Even with a valid signer-key
+ * grant in place, a third party cannot register the manager.
+ */
+test('register-signer rejects a caller that is not the signer', () => {
+  // registerSigner() leaves a valid grant for (testSigner, signerKey) in place,
+  // so verify-signer-key-grant passes and we reach the caller check.
+  const { signerKey } = registerSigner();
+
+  expect(
+    txErr(
+      pox5.registerSigner({ signerManager: testSigner.identifier, signerKey }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_UNAUTHORIZED_SIGNER_REGISTRATION);
+});
+
+/**
+ * Only the Stacks principal whose hash160 matches `signer-key` may revoke that
+ * grant. An unrelated caller must be rejected (otherwise any principal could
+ * grief a manager by revoking its grant).
+ */
+test('revoke-signer-grant rejects a caller that does not own the signer key', () => {
+  const { signerKey } = registerSigner();
+
+  expect(
+    txErr(
+      pox5.revokeSignerGrant({
+        signerManager: testSigner.identifier,
+        signerKey,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_UNAUTHORIZED);
+});
+
+/**
+ * Revoking a grant that was never created returns `existed: false` rather than
+ * erroring, as long as the caller owns the key.
+ */
+test('revoke-signer-grant reports existed: false for a missing grant', () => {
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signerKey = secp256k1.getPublicKey(signerSk, true);
+
+  const result = txOk(
+    pox5.revokeSignerGrant({ signerManager: testSigner.identifier, signerKey }),
+    signerAddress(signerKey),
+  );
+  expect(result.value.existed).toBe(false);
+});
+
+/**
+ * The (signer-key, signer-manager, auth-id) tuple is single-use: it is
+ * recorded in `used-signer-key-grants` and re-checked on entry. Re-submitting
+ * the same authorization must be rejected, even with a valid signature — this
+ * is the anti-replay guard for signer-key grants.
+ */
+test('grant-signer-key rejects replay of the same auth-id', () => {
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signerKey = secp256k1.getPublicKey(signerSk, true);
+  const authId = 9001n;
+  const signerSig = signSignerKeyGrant({
+    signerManager: alice,
+    authId,
+    signerSk,
+  });
+
+  // First grant succeeds (caller === signer-manager === alice).
+  txOk(
+    pox5.grantSignerKey({ signerKey, signerManager: alice, authId, signerSig }),
+    alice,
+  );
+
+  // Replaying the identical authorization is rejected.
+  expect(
+    txErr(
+      pox5.grantSignerKey({
+        signerKey,
+        signerManager: alice,
+        authId,
+        signerSig,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_SIGNER_KEY_GRANT_USED);
+});
+
+/**
+ * The signature must recover to exactly the supplied `signer-key`, binding the
+ * grant to a key the caller actually controls. A valid signature from a
+ * different key must not authorize a grant for `signer-key`.
+ */
+test('grant-signer-key rejects a signature that recovers to a different key', () => {
+  const signerSkA = secp256k1.utils.randomSecretKey();
+  const signerSkB = secp256k1.utils.randomSecretKey();
+  const signerKeyB = secp256k1.getPublicKey(signerSkB, true);
+  const authId = 9002n;
+  // Signed by key A, but the grant claims key B.
+  const signerSig = signSignerKeyGrant({
+    signerManager: alice,
+    authId,
+    signerSk: signerSkA,
+  });
+
+  expect(
+    txErr(
+      pox5.grantSignerKey({
+        signerKey: signerKeyB,
+        signerManager: alice,
+        authId,
+        signerSig,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INVALID_SIGNATURE_PUBKEY);
+});
+
+/**
+ * A malformed signature that cannot be recovered at all must fail with
+ * `ERR_INVALID_SIGNATURE_RECOVER` (the `unwrap!` on `secp256k1-recover?`),
+ * distinct from the recovered-but-wrong-key case above.
+ */
+test('grant-signer-key rejects an unrecoverable signature', () => {
+  const signerKey = secp256k1.getPublicKey(
+    secp256k1.utils.randomSecretKey(),
+    true,
+  );
+  const authId = 9003n;
+  // 65 zero bytes: not a recoverable signature.
+  const signerSig = new Uint8Array(65);
+
+  expect(
+    txErr(
+      pox5.grantSignerKey({
+        signerKey,
+        signerManager: alice,
+        authId,
+        signerSig,
+      }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_INVALID_SIGNATURE_RECOVER);
+});
+
+/**
+ * Only the signer-manager contract itself may grant its key (`contract-caller`
+ * must equal `signer-manager`). A third party cannot mint a grant on a
+ * manager's behalf, even with an otherwise-valid signature.
+ */
+test('grant-signer-key rejects a caller that is not the signer-manager', () => {
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signerKey = secp256k1.getPublicKey(signerSk, true);
+  const authId = 9004n;
+  // Grant is for `bob`, but `alice` submits it.
+  const signerSig = signSignerKeyGrant({
+    signerManager: bob,
+    authId,
+    signerSk,
+  });
+
+  expect(
+    txErr(
+      pox5.grantSignerKey({ signerKey, signerManager: bob, authId, signerSig }),
+      alice,
+    ).value,
+  ).toBe(pox5Errors.ERR_UNAUTHORIZED_SIGNER_REGISTRATION);
+});
+
+/**
+ * `set-burnchain-parameters` may only be configured once at boot (guarded by
+ * the `configured` var via `unwrap-panic`). `initPox5` already configures it,
+ * so a second call must abort at runtime — re-configuring cycle lengths or the
+ * first cycle after boot would corrupt all reward-cycle math.
+ */
+test('set-burnchain-parameters cannot be called a second time', () => {
+  // `initPox5` (beforeEach) has already configured the burnchain parameters.
+  expect(() =>
+    simnet.callPublicFn(
+      pox5.identifier,
+      'set-burnchain-parameters',
+      [Cl.uint(0), Cl.uint(10), Cl.uint(REWARD_CYCLE_LENGTH), Cl.uint(1)],
+      deployer,
+    ),
+  ).toThrow(/Runtime error/);
+});
+
+/**
+ * Only the current `bond-admin` may transfer the admin role. `initPox5` sets
+ * the admin to `deployer`, so a non-admin call must be rejected.
+ */
+test('set-bond-admin rejects a non-admin caller', () => {
+  expect(txErr(pox5.setBondAdmin(bob), alice).value).toBe(
+    pox5Errors.ERR_UNAUTHORIZED,
+  );
+});
+
+/**
+ * After a successful admin handoff the old admin loses authority and the new
+ * admin gains it.
+ */
+test('set-bond-admin hands off authority to the new admin', () => {
+  // deployer (current admin) hands off to alice.
+  txOk(pox5.setBondAdmin(alice), deployer);
+
+  // The old admin can no longer set the admin.
+  expect(txErr(pox5.setBondAdmin(bob), deployer).value).toBe(
+    pox5Errors.ERR_UNAUTHORIZED,
+  );
+
+  // The new admin can.
+  txOk(pox5.setBondAdmin(bob), alice);
 });
 
 /**
@@ -1093,6 +1767,191 @@ test('concurrent bonds are paid by priority before stx-only stakers', () => {
   expect(rov(pox5.getEarned(signer, 3n, 1n))).toBe(1500n - firstBondRewards);
   expect(rov(pox5.getEarned(signer, 3n, null))).toBe(0n);
   expect(rov(pox5.getReserveBalance())).toBe(0n);
+});
+
+/**
+ * `calculate-rewards` must be given the bond periods in descending
+ * `stx-value-ratio` order; this determines the deterministic priority in which
+ * the reward waterfall is applied. Passing two active bonds in the wrong order
+ * (lower ratio first) must be rejected so a caller cannot reorder bonds to
+ * redirect rewards.
+ */
+test('calculate-rewards rejects bond periods in the wrong stx-value-ratio order', () => {
+  const signer = testSigner.identifier;
+  const targetRate = 1200n;
+  const minUstxRatio = 100n;
+  const aliceSbtc = 400000n;
+  const bobSbtc = 400000n;
+
+  registerSigner();
+
+  // Bond 0 has the higher stx-value-ratio (20) → must come first.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 20n,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 20n, minUstxRatio)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)) + 1n);
+
+  // Bond 1 has the lower stx-value-ratio (10) → must come second.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate,
+      stxValueRatio: 10n,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: [{ maxSats: bobSbtc, staker: bob }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, minUstxRatio)),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
+
+  // Both bonds are active at cycle 3, so the all-active-bonds-included guard is
+  // satisfied; only the ordering is wrong (lower ratio first).
+  expect(txErr(pox5.calculateRewards([1n, 0n]), deployer).value).toBe(
+    pox5Errors.ERR_INVALID_BOND_PERIOD_ORDERING,
+  );
+});
+
+/**
+ * The same ordering guard doubles as duplicate protection: within a tie (here a
+ * single bond against itself) the next bond-index must be strictly greater, so
+ * listing the same bond period twice is rejected.
+ */
+test('calculate-rewards rejects a duplicated bond period', () => {
+  const signer = testSigner.identifier;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: 400000n, staker: alice }]);
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(400000n),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  // Cycle 1: only bond period 0 is active, so [0, 0] passes the
+  // all-active-bonds-included guard and trips the duplicate check instead.
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  expect(txErr(pox5.calculateRewards([0n, 0n]), deployer).value).toBe(
+    pox5Errors.ERR_INVALID_BOND_PERIOD_ORDERING,
+  );
+});
+
+/**
+ * `claim-rewards` folds over a list of bond periods, accumulating both a
+ * running total and a per-bond list. Existing tests only pass length-0/1
+ * lists; here a single signer earns on two concurrent bonds in the same cycle
+ * and claims both at once, exercising the multi-element fold, summation, and
+ * `bond-rewards` accumulator at realistic length.
+ */
+test('claim-rewards aggregates multiple bond periods in one call', () => {
+  const signer = testSigner.identifier;
+  const targetRate = 1200n;
+  const minUstxRatio = 100n;
+  const aliceSbtc = 400000n;
+  const bobSbtc = 300000n;
+
+  registerSigner();
+
+  // Bond 0 (higher stx-value-ratio → listed first), both bonds on `signer`.
+  txOk(
+    pox5.setupBond({
+      bondIndex: 0n,
+      targetRate,
+      stxValueRatio: 20n,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSbtc, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(aliceSbtc, 20n, minUstxRatio)),
+      btcLockup: err(aliceSbtc),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  mineUntil(rov(pox5.bondPeriodToBurnHeight(0n)) + 1n);
+
+  txOk(
+    pox5.setupBond({
+      bondIndex: 1n,
+      targetRate,
+      stxValueRatio: 10n,
+      minUstxRatio,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: [{ maxSats: bobSbtc, staker: bob }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex: 1n,
+      signerManager: signer,
+      amountUstx: rov(pox5.minUstxForSatsAmount(bobSbtc, 10n, minUstxRatio)),
+      btcLockup: err(bobSbtc),
+      signerCalldata: null,
+    }),
+    bob,
+  );
+
+  sbtcTransfer(5000n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(3n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([0n, 1n]), deployer);
+
+  const bond0Earned = rov(pox5.getEarned(signer, 3n, 0n));
+  const bond1Earned = rov(pox5.getEarned(signer, 3n, 1n));
+  expect(bond0Earned).toBeGreaterThan(0n);
+  expect(bond1Earned).toBeGreaterThan(0n);
+
+  // Claim both bond periods in a single call.
+  const claim = txOk(testSigner.claimRewards([0n, 1n], 3n), deployer);
+  expect(claim.value.bondRewards.length).toBe(2);
+  expect(claim.value.bondTotals).toBe(bond0Earned + bond1Earned);
+
+  // Everything claimable was claimed; a second claim has nothing left.
+  expect(txErr(testSigner.claimRewards([0n, 1n], 3n), deployer).value).toBe(
+    pox5Errors.ERR_NO_CLAIMABLE_REWARDS,
+  );
 });
 
 /**
