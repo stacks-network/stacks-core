@@ -59,6 +59,27 @@ pub const MAX_TYPE_DEPTH: u8 = 32;
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 /// Maximum byte length for Value string representations in error messages.
 const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
+/// Size of an Int or UInt value (i128 = 16 bytes)
+pub const INT_SIZE: u32 = std::mem::size_of::<i128>() as u32;
+/// Size of a Bool value
+pub const BOOL_SIZE: u32 = 1;
+/// Pessimistic upper-bound size of a principal value.
+///
+/// 20 bytes (Hash160) + 128 bytes ([`MAX_STRING_LEN`](crate::representations::MAX_STRING_LEN)).
+///
+/// Note: contract names are actually limited to 40 bytes
+/// ([`CONTRACT_MAX_NAME_LENGTH`](crate::representations::CONTRACT_MAX_NAME_LENGTH)),
+/// but this constant conservatively uses the general `ClarityName` max of 128.
+/// Changing this would be consensus-breaking.
+pub const PRINCIPAL_SIZE: u32 = 148;
+/// Pessimistic upper-bound size of a trait reference.
+///
+/// [`PRINCIPAL_SIZE`] + 128 bytes for the trait name.
+pub const TRAIT_SIZE: u32 = PRINCIPAL_SIZE + 128;
+/// Length prefix size for sequences (buffer, string)
+pub const SEQUENCE_LENGTH_PREFIX: u32 = 4;
+/// Size of a single UTF8 character (4 bytes)
+pub const UTF8_CHAR_SIZE: u32 = 4;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -1016,7 +1037,39 @@ impl Value {
     }
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        TypeSignature::type_of(self)?.size()
+        match self {
+            Value::Int(_) | Value::UInt(_) => Ok(INT_SIZE),
+            Value::Bool(_) => Ok(BOOL_SIZE),
+            Value::Principal(_) => Ok(PRINCIPAL_SIZE),
+            Value::CallableContract(v) => {
+                if v.trait_identifier.is_some() {
+                    Ok(TRAIT_SIZE)
+                } else {
+                    Ok(PRINCIPAL_SIZE)
+                }
+            }
+            Value::Tuple(data) => Ok(data.type_signature.size()),
+            Value::Sequence(SequenceData::List(data)) => Ok(data.type_signature.size()),
+            Value::Sequence(SequenceData::Buffer(data)) => Ok(SEQUENCE_LENGTH_PREFIX
+                + u32::try_from(data.data.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?),
+            Value::Sequence(SequenceData::String(CharType::ASCII(data))) => {
+                Ok(SEQUENCE_LENGTH_PREFIX
+                    + u32::try_from(data.data.len())
+                        .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+            }
+            Value::Sequence(SequenceData::String(CharType::UTF8(data))) => {
+                Ok(SEQUENCE_LENGTH_PREFIX
+                    + UTF8_CHAR_SIZE
+                        * u32::try_from(data.data.len())
+                            .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+            }
+            Value::Optional(opt) => match &opt.data {
+                Some(v) => Ok(v.size()? + WRAPPER_VALUE_SIZE),
+                // 1-byte wrapper + 1-byte NoType size (BOOL_SIZE).
+                None => Ok(BOOL_SIZE + WRAPPER_VALUE_SIZE),
+            },
+            Value::Response(resp) => Ok(resp.data.size()? + WRAPPER_VALUE_SIZE),
+        }
     }
 
     pub fn depth(&self) -> Result<u8, ClarityTypeError> {
@@ -1795,7 +1848,10 @@ impl TupleData {
         })
     }
 
-    pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> TupleData {
+    pub fn shallow_merge(
+        mut base: TupleData,
+        updates: TupleData,
+    ) -> Result<TupleData, ClarityTypeError> {
         let TupleData {
             data_map,
             mut type_signature,
@@ -1803,8 +1859,8 @@ impl TupleData {
         for (name, value) in data_map.into_iter() {
             base.data_map.insert(name, value);
         }
-        base.type_signature.shallow_merge(&mut type_signature);
-        base
+        base.type_signature.shallow_merge(&mut type_signature)?;
+        Ok(base)
     }
 }
 

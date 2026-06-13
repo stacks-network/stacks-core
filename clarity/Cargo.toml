@@ -45,6 +45,10 @@ name = "sequence_ops"
 harness = false
 
 [[bench]]
+name = "value_size"
+harness = false
+
+[[bench]]
 name = "value_ref"
 harness = false
 
