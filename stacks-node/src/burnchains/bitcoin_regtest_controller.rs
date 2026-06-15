@@ -61,7 +61,9 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
 use stacks_common::deps_common::bitcoin::network::serialize::{serialize, serialize_hex};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::util::hash::{hex_bytes, Hash160};
+#[cfg(test)]
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
@@ -1948,6 +1950,7 @@ impl BitcoinRegtestController {
     }
 
     /// Instruct a regtest Bitcoin node to build the next block.
+    #[cfg(test)]
     pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {num_blocks} block(s)");
         let public_key_bytes = match &self.config.burnchain.local_mining_public_key {
@@ -1960,25 +1963,9 @@ impl BitcoinRegtestController {
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
 
-        let result = self
-            .get_rpc_client()
-            .generate_to_address(num_blocks, &address);
-        /*
-            Temporary: not using `BitcoinRpcClientResultExt::ok_or_log_panic` (test code related),
-            because we need this logic available outside `#[cfg(test)]` due to Helium network.
-
-            After the Helium cleanup (https://github.com/stacks-network/stacks-core/issues/6408),
-            we can:
-              - move `build_next_block` behind `#[cfg(test)]`
-              - simplify this match by using `ok_or_log_panic`.
-        */
-        match result {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
-        }
+        self.get_rpc_client()
+            .generate_to_address(num_blocks, &address)
+            .ok_or_log_panic("error generating block");
     }
 
     /// Instruct a regtest Bitcoin node to build an empty block.
