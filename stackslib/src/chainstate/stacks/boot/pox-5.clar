@@ -14,7 +14,6 @@
 (define-constant ERR_SIGNER_KEY_GRANT_NOT_FOUND (err u17))
 (define-constant ERR_ALREADY_STAKED (err u19))
 (define-constant ERR_INVALID_NUM_CYCLES (err u20))
-(define-constant ERR_UNAUTHORIZED_CALLER (err u22))
 (define-constant ERR_SIGNER_NOT_FOUND (err u23))
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u24))
 (define-constant ERR_UNAUTHORIZED_SIGNER_REGISTRATION (err u26))
@@ -238,16 +237,6 @@
 (define-map ustx-delegated-per-cycle
     uint
     uint
-)
-
-;; allowed contract-callers
-(define-map allowance-contract-callers
-    {
-        sender: principal,
-        contract-caller: principal,
-    }
-    ;; Optional expiration burn height
-    (optional uint)
 )
 
 ;; State to track the per-share rewards earned for bond periods
@@ -643,9 +632,9 @@
     )
 )
 
-;; Register for a protocol bond. In order the call this function,
-;; the bond must already have been created, and `contract-caller`
-;; must be in the allowlist.
+;; Register for a protocol bond. In order to call this function,
+;; the bond must already have been created, and `tx-sender` must
+;; be in the allowlist.
 ;;
 ;; The caller must either provide sBTC that they want to lockup,
 ;; or they must provide proof of their L1 BTC lockup.
@@ -769,9 +758,6 @@
         (try! (verify-signer-key-grant signer
             (unwrap! (get-signer-info signer) ERR_SIGNER_NOT_FOUND)
         ))
-
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
 
         ;; Reject if an existing membership *overlaps* this bond. An existing
         ;; bond whose staking term ends no later than this bond's first cycle
@@ -904,9 +890,6 @@
             (unwrap! (get-signer-info signer) ERR_SIGNER_NOT_FOUND)
         ))
 
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
-
         ;; Settle rewards before mutating related state
         (settle-rewards current-signer current-cycle (some bond-index))
         (settle-rewards signer current-cycle (some bond-index))
@@ -1037,9 +1020,6 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
-
         ;; Cannot already be STX-only staking. Re-extending an existing stake
         ;; goes through `stake-update`, not a second `stake` call.
         (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
@@ -1150,9 +1130,6 @@
 
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
-
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
 
         ;; Must have enough unlocked STX
         (asserts! (>= (get unlocked (stx-account tx-sender)) amount-increase)
@@ -1314,9 +1291,6 @@
         ;; Must be an sBTC lock
         (asserts! (not (get is-l1-lock membership)) ERR_CANNOT_UNSTAKE_SBTC)
 
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
-
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
 
@@ -1458,8 +1432,6 @@
         (asserts! (is-eq old-signer (get signer current-info))
             ERR_INVALID_OLD_SIGNER_MANAGER
         )
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
 
         ;; do not allow during a prepare phase
         (asserts! (not (is-in-prepare-phase current-cycle))
@@ -2837,13 +2809,13 @@
         (auth-id uint)
     )
     (sha256 (concat SIP018_MSG_PREFIX
-        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
-            (sha256 (unwrap-panic (to-consensus-buff? {
-                topic: "grant-authorization",
-                signer-manager: signer-manager,
-                auth-id: auth-id,
-            })))
-        )))
+        (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+        (sha256 (unwrap-panic (to-consensus-buff? {
+            topic: "grant-authorization",
+            signer-manager: signer-manager,
+            auth-id: auth-id,
+        })))
+    ))
 )
 
 (define-read-only (verify-signer-key-grant
@@ -3334,74 +3306,6 @@
     )
 )
 
-;;; Contract caller allowances
-
-(define-read-only (check-caller-allowed)
-    (ok (asserts!
-        (or
-            (is-eq tx-sender contract-caller)
-            (match (unwrap!
-                (map-get? allowance-contract-callers {
-                    sender: tx-sender,
-                    contract-caller: contract-caller,
-                })
-                ERR_UNAUTHORIZED_CALLER
-            )
-                expiration (< burn-block-height expiration)
-                true
-            )
-        )
-        ERR_UNAUTHORIZED_CALLER
-    ))
-)
-
-;; Revoke contract-caller authorization to call stacking methods
-(define-public (disallow-contract-caller (caller principal))
-    (begin
-        ;; ensure no reentrancy through signer-manager trait calls
-        (try! (validate-no-reentrancy))
-
-        (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
-        (print {
-            topic: "disallow-contract-caller",
-            sender: tx-sender,
-            contract-caller: caller,
-        })
-        (ok (map-delete allowance-contract-callers {
-            sender: tx-sender,
-            contract-caller: caller,
-        }))
-    )
-)
-
-;; Give a contract-caller authorization to call stacking methods
-;;  normally, stacking methods may only be invoked by _direct_ transactions
-;;   (i.e., the tx-sender issues a direct contract-call to the stacking methods)
-;;  by issuing an allowance, the tx-sender may call through the allowed contract
-(define-public (allow-contract-caller
-        (caller principal)
-        (until-burn-ht (optional uint))
-    )
-    (begin
-        ;; ensure no reentrancy through signer-manager trait calls
-        (try! (validate-no-reentrancy))
-
-        (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
-        (print {
-            topic: "allow-contract-caller",
-            sender: tx-sender,
-            contract-caller: caller,
-            until-burn-ht: until-burn-ht,
-        })
-        (ok (map-set allowance-contract-callers {
-            sender: tx-sender,
-            contract-caller: caller,
-        }
-            until-burn-ht
-        ))
-    )
-)
-
 ;;; Cycle-based Linked List functions
 
 ;; First item in the linked list of stakers
@@ -3752,21 +3656,18 @@
         (staker-unlock-bytes (buff 683))
         (early-unlock-bytes (buff 683))
     )
-    (concat 0x63 ;; OP_IF
-        (concat (push-c-script-num unlock-burn-height)
-            (concat 0xb167 ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
-                (concat 0x82012088a820
-                    ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
-                    (concat
-                        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
-                        (concat 0x88 ;; OP_EQUALVERIFY
-                            (concat early-unlock-bytes
-                                (concat 0x6869 ;; OP_ENDIF, OP_VERIFY
-                                    staker-unlock-bytes
-                                ))
-                        ))
-                ))
-        ))
+    ;; @format-ignore
+    (concat
+        0x63           ;; OP_IF
+        (push-c-script-num unlock-burn-height)
+        0xb167         ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
+        0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
+        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
+        0x88           ;; OP_EQUALVERIFY
+        early-unlock-bytes
+        0x6869         ;; OP_ENDIF, OP_VERIFY
+        staker-unlock-bytes
+    )
 )
 
 ;; Construct the p2wsh output script for a L1 lockup address
@@ -3841,8 +3742,8 @@
                         (if (< n u32768)
                             (concat b0 b1)
                             (if (< n u65536)
-                                (concat b0 (concat b1 0x00))
-                                (concat b0 (concat b1 b2))
+                                (concat b0 b1 0x00)
+                                (concat b0 b1 b2)
                             )
                         )
                     )

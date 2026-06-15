@@ -1790,7 +1790,7 @@ pub(crate) fn get_tx_result_by_id(txid: &str) -> Option<Value> {
     None
 }
 
-fn get_tx_status_by_id(txid: &str) -> Option<String> {
+pub(crate) fn get_tx_status_by_id(txid: &str) -> Option<String> {
     for block in test_observer::get_blocks().iter() {
         for tx in block.get("transactions").unwrap().as_array().unwrap() {
             let Some(observed_txid) = tx
