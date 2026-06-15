@@ -23,6 +23,7 @@ use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
@@ -86,6 +87,7 @@ pub mod accounts;
 pub mod blocks;
 pub mod contracts;
 pub mod headers;
+pub mod snapshot;
 pub mod transactions;
 pub mod unconfirmed;
 
@@ -517,6 +519,11 @@ impl ClarityConnection for ClarityTx<'_, '_> {
 impl<'a, 'b> ClarityTx<'a, 'b> {
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
+    }
+
+    /// Set an abort callback that will be checked at every Clarity `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.block.set_abort_callback(callback);
     }
 
     pub fn get_epoch(&self) -> StacksEpochId {

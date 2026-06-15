@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2024-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -232,6 +232,25 @@ fn check_proposal_miner_pkh_mismatch() {
             .expect_err("Should fail to validate"),
         RejectReason::PubkeyHashMismatch
     ));
+}
+
+#[test]
+/// We no longer accept *transaction* signatures with high S (because they cause
+/// txid malleability), but in *miner* signatures they're still allowed.
+fn check_proposal_accepts_high_s_miner_sign() {
+    let (stacks_client, mut signer_db, miner_sk, mut block, current_sortition, _, sortitions_view) =
+        setup_test_environment(function_name!());
+    block.header.consensus_hash = current_sortition.data.consensus_hash;
+
+    block.header.miner_signature = miner_sk
+        .sign(block.header.miner_signature_hash().as_bytes())
+        .unwrap()
+        .with_negated_s();
+    assert_eq!(
+        sortitions_view.check_proposal(&stacks_client, &mut signer_db, &block),
+        Ok(()),
+        "should validate"
+    );
 }
 
 fn reorg_timing_testing(

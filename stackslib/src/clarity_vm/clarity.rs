@@ -21,11 +21,11 @@ use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
-use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
+use clarity::vm::contexts::{AbortCallback, AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
-    RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, ClarityExecutionCache, HeadersDB,
+    RollbackWrapper, RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::{STXEventType, STXMintEventData};
@@ -117,6 +117,13 @@ pub struct ClarityBlockConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    /// Callback checked at every Clarity `eval` call. Used by the miner to
+    /// abort block assembly when a resource limit is exceeded (e.g. heap
+    /// memory). Propagated to each `ClarityTransactionConnection` and from
+    /// there into `GlobalContext`.
+    ///
+    /// `AbortCallback::None` is the no-op default.
+    abort_callback: AbortCallback,
 }
 
 ///
@@ -133,6 +140,10 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    abort_callback: AbortCallback,
+    /// Per-tx cache container which is attached to [`ClarityDatabase`] instances handed out by this
+    /// connection.
+    cache: ClarityExecutionCache,
 }
 
 /// Unified API common to all MARF stores
@@ -250,6 +261,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         mainnet: bool,
         chain_id: u32,
         epoch: StacksEpochId,
+        abort_callback: AbortCallback,
     ) -> ClarityTransactionConnection<'a, 'b> {
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
@@ -262,6 +274,8 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             mainnet,
             chain_id,
             epoch,
+            abort_callback,
+            cache: ClarityExecutionCache::default(),
         }
     }
 }
@@ -318,6 +332,7 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
             epoch,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -336,6 +351,11 @@ impl ClarityBlockConnection<'_, '_> {
             .expect("BUG: Clarity block connection lost cost tracker instance");
         self.cost_track.replace(tracker);
         old
+    }
+
+    /// Set an abort callback that will be checked at every Clarity `eval` call.
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.abort_callback = callback;
     }
 
     /// Get the current cost so far
@@ -444,6 +464,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -468,6 +489,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -494,6 +516,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         };
 
         let use_mainnet = self.mainnet;
@@ -590,6 +613,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            abort_callback: AbortCallback::None,
         };
 
         let use_mainnet = self.mainnet;
@@ -698,6 +722,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -738,6 +763,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            abort_callback: AbortCallback::None,
         }
     }
 
@@ -793,8 +819,11 @@ impl ClarityInstance {
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, ClarityError> {
+        let mut cache = ClarityExecutionCache::default();
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
-        let mut clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
+        let mut clarity_db = read_only_conn
+            .as_clarity_db(header_db, burn_state_db)
+            .with_cache(&mut cache);
         let epoch_id = {
             clarity_db.begin();
             let result = clarity_db.get_clarity_epoch_version();
@@ -819,7 +848,9 @@ impl ClarityConnection for ClarityBlockConnection<'_, '_> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
-        let mut db = ClarityDatabase::new(&mut self.datastore, self.header_db, self.burn_state_db);
+        let mut cache = ClarityExecutionCache::default();
+        let mut db = ClarityDatabase::new(&mut self.datastore, self.header_db, self.burn_state_db)
+            .with_cache(&mut cache);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -850,9 +881,12 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
+        let mut cache = ClarityExecutionCache::default();
         let mut db = self
             .datastore
-            .as_clarity_db(self.header_db, self.burn_state_db);
+            .as_clarity_db(self.header_db, self.burn_state_db)
+            .with_cache(&mut cache);
+
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -1957,6 +1991,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             self.mainnet,
             self.chain_id,
             self.epoch,
+            self.abort_callback.clone(),
         )
     }
 
@@ -2024,7 +2059,8 @@ impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
                 rollback_wrapper,
                 self.header_db,
                 self.burn_state_db,
-            );
+            )
+            .with_cache(&mut self.cache);
             db.begin();
             let (r, mut db) = to_do(db);
             db.roll_back()
@@ -2089,7 +2125,8 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     rollback_wrapper,
                     self.header_db,
                     self.burn_state_db,
-                );
+                )
+                .with_cache(&mut self.cache);
 
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
@@ -2101,6 +2138,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     cost_track,
                     self.epoch,
                 );
+                vm_env.set_abort_callback(self.abort_callback.clone());
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()
@@ -2161,7 +2199,8 @@ impl ClarityTransactionConnection<'_, '_> {
                 rollback_wrapper,
                 self.header_db,
                 self.burn_state_db,
-            );
+            )
+            .with_cache(&mut self.cache);
 
             db.begin();
             let result = to_do(&mut db);
@@ -3332,5 +3371,121 @@ mod tests {
 
             conn.commit_block();
         }
+    }
+
+    /// `ClarityTransactionConnection` constructs a fresh `ContractCache` per call to
+    /// `start_transaction_processing`, so every `as_transaction` enters with an empty cache. This
+    /// test exercises a deploy + two same-tx contract-calls (miss then hit), then opens a fresh tx
+    /// and confirms counters reset.
+    #[test]
+    pub fn contract_cache_is_scoped_to_transaction() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+        let contract_identifier = QualifiedContractIdentifier::local("cache-scope").unwrap();
+        let sender: PrincipalData = StandardPrincipalData::transient().into();
+
+        clarity_instance
+            .begin_test_genesis_block(
+                &StacksBlockId::sentinel(),
+                &StacksBlockId([0; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        let mut conn = clarity_instance.begin_block(
+            &StacksBlockId([0; 32]),
+            &StacksBlockId([1; 32]),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+
+        let contract_src = "(define-public (noop) (ok true))";
+
+        // tx1: deploy (no contract-call path → no cache activity).
+        conn.as_transaction(|tx| {
+            let (ct_ast, ct_analysis) = tx
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    contract_src,
+                )
+                .unwrap();
+            tx.initialize_smart_contract(
+                &contract_identifier,
+                ClarityVersion::Clarity1,
+                &ct_ast,
+                contract_src,
+                None,
+                |_, _| None,
+                None,
+            )
+            .unwrap();
+            tx.save_analysis(&contract_identifier, &ct_analysis)
+                .unwrap();
+        });
+
+        // tx2: first call misses, second call hits.
+        conn.as_transaction(|tx| {
+            assert_eq!(tx.cache.contracts.hits(), 0);
+            assert_eq!(tx.cache.contracts.misses(), 0);
+
+            tx.run_contract_call(
+                &sender,
+                None,
+                &contract_identifier,
+                "noop",
+                &[],
+                |_, _| None,
+                None,
+            )
+            .unwrap();
+
+            let misses_after_first = tx.cache.contracts.misses();
+            let hits_after_first = tx.cache.contracts.hits();
+            assert!(misses_after_first >= 1, "first call should miss");
+
+            tx.run_contract_call(
+                &sender,
+                None,
+                &contract_identifier,
+                "noop",
+                &[],
+                |_, _| None,
+                None,
+            )
+            .unwrap();
+            assert!(
+                tx.cache.contracts.hits() > hits_after_first,
+                "second call should hit the cache",
+            );
+        });
+
+        // tx3: fresh tx must see counters reset and still work.
+        conn.as_transaction(|tx| {
+            assert_eq!(tx.cache.contracts.hits(), 0, "fresh tx starts at 0 hits");
+            assert_eq!(
+                tx.cache.contracts.misses(),
+                0,
+                "fresh tx starts at 0 misses"
+            );
+
+            tx.run_contract_call(
+                &sender,
+                None,
+                &contract_identifier,
+                "noop",
+                &[],
+                |_, _| None,
+                None,
+            )
+            .unwrap();
+            assert!(
+                tx.cache.contracts.misses() >= 1,
+                "fresh tx miss on first call"
+            );
+        });
+
+        conn.commit_block();
     }
 }

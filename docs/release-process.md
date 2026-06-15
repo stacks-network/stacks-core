@@ -75,7 +75,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
    - Assemble changelog fragments into `CHANGELOG.md` and `stacks-signer/CHANGELOG.md`:
 
      ```bash
-     ./contrib/assemble-changelog.sh X.Y.Z.A.n
+     ./contrib/tools/assemble-changelog.sh X.Y.Z.A.n
      ```
 
      This will collect all fragment files from `changelog.d/` and `stacks-signer/changelog.d/`,

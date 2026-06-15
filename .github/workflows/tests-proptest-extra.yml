@@ -1,0 +1,482 @@
+# GitHub workflow to run newly introduced proptests with higher case counts.
+#
+# This works for tests tagged with `t_prop` tag like this:
+#
+# #[tag(t_prop)]
+# fn my_prop_test() { ... }
+#  ```
+#
+# Triggered by PR review events (submitted/dismissed) and manual dispatch.
+# Manual dispatch always runs; PR-review runs proceed only for approved
+# reviews targeting the `develop` base branch.
+#
+# It uses two gates: approval threshold first, then quick diff detection of
+# new proptest tests (tag based), to avoid expensive runs when not needed.
+#
+# Once the gates are passed, the test discovery strategy is:#   - HEAD: list tests from nextest archive (cache restore when available)
+#   - BASE: compile/list tests in a temporary git worktree
+#   - New tests: tagged tests present in HEAD but not in BASE
+#
+# On tests execution failure, a comment is added to the PR listing the failed
+# tests, with a link to the workflow run and the proptest-regression files
+# downloadable as a workflow artifact.
+
+name: Tests::Proptest Extra
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "BASE branch to diff against (default: develop)"
+        required: true
+        default: "develop"
+        type: string
+      pr_number:
+        description: "PR number for stateful run (artifact naming, PR comments)"
+        required: true
+        type: string
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Configure concurrency
+concurrency:
+  group: proptest-extra-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+# Set default env vars
+env:
+  RUST_BACKTRACE: full
+  TEST_TIMEOUT: 60
+  # Minimum number of PR approvals required before running the tests
+  REQUIRED_APPROVALS: 2
+  # Number of generated cases to run per selected proptest.
+  PROPTEST_CASES: 2500
+  TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
+  BTC_VERSION: "25.0"
+
+jobs:
+  # Gate 1: on manual dispatch, always proceed.
+  # On pull_request_review, proceed only when the triggering review is an
+  # approval targeting the `develop` base branch and check approvals
+  # from users with write+ permission to be at least `REQUIRED_APPROVALS`.
+  check-approvals:
+    name: Check Approval Count
+    if: >
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'develop')
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.count.outputs.ready }}
+    steps:
+      # Retrieve current approvals with write access
+      - name: Count current approvals
+        id: count
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "workflow_dispatch — skipping approval count check"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Fetch all reviews and compute the latest state per reviewer.
+          # A user who approved and then dismissed counts as dismissed (not approved).
+          approvers=$(gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+            --jq '
+              reduce .[] as $r ({};
+                .[$r.user.login] = $r.state
+              )
+              | to_entries
+              | map(select(.value == "APPROVED"))
+              | .[].key
+            ')
+
+          # Count only approvals from users with write+ permission.
+          count=0
+          for user in $approvers; do
+            perm=$(gh api \
+              "repos/${{ github.repository }}/collaborators/$user/permission" \
+              --jq '.permission' 2>/dev/null || echo "none")
+            if [[ "$perm" == "write" || "$perm" == "maintain" || "$perm" == "admin" ]]; then
+              echo "Counting approval from $user (permission: $perm)"
+              count=$((count + 1))
+            else
+              echo "Skipping approval from $user (permission: $perm)"
+            fi
+          done
+
+          echo "Current approval count: $count (required: ${{ env.REQUIRED_APPROVALS }})"
+
+          # Run only when approvals reach REQUIRED_APPROVALS.
+          # This helps avoid extra reruns triggered by later approvals
+          # that would otherwise be queued by the concurrency setting.
+          if [ "$count" -ge "${{ env.REQUIRED_APPROVALS }}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Gate 2: scan git diff for newly added proptest tests (no compilation).
+  # Skips the expensive test listing/filtering job when a PR does not
+  # introduce any new proptest tests.
+  check-changes:
+    name: Detect New Proptest Tests
+    needs: check-approvals
+    if: needs.check-approvals.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.detect.outputs.found }}
+    steps:
+      # Checkout the code
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+
+      # Quick diff scan: detect whether the PR introduces any new proptest test
+      # looking for the attribute #[tag(..., t_prop, ...)] on added lines,
+      # so we can skip full discovery when there are none.
+      - name: Detect new proptest tests (git diff)
+        id: detect
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || inputs.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+
+          found=false
+          # For each .rs file that was added or modified in the PR...
+          while IFS= read -r file; do
+            # ...check if any added line contains #[tag(..., t_prop, ...)]
+            # The tag list may have multiple comma-separated keywords with optional spaces.
+            if git diff "origin/$BASE_REF" -- "$file" \
+                 | grep '^+[^+]' \
+                 | grep -qP '#\[tag\([^)]*\bt_prop\b[^)]*\)\]'; then
+              echo "Found new proptest tag in: $file"
+              found=true
+              break
+            fi
+          done < <(git diff "origin/$BASE_REF" --name-only --diff-filter=AM -- '*.rs')
+
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+          if [ "$found" = "true" ]; then
+            echo "New proptest tests detected — running full test discovery"
+          else
+            echo "No proptest tests detected — skipping test discovery"
+          fi
+
+  # --- Global Variables Setup ---------------------------------------------
+  # Bridges global env variables to the jobs context so they are safely 
+  # accessible by downstream reusable workflows.
+  setup-env:
+    name: "Setup: Global Variables"
+    needs:
+      - check-approvals
+      - check-changes
+    runs-on: ubuntu-latest
+    outputs:
+      test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
+      btc-version: ${{ steps.set-env.outputs.btc_version }}
+    steps:
+      - name: Export Env Variables
+        id: set-env
+        run: |
+          # Expand leading ~ to $HOME before saving to outputs
+          FILE="${{ env.TEST_ARCHIVE_FILE }}"
+  
+          echo "test_archive_file=${FILE/#\~/$HOME}" >> "$GITHUB_OUTPUT"
+          echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
+
+  # --- Setup reusable caches for tests ------------------------------------
+  setup-test-caches:
+    name: "Setup: Test Caches"
+    needs:
+      - check-approvals
+      - check-changes
+      - setup-env
+    if: |
+      needs.check-approvals.outputs.ready == 'true' &&
+      needs.check-changes.outputs.found == 'true'
+    uses: ./.github/workflows/setup-test-caches.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+
+  proptests-run:
+    # NOTE: This job name is used as a required Status Check in branch
+    # protection rules. Renaming requires branch protection to be updated too.
+    # When skipped via its `if:` condition, GitHub reports the status as
+    # 'Success', so skipped runs are not blocking.
+    name: Run New Proptest Tests
+    needs: 
+      - check-approvals
+      - check-changes
+      - setup-env
+      - setup-test-caches
+    if: |
+      needs.check-approvals.outputs.ready == 'true' &&
+      needs.check-changes.outputs.found == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      ############################################################################
+      ### Setup test environment
+      ############################################################################
+      
+      # Checkout the code
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+     
+      # Setup rust toolchain with llvm-tools-preview
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          components: llvm-tools-preview
+     
+      # Install nextest
+      - name: Install Dependencies
+        id: install_dependencies
+        uses: ./.github/actions/install-tool
+        with:
+          tools: nextest
+
+      # Restore bitcoin cache data
+      - name: Restore Bitcoin Binary Cache
+        uses: ./.github/actions/cache/bitcoin
+        with:
+          action: restore
+          btc-version: ${{ needs.setup-env.outputs.btc-version }}
+     
+      # Symlink bitoind to $PATH
+      - name: Link Bitcoin Binary
+        shell: bash
+        run: |
+          sudo ln -s ~/bitcoin/bin/bitcoind /bin/
+     
+      # Increase open file descriptors limit
+      - name: Increase Open File Descriptors
+        shell: bash
+        run: |
+          sudo prlimit --nofile=4096:4096
+        
+      # Restore nextest test archive cache data
+      - name: Restore Test Archive Cache
+        id: restore_test_cache
+        uses: ./.github/actions/cache/test-archive
+        with:
+          action: restore
+          archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+
+      ############################################################################
+      ### Run proptests
+      ############################################################################
+
+      # List every test present on the HEAD branch.
+      - name: List HEAD branch tests
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          echo "Head branch: $HEAD_REF"
+
+          cargo nextest list \
+            --archive-file ${{ needs.setup-env.outputs.test-archive-file }} \
+            -Tjson 2>/dev/null \
+          | jq -r '
+              .["rust-suites"]
+              | to_entries[]
+              | .value.testcases
+              | keys[]
+            ' \
+          | sort > /tmp/head-tests.txt
+          echo "HEAD tests: $(wc -l < /tmp/head-tests.txt)"
+
+      # Check out the base branch into a temporary git worktree and compile it
+      # to list its tests, building in the worktree's own target/. The worktree
+      # (and its build output) is removed afterwards.
+      #
+      # This is always a full compile: the ./target/debug/ restored by "Restore
+      # Test Archive Cache" was built with -C instrument-coverage by
+      # setup-test-caches, so its fingerprints never match this list-only build
+      # and there is nothing to reuse. RUSTFLAGS only allows warnings here — the
+      # job-wide `-D warnings` would otherwise turn a benign warning into a hard
+      # error and leave an empty list.
+      - name: List BASE branch tests
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || inputs.base_ref }}
+          RUSTFLAGS: "-A warnings"
+        shell: bash
+        run: |
+          echo "Base branch: $BASE_REF"
+
+          git fetch --depth=1 origin "$BASE_REF"
+          git worktree add --detach /tmp/base-worktree "origin/$BASE_REF"
+
+          # Build in the worktree's own target/ (no HEAD target/ reuse — see note).
+          pushd /tmp/base-worktree
+          cargo nextest list -Tjson > /tmp/base-list.json
+          popd
+
+          # Remove the worktree along with its build output (--force because the
+          # compile above populated its target/).
+          git worktree remove --force /tmp/base-worktree
+          git worktree prune
+          
+          jq -r '
+              .["rust-suites"]
+              | to_entries[]
+              | .value.testcases
+              | keys[]
+            ' /tmp/base-list.json \
+          | sort > /tmp/base-tests.txt
+          
+          base_count=$(wc -l < /tmp/base-tests.txt)
+          echo "Base tests: $base_count"
+
+          if [ "$base_count" -eq 0 ]; then
+            echo "::error::BASE test listing is empty — aborting to avoid treating all HEAD tests as new."
+            exit 1
+          fi
+
+      # Compare the HEAD and base test lists and keep only tests that are new in HEAD.
+      # Then filter to only those tagged with :t::...:t_prop:, i.e. test names of the form:
+      #   mod1::mod2::testname::t::t_prop::t
+      #   mod1::mod2::testname::t::other::t_prop::t
+      - name: Discover new tests
+        id: discover
+        run: |
+          comm -23 /tmp/head-tests.txt /tmp/base-tests.txt \
+            | grep -P ':t::(?:.*::)?t_prop::' \
+            > /tmp/new-prop-tests.txt || true
+          count=$(wc -l < /tmp/new-prop-tests.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" -gt 0 ]; then
+            echo "New proptest tests found: $count"
+            cat /tmp/new-prop-tests.txt
+          else
+            echo "No new proptest tests discovered in this PR."
+          fi
+
+      # Restore proptest regression files (if any) persisted from a previous run.
+      # Proptest reads these automatically to replay failing seeds.
+      # Uses gh api to search by name across all runs (actions/download-artifact
+      # only looks at the current run unless run-id is given explicitly).
+      - name: Restore proptest regression (if any)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: proptest-extra-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+        run: |
+          artifact_url=$(gh api \
+            "repos/${{ github.repository }}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=1" \
+            --jq '.artifacts[0] | select(.expired == false) | .archive_download_url // empty')
+
+          if [[ -z "$artifact_url" ]]; then
+            echo "No regression artifact found — first run or expired"
+            exit 0
+          fi
+
+          echo "Restoring regression artifact: $ARTIFACT_NAME"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "$artifact_url" \
+            -o /tmp/regression.zip
+          unzip -o /tmp/regression.zip -d .
+
+      # Run all new proptest tests in parallel with an elevated `PROPTEST_CASES` value.
+      # nextest runs tests concurrently by default (one thread per CPU core).
+      # A JUnit XML report is written alongside the normal terminal output and
+      # parsed by xmllint to extract failed test names for the PR comment step.
+      # The step fails if any test fails (--fail-fast matches the old loop behaviour).
+      - name: Run new tests (PROPTEST_CASES=${{ env.PROPTEST_CASES }})
+        id: run-tests
+        if: steps.discover.outputs.count != '0'
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        run: |
+          # Build a single OR filter expression covering all new tests
+          filter=$(awk '{printf "%s%s", (NR==1?"":" | "), "test(=" $0 ")"}' /tmp/new-prop-tests.txt)
+
+          # Write a temporary nextest config that enables JUnit output and sets the
+          # filter expression for selecting tests to run
+          cat > /tmp/nextest-ci.toml << EOF
+          [profile.default]
+          junit = { path = "/tmp/nextest-junit.xml" }
+          default-filter = '$filter'
+          EOF
+
+          set +e
+          cargo nextest run \
+            --archive-file ${{ needs.setup-env.outputs.test-archive-file }} \
+            --fail-fast \
+            --config-file /tmp/nextest-ci.toml
+          exit_code=$?
+          set -e
+
+          # On failure, extract the failing test names from the JUnit report
+          if [ $exit_code -ne 0 ] && [ -f /tmp/nextest-junit.xml ]; then
+            sudo apt-get install -y libxml2-utils
+            xmllint --xpath '//testcase[failure or error]/@name' /tmp/nextest-junit.xml \
+              | grep -oP 'name="\K[^"]+' \
+              > /tmp/failed-prop-tests.txt
+          fi
+
+          exit $exit_code
+
+      # Persist proptest regression files (if any) for a potential next run.
+      # file format: <package>/proptest-regressions/<test-path>/<test-module>.txt
+      - name: Save proptest regression (if any)
+        if: failure() && steps.run-tests.outcome == 'failure'
+        env:
+          ARTIFACT_NAME: proptest-extra-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "**/proptest-regressions/"
+          if-no-files-found: ignore
+          overwrite: true
+
+      # On failure, post (or update by delete/create) a PR comment listing the failed tests,
+      # linking to the run and the artifact that holds the regression seeds.
+      # Skipped if the failure originated from a step other than test execution.
+      - name: Report proptest failure on PR
+        if: failure() && steps.run-tests.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          MSG_TAG: "<!-- proptest-extra-report -->"
+        run: |
+          run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          failed_tests=$(cat /tmp/failed-prop-tests.txt 2>/dev/null || echo "(unknown)")
+
+          body="$MSG_TAG
+          **Proptest failures detected**
+
+          The following tests failed:
+
+          \`\`\`
+          $failed_tests
+          \`\`\`
+
+          Proptest regression seeds were saved as artifact and will be replayed on the next run.
+          [View run and artifact]($run_url)"
+
+          existing=$(gh api \
+            "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+            --jq "[.[] | select(.body | startswith(\"$MSG_TAG\"))][0].id // empty")
+
+          if [[ -n "$existing" ]]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$existing" -X DELETE
+            echo "Deleted previous comment $existing"
+          fi
+
+          gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+            -X POST --field body="$body"
+          echo "Posted new comment"

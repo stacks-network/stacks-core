@@ -400,7 +400,7 @@ impl MockProposal {
     }
 
     /// The signature hash including the miner's signature. Used by signers.
-    fn signer_signature_hash(&self) -> Sha256Sum {
+    pub fn signer_signature_hash(&self) -> Sha256Sum {
         let domain_tuple =
             make_structured_data_domain("mock-signer", "1.0.0", self.peer_info.network_id);
         let data_tuple = Value::Tuple(
@@ -459,7 +459,7 @@ impl StacksMessageCodec for MockProposal {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MockSignature {
     /// The signer's signature across the mock proposal
-    signature: MessageSignature,
+    pub signature: MessageSignature,
     /// The mock block proposal that was signed across
     pub mock_proposal: MockProposal,
     /// The signature metadata
@@ -1803,7 +1803,10 @@ impl BlockRejection {
             return Err("No signature to recover public key from");
         }
         let signature_hash = self.hash();
-        StacksPublicKey::recover_to_pubkey(signature_hash.as_bytes(), &self.signature)
+        StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            signature_hash.as_bytes(),
+            &self.signature,
+        )
     }
 }
 

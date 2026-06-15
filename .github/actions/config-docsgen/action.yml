@@ -1,0 +1,57 @@
+name: Generate Configuration Documentation
+description: |
+    Generate and upload Stacks Core configuration documentation
+
+inputs:
+  output:
+    description: "Output file for generated documentation"
+    required: false
+    default: "./node-parameters.md"
+  min-doc-size:
+    description: "Minimum documentation size in bytes"
+    required: false
+    default: "50000"
+  rust-nightly-version:
+    description: "Specific nightly version to use (e.g., 'nightly-2025-06-17')"
+    required: false
+    default: "nightly-2025-06-17"
+  retention-days:
+    description: "Number of days to retain the artifact"
+    required: false
+    default: "90"
+  artifact-name:
+    description: "Name for the uploaded artifact"
+    required: false
+    default: "node-parameters-bundle"
+
+runs:
+  using: "composite"
+  steps:
+    # Setup rust toolchain
+    - name: Setup Rust Toolchain
+      uses: ./.github/actions/setup-rust-toolchain
+      with:
+        toolchain: ${{ inputs.rust-nightly-version }}
+        components: rust-docs-json
+        cache: "false"
+
+    # Generate, validate, and summarise configuration documentation
+    - name: Generate Configuration Documentation
+      shell: bash
+      env:
+        OUTPUT_FILE: ${{ inputs.output }}
+        MIN_DOC_SIZE: ${{ inputs.min-doc-size }}
+        PROJECT_ROOT: ${{ github.workspace }}
+        RUST_NIGHTLY_VERSION: ${{ inputs.rust-nightly-version }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        RETENTION_DAYS: ${{ inputs.retention-days }}
+      run: bash ./.github/scripts/config_docsgen.sh
+
+    # Upload documentation as artifact
+    - name: Upload Documentation Artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.output }}
+        retention-days: ${{ inputs.retention-days }}
+        if-no-files-found: error

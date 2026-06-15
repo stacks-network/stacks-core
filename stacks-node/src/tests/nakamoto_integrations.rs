@@ -93,7 +93,7 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks::types::{MinerDiagnosticData, MiningReason};
-use stacks::util::hash::hex_bytes;
+use stacks::util::hash::{hex_bytes, MerkleTree};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -583,7 +583,7 @@ pub fn get_latest_block_proposal(
         return Err("No block proposals found".into());
     };
 
-    let pubkey = StacksPublicKey::recover_to_pubkey(
+    let pubkey = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
         proposed_block.header.miner_signature_hash().as_bytes(),
         &proposed_block.header.miner_signature,
     )
@@ -3428,6 +3428,31 @@ fn block_proposal_api_endpoint() {
             HTTP_UNPROCESSABLE,
             None,
         ),
+        (
+            "High-S signature",
+            {
+                let mut p = proposal.clone();
+                p.block.txs[0] = p.block.txs[0].with_negated_s_in_signature();
+                // tweaking the signature changes the transaction id (which is
+                // the main problem with high-S signatures), so we need to update
+                // the transaction merkle root
+                let txid_vecs: Vec<_> = p
+                    .block
+                    .txs
+                    .iter()
+                    .map(|tx| tx.txid().as_bytes().to_vec())
+                    .collect();
+
+                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+                let tx_merkle_root = merkle_tree.root();
+
+                p.block.header.tx_merkle_root = tx_merkle_root;
+
+                sign(&p)
+            },
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::BadTransaction)),
+        ),
     ];
 
     // Build HTTP client
@@ -3502,7 +3527,9 @@ fn block_proposal_api_endpoint() {
 
     let expected_proposal_responses: Vec<_> = test_cases
         .iter()
-        .filter_map(|(_, _, _, expected_response)| expected_response.as_ref())
+        .filter_map(|(name, _, _, expected_response)| {
+            expected_response.as_ref().map(|resp| (name, resp))
+        })
         .collect();
 
     let mut proposal_responses = test_observer::get_proposal_responses();
@@ -3517,11 +3544,11 @@ fn block_proposal_api_endpoint() {
         proposal_responses = test_observer::get_proposal_responses();
     }
 
-    for (expected_response, response) in expected_proposal_responses
+    for ((test_case_name, expected_response), response) in expected_proposal_responses
         .iter()
         .zip(proposal_responses.iter())
     {
-        info!("Received response {response:?}, expecting {expected_response:?}");
+        info!("Received response {response:?} for test case \"{test_case_name}\", expecting {expected_response:?}");
         match expected_response {
             Ok(_) => {
                 assert!(matches!(response, BlockValidateResponse::Ok(_)));
@@ -8492,7 +8519,7 @@ fn check_block_info() {
     let last_stacks_block_height = info.stacks_tip_height as u128;
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -8515,7 +8542,7 @@ fn check_block_info() {
     let cur_stacks_block_height = info.stacks_tip_height as u128;
     let cur_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let cur_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &cur_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &cur_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -8623,11 +8650,13 @@ fn check_block_info() {
     let info = get_chain_info(&naka_conf);
     let interim_stacks_block_height = info.stacks_tip_height as u128;
     let interim_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
-    let interim_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &interim_stacks_tip)
-            .unwrap()
-            .unwrap()
-            .into();
+    let interim_tenure_height: u128 = NakamotoChainState::get_coinbase_height_at(
+        &mut chainstate.index_conn(),
+        &interim_stacks_tip,
+    )
+    .unwrap()
+    .unwrap()
+    .into();
     let interim_tenure_start_block_id = NakamotoChainState::get_tenure_start_block_header(
         &mut chainstate.index_conn(),
         &interim_stacks_tip,
@@ -9138,7 +9167,7 @@ fn check_block_info_rewards() {
     let last_nakamoto_block = last_stacks_block_height;
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_nakamoto_block_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -9158,7 +9187,7 @@ fn check_block_info_rewards() {
 
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -11766,6 +11795,109 @@ fn mine_invalid_principal_from_consensus_buff() {
     run_loop_thread.join().unwrap();
 }
 
+/// Test that mempool stop reasons are being correctly reported to Prometheus.
+///
+/// The test boots into epoch 3, mines a block to ensure the miner is running, then waits for the
+/// mempool to be drained.
+#[test]
+#[ignore]
+#[cfg(feature = "monitoring_prom")]
+fn miner_stop_reason_reported_to_prometheus() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+
+    // Setup Prometheus so we can check miner stop reason metrics
+    let prom_bind = format!("127.0.0.1:{}", gen_random_port());
+    conf.node.prometheus_bind = Some(prom_bind.clone());
+
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+    conf.add_initial_balance(
+        PrincipalData::from(signer_addr.clone()).to_string(),
+        100_000,
+    );
+
+    test_observer::spawn();
+    test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+    blind_signer(&conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .expect("failed to mine block");
+
+    // --- Wait for prometheus to report no_transactions ---
+    // The mempool is now empty, so the miner's next iteration should stop with
+    // NoMoreCandidates, which report_to_monitoring() maps to no_transactions.
+    // The miner continuously retries, so we just poll the metric.
+    let prom_http_origin = format!("http://{prom_bind}");
+    let client = reqwest::blocking::Client::new();
+    let parse_metric = |reason: &str| -> u64 {
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        let re = regex::Regex::new(&format!(
+            r#"stacks_node_miner_stop_reason_total\{{reason="{reason}"\}} (\d+)"#
+        ))
+        .unwrap();
+        re.captures(&res)
+            .and_then(|caps| caps.get(1))
+            .and_then(|m| m.as_str().parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+
+    let no_tx_count_before = parse_metric("no_transactions");
+
+    wait_for(10, || {
+        Ok(parse_metric("no_transactions") > no_tx_count_before)
+    })
+    .expect("Expected no_transactions metric to increment after mempool drained");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+    run_loop_thread.join().unwrap();
+}
+
 /// Test hot-reloading of miner config
 #[test]
 #[ignore]
@@ -12022,19 +12154,21 @@ fn rbf_on_config_change() {
     })
     .expect("Failed to wait for last commit");
 
-    let commits_before = counters.naka_submitted_commits.get();
-
     let commit_amount_before = counters.naka_submitted_commit_last_commit_amount.get();
 
     info!("---- Updating config ----");
 
     update_config(155000, 57);
 
+    // Wait until a commit reflecting the *new* config is observed. We can't
+    // simply wait for the commit count to increase: the miner submits RBF
+    // commits every initiative, so an old-config commit submitted between the
+    // snapshot above and the config reload would satisfy a count-based wait
+    // while still carrying the old commit amount, flaking the assertions below.
     wait_for(30, || {
-        let commit_count = &counters.naka_submitted_commits.get();
-        Ok(*commit_count > commits_before)
+        Ok(counters.naka_submitted_commit_last_commit_amount.get() == 155000)
     })
-    .expect("Expected new commit after config change");
+    .expect("Expected a commit with the updated burn fee cap after config change");
 
     let commit_amount_after = counters.naka_submitted_commit_last_commit_amount.get();
     assert_eq!(commit_amount_after, 155000);

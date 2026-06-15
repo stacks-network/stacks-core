@@ -21,6 +21,7 @@ use std::sync::LazyLock;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{ResponseData, TupleData};
@@ -37,7 +38,9 @@ use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
+use crate::chainstate::nakamoto::miner::{
+    make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
+};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
@@ -352,12 +355,21 @@ impl NakamotoBlockProposal {
         connection_opts: &ConnectionOptions,
     ) -> Result<JoinHandle<()>, std::io::Error> {
         let timeout_secs = connection_opts.block_proposal_validation_timeout_secs;
+        let max_tx_execution_time_secs = connection_opts.block_proposal_max_tx_execution_time_secs;
+        let max_tx_mem_bytes = connection_opts.block_proposal_max_tx_mem_bytes;
         let auth_token = connection_opts.auth_token.clone();
         thread::Builder::new()
             .name("block-proposal".into())
             .spawn(move || {
                 let result = self
-                    .validate(&sortdb, &mut chainstate, timeout_secs, auth_token)
+                    .validate(
+                        &sortdb,
+                        &mut chainstate,
+                        timeout_secs,
+                        max_tx_execution_time_secs,
+                        max_tx_mem_bytes,
+                        auth_token,
+                    )
                     .map_err(|reason| BlockValidateReject {
                         signer_signature_hash: self.block.header.signer_signature_hash(),
                         reason_code: reason.reason_code,
@@ -531,6 +543,8 @@ impl NakamotoBlockProposal {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
         timeout_secs: u64,
+        max_tx_execution_time_secs: u64,
+        max_tx_mem_bytes: u64,
         auth_token: Option<String>,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
         fault_injection_validation_stall(auth_token);
@@ -722,21 +736,70 @@ impl NakamotoBlockProposal {
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
+        // Even if consensus allows high-S signatures, we want to refuse to sign blocks that
+        // contain them. If they're allowed in the current epoch, we therefore have to check
+        // for them ourselves.
+        let consensus_allow_high_s_tx_sig =
+            tenure_tx.get_epoch().allows_tx_signatures_with_high_s();
+
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
+        let per_tx_max_execution_time = Duration::from_secs(max_tx_execution_time_secs);
         let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
-            let remaining = block_deadline.saturating_duration_since(Instant::now());
+            // Enforce the overall block validation budget between txs. A tx
+            // running over its own per-tx limit is the tx's fault and is
+            // handled below; running out of overall budget is the block's
+            // fault and shouldn't flag any specific tx as problematic.
+            if Instant::now() >= block_deadline {
+                warn!(
+                    "Rejected block proposal";
+                    "reason" => "Block validation timed out",
+                    "next_tx_index" => i,
+                );
+                return Err(BlockValidateRejectReason {
+                    reason: format!("Block validation timed out before tx {i} could be processed"),
+                    reason_code: ValidateRejectCode::InvalidBlock,
+                    failed_txid: None,
+                });
+            }
 
             let tx_len = tx.tx_len();
 
-            let tx_result = builder.try_mine_tx_with_len(
-                &mut tenure_tx,
-                tx,
-                tx_len,
-                &BlockLimitFunction::NO_LIMIT_HIT,
-                Some(remaining),
-                &mut receipts_total,
-            );
+            if max_tx_mem_bytes > 0 {
+                tenure_tx.set_abort_callback(make_mem_abort_callback(max_tx_mem_bytes));
+            }
+
+            let tx_result = {
+                // If consensus allows high-S transaction signatures, then `try_mine_tx_with_len`
+                // would allow such a transaction, so we perform the stricter verification first,
+                // and only call `try_mine_tx_with_len` if successful. If consensus forbids it,
+                // we don't have to do this, because `try_mine_tx_with_len` will do it itself.
+                let high_s_check_result = if consensus_allow_high_s_tx_sig {
+                    match tx.verify(
+                        stacks_codec::transaction::TransactionAuthVerificationMode::EnforceLowS,
+                    ) {
+                        Ok(()) => Ok(()),
+                        Err(error) => Err(TransactionResult::error(tx, error.into())),
+                    }
+                } else {
+                    Ok(())
+                };
+
+                match high_s_check_result {
+                    Ok(()) => builder.try_mine_tx_with_len(
+                        &mut tenure_tx,
+                        tx,
+                        tx_len,
+                        &BlockLimitFunction::NO_LIMIT_HIT,
+                        Some(per_tx_max_execution_time),
+                        &mut receipts_total,
+                    ),
+                    Err(e) => e,
+                }
+            };
+
+            tenure_tx.set_abort_callback(AbortCallback::None);
+
             let reason = match tx_result {
                 TransactionResult::Success(success_result) => {
                     let all_events_valid = success_result

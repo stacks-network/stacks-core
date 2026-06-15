@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,7 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityError;
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
+use stacks_common::alloc_tracker::{thread_allocated, tracking_allocator_installed};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
@@ -46,7 +48,35 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 
-/// Nakamaoto tenure information
+/// Build an [`AbortCallback`] that aborts when per-thread net heap
+/// allocation exceeds `limit_bytes`. Should be called once per
+/// transaction so each transaction gets a fresh baseline.
+///
+/// Returns `AbortCallback::None` when `limit_bytes` is 0 (disabled).
+///
+/// This is only called from block assembly and proposal validation contexts,
+/// and *not* during normal block append or block replay.
+///
+/// Requires a [`TrackingAllocator`](stacks_common::alloc_tracker::TrackingAllocator)
+/// to be set as the `#[global_allocator]` in the binary crate. If no
+/// tracking allocator is active the counters remain at 0 and the callback
+/// will never trigger (safe degradation).
+pub fn make_mem_abort_callback(limit_bytes: u64) -> AbortCallback {
+    if limit_bytes == 0 {
+        return AbortCallback::None;
+    }
+    if !tracking_allocator_installed() {
+        error!(
+            "TrackingAllocator is not installed as the global allocator; any miner or signer configured memory limits will never trigger"
+        );
+    }
+    AbortCallback::MemAbort {
+        baseline: thread_allocated(),
+        limit_bytes,
+    }
+}
+
+/// Nakamoto tenure information
 #[derive(Debug, Default)]
 pub struct NakamotoTenureInfo {
     /// Coinbase tx, if this is a new tenure
@@ -458,11 +488,13 @@ impl NakamotoBlockBuilder {
         };
 
         let parent_block_id = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
-        let parent_coinbase_height =
-            NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &parent_block_id)
-                .ok()
-                .flatten()
-                .unwrap_or(0);
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height_at(
+            &mut chainstate.index_conn(),
+            &parent_block_id,
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
 
         let is_new_tenure = cause.is_new_tenure();
         let coinbase_height = if is_new_tenure {

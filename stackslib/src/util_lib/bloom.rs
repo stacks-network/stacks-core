@@ -236,7 +236,7 @@ pub trait BloomHash {
 pub struct BloomFilter<H: BloomHash> {
     hasher: H,
     bits: BitField,
-    num_hashes: u32,
+    pub(crate) num_hashes: u32,
 }
 
 impl std::fmt::Display for BloomFilter<BloomNodeHasher> {
@@ -253,7 +253,7 @@ impl std::fmt::Display for BloomFilter<BloomNodeHasher> {
 
 /// Parameter calculation for bloom filters.
 /// Returns (number of bins, number of hash functions)
-fn bloom_hash_count(error_rate: f64, max_items: u32) -> (u32, u32) {
+pub fn bloom_hash_count(error_rate: f64, max_items: u32) -> (u32, u32) {
     // https://stackoverflow.com/questions/658439/how-many-hash-functions-does-my-bloom-filter-need
     let num_slots =
         (((-(max_items as f64)) * error_rate.ln()) / (2.0f64.ln() * 2.0f64.ln())).ceil() as u32;

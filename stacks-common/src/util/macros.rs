@@ -530,6 +530,9 @@ macro_rules! impl_array_hexstring_fmt {
 macro_rules! impl_byte_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
         impl $thing {
+            /// An instance of all zeroes.
+            pub const ZERO: Self = Self([0; $len]);
+
             /// Instantiates from a hex string
             #[allow(dead_code)]
             pub fn from_hex(hex_str: &str) -> Result<$thing, $crate::util::HexError> {

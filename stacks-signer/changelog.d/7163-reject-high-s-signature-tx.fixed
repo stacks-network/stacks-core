@@ -1,0 +1,1 @@
+Signers now reject blocks that contain transactions with non-normalized "high S" secp256k1 signatures.

@@ -1,0 +1,56 @@
+name: Docker Setup
+description: |
+    Defaults for building docker images
+
+inputs:
+    username:
+        description: "Docker repo username"
+        required: false
+        default: ""
+    password:
+        description: "Docker repo password"
+        required: false
+        default: ""
+    registry:
+        description: "Docker Registry"
+        required: false
+        default: "docker.io"
+
+outputs:
+  docker_push:
+    description: "True if the branch is a release (default: false)"
+    value: ${{ steps.set_vars.outputs.docker_push }}
+
+runs:
+    using: "composite"
+    steps:
+        # Enable push to registry if we have credentials
+        - name: Set Vars
+          id: set_vars
+          shell: bash
+          run: |
+              echo "docker_push=${{ (inputs.username != '') && (inputs.password != '') }}" >> $GITHUB_OUTPUT
+
+        # Setup QEMU for multi-arch builds
+        - name: Set up QEMU
+          uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+          with:
+              cache-image: false # don't cache the binfmt image
+
+        # Setup docker buildx
+        - name: Set up Docker Buildx
+          uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+          with:
+              cache-binary: false
+
+        # Login to docker registry
+        - name: Docker Login
+          if: |
+              inputs.username != '' &&
+              inputs.password != ''
+          uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+          with:
+              registry: ${{ inputs.registry }}
+              username: ${{ inputs.username }}
+              password: ${{ inputs.password }}
+              logout: true

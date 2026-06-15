@@ -13,3 +13,18 @@ description = "Binary consensus serialization codec for the Stacks blockchain"
 keywords = ["stacks", "stx", "blockchain", "codec", "serialization"]
 readme = "README.md"
 edition = "2021"
+
+[dependencies]
+stacks-common = { path = "../stacks-common", default-features = false }
+clarity-types = { path = "../clarity-types", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+variant_count = { workspace = true }
+
+[dev-dependencies]
+stacks-common = { path = "../stacks-common", default-features = false, features = ["testing"] }
+clarity-types = { path = "../clarity-types", default-features = false, features = ["testing"] }
+
+[features]
+default = []
+testing = ["stacks-common/testing", "clarity-types/testing"]
+wasm-web = ["stacks-common/wasm-web", "clarity-types/wasm-web"]

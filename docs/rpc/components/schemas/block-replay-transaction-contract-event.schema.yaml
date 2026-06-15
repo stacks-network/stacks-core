@@ -1,0 +1,31 @@
+type: object
+required:
+  - committed
+  - contract_event
+  - event_index
+  - txid
+  - type
+properties:
+  committed:
+    type: boolean
+  contract_event:
+    type: object
+    required:
+      - contract_identifier
+      - raw_value
+      - topic
+    properties:
+      contract_identifier:
+        type: string
+      raw_value:
+        type: string
+      topic:
+        type: string
+  event_index:
+    type: integer
+  txid:
+    type: string
+  type:
+    type: string
+    enum:
+      - contract_event

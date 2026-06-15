@@ -46,6 +46,7 @@ mod epoch_22;
 mod epoch_23;
 mod epoch_24;
 mod marf;
+mod mem_abort;
 pub mod nakamoto_integrations;
 pub mod neon_integrations;
 mod signer;

@@ -12,6 +12,8 @@ members = [
     "libsigner",
     "stacks-signer",
     "stacks-node",
+    "stacks-profiler",
+    "stacks-profiler-macros",
     "contrib/stacks-inspect",
     "contrib/clarity-cli",
     "contrib/stacks-cli"
@@ -19,11 +21,16 @@ members = [
 
 exclude = ["contrib/tools/config-docs-generator"]
 
-# Dependencies we want to keep the same between workspace members
 [workspace.dependencies]
+# Local dependencies
+stacks-profiler = { path = "stacks-profiler" }
+stacks-profiler-macros = { path = "stacks-profiler-macros" }
+
+# Dependencies we want to keep the same between workspace members
 ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
 lazy_static = "1.4.0"
+madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", rev = "f83f8ea649182c40b9dbd1b90f8de86261b91fe7" } #v0.2.1
 pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
 rand_core = "0.6.4"
 rand = "0.8"
@@ -36,6 +43,21 @@ rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", 
 thiserror = "1.0.65"
 tikv-jemallocator = "0.5.4"
 toml = "0.5.6"
+variant_count = "1.1"
+
+# Other dependencies
+libc = { version = "0.2.182", default-features = false }
+rapidhash = { version = "4.3.0", default-features = false, features = ["std"] }
+trybuild = { version = "1.0.116", default-features = false }
+
+# Benchmarking dependencies
+criterion = { version = "0.8.2", default-features = false, features = ["html_reports"] }
+
+# Procedural macro dependencies
+syn = { version = "2.0.115", default-features = false, features = ["full", "extra-traits"] }
+quote = { version = "1.0.44", default-features = false, features = ["proc-macro"] }
+proc-macro2 = { version = "1.0.106", default-features = false, features = ["proc-macro", "span-locations"] }
+darling = { version = "0.23.0", default-features = false, features = ["suggestions"] }
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution

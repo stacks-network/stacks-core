@@ -1,1 +1,0 @@
-Updates the PoX constants used in various test scenarios to ensure there are 3 blocks in the prepare phase, which is required for Nakamoto.

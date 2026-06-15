@@ -14,14 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt::Display;
 use std::hash::Hash;
 use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::VmExecutionError;
-use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::representations::ClarityName;
+#[cfg(test)]
+use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
@@ -29,11 +30,16 @@ use clarity::vm::ClarityVersion;
 use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+#[cfg(test)]
+#[allow(unused_imports)]
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::Error as codec_error;
-use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+#[cfg(test)]
+use stacks_common::types::chainstate::StacksAddress;
+#[cfg(test)]
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore, TrieHash,
 };
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
@@ -71,8 +77,7 @@ pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 pub const STACKS_BLOCK_VERSION: u8 = 7;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
-pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
-pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
+pub use stacks_codec::transaction::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 
 #[derive(Debug)]
 pub enum Error {
@@ -126,6 +131,8 @@ pub enum Error {
     TxWouldNotFitError,
     /// This error indicates an internal state or condition that should never actually happen
     Expects(String),
+    /// This error indicates that a transaction execution was aborted because it exceeded the maximum allowed execution time.
+    ExecutionTimeExpired,
 }
 
 impl From<marf_error> for Error {
@@ -149,6 +156,17 @@ impl From<net_error> for Error {
 impl From<codec_error> for Error {
     fn from(e: codec_error) -> Error {
         Error::CodecError(e)
+    }
+}
+
+impl From<AuthError> for Error {
+    fn from(e: AuthError) -> Error {
+        match e {
+            AuthError::IncompatibleSpendingConditionError => {
+                Error::IncompatibleSpendingConditionError
+            }
+            other => Error::NetError(other.into()),
+        }
     }
 }
 
@@ -230,6 +248,7 @@ impl fmt::Display for Error {
             }
             Error::TenureTooBigError => write!(f, "Too much data in tenure"),
             Error::TxWouldNotFitError => write!(f, "Transaction would not fit in this block"),
+            Error::ExecutionTimeExpired => write!(f, "Transaction execution time expired"),
             Error::Expects(ref msg) => write!(f, "Unexpected state: {msg}"),
         }
     }
@@ -279,6 +298,7 @@ impl error::Error for Error {
             Error::NotInSameFork => None,
             Error::TenureTooBigError => None,
             Error::TxWouldNotFitError => None,
+            Error::ExecutionTimeExpired => None,
             Error::Expects(ref _msg) => None,
         }
     }
@@ -328,6 +348,7 @@ impl Error {
             Error::NotInSameFork => "NotInSameFork",
             Error::TenureTooBigError => "TenureTooBigError",
             Error::TxWouldNotFitError => "TxWouldNotFitError",
+            Error::ExecutionTimeExpired => "ExecutionTimeExpired",
             Error::Expects(_) => "Expects",
         }
     }
@@ -382,773 +403,18 @@ impl Error {
     }
 }
 
-impl Txid {
-    /// A Stacks transaction ID is a sha512/256 hash (not a double-sha256 hash)
-    pub fn from_stacks_tx(txdata: &[u8]) -> Txid {
-        let h = Sha512Trunc256Sum::from_data(txdata);
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(h.as_bytes());
-        Txid(bytes)
-    }
-
-    /// A sighash is calculated the same way as a txid
-    pub fn from_sighash_bytes(txdata: &[u8]) -> Txid {
-        Txid::from_stacks_tx(txdata)
-    }
-
-    /// Create a [`Txid`] from the tx hash bytes used in bitcoin.
-    /// This just reverses the inner bytes of the input.
-    pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
-        let mut txid_bytes = tx_hash.0;
-        txid_bytes.reverse();
-        Self(txid_bytes)
-    }
-
-    /// Create a [`Sha256dHash`] from a [`Txid`]
-    /// This assumes the inner bytes are stored in "big-endian" (following the hex bitcoin string),
-    /// so just reverse them to properly create a tx hash.
-    pub fn to_bitcoin_tx_hash(txid: &Txid) -> Sha256dHash {
-        let mut txid_bytes = txid.0;
-        txid_bytes.reverse();
-        Sha256dHash(txid_bytes)
-    }
-}
-
-/// How a transaction may be appended to the Stacks blockchain
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionAnchorMode {
-    OnChainOnly = 1,  // must be included in a StacksBlock
-    OffChainOnly = 2, // must be included in a StacksMicroBlock
-    Any = 3,          // either
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionAuthFlags {
-    // types of auth
-    AuthStandard = 0x04,
-    AuthSponsored = 0x05,
-}
-
-/// Transaction signatures are validated by calculating the public key from the signature, and
-/// verifying that all public keys hash to the signing account's hash.  To do so, we must preserve
-/// enough information in the auth structure to recover each public key's bytes.
-///
-/// An auth field can be a public key or a signature.  In both cases, the public key (either given
-/// in-the-raw or embedded in a signature) may be encoded as compressed or uncompressed.
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionAuthFieldID {
-    // types of auth fields
-    PublicKeyCompressed = 0x00,
-    PublicKeyUncompressed = 0x01,
-    SignatureCompressed = 0x02,
-    SignatureUncompressed = 0x03,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionPublicKeyEncoding {
-    // ways we can encode a public key
-    Compressed = 0x00,
-    Uncompressed = 0x01,
-}
-
-impl TransactionPublicKeyEncoding {
-    pub fn from_u8(n: u8) -> Option<TransactionPublicKeyEncoding> {
-        match n {
-            x if x == TransactionPublicKeyEncoding::Compressed as u8 => {
-                Some(TransactionPublicKeyEncoding::Compressed)
-            }
-            x if x == TransactionPublicKeyEncoding::Uncompressed as u8 => {
-                Some(TransactionPublicKeyEncoding::Uncompressed)
-            }
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionAuthField {
-    PublicKey(StacksPublicKey),
-    Signature(TransactionPublicKeyEncoding, MessageSignature),
-}
-
-impl TransactionAuthField {
-    pub fn is_public_key(&self) -> bool {
-        matches!(self, TransactionAuthField::PublicKey(_))
-    }
-
-    pub fn is_signature(&self) -> bool {
-        matches!(self, TransactionAuthField::Signature(..))
-    }
-
-    pub fn as_public_key(&self) -> Option<StacksPublicKey> {
-        match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Some(pubk.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn as_signature(&self) -> Option<(TransactionPublicKeyEncoding, MessageSignature)> {
-        match *self {
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => Some((*key_fmt, sig.clone())),
-            _ => None,
-        }
-    }
-
-    // TODO: enforce u8; 32
-    pub fn get_public_key(&self, sighash_bytes: &[u8]) -> Result<StacksPublicKey, net_error> {
-        match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Ok(pubk.clone()),
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
-                    .map_err(|e| net_error::VerifyingError(e.to_string()))?;
-                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
-                Ok(pubk)
-            }
-        }
-    }
-}
-
-// tag address hash modes as "singlesig" or "multisig" so we can't accidentally construct an
-// invalid spending condition
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum SinglesigHashMode {
-    P2PKH = 0x00,
-    P2WPKH = 0x02,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum MultisigHashMode {
-    P2SH = 0x01,
-    P2WSH = 0x03,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum OrderIndependentMultisigHashMode {
-    P2SH = 0x05,
-    P2WSH = 0x07,
-}
-
-impl SinglesigHashMode {
-    pub fn to_address_hash_mode(&self) -> AddressHashMode {
-        match *self {
-            SinglesigHashMode::P2PKH => AddressHashMode::SerializeP2PKH,
-            SinglesigHashMode::P2WPKH => AddressHashMode::SerializeP2WPKH,
-        }
-    }
-
-    pub fn from_address_hash_mode(hm: AddressHashMode) -> Option<SinglesigHashMode> {
-        match hm {
-            AddressHashMode::SerializeP2PKH => Some(SinglesigHashMode::P2PKH),
-            AddressHashMode::SerializeP2WPKH => Some(SinglesigHashMode::P2WPKH),
-            _ => None,
-        }
-    }
-
-    pub fn from_u8(n: u8) -> Option<SinglesigHashMode> {
-        match n {
-            x if x == SinglesigHashMode::P2PKH as u8 => Some(SinglesigHashMode::P2PKH),
-            x if x == SinglesigHashMode::P2WPKH as u8 => Some(SinglesigHashMode::P2WPKH),
-            _ => None,
-        }
-    }
-}
-
-impl MultisigHashMode {
-    pub fn to_address_hash_mode(&self) -> AddressHashMode {
-        match *self {
-            MultisigHashMode::P2SH => AddressHashMode::SerializeP2SH,
-            MultisigHashMode::P2WSH => AddressHashMode::SerializeP2WSH,
-        }
-    }
-
-    pub fn from_address_hash_mode(hm: AddressHashMode) -> Option<MultisigHashMode> {
-        match hm {
-            AddressHashMode::SerializeP2SH => Some(MultisigHashMode::P2SH),
-            AddressHashMode::SerializeP2WSH => Some(MultisigHashMode::P2WSH),
-            _ => None,
-        }
-    }
-
-    pub fn from_u8(n: u8) -> Option<MultisigHashMode> {
-        match n {
-            x if x == MultisigHashMode::P2SH as u8 => Some(MultisigHashMode::P2SH),
-            x if x == MultisigHashMode::P2WSH as u8 => Some(MultisigHashMode::P2WSH),
-            _ => None,
-        }
-    }
-}
-
-impl OrderIndependentMultisigHashMode {
-    pub fn to_address_hash_mode(&self) -> AddressHashMode {
-        match *self {
-            OrderIndependentMultisigHashMode::P2SH => AddressHashMode::SerializeP2SH,
-            OrderIndependentMultisigHashMode::P2WSH => AddressHashMode::SerializeP2WSH,
-        }
-    }
-
-    pub fn from_address_hash_mode(hm: AddressHashMode) -> Option<OrderIndependentMultisigHashMode> {
-        match hm {
-            AddressHashMode::SerializeP2SH => Some(OrderIndependentMultisigHashMode::P2SH),
-            AddressHashMode::SerializeP2WSH => Some(OrderIndependentMultisigHashMode::P2WSH),
-            _ => None,
-        }
-    }
-
-    pub fn from_u8(n: u8) -> Option<OrderIndependentMultisigHashMode> {
-        match n {
-            x if x == OrderIndependentMultisigHashMode::P2SH as u8 => {
-                Some(OrderIndependentMultisigHashMode::P2SH)
-            }
-            x if x == OrderIndependentMultisigHashMode::P2WSH as u8 => {
-                Some(OrderIndependentMultisigHashMode::P2WSH)
-            }
-            _ => None,
-        }
-    }
-}
-
-/// A structure that encodes enough state to authenticate
-/// a transaction's execution against a Stacks address.
-/// public_keys + signatures_required determines the Principal.
-/// nonce is the "check number" for the Principal.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MultisigSpendingCondition {
-    pub hash_mode: MultisigHashMode,
-    pub signer: Hash160,
-    pub nonce: u64,  // nth authorization from this account
-    pub tx_fee: u64, // microSTX/compute rate offered by this account
-    pub fields: Vec<TransactionAuthField>,
-    pub signatures_required: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SinglesigSpendingCondition {
-    pub hash_mode: SinglesigHashMode,
-    pub signer: Hash160,
-    pub nonce: u64,  // nth authorization from this account
-    pub tx_fee: u64, // microSTX/compute rate offerred by this account
-    pub key_encoding: TransactionPublicKeyEncoding,
-    pub signature: MessageSignature,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct OrderIndependentMultisigSpendingCondition {
-    pub hash_mode: OrderIndependentMultisigHashMode,
-    pub signer: Hash160,
-    pub nonce: u64,  // nth authorization from this account
-    pub tx_fee: u64, // microSTX/compute rate offered by this account
-    pub fields: Vec<TransactionAuthField>,
-    pub signatures_required: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionSpendingCondition {
-    Singlesig(SinglesigSpendingCondition),
-    Multisig(MultisigSpendingCondition),
-    OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition),
-}
-
-/// Types of transaction authorizations
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionAuth {
-    Standard(TransactionSpendingCondition),
-    Sponsored(TransactionSpendingCondition, TransactionSpendingCondition), // the second account pays on behalf of the first account
-}
-
-/// A transaction that calls into a smart contract
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TransactionContractCall {
-    pub address: StacksAddress,
-    pub contract_name: ContractName,
-    pub function_name: ClarityName,
-    pub function_args: Vec<Value>,
-}
-
-impl TransactionContractCall {
-    pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
-        let standard_principal = StandardPrincipalData::from(self.address.clone());
-        QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
-    }
-}
-
-/// A transaction that instantiates a smart contract
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TransactionSmartContract {
-    pub name: ContractName,
-    pub code_body: StacksString,
-}
-
-/// A coinbase commits to 32 bytes of control-plane information
-pub struct CoinbasePayload(pub [u8; 32]);
-impl_byte_array_message_codec!(CoinbasePayload, 32);
-impl_array_newtype!(CoinbasePayload, u8, 32);
-impl_array_hexstring_fmt!(CoinbasePayload);
-impl_byte_array_newtype!(CoinbasePayload, u8, 32);
-impl_byte_array_serde!(CoinbasePayload);
-
-pub struct TokenTransferMemo(pub [u8; 34]); // same length as it is in stacks v1
-impl_byte_array_message_codec!(TokenTransferMemo, 34);
-impl_array_newtype!(TokenTransferMemo, u8, 34);
-impl_array_hexstring_fmt!(TokenTransferMemo);
-impl_byte_array_newtype!(TokenTransferMemo, u8, 34);
-impl_byte_array_serde!(TokenTransferMemo);
-
-/// Cause of change in mining tenure
-/// Depending on cause, tenure can be ended or extended
-/// NB: `PartialEq` is _not_ implemented for this enum in order to ensure that callers use the
-/// instance methods to ascertain what kind of tenure change this is.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum TenureChangeCause {
-    /// A valid winning block-commit
-    BlockFound = 0,
-    /// The next burnchain block is taking too long, so extend the runtime budget.
-    /// This extends all dimensions
-    Extended = 1,
-    /// NEW in SIP-034: extend specific dimensions
-    ExtendedRuntime = 2,
-    ExtendedReadCount = 3,
-    ExtendedReadLength = 4,
-    ExtendedWriteCount = 5,
-    ExtendedWriteLength = 6,
-}
-
-impl Display for TenureChangeCause {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            TenureChangeCause::BlockFound => "BlockFound",
-            TenureChangeCause::Extended => "Extend",
-            TenureChangeCause::ExtendedRuntime => "ExtendRuntime",
-            TenureChangeCause::ExtendedReadCount => "ExtendReadCount",
-            TenureChangeCause::ExtendedReadLength => "ExtendReadLength",
-            TenureChangeCause::ExtendedWriteCount => "ExtendWriteCount",
-            TenureChangeCause::ExtendedWriteLength => "ExtendWriteLength",
-        };
-        name.fmt(f)
-    }
-}
-
-impl TryFrom<u8> for TenureChangeCause {
-    type Error = ();
-
-    fn try_from(num: u8) -> Result<Self, Self::Error> {
-        match num {
-            0 => Ok(Self::BlockFound),
-            1 => Ok(Self::Extended),
-            2 => Ok(Self::ExtendedRuntime),
-            3 => Ok(Self::ExtendedReadCount),
-            4 => Ok(Self::ExtendedReadLength),
-            5 => Ok(Self::ExtendedWriteCount),
-            6 => Ok(Self::ExtendedWriteLength),
-            _ => Err(()),
-        }
-    }
-}
-
-impl TenureChangeCause {
-    /// Does this tenure change cause require a sortition to be valid?
-    pub fn expects_sortition(&self) -> bool {
-        match self {
-            Self::BlockFound => true,
-            Self::Extended => false,
-            Self::ExtendedRuntime => false,
-            Self::ExtendedReadCount => false,
-            Self::ExtendedReadLength => false,
-            Self::ExtendedWriteCount => false,
-            Self::ExtendedWriteLength => false,
-        }
-    }
-
-    /// Convert to u8 representation
-    pub fn as_u8(&self) -> u8 {
-        *self as u8
-    }
-
-    /// Does this tenure change cause represent the start of a new tenure?
-    pub fn is_new_tenure(&self) -> bool {
-        match self {
-            Self::BlockFound => true,
-            Self::Extended => false,
-            Self::ExtendedRuntime => false,
-            Self::ExtendedReadCount => false,
-            Self::ExtendedReadLength => false,
-            Self::ExtendedWriteCount => false,
-            Self::ExtendedWriteLength => false,
-        }
-    }
-
-    /// Explicit equality check, so as to avoid any accidental incomplete equality checks with the
-    /// new SIP-034 tenure change cause variants
-    pub fn is_eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (TenureChangeCause::BlockFound, TenureChangeCause::BlockFound) => true,
-            (TenureChangeCause::Extended, TenureChangeCause::Extended) => true,
-            (TenureChangeCause::ExtendedRuntime, TenureChangeCause::ExtendedRuntime) => true,
-            (TenureChangeCause::ExtendedReadCount, TenureChangeCause::ExtendedReadCount) => true,
-            (TenureChangeCause::ExtendedReadLength, TenureChangeCause::ExtendedReadLength) => true,
-            (TenureChangeCause::ExtendedWriteCount, TenureChangeCause::ExtendedWriteCount) => true,
-            (TenureChangeCause::ExtendedWriteLength, TenureChangeCause::ExtendedWriteLength) => {
-                true
-            }
-            (_, _) => false,
-        }
-    }
-
-    pub fn is_full_extend(&self) -> bool {
-        matches!(self, TenureChangeCause::Extended)
-    }
-
-    pub fn is_read_count_extend(&self) -> bool {
-        matches!(self, TenureChangeCause::ExtendedReadCount)
-    }
-
-    pub fn is_extended(&self) -> bool {
-        match self {
-            TenureChangeCause::BlockFound => false,
-            TenureChangeCause::Extended => true,
-            TenureChangeCause::ExtendedRuntime => true,
-            TenureChangeCause::ExtendedReadCount => true,
-            TenureChangeCause::ExtendedReadLength => true,
-            TenureChangeCause::ExtendedWriteCount => true,
-            TenureChangeCause::ExtendedWriteLength => true,
-        }
-    }
-}
-
-/// Reasons why a `TenureChange` transaction can be bad
-pub enum TenureChangeError {
-    /// Not signed by required threshold (>70%)
-    SignatureInvalid,
-    /// `previous_tenure_end` does not match parent block
-    PreviousTenureInvalid,
-    /// Block is not a Nakamoto block
-    NotNakamoto,
-}
-
-/// A transaction from Stackers to signal new mining tenure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TenureChangePayload {
-    /// Consensus hash of this tenure.  Corresponds to the sortition in which the miner of this
-    /// block was chosen.  It may be the case that this miner's tenure gets _extended_ across
-    /// subsequent sortitions; if this happens, then this `consensus_hash` value _remains the same_
-    /// as the sortition in which the winning block-commit was mined.
-    pub tenure_consensus_hash: ConsensusHash,
-    /// Consensus hash of the previous tenure.  Corresponds to the sortition of the previous
-    /// winning block-commit.
-    pub prev_tenure_consensus_hash: ConsensusHash,
-    /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
-    /// sortition.
-    pub burn_view_consensus_hash: ConsensusHash,
-    /// The StacksBlockId of the last block from the previous tenure
-    pub previous_tenure_end: StacksBlockId,
-    /// The number of blocks produced since the last sortition-linked tenure
-    pub previous_tenure_blocks: u32,
-    /// A flag to indicate the cause of this tenure change
-    pub cause: TenureChangeCause,
-    /// The ECDSA public key hash of the current tenure
-    pub pubkey_hash: Hash160,
-}
-
-impl TenureChangePayload {
-    pub fn extend(
-        &self,
-        burn_view_consensus_hash: ConsensusHash,
-        last_tenure_block_id: StacksBlockId,
-        num_blocks_so_far: u32,
-    ) -> Self {
-        TenureChangePayload {
-            tenure_consensus_hash: self.tenure_consensus_hash.clone(),
-            prev_tenure_consensus_hash: self.tenure_consensus_hash.clone(),
-            burn_view_consensus_hash,
-            previous_tenure_end: last_tenure_block_id,
-            previous_tenure_blocks: num_blocks_so_far,
-            cause: TenureChangeCause::Extended,
-            pubkey_hash: self.pubkey_hash.clone(),
-        }
-    }
-
-    pub fn extend_with_cause(
-        &self,
-        burn_view_consensus_hash: ConsensusHash,
-        last_tenure_block_id: StacksBlockId,
-        num_blocks_so_far: u32,
-        cause: TenureChangeCause,
-    ) -> Self {
-        let mut ext = self.extend(
-            burn_view_consensus_hash,
-            last_tenure_block_id,
-            num_blocks_so_far,
-        );
-        ext.cause = cause;
-        ext
-    }
-}
-
-/// NB This explicit implementation is needed because PartialEq is deliberately _not_ implemented
-/// for TenureChangeCause
-impl PartialEq for TenureChangePayload {
-    fn eq(&self, other: &Self) -> bool {
-        self.tenure_consensus_hash == other.tenure_consensus_hash
-            && self.prev_tenure_consensus_hash == other.prev_tenure_consensus_hash
-            && self.burn_view_consensus_hash == other.burn_view_consensus_hash
-            && self.previous_tenure_end == other.previous_tenure_end
-            && self.previous_tenure_blocks == other.previous_tenure_blocks
-            && self.cause.is_eq(&other.cause)
-            && self.pubkey_hash == other.pubkey_hash
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionPayload {
-    TokenTransfer(PrincipalData, u64, TokenTransferMemo),
-    ContractCall(TransactionContractCall),
-    SmartContract(TransactionSmartContract, Option<ClarityVersion>),
-    // the previous epoch leader sent two microblocks with the same sequence, and this is proof
-    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
-    Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
-    TenureChange(TenureChangePayload),
-}
-
-impl TransactionPayload {
-    pub fn name(&self) -> &'static str {
-        match self {
-            TransactionPayload::TokenTransfer(..) => "TokenTransfer",
-            TransactionPayload::ContractCall(..) => "ContractCall",
-            TransactionPayload::SmartContract(_, version_opt) => {
-                if version_opt.is_some() {
-                    "SmartContract(Versioned)"
-                } else {
-                    "SmartContract"
-                }
-            }
-            TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
-            TransactionPayload::Coinbase(_, _, vrf_opt) => {
-                if vrf_opt.is_some() {
-                    "Coinbase(Nakamoto)"
-                } else {
-                    "Coinbase"
-                }
-            }
-            TransactionPayload::TenureChange(payload) => match payload.cause {
-                TenureChangeCause::BlockFound => "TenureChange(BlockFound)",
-                TenureChangeCause::Extended => "TenureChange(ExtendAll)",
-                TenureChangeCause::ExtendedRuntime => "TenureChange(ExtendRuntime)",
-                TenureChangeCause::ExtendedReadCount => "TenureChange(ExtendReadCount)",
-                TenureChangeCause::ExtendedReadLength => "TenureChange(ExtendReadLength)",
-                TenureChangeCause::ExtendedWriteCount => "TenureChange(ExtendWriteCount)",
-                TenureChangeCause::ExtendedWriteLength => "TenureChange(ExtendWriteLength)",
-            },
-        }
-    }
-}
-
-define_u8_enum!(TransactionPayloadID {
-    TokenTransfer = 0,
-    SmartContract = 1,
-    ContractCall = 2,
-    PoisonMicroblock = 3,
-    Coinbase = 4,
-    // has an alt principal, but no VRF proof
-    CoinbaseToAltRecipient = 5,
-    VersionedSmartContract = 6,
-    TenureChange = 7,
-    // has a VRF proof, and may have an alt principal
-    NakamotoCoinbase = 8
-});
-
-/// Encoding of an asset type identifier
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AssetInfo {
-    pub contract_address: StacksAddress,
-    pub contract_name: ContractName,
-    pub asset_name: ClarityName,
-}
-
-/// numeric wire-format ID of an asset info type variant
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum AssetInfoID {
-    STX = 0,
-    FungibleAsset = 1,
-    NonfungibleAsset = 2,
-}
-
-impl AssetInfoID {
-    pub fn from_u8(b: u8) -> Option<AssetInfoID> {
-        match b {
-            0 => Some(AssetInfoID::STX),
-            1 => Some(AssetInfoID::FungibleAsset),
-            2 => Some(AssetInfoID::NonfungibleAsset),
-            _ => None,
-        }
-    }
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum FungibleConditionCode {
-    SentEq = 0x01,
-    SentGt = 0x02,
-    SentGe = 0x03,
-    SentLt = 0x04,
-    SentLe = 0x05,
-}
-
-impl FungibleConditionCode {
-    pub fn from_u8(b: u8) -> Option<FungibleConditionCode> {
-        match b {
-            0x01 => Some(FungibleConditionCode::SentEq),
-            0x02 => Some(FungibleConditionCode::SentGt),
-            0x03 => Some(FungibleConditionCode::SentGe),
-            0x04 => Some(FungibleConditionCode::SentLt),
-            0x05 => Some(FungibleConditionCode::SentLe),
-            _ => None,
-        }
-    }
-
-    pub fn check(&self, amount_sent_condition: u128, amount_sent: u128) -> bool {
-        match *self {
-            FungibleConditionCode::SentEq => amount_sent == amount_sent_condition,
-            FungibleConditionCode::SentGt => amount_sent > amount_sent_condition,
-            FungibleConditionCode::SentGe => amount_sent >= amount_sent_condition,
-            FungibleConditionCode::SentLt => amount_sent < amount_sent_condition,
-            FungibleConditionCode::SentLe => amount_sent <= amount_sent_condition,
-        }
-    }
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum NonfungibleConditionCode {
-    Sent = 0x10,
-    NotSent = 0x11,
-    MaybeSent = 0x12,
-}
-
-impl NonfungibleConditionCode {
-    pub fn from_u8(b: u8) -> Option<NonfungibleConditionCode> {
-        match b {
-            0x10 => Some(NonfungibleConditionCode::Sent),
-            0x11 => Some(NonfungibleConditionCode::NotSent),
-            0x12 => Some(NonfungibleConditionCode::MaybeSent),
-            _ => None,
-        }
-    }
-
-    pub fn was_sent(nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
-        for asset_sent in nfts_sent.iter() {
-            if *asset_sent == *nft_sent_condition {
-                // asset was sent, and is no longer owned by this principal
-                return true;
-            }
-        }
-        return false;
-    }
-
-    pub fn check(&self, nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
-        match *self {
-            NonfungibleConditionCode::Sent => {
-                NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
-            }
-            NonfungibleConditionCode::NotSent => {
-                !NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
-            }
-            NonfungibleConditionCode::MaybeSent => {
-                // always true
-                true
-            }
-        }
-    }
-}
-
-/// Post-condition principal.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum PostConditionPrincipal {
-    Origin,
-    Standard(StacksAddress),
-    Contract(StacksAddress, ContractName),
-}
-
-impl PostConditionPrincipal {
-    pub fn to_principal_data(&self, origin_principal: &PrincipalData) -> PrincipalData {
-        match *self {
-            PostConditionPrincipal::Origin => origin_principal.clone(),
-            PostConditionPrincipal::Standard(ref addr) => {
-                PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))
-            }
-            PostConditionPrincipal::Contract(ref addr, ref contract_name) => {
-                PrincipalData::Contract(QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(addr.clone()),
-                    contract_name.clone(),
-                ))
-            }
-        }
-    }
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum PostConditionPrincipalID {
-    Origin = 0x01,
-    Standard = 0x02,
-    Contract = 0x03,
-}
-
-/// Post-condition on a transaction
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TransactionPostCondition {
-    STX(PostConditionPrincipal, FungibleConditionCode, u64),
-    Fungible(
-        PostConditionPrincipal,
-        AssetInfo,
-        FungibleConditionCode,
-        u64,
-    ),
-    Nonfungible(
-        PostConditionPrincipal,
-        AssetInfo,
-        Value,
-        NonfungibleConditionCode,
-    ),
-}
-
-/// Post-condition modes for unspecified assets
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionPostConditionMode {
-    /// allow any other changes not specified
-    Allow = 0x01,
-    /// deny any other changes not specified
-    Deny = 0x02,
-    /// deny mode for originator's assets, allow for others
-    Originator = 0x03,
-}
-
-/// Stacks transaction versions
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionVersion {
-    Mainnet = 0x00,
-    Testnet = 0x80,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StacksTransaction {
-    pub version: TransactionVersion,
-    pub chain_id: u32,
-    pub auth: TransactionAuth,
-    pub anchor_mode: TransactionAnchorMode,
-    pub post_condition_mode: TransactionPostConditionMode,
-    pub post_conditions: Vec<TransactionPostCondition>,
-    pub payload: TransactionPayload,
-}
+pub use stacks_codec::transaction::{
+    AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
+    MultisigSpendingCondition, NonfungibleConditionCode, OrderIndependentMultisigHashMode,
+    OrderIndependentMultisigSpendingCondition, PostConditionPrincipal, PostConditionPrincipalID,
+    SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction,
+    TenureChangeCause, TenureChangeError, TenureChangePayload, TokenTransferMemo,
+    TransactionAnchorMode, TransactionAuth, TransactionAuthField, TransactionAuthFieldID,
+    TransactionAuthFlags, TransactionAuthVerificationMode, TransactionContractCall,
+    TransactionPayload, TransactionPayloadID, TransactionPostCondition,
+    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
+    TransactionSpendingCondition, TransactionVersion,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksTransactionSigner {
@@ -1187,16 +453,6 @@ pub struct StacksBlockHeader {
     pub tx_merkle_root: Sha512Trunc256Sum,
     pub state_index_root: TrieHash,
     pub microblock_pubkey_hash: Hash160, // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
-}
-
-/// Header structure for a microblock
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StacksMicroblockHeader {
-    pub version: u8,
-    pub sequence: u16,
-    pub prev_block: BlockHeaderHash,
-    pub tx_merkle_root: Sha512Trunc256Sum,
-    pub signature: MessageSignature,
 }
 
 // values a miner uses to produce the next block
