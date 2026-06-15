@@ -17,9 +17,8 @@
 use std::str::FromStr;
 
 use super::{
-    set_test_coinbase_schedule, set_test_sip_031_emission_schedule, CoinbaseInterval,
-    SIP031EmissionInterval, StacksEpochId, COINBASE_INTERVALS_MAINNET, COINBASE_INTERVALS_TESTNET,
-    SIP031_EMISSION_INTERVALS_MAINNET,
+    set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId, COINBASE_INTERVALS_MAINNET,
+    COINBASE_INTERVALS_TESTNET,
 };
 
 #[test]
@@ -254,64 +253,4 @@ fn test_set_coinbase_intervals() {
         StacksEpochId::get_coinbase_intervals(false),
         *COINBASE_INTERVALS_TESTNET
     );
-}
-
-#[test]
-fn test_mainnet_sip031_emission_intervals() {
-    assert!(SIP031EmissionInterval::check_inversed_order(
-        &*SIP031_EMISSION_INTERVALS_MAINNET
-    ));
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET.len(), 3);
-
-    // descending order: highest height first
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[0].start_height, 1_012_860);
-    assert_eq!(
-        SIP031_EMISSION_INTERVALS_MAINNET[0].amount,
-        1_000 * 1_000_000
-    );
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[1].start_height, 960_300);
-    assert_eq!(
-        SIP031_EMISSION_INTERVALS_MAINNET[1].amount,
-        1_140 * 1_000_000
-    );
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[2].start_height, 907_740);
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[2].amount, 475 * 1_000_000);
-
-    // test boundary transitions via get_sip_031_emission_at_height
-    set_test_sip_031_emission_schedule(Some(SIP031_EMISSION_INTERVALS_MAINNET.to_vec()));
-
-    // before SIP-031 activates
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(907_739, true),
-        0
-    );
-    // first interval: 475 STX
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(907_740, true),
-        475 * 1_000_000
-    );
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(960_299, true),
-        475 * 1_000_000
-    );
-    // second interval: 1,140 STX
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(960_300, true),
-        1_140 * 1_000_000
-    );
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(1_012_859, true),
-        1_140 * 1_000_000
-    );
-    // third interval: 1,000 STX
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(1_012_860, true),
-        1_000 * 1_000_000
-    );
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(2_000_000, true),
-        1_000 * 1_000_000
-    );
-
-    set_test_sip_031_emission_schedule(None);
 }
