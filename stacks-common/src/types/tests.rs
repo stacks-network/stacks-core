@@ -338,26 +338,21 @@ fn test_mainnet_sip031_emission_intervals() {
     assert!(SIP031EmissionInterval::check_inversed_order(
         &*SIP031_EMISSION_INTERVALS_MAINNET
     ));
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET.len(), 4);
+    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET.len(), 3);
 
     // descending order: highest height first
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[0].start_height, 1_039_140);
+    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[0].start_height, 1_012_860);
     assert_eq!(
         SIP031_EMISSION_INTERVALS_MAINNET[0].amount,
         1_000 * 1_000_000
     );
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[1].start_height, 1_012_860);
+    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[1].start_height, 960_300);
     assert_eq!(
         SIP031_EMISSION_INTERVALS_MAINNET[1].amount,
-        1_500 * 1_000_000
-    );
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[2].start_height, 960_300);
-    assert_eq!(
-        SIP031_EMISSION_INTERVALS_MAINNET[2].amount,
         1_140 * 1_000_000
     );
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[3].start_height, 907_740);
-    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[3].amount, 475 * 1_000_000);
+    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[2].start_height, 907_740);
+    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[2].amount, 475 * 1_000_000);
 
     // test boundary transitions via get_sip_031_emission_at_height
     set_test_sip_031_emission_schedule(Some(SIP031_EMISSION_INTERVALS_MAINNET.to_vec()));
@@ -385,18 +380,9 @@ fn test_mainnet_sip031_emission_intervals() {
         SIP031EmissionInterval::get_sip_031_emission_at_height(1_012_859, true),
         1_140 * 1_000_000
     );
-    // third interval: 1,500 STX (~6 months)
+    // third interval: 1,000 STX
     assert_eq!(
         SIP031EmissionInterval::get_sip_031_emission_at_height(1_012_860, true),
-        1_500 * 1_000_000
-    );
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(1_039_139, true),
-        1_500 * 1_000_000
-    );
-    // fourth interval: 1,000 STX (forever)
-    assert_eq!(
-        SIP031EmissionInterval::get_sip_031_emission_at_height(1_039_140, true),
         1_000 * 1_000_000
     );
     assert_eq!(
