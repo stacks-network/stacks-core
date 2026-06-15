@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isActiveBondMember,
@@ -26,10 +27,9 @@ export const UpdateBondRegistrationErrInvalidOldSignerManager = (
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      wrongIndex: fc.nat(),
+      wrongSigner: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // An active bond member outside the prepare phase, plus a granted
         // signer other than the member's current one to pass as the wrong old
@@ -37,9 +37,8 @@ export const UpdateBondRegistrationErrInvalidOldSignerManager = (
         check: (model: Readonly<Model>) =>
           isActiveBondMember(model, r.sender) &&
           !isInPreparePhase(model) &&
-          grantedSigners(model).some(
-            (s) => s !== model.bondMemberships.get(r.sender)!.signer,
-          ),
+          grantedSigners(model).includes(r.wrongSigner) &&
+          r.wrongSigner !== model.bondMemberships.get(r.sender)!.signer,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(
@@ -53,12 +52,6 @@ export const UpdateBondRegistrationErrInvalidOldSignerManager = (
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const membership = model.bondMemberships.get(r.sender)!;
           const currentSigner = membership.signer;
-          const wrongCandidates = grantedSigners(model).filter(
-            (s) => s !== currentSigner,
-          );
-          const wrongSigner =
-            wrongCandidates[r.wrongIndex % wrongCandidates.length];
-          pickedSigner = wrongSigner;
           const membershipBefore = rov(
             real.contracts.pox5.getBondMembership(r.sender),
           );
@@ -74,7 +67,7 @@ export const UpdateBondRegistrationErrInvalidOldSignerManager = (
           const receipt = txErr(
             real.contracts.pox5.updateBondRegistration({
               signerManager: currentSigner,
-              oldSignerManager: wrongSigner,
+              oldSignerManager: r.wrongSigner,
               signerCalldata: null,
             }),
             r.sender,
@@ -105,6 +98,6 @@ export const UpdateBondRegistrationErrInvalidOldSignerManager = (
         toString: () =>
           `update-bond-registration-err-invalid-old-signer(${getWalletNameByAddress(
             r.sender,
-          )}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          )}, ${r.wrongSigner.split('.').pop()})`,
       };
     });

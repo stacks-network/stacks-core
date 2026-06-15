@@ -3,6 +3,7 @@ import type { Model, Real } from './types';
 import {
   bondAllowanceKey,
   bondStartCycle,
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isInPreparePhase,
@@ -47,13 +48,12 @@ export const RegisterForBondErrAlreadyStaked = (accounts: Real['accounts']) =>
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       bondPick: fc.nat(),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
       sats: fc.bigInt({ min: 1n, max: 1_000_000n }),
       extraUstx: fc.bigInt({ min: 0n, max: 1_000_000_000_000n }),
     })
     .map((r) => {
       let pickedBond: bigint | undefined;
-      let pickedSigner: string | undefined;
       return {
         // An active stx-staker with a registrable bond their stake overlaps,
         // outside the prepare phase, leaves the already-staked check as the
@@ -61,7 +61,7 @@ export const RegisterForBondErrAlreadyStaked = (accounts: Real['accounts']) =>
         // granted signer keeps the handle well formed.
         check: (model: Readonly<Model>) =>
           !isInPreparePhase(model) &&
-          grantedSigners(model).length > 0 &&
+          grantedSigners(model).includes(r.signer) &&
           isStakerActive(model, r.sender) &&
           overlappingRegistrableBonds(model, r.sender).length > 0,
         run: (model: Model, real: Real) => {
@@ -69,14 +69,12 @@ export const RegisterForBondErrAlreadyStaked = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'register-for-bond_err_already_staked');
 
           // Arrange
+
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const bonds = overlappingRegistrableBonds(model, r.sender);
           const bondIndex = bonds[r.bondPick % bonds.length];
           pickedBond = bondIndex;
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
           const config = model.bonds.get(bondIndex)!;
           const allowance = model.bondAllowances.get(
             bondAllowanceKey(bondIndex, r.sender),
@@ -99,10 +97,11 @@ export const RegisterForBondErrAlreadyStaked = (accounts: Real['accounts']) =>
           );
 
           // Act
+
           const receipt = txErr(
             real.contracts.pox5.registerForBond({
               bondIndex,
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx,
               btcLockup: err(sats),
               signerCalldata: null,
@@ -139,8 +138,6 @@ export const RegisterForBondErrAlreadyStaked = (accounts: Real['accounts']) =>
         toString: () =>
           `register-for-bond-err-already-staked(${getWalletNameByAddress(
             r.sender,
-          )}, bond ${pickedBond ?? '?'}${
-            pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''
-          })`,
+          )}, bond ${pickedBond ?? '?'}, ${r.signer.split('.').pop()})`,
       };
     });

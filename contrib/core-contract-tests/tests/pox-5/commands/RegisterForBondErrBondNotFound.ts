@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   logCommand,
@@ -24,12 +25,11 @@ export const RegisterForBondErrBondNotFound = (accounts: Real['accounts']) =>
       // Wide index space; `check` keeps only the ones with no `protocol-bonds`
       // row. Bonds are sparse, so almost every draw is unused.
       bondIndex: fc.bigInt({ min: 0n, max: 1_000_000n }),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
       sats: fc.bigInt({ min: 1n, max: 1_000_000n }),
       amountUstx: fc.bigInt({ min: 0n, max: 1_000_000_000_000n }),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // The bond must not exist (the only reason ERR_BOND_NOT_FOUND fires)
         // and the sender must hold no membership (so the no-mutation read is
@@ -37,7 +37,7 @@ export const RegisterForBondErrBondNotFound = (accounts: Real['accounts']) =>
         check: (model: Readonly<Model>) =>
           !model.bonds.has(r.bondIndex) &&
           !model.bondMemberships.has(r.sender) &&
-          grantedSigners(model).length > 0,
+          grantedSigners(model).includes(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'register-for-bond_err_bond_not_found');
@@ -46,9 +46,6 @@ export const RegisterForBondErrBondNotFound = (accounts: Real['accounts']) =>
 
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
           const balanceBefore = sbtcBalance(r.sender);
           const membershipBefore = rov(
             real.contracts.pox5.getBondMembership(r.sender),
@@ -62,7 +59,7 @@ export const RegisterForBondErrBondNotFound = (accounts: Real['accounts']) =>
           const receipt = txErr(
             real.contracts.pox5.registerForBond({
               bondIndex: r.bondIndex,
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx: r.amountUstx,
               btcLockup: err(r.sats),
               signerCalldata: null,
@@ -98,8 +95,6 @@ export const RegisterForBondErrBondNotFound = (accounts: Real['accounts']) =>
         toString: () =>
           `register-for-bond-err-bond-not-found(${getWalletNameByAddress(
             r.sender,
-          )}, bond ${r.bondIndex}${
-            pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''
-          })`,
+          )}, bond ${r.bondIndex}, ${r.signer.split('.').pop()})`,
       };
     });

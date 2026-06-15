@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   grantKey,
   logCommand,
   refreshModel,
@@ -9,11 +10,7 @@ import {
 } from './utils';
 import { rov } from '@clarigen/test';
 import { expect } from 'vitest';
-import {
-  MAX_SIGNERS,
-  registerSigner,
-  testSignerHandle,
-} from '../pox-5-helpers';
+import { registerSigner, testSignerHandle } from '../pox-5-helpers';
 
 /**
  * Re-register an already-registered signer with a brand-new key + grant,
@@ -29,22 +26,19 @@ export const RotateSignerKey = () =>
       // any auth-id works here.
       authId: fc.bigInt({ min: 1n, max: 1_000_000_000n }),
       // Static cap for legible shrinks; `%` wraps onto the live signer set.
-      signerIndex: fc.nat({ max: MAX_SIGNERS - 1 }),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // Need an already-registered signer to rotate.
-        check: (model: Readonly<Model>) => model.signers.size > 0,
+        check: (model: Readonly<Model>) => model.signers.has(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'rotate-signer-key');
 
           // Arrange
 
-          const signerIds = Array.from(model.signers.keys());
-          const signerId = signerIds[r.signerIndex % signerIds.length];
-          pickedSigner = signerId;
+          const signerId = r.signer;
           const handle = testSignerHandle(signerId);
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
@@ -86,7 +80,6 @@ export const RotateSignerKey = () =>
             stacksHeightBefore,
           });
         },
-        toString: () =>
-          `rotate-signer-key(${pickedSigner ? pickedSigner.split('.').pop() : '?'})`,
+        toString: () => `rotate-signer-key(${r.signer.split('.').pop()})`,
       };
     });

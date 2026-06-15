@@ -10,6 +10,7 @@ import {
   assertTotalDelegatedForCycle,
   bondEndCycle,
   bondStartCycle,
+  candidateSignerIds,
   currentRewardCycle,
   getWalletNameByAddress,
   grantedSigners,
@@ -41,19 +42,17 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // An active bond member, outside the prepare phase, with at least one
         // other granted signer to switch to (current signer excluded).
         check: (model: Readonly<Model>) =>
           isActiveBondMember(model, r.sender) &&
           !isInPreparePhase(model) &&
-          grantedSigners(model).some(
-            (s) => s !== model.bondMemberships.get(r.sender)!.signer,
-          ),
+          grantedSigners(model).includes(r.signer) &&
+          r.signer !== model.bondMemberships.get(r.sender)!.signer,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'update-bond-registration');
@@ -64,11 +63,7 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const membership = model.bondMemberships.get(r.sender)!;
           const oldSigner = membership.signer;
-          const candidates = grantedSigners(model).filter(
-            (s) => s !== oldSigner,
-          );
-          const newSigner = candidates[r.signerIndex % candidates.length];
-          pickedSigner = newSigner;
+          const newSigner = r.signer;
           const bondIndex = membership.bondIndex;
           const currentCycle = currentRewardCycle(model);
           const bondStart = bondStartCycle(model, bondIndex);
@@ -302,8 +297,8 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `update-bond-registration(${getWalletNameByAddress(r.sender)}${
-            pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''
-          })`,
+          `update-bond-registration(${getWalletNameByAddress(
+            r.sender,
+          )}, ${r.signer.split('.').pop()})`,
       };
     });

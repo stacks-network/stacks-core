@@ -10,6 +10,7 @@ import {
   assertTotalDelegatedForCycle,
   bondAllowanceKey,
   bondStartCycle,
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isInPreparePhase,
@@ -39,7 +40,7 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
       bondPick: fc.nat(),
       // sats in (0, min(allowance, balance)]; >= 1 so the registration
       // actually custodies sBTC.
@@ -50,13 +51,12 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
     })
     .map((r) => {
       let pickedBond: bigint | undefined;
-      let pickedSigner: string | undefined;
       return {
         // A registrable bond, a granted signer, sBTC to stake, no stx-stake to
         // conflict, and not in the prepare phase (the first guard).
         check: (model: Readonly<Model>) =>
           !isInPreparePhase(model) &&
-          grantedSigners(model).length > 0 &&
+          grantedSigners(model).includes(r.signer) &&
           (model.sbtcBalances.get(r.sender) ?? 0n) > 0n &&
           !model.stakers.has(r.sender) &&
           registrableBondsForStaker(model, r.sender).length > 0,
@@ -71,9 +71,6 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
           const bonds = registrableBondsForStaker(model, r.sender);
           const bondIndex = bonds[r.bondPick % bonds.length];
           pickedBond = bondIndex;
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
           const config = model.bonds.get(bondIndex)!;
           const allowance = model.bondAllowances.get(
             bondAllowanceKey(bondIndex, r.sender),
@@ -90,7 +87,7 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
           const membership: BondMembership = {
             bondIndex,
             amountUstx,
-            signer,
+            signer: r.signer,
             isL1Lock: false,
             amountSats: sats,
           };
@@ -100,7 +97,7 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
           const receipt = txOk(
             real.contracts.pox5.registerForBond({
               bondIndex,
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx,
               btcLockup: err(sats),
               signerCalldata: null,
@@ -109,6 +106,7 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
           );
 
           // Update model
+
           model.sbtcBalances.set(r.sender, balance - sats);
           model.totalSbtcStaked += sats;
           model.contractSbtcBalance += sats;
@@ -122,7 +120,7 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
           modelAddStakerToCycles(
             model,
             r.sender,
-            signer,
+            r.signer,
             firstRewardCycle,
             BOND_LENGTH_CYCLES,
             amountUstx,
@@ -132,7 +130,7 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
           modelAddStakerToBondCycles(
             model,
             r.sender,
-            signer,
+            r.signer,
             bondIndex,
             firstRewardCycle,
             BOND_LENGTH_CYCLES,
@@ -158,7 +156,12 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
             rov(real.contracts.pox5.getTotalSbtcStakedForBond(bondIndex)),
           ).toBe(model.bondTotalStaked.get(bondIndex)!);
           // Per-cycle signer delegation at the bond's first and last cycle.
-          assertSignerDelegationForCycle(model, real, firstRewardCycle, signer);
+          assertSignerDelegationForCycle(
+            model,
+            real,
+            firstRewardCycle,
+            r.signer,
+          );
           assertSignerCycleMembership(model, real, firstRewardCycle, r.sender);
           assertTotalDelegatedForCycle(model, real, firstRewardCycle);
           assertStakerSharesForCycle(
@@ -166,7 +169,7 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
             real,
             firstRewardCycle,
             r.sender,
-            signer,
+            r.signer,
           );
           // Bond shares at the first cycle: total, this signer, this staker.
           assertBondTotalSharesForCycle(
@@ -180,20 +183,26 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
             real,
             firstRewardCycle,
             bondIndex,
-            signer,
+            r.signer,
           );
           assertBondStakerSharesForCycle(
             model,
             real,
             firstRewardCycle,
             bondIndex,
-            signer,
+            r.signer,
             r.sender,
           );
-          assertSignerDelegationForCycle(model, real, lastCycle, signer);
+          assertSignerDelegationForCycle(model, real, lastCycle, r.signer);
           assertSignerCycleMembership(model, real, lastCycle, r.sender);
           assertTotalDelegatedForCycle(model, real, lastCycle);
-          assertStakerSharesForCycle(model, real, lastCycle, r.sender, signer);
+          assertStakerSharesForCycle(
+            model,
+            real,
+            lastCycle,
+            r.sender,
+            r.signer,
+          );
           // Bond shares at the last cycle.
           assertBondTotalSharesForCycle(model, real, lastCycle, bondIndex);
           assertBondSignerSharesForCycle(
@@ -201,14 +210,14 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
             real,
             lastCycle,
             bondIndex,
-            signer,
+            r.signer,
           );
           assertBondStakerSharesForCycle(
             model,
             real,
             lastCycle,
             bondIndex,
-            signer,
+            r.signer,
             r.sender,
           );
 
@@ -223,6 +232,6 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
         toString: () =>
           `register-for-bond(${getWalletNameByAddress(r.sender)}, bond ${
             pickedBond ?? '?'
-          }${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          }, ${r.signer.split('.').pop()})`,
       };
     });

@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
   bondAllowanceKey,
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   logCommand,
@@ -35,13 +36,12 @@ export const RegisterForBondErrNotAllowlisted = (accounts: Real['accounts']) =>
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       bondPick: fc.nat(),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
       sats: fc.bigInt({ min: 1n, max: 1_000_000n }),
       amountUstx: fc.bigInt({ min: 0n, max: 1_000_000_000_000n }),
     })
     .map((r) => {
       let pickedBond: bigint | undefined;
-      let pickedSigner: string | undefined;
       return {
         // A set-up bond with no allowance for the sender is the only reason
         // ERR_NOT_ALLOWLISTED fires; the sender holds no membership so the
@@ -51,7 +51,7 @@ export const RegisterForBondErrNotAllowlisted = (accounts: Real['accounts']) =>
         check: (model: Readonly<Model>) =>
           unallowlistedBonds(model, r.sender).length > 0 &&
           !model.bondMemberships.has(r.sender) &&
-          grantedSigners(model).length > 0,
+          grantedSigners(model).includes(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'register-for-bond_err_not_allowlisted');
@@ -63,9 +63,6 @@ export const RegisterForBondErrNotAllowlisted = (accounts: Real['accounts']) =>
           const bonds = unallowlistedBonds(model, r.sender);
           const bondIndex = bonds[r.bondPick % bonds.length];
           pickedBond = bondIndex;
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
           const balanceBefore = sbtcBalance(r.sender);
           const membershipBefore = rov(
             real.contracts.pox5.getBondMembership(r.sender),
@@ -79,7 +76,7 @@ export const RegisterForBondErrNotAllowlisted = (accounts: Real['accounts']) =>
           const receipt = txErr(
             real.contracts.pox5.registerForBond({
               bondIndex,
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx: r.amountUstx,
               btcLockup: err(r.sats),
               signerCalldata: null,
@@ -116,8 +113,6 @@ export const RegisterForBondErrNotAllowlisted = (accounts: Real['accounts']) =>
         toString: () =>
           `register-for-bond-err-not-allowlisted(${getWalletNameByAddress(
             r.sender,
-          )}, bond ${pickedBond ?? '?'}${
-            pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''
-          })`,
+          )}, bond ${pickedBond ?? '?'}, ${r.signer.split('.').pop()})`,
       };
     });

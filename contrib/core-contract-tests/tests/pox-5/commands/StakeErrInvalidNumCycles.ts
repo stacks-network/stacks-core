@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isInPreparePhase,
@@ -33,15 +34,14 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
         fc.constant(0n),
         fc.bigInt({ min: 97n, max: MAX_UINT128 - 100000n }),
       ),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // Live grant, non-staking sender, and non-prepare-phase keep the
         // earlier checks from masking ERR_INVALID_NUM_CYCLES.
         check: (model: Readonly<Model>) =>
-          grantedSigners(model).length > 0 &&
+          grantedSigners(model).includes(r.signer) &&
           !isStakerActive(model, r.sender) &&
           !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
@@ -49,9 +49,6 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake_err_invalid_num_cycles');
 
           // Arrange
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const stakerInfoBefore = rov(
@@ -61,7 +58,7 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
           // Act
           const receipt = txErr(
             real.contracts.pox5.stake({
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx: r.amountUstx,
               numCycles: r.numCycles,
               startBurnHt: real.network.burnBlockHeight,
@@ -90,6 +87,6 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `stake-err-invalid-num-cycles(${getWalletNameByAddress(r.sender)}, ${r.numCycles}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          `stake-err-invalid-num-cycles(${getWalletNameByAddress(r.sender)}, ${r.numCycles}, ${r.signer.split('.').pop()})`,
       };
     });

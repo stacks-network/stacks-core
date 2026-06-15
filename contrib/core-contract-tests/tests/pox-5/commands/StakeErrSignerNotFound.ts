@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   isInPreparePhase,
   logCommand,
@@ -23,31 +24,21 @@ export const StakeErrSignerNotFound = (accounts: Real['accounts']) =>
       // sits past the signer lookup this targets.
       amountUstx: fc.bigInt({ min: 0n, max: MAX_UINT128 }),
       numCycles: fc.integer({ min: 1, max: 12 }),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
-      // A deployed signer-manager the model never registered.
-      const pickUnregisteredId = (model: Readonly<Model>) => {
-        const unregistered = [...model.deployedSigners].filter(
-          (id) => !model.signers.has(id),
-        );
-        if (unregistered.length === 0) return undefined;
-        return unregistered[r.signerIndex % unregistered.length];
-      };
-
       return {
         // Non-prepare-phase keeps the earlier prepare-phase guard from masking
-        // ERR_SIGNER_NOT_FOUND.
+        // ERR_SIGNER_NOT_FOUND. The signer must be deployed but unregistered.
         check: (model: Readonly<Model>) =>
-          pickUnregisteredId(model) !== undefined && !isInPreparePhase(model),
+          model.deployedSigners.has(r.signer) &&
+          !model.signers.has(r.signer) &&
+          !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'stake_err_signer_not_found');
 
           // Arrange
-          const signer = pickUnregisteredId(model)!;
-          pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const stakerInfoBefore = rov(
@@ -57,7 +48,7 @@ export const StakeErrSignerNotFound = (accounts: Real['accounts']) =>
           // Act
           const receipt = txErr(
             real.contracts.pox5.stake({
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx: r.amountUstx,
               numCycles: BigInt(r.numCycles),
               startBurnHt: real.network.burnBlockHeight,
@@ -82,6 +73,6 @@ export const StakeErrSignerNotFound = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `stake-err-signer-not-found(${getWalletNameByAddress(r.sender)}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          `stake-err-signer-not-found(${getWalletNameByAddress(r.sender)}, ${r.signer.split('.').pop()})`,
       };
     });

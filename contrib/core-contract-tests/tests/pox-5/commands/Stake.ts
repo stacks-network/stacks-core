@@ -6,6 +6,7 @@ import {
   assertStakerLock,
   assertStakerSharesForCycle,
   assertTotalDelegatedForCycle,
+  candidateSignerIds,
   currentRewardCycle,
   getWalletNameByAddress,
   grantedSigners,
@@ -29,15 +30,14 @@ export const Stake = (accounts: Real['accounts']) =>
       amountUstx: fc.bigInt({ min: 1000000n, max: 1000000000000n }),
       // Full contract-supported lock range, bigint to compose with cycle math.
       numCycles: fc.bigInt({ min: 1n, max: 96n }),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         check: (model: Readonly<Model>) =>
           // Only signers with a live grant can accept a new stake; revoke
           // blocks it. The run picks from these.
-          grantedSigners(model).length > 0 &&
+          grantedSigners(model).includes(r.signer) &&
           !isStakerActive(model, r.sender) &&
           // Keep stx-stakers and bond members disjoint.
           !model.bondMemberships.has(r.sender) &&
@@ -48,9 +48,7 @@ export const Stake = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake');
 
           // Arrange
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
+          const signer = r.signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const expectedFirstStakedRewardCycle = currentRewardCycle(model) + 1n;
@@ -152,6 +150,6 @@ export const Stake = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `stake(${getWalletNameByAddress(r.sender)}, ${r.amountUstx}, ${r.numCycles}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          `stake(${getWalletNameByAddress(r.sender)}, ${r.amountUstx}, ${r.numCycles}, ${r.signer.split('.').pop()})`,
       };
     });

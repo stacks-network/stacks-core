@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   grantKey,
   logCommand,
@@ -16,30 +17,20 @@ export const RegisterSigner = (accounts: Real['accounts']) =>
   fc
     .record({
       caller: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
       seed: fc.uint8Array({ minLength: 48, maxLength: 48 }),
       authId: fc.bigInt({ min: 1n, max: 1_000_000_000n }),
     })
     .map((r) => {
-      let pickedSignerId: string | undefined;
-      // Pick a deployed-but-not-yet-registered signer from the model.
-      const pickSignerId = (model: Readonly<Model>) => {
-        const unregistered = [...model.deployedSigners].filter(
-          (id) => !model.signers.has(id),
-        );
-        if (unregistered.length === 0) return undefined;
-        return unregistered[r.signerIndex % unregistered.length];
-      };
-
       return {
-        check: (model: Readonly<Model>) => pickSignerId(model) !== undefined,
+        check: (model: Readonly<Model>) =>
+          model.deployedSigners.has(r.signer) && !model.signers.has(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'register-signer');
 
           // Arrange
-          const signerId = pickSignerId(model)!;
-          pickedSignerId = signerId;
+          const signerId = r.signer;
           const signerManager = testSignerHandle(signerId);
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
@@ -70,6 +61,6 @@ export const RegisterSigner = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `register-signer(${getWalletNameByAddress(r.caller)}${pickedSignerId ? `, ${pickedSignerId.split('.').pop()}` : ''})`,
+          `register-signer(${getWalletNameByAddress(r.caller)}, ${r.signer.split('.').pop()})`,
       };
     });

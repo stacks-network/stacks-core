@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isInPreparePhase,
@@ -25,15 +26,14 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
       // sits past the already-staked check this targets.
       amountUstx: fc.bigInt({ min: 0n, max: MAX_UINT128 }),
       numCycles: fc.integer({ min: 1, max: 12 }),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // Live grant and non-prepare-phase keep the earlier grant and
         // prepare-phase checks from masking ERR_ALREADY_STAKED.
         check: (model: Readonly<Model>) =>
-          grantedSigners(model).length > 0 &&
+          grantedSigners(model).includes(r.signer) &&
           isStakerActive(model, r.sender) &&
           !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
@@ -41,9 +41,6 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake_err_already_staked');
 
           // Arrange
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const expectedStaker = model.stakers.get(r.sender)!;
@@ -54,7 +51,7 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
           // Act
           const receipt = txErr(
             real.contracts.pox5.stake({
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx: r.amountUstx,
               numCycles: BigInt(r.numCycles),
               startBurnHt: real.network.burnBlockHeight,
@@ -87,6 +84,6 @@ export const StakeErrAlreadyStaked = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `stake-err-already-staked(${getWalletNameByAddress(r.sender)}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          `stake-err-already-staked(${getWalletNameByAddress(r.sender)}, ${r.signer.split('.').pop()})`,
       };
     });

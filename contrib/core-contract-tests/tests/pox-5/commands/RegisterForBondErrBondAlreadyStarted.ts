@@ -3,6 +3,7 @@ import type { Model, Real } from './types';
 import {
   bondAllowanceKey,
   bondStartCycle,
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isInPreparePhase,
@@ -55,20 +56,19 @@ export const RegisterForBondErrBondAlreadyStarted = (
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       bondPick: fc.nat(),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
       sats: fc.bigInt({ min: 1n, max: 1_000_000n }),
       extraUstx: fc.bigInt({ min: 0n, max: 1_000_000_000_000n }),
     })
     .map((r) => {
       let pickedBond: bigint | undefined;
-      let pickedSigner: string | undefined;
       return {
         // A set-up, allowlisted, already-started bond (sender not a member),
         // outside the prepare phase, leaves the started check as the gate. A
         // granted signer keeps the handle well formed.
         check: (model: Readonly<Model>) =>
           !isInPreparePhase(model) &&
-          grantedSigners(model).length > 0 &&
+          grantedSigners(model).includes(r.signer) &&
           startedAllowlistedBonds(model, r.sender).length > 0,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
@@ -80,9 +80,6 @@ export const RegisterForBondErrBondAlreadyStarted = (
           const bonds = startedAllowlistedBonds(model, r.sender);
           const bondIndex = bonds[r.bondPick % bonds.length];
           pickedBond = bondIndex;
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
           const config = model.bonds.get(bondIndex)!;
           // Clear the amount floor; that check sits before the started one, so
           // it must not fire first.
@@ -101,7 +98,7 @@ export const RegisterForBondErrBondAlreadyStarted = (
           const receipt = txErr(
             real.contracts.pox5.registerForBond({
               bondIndex,
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx,
               btcLockup: err(r.sats),
               signerCalldata: null,
@@ -138,8 +135,6 @@ export const RegisterForBondErrBondAlreadyStarted = (
         toString: () =>
           `register-for-bond-err-bond-already-started(${getWalletNameByAddress(
             r.sender,
-          )}, bond ${pickedBond ?? '?'}${
-            pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''
-          })`,
+          )}, bond ${pickedBond ?? '?'}, ${r.signer.split('.').pop()})`,
       };
     });

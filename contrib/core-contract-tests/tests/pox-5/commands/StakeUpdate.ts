@@ -6,6 +6,7 @@ import {
   assertStakerLock,
   assertStakerSharesForCycle,
   assertTotalDelegatedForCycle,
+  candidateSignerIds,
   currentRewardCycle,
   getWalletNameByAddress,
   grantedSigners,
@@ -27,17 +28,16 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       cyclesToExtend: fc.bigInt({ min: 1n, max: 12n }),
       amountIncrease: fc.bigInt({ min: 0n, max: 1000000000000n }),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // Gate the internal num-cycles (new-unlock - current - 1) into the
         // contract's [1, 96] band, else stake-update rejects with
         // ERR_INVALID_NUM_CYCLES.
         check: (model: Readonly<Model>) => {
           // The new signer needs a live grant; revoke blocks stake-update.
-          if (grantedSigners(model).length === 0) return false;
+          if (!grantedSigners(model).includes(r.signer)) return false;
           // stake-update reverts with ERR_STAKE_IN_PREPARE_PHASE in the
           // prepare phase.
           if (isInPreparePhase(model)) return false;
@@ -54,9 +54,7 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
           trackCommandRun(model, 'stake-update');
 
           // Arrange
-          const registered = grantedSigners(model);
-          const newSigner = registered[r.signerIndex % registered.length];
-          pickedSigner = newSigner;
+          const newSigner = r.signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const currentCycle = currentRewardCycle(model);
@@ -196,6 +194,6 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `stake-update(${getWalletNameByAddress(r.sender)}, +${r.cyclesToExtend}c, +${r.amountIncrease}u${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          `stake-update(${getWalletNameByAddress(r.sender)}, +${r.cyclesToExtend}c, +${r.amountIncrease}u, ${r.signer.split('.').pop()})`,
       };
     });

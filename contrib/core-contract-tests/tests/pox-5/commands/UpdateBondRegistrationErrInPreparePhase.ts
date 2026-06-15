@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isActiveBondMember,
@@ -25,10 +26,9 @@ export const UpdateBondRegistrationErrInPreparePhase = (
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      newIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // An active bond member in the prepare phase leaves the prepare-phase
         // guard as the only revert reason. A granted signer keeps the new
@@ -36,7 +36,7 @@ export const UpdateBondRegistrationErrInPreparePhase = (
         check: (model: Readonly<Model>) =>
           isActiveBondMember(model, r.sender) &&
           isInPreparePhase(model) &&
-          grantedSigners(model).length > 0,
+          grantedSigners(model).includes(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(
@@ -50,9 +50,6 @@ export const UpdateBondRegistrationErrInPreparePhase = (
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const membership = model.bondMemberships.get(r.sender)!;
           const oldSigner = membership.signer;
-          const registered = grantedSigners(model);
-          const newSigner = registered[r.newIndex % registered.length];
-          pickedSigner = newSigner;
           const membershipBefore = rov(
             real.contracts.pox5.getBondMembership(r.sender),
           );
@@ -65,7 +62,7 @@ export const UpdateBondRegistrationErrInPreparePhase = (
 
           const receipt = txErr(
             real.contracts.pox5.updateBondRegistration({
-              signerManager: newSigner,
+              signerManager: r.signer,
               oldSignerManager: oldSigner,
               signerCalldata: null,
             }),
@@ -97,6 +94,6 @@ export const UpdateBondRegistrationErrInPreparePhase = (
         toString: () =>
           `update-bond-registration-err-in-prepare-phase(${getWalletNameByAddress(
             r.sender,
-          )}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          )}, ${r.signer.split('.').pop()})`,
       };
     });

@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isInPreparePhase,
@@ -25,16 +26,15 @@ export const StakeErrInPreparePhase = (accounts: Real['accounts']) =>
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       amountUstx: fc.bigInt({ min: 1000000n, max: 1000000000000n }),
       numCycles: fc.bigInt({ min: 1n, max: 96n }),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // Granted signer and non-staking sender leave the prepare-phase guard
         // as the only reason the stake reverts.
         check: (model: Readonly<Model>) =>
           isInPreparePhase(model) &&
-          grantedSigners(model).length > 0 &&
+          grantedSigners(model).includes(r.signer) &&
           !isStakerActive(model, r.sender),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
@@ -42,9 +42,6 @@ export const StakeErrInPreparePhase = (accounts: Real['accounts']) =>
 
           // Arrange
 
-          const registered = grantedSigners(model);
-          const signer = registered[r.signerIndex % registered.length];
-          pickedSigner = signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const stakerInfoBefore = rov(
@@ -55,7 +52,7 @@ export const StakeErrInPreparePhase = (accounts: Real['accounts']) =>
 
           const receipt = txErr(
             real.contracts.pox5.stake({
-              signerManager: signer,
+              signerManager: r.signer,
               amountUstx: r.amountUstx,
               numCycles: r.numCycles,
               startBurnHt: real.network.burnBlockHeight,
@@ -82,6 +79,6 @@ export const StakeErrInPreparePhase = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `stake-err-in-prepare-phase(${getWalletNameByAddress(r.sender)}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          `stake-err-in-prepare-phase(${getWalletNameByAddress(r.sender)}, ${r.signer.split('.').pop()})`,
       };
     });

@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
   isActiveBondMember,
@@ -24,15 +25,16 @@ export const UpdateBondRegistrationErrNotBondParticipant = (
   fc
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
-      oldIndex: fc.nat(),
-      newIndex: fc.nat(),
+      oldSigner: fc.constantFrom(...candidateSignerIds),
+      newSigner: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
       return {
         // A non-member sender makes the membership unwrap the first failure. A
         // granted signer keeps the old/new trait handles well formed.
         check: (model: Readonly<Model>) =>
-          grantedSigners(model).length > 0 &&
+          grantedSigners(model).includes(r.oldSigner) &&
+          grantedSigners(model).includes(r.newSigner) &&
           !isActiveBondMember(model, r.sender),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
@@ -45,9 +47,6 @@ export const UpdateBondRegistrationErrNotBondParticipant = (
 
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
-          const registered = grantedSigners(model);
-          const oldSigner = registered[r.oldIndex % registered.length];
-          const newSigner = registered[r.newIndex % registered.length];
           const membershipBefore = rov(
             real.contracts.pox5.getBondMembership(r.sender),
           );
@@ -60,8 +59,8 @@ export const UpdateBondRegistrationErrNotBondParticipant = (
 
           const receipt = txErr(
             real.contracts.pox5.updateBondRegistration({
-              signerManager: newSigner,
-              oldSignerManager: oldSigner,
+              signerManager: r.newSigner,
+              oldSignerManager: r.oldSigner,
               signerCalldata: null,
             }),
             r.sender,

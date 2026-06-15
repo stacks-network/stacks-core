@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   isActiveBondMember,
   isInPreparePhase,
@@ -25,13 +26,10 @@ export const UnstakeSbtcErrInvalidOldSignerManager = (
     .record({
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       withdrawalBips: fc.bigInt({ min: 1n, max: 10000n }),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
       let pickedBond: bigint | undefined;
-      // Deployed signers other than the member's own, to pass a wrong one.
-      const otherSigners = (model: Readonly<Model>, signer: string) =>
-        [...model.deployedSigners].filter((s) => s !== signer);
       return {
         // An active member outside the prepare phase, with sats to withdraw and
         // a deployed signer other than their own to pass as the wrong one.
@@ -42,7 +40,8 @@ export const UnstakeSbtcErrInvalidOldSignerManager = (
             membership !== undefined &&
             membership.amountSats > 0n &&
             !isInPreparePhase(model) &&
-            otherSigners(model, membership.signer).length > 0
+            model.deployedSigners.has(r.signer) &&
+            r.signer !== membership.signer
           );
         },
         run: (model: Model, real: Real) => {
@@ -55,8 +54,6 @@ export const UnstakeSbtcErrInvalidOldSignerManager = (
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const membership = model.bondMemberships.get(r.sender)!;
           pickedBond = membership.bondIndex;
-          const others = otherSigners(model, membership.signer);
-          const wrongSigner = others[r.signerIndex % others.length];
           const base = (membership.amountSats * r.withdrawalBips) / 10000n;
           const withdrawal = base > 0n ? base : 1n;
           const balanceBefore = sbtcBalance(r.sender);
@@ -71,7 +68,7 @@ export const UnstakeSbtcErrInvalidOldSignerManager = (
 
           const receipt = txErr(
             real.contracts.pox5.unstakeSbtc({
-              signerManager: wrongSigner,
+              signerManager: r.signer,
               amountToWithdrawalSats: withdrawal,
             }),
             r.sender,

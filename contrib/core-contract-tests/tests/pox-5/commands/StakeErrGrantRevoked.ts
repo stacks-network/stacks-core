@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  candidateSignerIds,
   getWalletNameByAddress,
   isInPreparePhase,
   isStakerActive,
@@ -24,26 +25,23 @@ export const StakeErrGrantRevoked = (accounts: Real['accounts']) =>
       sender: fc.constantFrom(...Object.values(accounts).map((x) => x.address)),
       amountUstx: fc.bigInt({ min: 1000000n, max: 1000000000000n }),
       numCycles: fc.bigInt({ min: 1n, max: 96n }),
-      signerIndex: fc.nat(),
+      signer: fc.constantFrom(...candidateSignerIds),
     })
     .map((r) => {
-      let pickedSigner: string | undefined;
       return {
         // Need a registered-but-revoked signer; sender not already staking; not
         // in the prepare phase (its guard runs first).
         check: (model: Readonly<Model>) =>
           !isInPreparePhase(model) &&
           !isStakerActive(model, r.sender) &&
-          revokedSigners(model).length > 0,
+          revokedSigners(model).includes(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
           trackCommandRun(model, 'stake_err_grant_revoked');
 
           // Arrange
 
-          const revoked = revokedSigners(model);
-          const signer = revoked[r.signerIndex % revoked.length];
-          pickedSigner = signer;
+          const signer = r.signer;
           const bitcoinHeightBefore = real.network.burnBlockHeight;
           const stacksHeightBefore = real.network.stacksBlockHeight;
           const stakerInfoBefore = rov(
@@ -82,6 +80,6 @@ export const StakeErrGrantRevoked = (accounts: Real['accounts']) =>
           });
         },
         toString: () =>
-          `stake-err-grant-revoked(${getWalletNameByAddress(r.sender)}${pickedSigner ? `, ${pickedSigner.split('.').pop()}` : ''})`,
+          `stake-err-grant-revoked(${getWalletNameByAddress(r.sender)}, ${r.signer.split('.').pop()})`,
       };
     });
