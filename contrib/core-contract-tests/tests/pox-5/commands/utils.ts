@@ -4,9 +4,11 @@ import {
   BOND_GAP_CYCLES,
   BOND_LENGTH_CYCLES,
   MAX_SIGNERS,
+  POX5_BOOT_ID,
   PRECISION,
   RESERVE_RATIO,
   SIGNER_SET_MIN_USTX,
+  sbtcBalance,
   testSigner,
 } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
@@ -849,6 +851,27 @@ export function modelGetRewards(model: Readonly<Model>): bigint {
 /** Contract `get-new-rewards`: rewards arrived since the last computation. */
 export function modelGetNewRewards(model: Readonly<Model>): bigint {
   return modelGetRewards(model) - model.lastAccountedRewardsOnly;
+}
+
+/**
+ * A principal's live sBTC balance matches the model's ledger mirror. Works for
+ * wallets (seeded at genesis), signer managers (credited by claims), and any
+ * principal the model never touched (defaults to 0).
+ */
+export function assertSbtcBalance(
+  model: Readonly<Model>,
+  address: string,
+): void {
+  expect(sbtcBalance(address)).toBe(model.sbtcBalances.get(address) ?? 0n);
+}
+
+/**
+ * The contract principal's live sBTC balance matches `contractSbtcBalance`.
+ * This is the balance `get-rewards` derives from, so a drift here means the
+ * staked-sats, reserve, and reward-pool accounting has diverged.
+ */
+export function assertContractSbtcBalance(model: Readonly<Model>): void {
+  expect(sbtcBalance(POX5_BOOT_ID)).toBe(model.contractSbtcBalance);
 }
 
 /** `rewardsPerTokenForCycle` key: the none pool uses `n`, bonds their index. */

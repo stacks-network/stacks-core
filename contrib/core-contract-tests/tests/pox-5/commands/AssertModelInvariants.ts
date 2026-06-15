@@ -1,6 +1,8 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  assertContractSbtcBalance,
+  assertSbtcBalance,
   assertSignerCycleMembership,
   assertSignerPendingForCycle,
   assertSignerSharesNoneForCycle,
@@ -60,6 +62,10 @@ export const AssertModelInvariants = (accounts: Real['accounts']) => {
         assertSignerPendingForCycle(model, real, checkedCycle, r.signer);
         assertSignerSharesNoneForCycle(model, real, checkedCycle, r.signer);
         assertTotalSharesNoneForCycle(model, real, checkedCycle);
+        // sBTC balances: the sampled wallet's, plus the contract's whole-pool
+        // balance that `get-rewards` derives from.
+        assertSbtcBalance(model, r.staker);
+        assertContractSbtcBalance(model);
 
         logCommand({
           action: 'assert-model-invariants',

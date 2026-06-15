@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  assertSbtcBalance,
   assertSignerDelegationForCycle,
   assertSignerInfo,
   candidateSignerIds,
@@ -36,6 +37,8 @@ export const AssertSignerInvariants = () => {
         assertSignerInfo(model.signers, real, r.signer);
         // Per-cycle delegation at the current cycle.
         assertSignerDelegationForCycle(model, real, checkedCycle, r.signer);
+        // The signer manager's sBTC balance, credited when it claims rewards.
+        assertSbtcBalance(model, r.signer);
 
         logCommand({
           action: 'assert-signer-invariants',

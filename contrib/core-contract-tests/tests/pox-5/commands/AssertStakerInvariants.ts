@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  assertSbtcBalance,
   assertSignerCycleMembership,
   assertStakerInfo,
   assertStakerLock,
@@ -51,6 +52,8 @@ export const AssertStakerInvariants = (accounts: Real['accounts']) => {
         assertStakerLock(model, real, r.staker);
         assertSignerCycleMembership(model, real, checkedCycle, r.staker);
         assertStakerSharesForCycle(model, real, checkedCycle, r.staker, signer);
+        // The staker's sBTC balance (genesis, less anything moved into bonds).
+        assertSbtcBalance(model, r.staker);
 
         logCommand({
           action: 'assert-staker-invariants',
