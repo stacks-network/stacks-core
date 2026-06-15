@@ -137,6 +137,7 @@ fn setup_test_environment(
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
         },
         txs: vec![],
     };
@@ -282,6 +283,7 @@ fn reorg_timing_testing(
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
             txs: vec![],
         },
@@ -706,6 +708,7 @@ fn check_sortition_timeout() {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
             txs: vec![],
         },

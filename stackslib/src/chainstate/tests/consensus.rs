@@ -411,41 +411,61 @@ impl ConsensusChain<'_> {
         let first_burnchain_height =
             (pox_constants.pox_4_activation_height + pox_constants.reward_cycle_length + 1) as u64;
         info!("StacksEpoch calculate_epochs first_burn_height = {first_burnchain_height}");
+        // The highest epoch this test actually exercises (the max key in
+        // `num_blocks_per_epoch`). It is made open-ended below so the chain ends
+        // in it and never drifts into a later, unexercised epoch -- which now
+        // matters because block headers are version-gated per epoch (e.g. a test
+        // that only runs through Epoch 3.4 must not let Epoch 4.0 activate and
+        // then mine a wrong-versioned block there).
+        let max_used_epoch = num_blocks_per_epoch
+            .keys()
+            .copied()
+            .max()
+            .unwrap_or(StacksEpochId::Epoch40);
         let mut epochs = vec![];
         let mut current_height = 0;
         for epoch_id in StacksEpochId::ALL.iter() {
             let start_height = current_height;
-            let mut end_height = match *epoch_id {
-                StacksEpochId::Epoch10 => first_burnchain_height,
-                StacksEpochId::Epoch20
-                | StacksEpochId::Epoch2_05
-                | StacksEpochId::Epoch21
-                | StacksEpochId::Epoch22
-                | StacksEpochId::Epoch23
-                | StacksEpochId::Epoch24
-                | StacksEpochId::Epoch25 => {
-                    // Use test vector block count
-                    // Always add 1 so we can ensure we are fully in the epoch before we then execute
-                    // the corresponding test blocks in their own blocks
-                    let num_blocks = num_blocks_per_epoch.get(epoch_id).copied().unwrap_or(0) + 1;
-                    place_blocks_avoiding_prepare(start_height, num_blocks) + 1
-                }
-                StacksEpochId::Epoch30
-                | StacksEpochId::Epoch31
-                | StacksEpochId::Epoch32
-                | StacksEpochId::Epoch33
-                | StacksEpochId::Epoch34 => {
-                    // Only need 1 block per Epoch
-                    if num_blocks_per_epoch.contains_key(epoch_id) {
-                        start_height + 1
-                    } else {
-                        // If we don't care to have any blocks in this epoch
-                        // don't bother giving it an epoch height
-                        start_height
+            // Each epoch's height range depends on where it sits relative to the
+            // highest epoch this test uses:
+            let mut end_height = if *epoch_id > max_used_epoch {
+                // After it: zero-width, so this epoch never activates.
+                start_height
+            } else if *epoch_id == max_used_epoch {
+                // The highest tested epoch is open-ended; the chain ends here.
+                STACKS_EPOCH_MAX
+            } else {
+                // Before it: the epoch's normal block allocation.
+                match *epoch_id {
+                    StacksEpochId::Epoch10 => first_burnchain_height,
+                    StacksEpochId::Epoch20
+                    | StacksEpochId::Epoch2_05
+                    | StacksEpochId::Epoch21
+                    | StacksEpochId::Epoch22
+                    | StacksEpochId::Epoch23
+                    | StacksEpochId::Epoch24
+                    | StacksEpochId::Epoch25 => {
+                        // Use the test vector block count, +1 so we're fully into
+                        // the epoch before running its test blocks.
+                        let num_blocks =
+                            num_blocks_per_epoch.get(epoch_id).copied().unwrap_or(0) + 1;
+                        place_blocks_avoiding_prepare(start_height, num_blocks) + 1
+                    }
+                    // Nakamoto epochs use one burn block when exercised, none
+                    // otherwise.
+                    StacksEpochId::Epoch30
+                    | StacksEpochId::Epoch31
+                    | StacksEpochId::Epoch32
+                    | StacksEpochId::Epoch33
+                    | StacksEpochId::Epoch34
+                    | StacksEpochId::Epoch40 => {
+                        if num_blocks_per_epoch.contains_key(epoch_id) {
+                            start_height + 1
+                        } else {
+                            start_height
+                        }
                     }
                 }
-                // The last Epoch height never ends
-                StacksEpochId::Epoch40 => STACKS_EPOCH_MAX,
             };
 
             // Special case the Epoch 2.5 -> Epoch 3.0 transition
@@ -807,16 +827,26 @@ impl ConsensusChain<'_> {
         .unwrap()
         .unwrap();
         let cycle = self.test_chainstate.get_reward_cycle();
-        let burn_spent = SortitionDB::get_block_snapshot_consensus(
+        let tip_sortition = SortitionDB::get_block_snapshot_consensus(
             self.test_chainstate.sortdb_ref().conn(),
             &chain_tip.consensus_hash,
         )
         .unwrap()
-        .map(|sn| sn.total_burn)
         .unwrap();
+        let burn_spent = tip_sortition.total_burn;
+        // The header version is fixed per epoch (it gates the `problematic_txs`
+        // field and is enforced as a consensus rule on append), so use the
+        // version for the epoch this block is built in rather than hard-coding.
+        let epoch_id = SortitionDB::get_stacks_epoch(
+            self.test_chainstate.sortdb_ref().conn(),
+            tip_sortition.block_height,
+        )
+        .unwrap()
+        .expect("FATAL: no epoch defined for the chain tip's burn height")
+        .epoch_id;
         let mut block = NakamotoBlock {
             header: NakamotoBlockHeader {
-                version: 1,
+                version: NakamotoBlockHeader::expected_version_for_epoch(epoch_id),
                 chain_length: chain_tip.stacks_block_height + 1,
                 burn_spent,
                 consensus_hash: chain_tip.consensus_hash.clone(),
@@ -827,6 +857,7 @@ impl ConsensusChain<'_> {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
             txs: test_block.transactions.clone(),
         };
@@ -926,7 +957,7 @@ impl ConsensusChain<'_> {
             })
             .map_err(|e| e.to_string())?;
 
-        StacksChainState::process_block_transactions(clarity_tx, block_txs, 0)
+        StacksChainState::process_block_transactions(clarity_tx, block_txs, 0, &[])
             .map_err(|e| e.to_string())?;
 
         NakamotoChainState::finish_block(clarity_tx, None, false, burn_header_height)

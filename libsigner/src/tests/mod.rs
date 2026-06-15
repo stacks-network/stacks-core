@@ -117,6 +117,7 @@ fn test_simple_signer() {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
             txs: vec![],
         },

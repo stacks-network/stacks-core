@@ -109,6 +109,7 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         microblock_header: None,
         tx_index: 0,
         vm_error: None,
+        problematic_skipped: None,
     };
 
     let receipts = vec![receipt.clone()];
@@ -960,6 +961,7 @@ fn make_new_block_txs_payload_vm_error() {
         },
         microblock_header: None,
         vm_error: None,
+        problematic_skipped: None,
         stx_burned: 0u128,
         tx_index: 0,
     };
@@ -1037,6 +1039,7 @@ fn backwards_compatibility_transaction_event_payload() {
         microblock_header: None,
         tx_index: 1,
         vm_error: None,
+        problematic_skipped: None,
     };
     let payload = make_new_block_txs_payload(&receipt, 0);
     let new_serialized_data = serde_json::to_string_pretty(&payload).expect("Failed");

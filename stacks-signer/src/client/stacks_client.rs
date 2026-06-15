@@ -1111,6 +1111,7 @@ mod tests {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
         });
         let with_metadata = BlockHeaderWithMetadata {
             anchored_header,

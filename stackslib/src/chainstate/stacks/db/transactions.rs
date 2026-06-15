@@ -83,6 +83,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -105,6 +106,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error,
+            problematic_skipped: None,
         }
     }
 
@@ -127,6 +129,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            problematic_skipped: None,
         }
     }
 
@@ -148,6 +151,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -170,6 +174,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            problematic_skipped: None,
         }
     }
 
@@ -185,6 +190,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -227,6 +233,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error_string),
+            problematic_skipped: None,
         }
     }
 
@@ -246,6 +253,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -266,6 +274,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error.to_string()),
+            problematic_skipped: None,
         }
     }
 
@@ -285,6 +294,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error.to_string()),
+            problematic_skipped: None,
         }
     }
 
@@ -300,6 +310,32 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
+        }
+    }
+
+    /// Receipt for a transaction that was marked problematic by the block's
+    /// `NakamotoBlockHeader::problematic_txs` list. The transaction's payload
+    /// was NOT executed: only the precheck cost is reflected in the block
+    /// budget, and the fee was debited / origin (and sponsor) nonces bumped by
+    /// `process_skipped_transaction`. `execution_cost` is zero and `events`
+    /// is empty.
+    pub fn from_problematic_skipped(
+        tx: StacksTransaction,
+        category: u8,
+    ) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx.into(),
+            events: vec![],
+            post_condition_aborted: false,
+            result: Value::err_none(),
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: ExecutionCost::ZERO,
+            microblock_header: None,
+            tx_index: 0,
+            vm_error: None,
+            problematic_skipped: Some(category),
         }
     }
 
@@ -713,6 +749,23 @@ impl StacksChainState {
                     info!("{}", &msg; "txid" => %tx.txid());
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
+            }
+        }
+
+        // check that the requested Clarity version is supported in this epoch.
+        // Only a versioned smart-contract deploy can pin a specific version;
+        // every other transaction implicitly uses the epoch default. A version
+        // newer than the epoch allows is statically invalid, so reject it
+        // here.
+        if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
+            let max_version = ClarityVersion::default_for_epoch(epoch_id);
+            if *clarity_version > max_version {
+                let msg = format!(
+                    "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {max_version}",
+                    tx.txid()
+                );
+                info!("{msg}");
+                return Err(Error::InvalidStacksTransaction(msg, false));
             }
         }
 
@@ -1606,6 +1659,7 @@ impl StacksChainState {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: Some(error.to_string()),
+                                    problematic_skipped: None,
                                 };
                                 return Ok(receipt);
                             }
@@ -1790,6 +1844,77 @@ impl StacksChainState {
         })
     }
 
+    /// Process a transaction that has been marked problematic by the
+    /// block's `NakamotoBlockHeader::problematic_txs` list. Runs the usual
+    /// static precheck, debits the fee, and bumps the origin (and payer, if
+    /// distinct) nonces — but **does not** execute the transaction's payload.
+    ///
+    /// The returned receipt has `problematic_skipped == Some(category)`,
+    /// `execution_cost == ExecutionCost::ZERO`, and empty `events`.
+    ///
+    /// This must only be called for Epoch 4.0+ blocks: the validation rules
+    /// in [`NakamotoBlock::validate_problematic_txs`] guarantee the marker
+    /// list is empty before then, so reaching this path in an earlier epoch
+    /// is a consensus bug.
+    pub fn process_skipped_transaction(
+        clarity_block: &mut ClarityTx,
+        tx: &StacksTransaction,
+        category: u8,
+        quiet: bool,
+    ) -> Result<(u64, StacksTransactionReceipt), Error> {
+        debug!(
+            "Skip-execute problematic transaction {} ({}) category={}",
+            tx.txid(),
+            tx.payload.name(),
+            category,
+        );
+        let epoch = clarity_block.get_epoch();
+        if epoch < StacksEpochId::Epoch40 {
+            return Err(Error::InvalidStacksTransaction(
+                format!(
+                    "problematic_txs markers are not allowed before Epoch 4.0 (got epoch {epoch})"
+                ),
+                false,
+            ));
+        }
+
+        // Static precheck (size, version, anchor mode, multisig encoding,
+        // Clarity version...). A problematic marker only skips payload
+        // execution; the transaction must still be otherwise valid.
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
+
+        let mut transaction = clarity_block.connection().start_transaction_processing();
+
+        let fee = tx.get_tx_fee();
+        let (_origin_account, payer_account) =
+            StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
+
+        let payer_address = payer_account.principal.clone();
+        let payer_nonce = payer_account.nonce;
+        StacksChainState::pay_transaction_fee(&mut transaction, fee, payer_account)?;
+
+        // re-load origin to pick up the new balance/nonce after the fee debit
+        let origin_account =
+            StacksChainState::get_account(&mut transaction, &tx.origin_address().into());
+
+        StacksChainState::update_account_nonce(
+            &mut transaction,
+            &origin_account.principal,
+            origin_account.nonce,
+        );
+        if origin_account.principal != payer_address {
+            StacksChainState::update_account_nonce(&mut transaction, &payer_address, payer_nonce);
+        }
+
+        let tx_receipt = StacksTransactionReceipt::from_problematic_skipped(tx.clone(), category);
+
+        transaction
+            .commit()
+            .map_err(|e| Error::InvalidStacksTransaction(e.to_string(), false))?;
+
+        Ok((fee, tx_receipt))
+    }
+
     pub fn process_transaction_with_check<
         F: FnMut(&StacksTransactionReceipt) -> Result<(), Error>,
     >(
@@ -1803,18 +1928,6 @@ impl StacksChainState {
         let epoch = clarity_block.get_epoch();
 
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
-
-        // what version of Clarity did the transaction caller want? And, is it valid now?
-        let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
-        if clarity_version > ClarityVersion::default_for_epoch(epoch) {
-            let msg = format!(
-                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch} only supports up to {}",
-                tx.txid(),
-                ClarityVersion::default_for_epoch(epoch)
-            );
-            info!("{msg}");
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
 
