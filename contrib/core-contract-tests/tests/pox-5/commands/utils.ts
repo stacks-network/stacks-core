@@ -11,7 +11,7 @@ import {
   sbtcBalance,
   testSigner,
 } from '../pox-5-helpers';
-import { rov } from '@clarigen/test';
+import { rov, rovOk } from '@clarigen/test';
 import { hex } from '@scure/base';
 import { cvToValue, hexToCV } from '@stacks/transactions';
 import { expect } from 'vitest';
@@ -420,6 +420,63 @@ function stakerSignerCycleKey(
   return `${staker}|${signer}|${cycle}`;
 }
 
+function modelAddSignerToSetForCycle(
+  model: Model,
+  signer: string,
+  cycle: bigint,
+): void {
+  const key = signerCycleKey(signer, cycle);
+  const last = model.signerSetLastPerCycle.get(cycle);
+  if (last !== undefined) {
+    const lastKey = signerCycleKey(last, cycle);
+    const lastNode = model.signerSetItemsPerCycle.get(lastKey)!;
+    model.signerSetItemsPerCycle.set(lastKey, {
+      prev: lastNode.prev,
+      next: signer,
+    });
+    model.signerSetItemsPerCycle.set(key, { prev: last, next: null });
+  } else {
+    model.signerSetItemsPerCycle.set(key, { prev: null, next: null });
+    model.signerSetFirstPerCycle.set(cycle, signer);
+  }
+  model.signerSetLastPerCycle.set(cycle, signer);
+}
+
+function modelRemoveSignerFromSetForCycle(
+  model: Model,
+  signer: string,
+  cycle: bigint,
+): void {
+  const key = signerCycleKey(signer, cycle);
+  const node = model.signerSetItemsPerCycle.get(key)!;
+  if (node.prev !== null) {
+    const prevKey = signerCycleKey(node.prev, cycle);
+    const prevNode = model.signerSetItemsPerCycle.get(prevKey)!;
+    model.signerSetItemsPerCycle.set(prevKey, {
+      prev: prevNode.prev,
+      next: node.next,
+    });
+  } else if (node.next !== null) {
+    model.signerSetFirstPerCycle.set(cycle, node.next);
+  } else {
+    model.signerSetFirstPerCycle.delete(cycle);
+    model.signerSetLastPerCycle.delete(cycle);
+  }
+
+  if (node.next !== null) {
+    const nextKey = signerCycleKey(node.next, cycle);
+    const nextNode = model.signerSetItemsPerCycle.get(nextKey)!;
+    model.signerSetItemsPerCycle.set(nextKey, {
+      prev: node.prev,
+      next: nextNode.next,
+    });
+  } else if (node.prev !== null) {
+    model.signerSetLastPerCycle.set(cycle, node.prev);
+  }
+
+  model.signerSetItemsPerCycle.delete(key);
+}
+
 // Bond (some bond-index) variant key encoders. Lead with cycle then bondIndex
 // so the prefix matches the contract's tuple ordering for these maps.
 
@@ -466,15 +523,20 @@ export function modelAddStakerToCycles(
 ): void {
   for (let i = 0n; i < numCycles; i++) {
     const cycle = firstCycle + i;
+    const sdKey = signerCycleKey(signer, cycle);
+    const curDelegated = model.signerDelegatedPerCycle.get(sdKey) ?? 0n;
+    const newDelegated = curDelegated + amountUstx;
+    if (
+      curDelegated < SIGNER_SET_MIN_USTX &&
+      newDelegated >= SIGNER_SET_MIN_USTX
+    ) {
+      modelAddSignerToSetForCycle(model, signer, cycle);
+    }
     model.stakerSignerCycleMemberships.set(stakerCycleKey(staker, cycle), {
       amountUstx,
       signer,
     });
-    const sdKey = signerCycleKey(signer, cycle);
-    model.signerDelegatedPerCycle.set(
-      sdKey,
-      (model.signerDelegatedPerCycle.get(sdKey) ?? 0n) + amountUstx,
-    );
+    model.signerDelegatedPerCycle.set(sdKey, newDelegated);
     // Pending stx stake accrues unconditionally; the none-variant shares mirror
     // it only while the signer's delegation is over SIGNER_SET_MIN_USTX.
     model.signerPendingStakedPerCycle.set(
@@ -519,10 +581,15 @@ export function modelRemoveStakerFromCycles(
     const { amountUstx, signer } = membership;
     model.stakerSignerCycleMemberships.delete(memKey);
     const sdKey = signerCycleKey(signer, cycle);
-    model.signerDelegatedPerCycle.set(
-      sdKey,
-      (model.signerDelegatedPerCycle.get(sdKey) ?? 0n) - amountUstx,
-    );
+    const curDelegated = model.signerDelegatedPerCycle.get(sdKey) ?? 0n;
+    const newDelegated = curDelegated - amountUstx;
+    if (
+      model.signerSetItemsPerCycle.has(sdKey) &&
+      newDelegated < SIGNER_SET_MIN_USTX
+    ) {
+      modelRemoveSignerFromSetForCycle(model, signer, cycle);
+    }
+    model.signerDelegatedPerCycle.set(sdKey, newDelegated);
     model.signerPendingStakedPerCycle.set(
       sdKey,
       (model.signerPendingStakedPerCycle.get(sdKey) ?? 0n) -
@@ -804,6 +871,67 @@ export function modelTotalSharesNone(
     }
   }
   return total;
+}
+
+export function modelSignerSetItemForCycle(
+  model: Readonly<Model>,
+  signer: string,
+  cycle: bigint,
+): { prev: string | null; next: string | null } | null {
+  return (
+    model.signerSetItemsPerCycle.get(signerCycleKey(signer, cycle)) ?? null
+  );
+}
+
+export function assertCurrentPoxRewardCycle(
+  model: Readonly<Model>,
+  real: Real,
+): void {
+  expect(rov(real.contracts.pox5.currentPoxRewardCycle())).toBe(
+    currentRewardCycle(model),
+  );
+}
+
+export function assertPoxInfo(model: Readonly<Model>, real: Real): void {
+  expect(rovOk(real.contracts.pox5.getPoxInfo())).toEqual({
+    firstBurnchainBlockHeight: model.firstBurnHeight,
+    minAmountUstx: SIGNER_SET_MIN_USTX,
+    prepareCycleLength: model.prepareCycleLength,
+    rewardCycleId: currentRewardCycle(model),
+    rewardCycleLength: model.rewardCycleLength,
+    totalLiquidSupplyUstx: model.totalLiquidSupplyUstx,
+  });
+}
+
+export function assertSignerSetItemForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  signer: string,
+): void {
+  expect(
+    rov(real.contracts.pox5.getSignerSetItemForCycle({ cycle, signer })),
+  ).toEqual(modelSignerSetItemForCycle(model, signer, cycle));
+}
+
+export function assertSignerSetFirstForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+): void {
+  expect(rov(real.contracts.pox5.getSignerSetFirstItemForCycle(cycle))).toBe(
+    model.signerSetFirstPerCycle.get(cycle) ?? null,
+  );
+}
+
+export function assertSignerSetLastForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+): void {
+  expect(rov(real.contracts.pox5.getSignerSetLastItemForCycle(cycle))).toBe(
+    model.signerSetLastPerCycle.get(cycle) ?? null,
+  );
 }
 
 export function assertSignerPendingForCycle(

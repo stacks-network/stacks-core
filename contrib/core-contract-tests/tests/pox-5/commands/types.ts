@@ -51,6 +51,18 @@ export interface Model {
    * `signer-shares` equals it while delegation is over `SIGNER_SET_MIN_USTX`.
    */
   signerPendingStakedPerCycle: Map<string, bigint>;
+  /** Mirrors `signer-set-ll-first-for-cycle`. Cycle to first signer. */
+  signerSetFirstPerCycle: Map<bigint, string>;
+  /** Mirrors `signer-set-ll-last-for-cycle`. Cycle to last signer. */
+  signerSetLastPerCycle: Map<bigint, string>;
+  /**
+   * Mirrors `signer-set-ll-for-cycle`, keyed `${signer}|${cycle}`.
+   * Only signers whose delegation is over `SIGNER_SET_MIN_USTX` are present.
+   */
+  signerSetItemsPerCycle: Map<
+    string,
+    { prev: string | null; next: string | null }
+  >;
   /** Mirrors `staker-signer-cycle-memberships`, keyed `${staker}|${cycle}`. */
   stakerSignerCycleMemberships: Map<
     string,
@@ -110,6 +122,8 @@ export interface Model {
   rewardCycleLength: bigint;
   firstBurnHeight: bigint;
   prepareCycleLength: bigint;
+  /** Mirrors `get-pox-info`'s VM-provided liquid STX supply. */
+  totalLiquidSupplyUstx: bigint;
   /** Mirrors `protocol-bonds`: bond-index to config; never deleted. */
   bonds: Map<bigint, BondConfig>;
   /**

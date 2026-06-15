@@ -2,9 +2,14 @@ import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
   assertContractSbtcBalance,
+  assertCurrentPoxRewardCycle,
+  assertPoxInfo,
   assertSbtcBalance,
   assertSignerCycleMembership,
   assertSignerPendingForCycle,
+  assertSignerSetFirstForCycle,
+  assertSignerSetItemForCycle,
+  assertSignerSetLastForCycle,
   assertSignerSharesNoneForCycle,
   assertStakerInfo,
   assertStakerSharesForCycle,
@@ -43,6 +48,8 @@ export const AssertModelInvariants = (accounts: Real['accounts']) => {
         const checkedCycle = currentRewardCycle(model);
 
         // Whole-system per-cycle aggregate at the current cycle.
+        assertCurrentPoxRewardCycle(model, real);
+        assertPoxInfo(model, real);
         assertTotalDelegatedForCycle(model, real, checkedCycle);
         // Identity invariant for the sampled (possibly non-)staker.
         assertStakerInfo(model.stakers, real, r.staker);
@@ -62,6 +69,9 @@ export const AssertModelInvariants = (accounts: Real['accounts']) => {
         assertSignerPendingForCycle(model, real, checkedCycle, r.signer);
         assertSignerSharesNoneForCycle(model, real, checkedCycle, r.signer);
         assertTotalSharesNoneForCycle(model, real, checkedCycle);
+        assertSignerSetItemForCycle(model, real, checkedCycle, r.signer);
+        assertSignerSetFirstForCycle(model, real, checkedCycle);
+        assertSignerSetLastForCycle(model, real, checkedCycle);
         // sBTC balances: the sampled wallet's, plus the contract's whole-pool
         // balance that `get-rewards` derives from.
         assertSbtcBalance(model, r.staker);

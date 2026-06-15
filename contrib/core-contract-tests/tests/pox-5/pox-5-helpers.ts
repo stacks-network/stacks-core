@@ -57,6 +57,8 @@ export const BOND_GAP_CYCLES = 2n;
 export const BOND_LENGTH_CYCLES = 12n;
 /** Min uSTX delegation for a signer to enter the reward set. */
 export const SIGNER_SET_MIN_USTX = pox5.constants.SIGNER_SET_MIN_USTX;
+/** Sum of the simnet STX balances in settings/Devnet.toml. */
+export const TOTAL_LIQUID_SUPPLY_USTX = 1_200_000_000_000_000n;
 /** Fixed-point scale for the rewards-per-token accumulators (1e18). */
 export const PRECISION = pox5.constants.PRECISION;
 /** Basis-point share of rewards skimmed into the reserve (1500 = 15%). */
