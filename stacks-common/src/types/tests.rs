@@ -341,18 +341,12 @@ fn test_mainnet_sip031_emission_intervals() {
     assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET.len(), 4);
 
     // descending order: highest height first
-    assert_eq!(
-        SIP031_EMISSION_INTERVALS_MAINNET[0].start_height,
-        1_039_140
-    );
+    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[0].start_height, 1_039_140);
     assert_eq!(
         SIP031_EMISSION_INTERVALS_MAINNET[0].amount,
         1_000 * 1_000_000
     );
-    assert_eq!(
-        SIP031_EMISSION_INTERVALS_MAINNET[1].start_height,
-        1_012_860
-    );
+    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[1].start_height, 1_012_860);
     assert_eq!(
         SIP031_EMISSION_INTERVALS_MAINNET[1].amount,
         1_500 * 1_000_000
@@ -363,10 +357,7 @@ fn test_mainnet_sip031_emission_intervals() {
         1_140 * 1_000_000
     );
     assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[3].start_height, 907_740);
-    assert_eq!(
-        SIP031_EMISSION_INTERVALS_MAINNET[3].amount,
-        475 * 1_000_000
-    );
+    assert_eq!(SIP031_EMISSION_INTERVALS_MAINNET[3].amount, 475 * 1_000_000);
 
     // test boundary transitions via get_sip_031_emission_at_height
     set_test_sip_031_emission_schedule(Some(SIP031_EMISSION_INTERVALS_MAINNET.to_vec()));
