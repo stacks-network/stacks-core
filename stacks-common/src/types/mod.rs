@@ -183,21 +183,16 @@ pub struct CoinbaseInterval {
     pub effective_start_height: u64,
 }
 
-// From SIP-029:
-//
-// | Coinbase Interval  | Bitcoin Height | Offset Height       | Approx. Supply   | STX Reward | Annual Inflation |
-// |--------------------|----------------|---------------------|------------------|------------|------------------|
-// | Current            | -              | -                   | 1,552,452,847    | 1000       | -                |
-// | 1st                |   945,000      |   278,950           | 1,627,352,847    | 500 (50%)  | 3.23%            |
-// | 2nd                | 1,050,000      |   383,950           | 1,679,852,847    | 250 (50%)  | 1.57%            |
-// | 3rd                | 1,260,000      |   593,950           | 1,732,352,847    | 125 (50%)  | 0.76%            |
-// | 4th                | 1,470,000      |   803,950           | 1,758,602,847    | 62.5 (50%) | 0.37%            |
-// | -                  | 2,197,560      | 1,531,510           | 1,804,075,347    | 62.5 (0%)  | 0.18%            |
+// | Coinbase Interval  | Bitcoin Height                        | Offset Height | STX Reward |
+// |--------------------|---------------------------------------|---------------|------------|
+// | Current            | -                                     | 0             | 1000       |
+// | 1st                | 945,000                               | 278,950       | 500        |
+// | 2nd                | BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT | 346,810       | 1000       |
 //
 // The above is for mainnet, which has a burnchain year of 52596 blocks and starts at burnchain height 666050.
 
-/// Mainnet coinbase intervals, as of SIP-029
-pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 5]> = LazyLock::new(|| {
+/// Mainnet coinbase intervals
+pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 3]> = LazyLock::new(|| {
     let emissions_schedule = [
         CoinbaseInterval {
             coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
@@ -208,16 +203,9 @@ pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 5]> = LazyLoc
             effective_start_height: 278_950,
         },
         CoinbaseInterval {
-            coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 383_950,
-        },
-        CoinbaseInterval {
-            coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 593_950,
-        },
-        CoinbaseInterval {
-            coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
-            effective_start_height: 803_950,
+            // BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT (1_012_860) - genesis (666_050)
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 346_810,
         },
     ];
     assert!(CoinbaseInterval::check_order(&emissions_schedule));

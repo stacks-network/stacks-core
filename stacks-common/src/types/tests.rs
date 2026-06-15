@@ -42,14 +42,11 @@ fn test_stacks_epoch_id_display_fromstr_tryfrom_roundtrip() {
 
 #[test]
 fn test_mainnet_coinbase_emissions() {
-    assert_eq!(COINBASE_INTERVALS_MAINNET.len(), 5);
+    assert_eq!(COINBASE_INTERVALS_MAINNET.len(), 3);
     assert_eq!(COINBASE_INTERVALS_MAINNET[0].coinbase, 1_000_000_000);
     assert_eq!(COINBASE_INTERVALS_MAINNET[1].coinbase, 500_000_000);
-    assert_eq!(COINBASE_INTERVALS_MAINNET[2].coinbase, 250_000_000);
-    assert_eq!(COINBASE_INTERVALS_MAINNET[3].coinbase, 125_000_000);
-    assert_eq!(COINBASE_INTERVALS_MAINNET[4].coinbase, 62_500_000);
+    assert_eq!(COINBASE_INTERVALS_MAINNET[2].coinbase, 1_000_000_000);
 
-    // heights from SIP-029
     assert_eq!(
         COINBASE_INTERVALS_MAINNET[0].effective_start_height,
         666_050 - 666_050
@@ -60,15 +57,7 @@ fn test_mainnet_coinbase_emissions() {
     );
     assert_eq!(
         COINBASE_INTERVALS_MAINNET[2].effective_start_height,
-        1_050_000 - 666_050
-    );
-    assert_eq!(
-        COINBASE_INTERVALS_MAINNET[3].effective_start_height,
-        1_260_000 - 666_050
-    );
-    assert_eq!(
-        COINBASE_INTERVALS_MAINNET[4].effective_start_height,
-        1_470_000 - 666_050
+        1_012_860 - 666_050
     );
 }
 
@@ -94,21 +83,21 @@ fn test_get_coinbase_at_effective_height() {
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            944_999 - 666050
+            944_999 - 666_050
         ),
         1_000_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            945_000 - 666050
+            945_000 - 666_050
         ),
         500_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            945_001 - 666050
+            945_001 - 666_050
         ),
         500_000_000
     );
@@ -116,89 +105,30 @@ fn test_get_coinbase_at_effective_height() {
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            1_049_999 - 666050
+            1_012_859 - 666_050
         ),
         500_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            1_050_000 - 666050
+            1_012_860 - 666_050
         ),
-        250_000_000
+        1_000_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            1_050_001 - 666050
+            1_012_861 - 666_050
         ),
-        250_000_000
-    );
-
-    assert_eq!(
-        CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
-            1_259_999 - 666050
-        ),
-        250_000_000
+        1_000_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            1_260_000 - 666050
+            2_000_000 - 666_050
         ),
-        125_000_000
-    );
-    assert_eq!(
-        CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
-            1_260_001 - 666050
-        ),
-        125_000_000
-    );
-
-    assert_eq!(
-        CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
-            1_469_999 - 666050
-        ),
-        125_000_000
-    );
-    assert_eq!(
-        CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
-            1_470_000 - 666050
-        ),
-        62_500_000
-    );
-    assert_eq!(
-        CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
-            1_470_001 - 666050
-        ),
-        62_500_000
-    );
-
-    assert_eq!(
-        CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
-            2_197_559 - 666050
-        ),
-        62_500_000
-    );
-    assert_eq!(
-        CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
-            2_197_560 - 666050
-        ),
-        62_500_000
-    );
-    assert_eq!(
-        CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
-            2_197_561 - 666050
-        ),
-        62_500_000
+        1_000_000_000
     );
 }
 
@@ -213,17 +143,10 @@ fn test_epoch_coinbase_reward() {
         assert_eq!(epoch.coinbase_reward(true, 666050, 945_000), 500_000_000);
         assert_eq!(epoch.coinbase_reward(true, 666050, 945_001), 500_000_000);
 
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_049_999), 500_000_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_050_000), 250_000_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_050_001), 250_000_000);
-
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_259_999), 250_000_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_260_000), 125_000_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_260_001), 125_000_000);
-
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_469_999), 125_000_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_470_000), 62_500_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_470_001), 62_500_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_012_859), 500_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_012_860), 1_000_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_012_861), 1_000_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 2_000_000), 1_000_000_000);
     }
 
     // old coinbase schedule
