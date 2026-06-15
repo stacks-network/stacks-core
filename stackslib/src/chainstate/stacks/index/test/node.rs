@@ -17,6 +17,7 @@
 use std::io::Cursor;
 
 use super::*;
+use crate::chainstate::stacks::index::bits::{get_node_byte_len, get_node_max_byte_len};
 use crate::chainstate::stacks::index::*;
 
 #[test]
@@ -29,7 +30,7 @@ fn trieptr_to_bytes() {
     let mut buf = Vec::new();
     t.write_bytes(&mut buf).unwrap();
     assert_eq!(buf, t_bytes);
-    assert_eq!(TriePtr::from_bytes(&t_bytes[..]), t);
+    assert_eq!(TriePtr::from_bytes(&t_bytes[..]), (t, t_bytes.len()));
 }
 
 #[test]
@@ -41,7 +42,7 @@ fn trie_node4_to_bytes() {
         assert!(node4.insert(&TriePtr::new(
             TrieNodeID::Node16 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
     let node4_bytes = vec![
@@ -128,7 +129,7 @@ fn trie_node4_to_consensus_bytes() {
         assert!(node4.insert(&TriePtr::new(
             TrieNodeID::Node16 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
     let node4_bytes = vec![
@@ -309,7 +310,7 @@ fn trie_node16_to_bytes() {
         assert!(node16.insert(&TriePtr::new(
             TrieNodeID::Node48 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
     let node16_bytes = vec![
@@ -516,7 +517,7 @@ fn trie_node16_to_consensus_bytes() {
         assert!(node16.insert(&TriePtr::new(
             TrieNodeID::Node48 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
     let node16_bytes = vec![
@@ -1103,7 +1104,7 @@ fn trie_node48_to_bytes() {
         assert!(node48.insert(&TriePtr::new(
             TrieNodeID::Node256 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
 
@@ -1889,7 +1890,7 @@ fn trie_node48_to_consensus_bytes() {
         assert!(node48.insert(&TriePtr::new(
             TrieNodeID::Node256 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
     let node48_bytes = vec![
@@ -3823,7 +3824,7 @@ fn read_write_node4() {
         assert!(node4.insert(&TriePtr::new(
             TrieNodeID::Node16 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
     let marf_opts = MARFOpenOpts::default();
@@ -3852,7 +3853,7 @@ fn read_write_node16() {
         assert!(node16.insert(&TriePtr::new(
             TrieNodeID::Node48 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
 
@@ -3882,7 +3883,7 @@ fn read_write_node48() {
         assert!(node48.insert(&TriePtr::new(
             TrieNodeID::Node256 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
 
@@ -3912,7 +3913,7 @@ fn read_write_node256() {
         assert!(node256.insert(&TriePtr::new(
             TrieNodeID::Node256 as u8,
             (i + 1) as u8,
-            (i + 2) as u32
+            (i + 2) as u64
         )));
     }
 
@@ -3991,7 +3992,7 @@ fn read_write_node4_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr.into())));
     }
 
     // no final child
@@ -4035,7 +4036,7 @@ fn read_write_node16_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr.into())));
     }
 
     // no final child
@@ -4081,7 +4082,7 @@ fn read_write_node48_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr.into())));
     }
 
     // no final child
@@ -4127,7 +4128,7 @@ fn read_write_node256_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr.into())));
     }
 
     // no final child
@@ -5044,23 +5045,400 @@ fn trie_cursor_walk_32() {
 #[test]
 fn trie_ptr_compressed_size_for_id() {
     let normal_node_id = TrieNodeID::Node4 as u8;
+    assert_eq!(6, TriePtr::compressed_size_for_id(normal_node_id));
     assert_eq!(
-        TRIEPTR_SIZE_COMPRESSED,
-        TriePtr::compressed_size_for_id(normal_node_id)
+        10,
+        TriePtr::compressed_size_for_id(set_u64_ptr(normal_node_id))
     );
 
     let backptr_node_id = set_backptr(normal_node_id);
+    assert_eq!(10, TriePtr::compressed_size_for_id(backptr_node_id));
     assert_eq!(
-        TRIEPTR_SIZE,
-        TriePtr::compressed_size_for_id(backptr_node_id)
+        14,
+        TriePtr::compressed_size_for_id(set_u64_ptr(backptr_node_id))
     );
 }
 
 #[test]
 fn trie_ptr_compressed_size() {
     let normal_node = TriePtr::new(TrieNodeID::Node4 as u8, 0x00, 0);
-    assert_eq!(TRIEPTR_SIZE_COMPRESSED, normal_node.compressed_size());
+    assert_eq!(6, normal_node.compressed_size());
 
     let backptr_node = TriePtr::new_backptr(TrieNodeID::Node4 as u8, 0x00, 0, 1);
-    assert_eq!(TRIEPTR_SIZE, backptr_node.compressed_size());
+    assert_eq!(10, backptr_node.compressed_size());
+
+    let big_node = TriePtr::new(TrieNodeID::Node4 as u8, 0x00, u64::from(u32::MAX) + 1);
+    assert_eq!(10, big_node.compressed_size());
+
+    let big_backptr =
+        TriePtr::new_backptr(TrieNodeID::Node4 as u8, 0x00, u64::from(u32::MAX) + 1, 1);
+    assert_eq!(14, big_backptr.compressed_size());
+}
+
+#[test]
+fn trieptr_uncompressed_roundtrip_boundaries() {
+    let ptr_values = [
+        0u64,
+        u64::from(u32::MAX),
+        u64::from(u32::MAX) + 1,
+        (1u64 << 40) + 0x1234,
+    ];
+
+    for ptr_value in ptr_values {
+        let ptr = TriePtr::new(TrieNodeID::Node16 as u8, 0x2a, ptr_value);
+        let mut bytes = vec![];
+        ptr.write_bytes(&mut bytes).unwrap();
+
+        let encoded_id = if ptr_value > u64::from(u32::MAX) {
+            set_u64_ptr(TrieNodeID::Node16 as u8)
+        } else {
+            TrieNodeID::Node16 as u8
+        };
+        let mut expected = vec![encoded_id, 0x2a];
+        if ptr_value > u64::from(u32::MAX) {
+            expected.extend_from_slice(&ptr_value.to_be_bytes());
+        } else {
+            expected.extend_from_slice(&(ptr_value as u32).to_be_bytes());
+        }
+        expected.extend_from_slice(&0u32.to_be_bytes());
+
+        assert_eq!(expected, bytes);
+        assert_eq!(TriePtr::from_bytes(&bytes), (ptr, bytes.len()));
+    }
+}
+
+#[test]
+fn trieptr_compressed_roundtrip_non_backptr() {
+    let ptr_values = [
+        0u64,
+        u64::from(u32::MAX),
+        u64::from(u32::MAX) + 1,
+        (1u64 << 56) - 3,
+    ];
+
+    for ptr_value in ptr_values {
+        let ptr = TriePtr::new(TrieNodeID::Node4 as u8, 0x42, ptr_value);
+        let mut bytes = vec![];
+        ptr.write_bytes_compressed(&mut bytes).unwrap();
+
+        let encoded_id = if ptr_value > u64::from(u32::MAX) {
+            set_u64_ptr(TrieNodeID::Node4 as u8)
+        } else {
+            TrieNodeID::Node4 as u8
+        };
+        assert_eq!(TriePtr::compressed_size_for_id(encoded_id), bytes.len());
+        assert_eq!(set_compressed(encoded_id), bytes[0]);
+        assert_eq!(ptr, TriePtr::from_bytes_compressed(&bytes));
+        assert_eq!(
+            ptr,
+            TriePtr::read_bytes_compressed(&mut Cursor::new(&bytes)).unwrap()
+        );
+    }
+}
+
+#[test]
+fn trieptr_compressed_roundtrip_inline_back_block_payload_u32() {
+    let mut ptr = TriePtr::new(TrieNodeID::Node16 as u8, 0x21, 777);
+    ptr.back_block = 42;
+
+    let mut bytes = vec![];
+    ptr.write_bytes_compressed(&mut bytes).unwrap();
+
+    assert_eq!(10, bytes.len());
+    assert_eq!(
+        set_compressed(set_inline_back_block(TrieNodeID::Node16 as u8)),
+        bytes[0]
+    );
+    assert_eq!(ptr, TriePtr::from_bytes_compressed(&bytes));
+    assert_eq!(
+        ptr,
+        TriePtr::read_bytes_compressed(&mut Cursor::new(&bytes)).unwrap()
+    );
+}
+
+#[test]
+fn trieptr_compressed_roundtrip_inline_back_block_payload_u64() {
+    let mut ptr = TriePtr::new(TrieNodeID::Node16 as u8, 0x22, u64::from(u32::MAX) + 9);
+    ptr.back_block = 314;
+
+    let mut bytes = vec![];
+    ptr.write_bytes_compressed(&mut bytes).unwrap();
+
+    assert_eq!(14, bytes.len());
+    assert_eq!(
+        set_compressed(set_inline_back_block(set_u64_ptr(TrieNodeID::Node16 as u8))),
+        bytes[0]
+    );
+    assert_eq!(ptr, TriePtr::from_bytes_compressed(&bytes));
+    assert_eq!(
+        ptr,
+        TriePtr::read_bytes_compressed(&mut Cursor::new(&bytes)).unwrap()
+    );
+}
+
+#[test]
+fn trieptr_compressed_roundtrip_backptr() {
+    let ptr = TriePtr::new_backptr(
+        TrieNodeID::Node48 as u8,
+        0x7f,
+        u64::from(u32::MAX) + 123,
+        0x01020304,
+    );
+
+    let mut bytes = vec![];
+    ptr.write_bytes_compressed(&mut bytes).unwrap();
+
+    assert_eq!(14, bytes.len());
+    assert_eq!(
+        set_compressed(set_u64_ptr(set_backptr(TrieNodeID::Node48 as u8))),
+        bytes[0]
+    );
+    assert_eq!(ptr, TriePtr::from_bytes_compressed(&bytes));
+    assert_eq!(
+        ptr,
+        TriePtr::read_bytes_compressed(&mut Cursor::new(&bytes)).unwrap()
+    );
+}
+
+#[test]
+fn trieptr_compressed_roundtrip_inline_back_block() {
+    // Non-backptr pointer with a non-zero `back_block`: the compressed wire
+    // format sets the inline-annotation bit (0x10) on the encoded id and
+    // appends a 4-byte back_block payload. The annotation bit is cleared on
+    // read, but the back_block value must round-trip.
+    let cases: [(u64, u32); 6] = [
+        (0u64, 1u32),
+        (0u64, u32::MAX),
+        (u64::from(u32::MAX), 0xdead_beef),
+        (u64::from(u32::MAX) + 1, 1u32),
+        (u64::from(u32::MAX) + 1, 0x01020304),
+        ((1u64 << 56) - 3, u32::MAX),
+    ];
+
+    for (ptr_value, back_block) in cases {
+        let ptr = TriePtr {
+            id: TrieNodeID::Node16 as u8,
+            chr: 0x55,
+            ptr: ptr_value,
+            back_block,
+        };
+
+        let mut bytes = vec![];
+        ptr.write_bytes_compressed(&mut bytes).unwrap();
+
+        let raw_encoded_id = if ptr_value > u64::from(u32::MAX) {
+            set_u64_ptr(TrieNodeID::Node16 as u8)
+        } else {
+            TrieNodeID::Node16 as u8
+        };
+        let expected_first_byte = set_inline_back_block(set_compressed(raw_encoded_id));
+        assert_eq!(expected_first_byte, bytes[0]);
+        assert_eq!(
+            TriePtr::compressed_size_for_id(expected_first_byte),
+            bytes.len()
+        );
+        assert_eq!(bytes.len(), ptr.compressed_size());
+
+        let decoded = TriePtr::from_bytes_compressed(&bytes);
+        assert_eq!(ptr, decoded);
+        assert_eq!(
+            ptr,
+            TriePtr::read_bytes_compressed(&mut Cursor::new(&bytes)).unwrap()
+        );
+    }
+}
+
+#[test]
+fn trieptr_large_offsets_set_u64_bit() {
+    let ptr = TriePtr::new(TrieNodeID::Node4 as u8, 0x1, u64::from(u32::MAX) + 1);
+    let mut bytes = vec![];
+    ptr.write_bytes(&mut bytes).unwrap();
+    assert_eq!(set_u64_ptr(TrieNodeID::Node4 as u8), bytes[0]);
+
+    let mut compressed = vec![];
+    ptr.write_bytes_compressed(&mut compressed).unwrap();
+    assert_eq!(
+        set_compressed(set_u64_ptr(TrieNodeID::Node4 as u8)),
+        compressed[0]
+    );
+}
+
+fn decode_node4_ptrs_from_compressed_bytes(
+    ptrs: &[TriePtr],
+) -> (Vec<u8>, Vec<TriePtr>, Vec<TriePtr>, u64, u64) {
+    let mut node4 = TrieNode4::new(&[]);
+    for ptr in ptrs.iter() {
+        if ptr.id() != TrieNodeID::Empty as u8 {
+            assert!(node4.insert(ptr));
+        }
+    }
+    let expected_ptrs = node4.ptrs().to_vec();
+
+    let mut encoded = vec![];
+    node4
+        .write_bytes_compressed(&mut encoded)
+        .expect("node4 encode");
+
+    let mut decoded_ptrs = vec![TriePtr::default(); 4];
+    let mut cursor = Cursor::new(encoded.clone());
+    let decoded_node_id =
+        ptrs_from_bytes(encoded[0], &mut cursor, &mut decoded_ptrs).expect("node4 decode");
+
+    assert_eq!(TrieNodeID::Node4 as u8, decoded_node_id);
+    let expected_consumed = u64::try_from(get_ptrs_byte_len_compressed(
+        TrieNodeID::Node4 as u8,
+        &expected_ptrs,
+    ))
+    .expect("infallible");
+    (
+        encoded,
+        expected_ptrs,
+        decoded_ptrs,
+        cursor.position(),
+        expected_consumed,
+    )
+}
+
+#[test]
+fn ptrs_from_bytes_compressed_sparse_mixed_width() {
+    let sparse_ptrs = [
+        TriePtr::new_backptr(TrieNodeID::Node4 as u8, 0x10, u64::from(u32::MAX) + 5, 7),
+        TriePtr::new(TrieNodeID::Empty as u8, 0x00, 0),
+        TriePtr::new(TrieNodeID::Node16 as u8, 0x30, 12345),
+        TriePtr::new(TrieNodeID::Empty as u8, 0x00, 0),
+    ];
+
+    let (encoded, expected, decoded, cursor_pos, expected_consumed) =
+        decode_node4_ptrs_from_compressed_bytes(&sparse_ptrs);
+    assert!(is_compressed(encoded[0]));
+    assert_eq!(
+        crate::chainstate::stacks::index::bits::SPARSE_PTR_BITMAP_MARKER,
+        encoded[1]
+    );
+    assert_eq!(expected, decoded);
+    assert_eq!(expected_consumed, cursor_pos);
+}
+
+#[test]
+fn ptrs_from_bytes_compressed_dense_mixed_width() {
+    let dense_ptrs = [
+        TriePtr::new(TrieNodeID::Node4 as u8, 0x01, 1),
+        TriePtr::new_backptr(TrieNodeID::Node16 as u8, 0x02, u64::from(u32::MAX) + 2, 9),
+        TriePtr::new(TrieNodeID::Node48 as u8, 0x03, u64::from(u32::MAX) + 3),
+        TriePtr::new_backptr(TrieNodeID::Node256 as u8, 0x04, 4, 11),
+    ];
+
+    let (encoded, expected, decoded, cursor_pos, expected_consumed) =
+        decode_node4_ptrs_from_compressed_bytes(&dense_ptrs);
+    assert!(is_compressed(encoded[0]));
+    assert_ne!(
+        crate::chainstate::stacks::index::bits::SPARSE_PTR_BITMAP_MARKER,
+        encoded[1]
+    );
+    assert_eq!(expected, decoded);
+    assert_eq!(expected_consumed, cursor_pos);
+}
+
+#[test]
+fn test_node_copy_update_ptrs_preserves_nonzero_back_block() {
+    use crate::chainstate::stacks::index::node::node_copy_update_ptrs;
+
+    // Inline pointer with back_block = 0 (normal archival case) - should be overwritten
+    let mut ptrs = [TriePtr::new(TrieNodeID::Node4 as u8, 0x10, 100)];
+    assert_eq!(ptrs[0].back_block, 0);
+    node_copy_update_ptrs(&mut ptrs, 42);
+    assert!(is_backptr(ptrs[0].id()));
+    assert_eq!(ptrs[0].back_block, 42);
+    assert_eq!(ptrs[0].chr(), 0x10);
+    assert_eq!(ptrs[0].ptr(), 100);
+
+    // Inline pointer with back_block != 0 (squash annotation) - should be preserved
+    let mut ptrs = [TriePtr {
+        id: TrieNodeID::Node4 as u8,
+        chr: 0x20,
+        ptr: 200,
+        back_block: 99,
+    }];
+    node_copy_update_ptrs(&mut ptrs, 42);
+    assert!(is_backptr(ptrs[0].id()));
+    assert_eq!(
+        ptrs[0].back_block, 99,
+        "squash annotation must be preserved"
+    );
+    assert_eq!(ptrs[0].chr(), 0x20);
+    assert_eq!(ptrs[0].ptr(), 200);
+
+    // Empty pointer - should be untouched
+    let mut ptrs = [TriePtr::default()];
+    node_copy_update_ptrs(&mut ptrs, 42);
+    assert_eq!(ptrs[0], TriePtr::default());
+
+    // Already a backptr - should be skipped entirely
+    let orig = TriePtr {
+        id: set_backptr(TrieNodeID::Node16 as u8),
+        chr: 0x30,
+        ptr: 300,
+        back_block: 7,
+    };
+    let mut ptrs = [orig];
+    node_copy_update_ptrs(&mut ptrs, 42);
+    assert_eq!(ptrs[0], orig, "existing backptr must not be touched");
+}
+
+/// `get_node_max_byte_len` must bound the real serialized size of each node
+/// type and stay in step with the wire format (guards the mirrored Node48
+/// index array and leaf `MARFValue`). Archival (u32) sizing matches a
+/// freshly built node exactly; squashed (u64) sizing widens each pointer.
+#[test]
+fn test_get_node_max_byte_len() {
+    let path = [0u8; 32]; // longest a MARF path can be
+    let cases: Vec<(u8, usize, TrieNodeType)> = vec![
+        (
+            TrieNodeID::Leaf as u8,
+            0,
+            TrieNodeType::Leaf(TrieLeaf::new(&path, &[0u8; 40])),
+        ),
+        (
+            TrieNodeID::Node4 as u8,
+            4,
+            TrieNodeType::Node4(TrieNode4::new(&path)),
+        ),
+        (
+            TrieNodeID::Node16 as u8,
+            16,
+            TrieNodeType::Node16(TrieNode16::new(&path)),
+        ),
+        (
+            TrieNodeID::Node48 as u8,
+            48,
+            TrieNodeType::Node48(Box::new(TrieNode48::new(&path))),
+        ),
+        (
+            TrieNodeID::Node256 as u8,
+            256,
+            TrieNodeType::Node256(Box::new(TrieNode256::new(&path))),
+        ),
+    ];
+    // Bytes one child pointer grows when its offset widens from u32 to u64.
+    let ptr_widen = TriePtr::widest_encoded().encoded_size() - TriePtr::default().encoded_size();
+
+    for (id, n_ptrs, node) in cases {
+        // u32-width sizing must equal a freshly built node's serialized size
+        // (default pointers, longest path): pins the helper to the wire format.
+        assert_eq!(
+            get_node_max_byte_len(id, false).unwrap(),
+            get_node_byte_len(&node),
+            "u32 size mismatch for id {id:#x}"
+        );
+        // u64-width sizing widens every child pointer.
+        assert_eq!(
+            get_node_max_byte_len(id, true).unwrap(),
+            get_node_max_byte_len(id, false).unwrap() + n_ptrs * ptr_widen,
+            "u64 widening mismatch for id {id:#x}"
+        );
+    }
+
+    // Node types the prefetch path never sizes.
+    assert!(get_node_max_byte_len(TrieNodeID::Empty as u8, false).is_err());
+    assert!(get_node_max_byte_len(TrieNodeID::Patch as u8, false).is_err());
 }

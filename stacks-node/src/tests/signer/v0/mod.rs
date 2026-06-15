@@ -129,18 +129,14 @@ pub mod tenure_extend;
 pub mod tx_replay;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
-    /// Run the test until the epoch 3 boundary
-    pub fn boot_to_epoch_3(&self) {
-        TEST_MINE_SKIP.set(true);
-        boot_to_epoch_3_reward_set(
-            &self.running_nodes.conf,
-            &self.running_nodes.counters.blocks_processed,
-            &self.signer_stacks_private_keys,
-            &self.signer_stacks_private_keys,
-            &self.running_nodes.btc_regtest_controller,
-            Some(self.num_stacking_cycles),
-        );
-
+    /// Poll until the reward set for the next reward cycle is available.
+    ///
+    /// If the coordinator hasn't yet determined the PoX anchor block and the
+    /// burn chain is still short of the next cycle boundary, mine another
+    /// burn block to give it the nudge it needs. Once past the boundary,
+    /// just wait — the anchor block had to be chosen from blocks before the
+    /// boundary, so mining more won't help.
+    pub fn wait_for_next_reward_set_calculation(&self) {
         info!("Waiting for signer set calculation.");
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
@@ -185,8 +181,22 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             }
         })
         .expect("Timed out waiting for reward set calculation");
-
         info!("Signer set calculated");
+    }
+
+    /// Run the test until the epoch 3 boundary
+    pub fn boot_to_epoch_3(&self) {
+        TEST_MINE_SKIP.set(true);
+        boot_to_epoch_3_reward_set(
+            &self.running_nodes.conf,
+            &self.running_nodes.counters.blocks_processed,
+            &self.signer_stacks_private_keys,
+            &self.signer_stacks_private_keys,
+            &self.running_nodes.btc_regtest_controller,
+            Some(self.num_stacking_cycles),
+        );
+
+        self.wait_for_next_reward_set_calculation();
 
         // Manually consume one more block to ensure signers refresh their state
         info!("Waiting for signers to initialize.");
@@ -320,31 +330,7 @@ impl SignerTest<SpawnedSigner> {
             target_height,
             &self.running_nodes.conf,
         );
-        debug!("Waiting for signer set calculation.");
-        // Make sure the signer set is calculated before continuing or signers may not
-        // recognize that they are registered signers in the subsequent burn block event
-        let reward_cycle = self.get_current_reward_cycle().wrapping_add(1);
-        wait_for(60, || {
-            match self.stacks_client.get_reward_set_signers(reward_cycle) {
-                Ok(Some(reward_set)) => {
-                    debug!("Signer set: {reward_set:?}");
-                    Ok(true)
-                }
-                Ok(None) => Ok(false),
-                Err(e) => {
-                    // The node may return a 400 PoXAnchorBlockRequired while
-                    // the coordinator is still processing the prepare phase.
-                    // All prepare phase burn blocks have been mined; just wait
-                    // for the coordinator to catch up.
-                    debug!(
-                        "Reward set not yet available: {e}. Waiting for coordinator to catch up."
-                    );
-                    Ok(false)
-                }
-            }
-        })
-        .expect("Failed to calculate reward set");
-        debug!("Signer set calculated");
+        self.wait_for_next_reward_set_calculation();
         // Manually consume one more block to ensure signers refresh their state
         debug!("Waiting for signers to initialize.");
         info!("Advancing to the first full Epoch 2.5 reward cycle boundary...");
@@ -925,6 +911,10 @@ impl MultipleMinerTest {
         )
     }
 
+    fn node_2_http(&self) -> String {
+        format!("http://{}", &self.conf_node_2.node.rpc_bind)
+    }
+
     /// Sends a transfer tx to the stacks node and waits for the stacks node to mine it
     /// Returns the txid of the transfer tx.
     pub fn send_and_mine_transfer_tx(&mut self, timeout_secs: u64) -> Result<String, String> {
@@ -943,7 +933,31 @@ impl MultipleMinerTest {
         contract_name: &str,
         contract_src: &str,
     ) -> String {
-        let http_origin = self.node_http();
+        self.send_contract_publish_to(&self.node_http(), sender_nonce, contract_name, contract_src)
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node.
+    pub fn send_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
+        self.send_contract_publish_to(
+            &self.node_2_http(),
+            sender_nonce,
+            contract_name,
+            contract_src,
+        )
+    }
+
+    fn send_contract_publish_to(
+        &self,
+        http_origin: &str,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
         let contract_tx = make_contract_publish(
             &self.sender_sk,
             sender_nonce,
@@ -952,7 +966,7 @@ impl MultipleMinerTest {
             contract_name,
             contract_src,
         );
-        submit_tx(&http_origin, &contract_tx)
+        submit_tx(http_origin, &contract_tx)
     }
 
     /// Sends a contract publish tx to the stacks node and waits for the stacks node to mine it
@@ -967,6 +981,34 @@ impl MultipleMinerTest {
         let stacks_height_before = self.get_peer_stacks_tip_height();
 
         let txid = self.send_contract_publish(sender_nonce, contract_name, contract_src);
+
+        // wait for the new block to be mined
+        wait_for(timeout_secs, || {
+            Ok(self.get_peer_stacks_tip_height() > stacks_height_before)
+        })
+        .unwrap();
+
+        // wait for the observer to see it
+        self.wait_for_test_observer_blocks(timeout_secs);
+
+        if last_block_contains_txid(&txid) {
+            Ok(txid)
+        } else {
+            Err(txid)
+        }
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node and waits for it to be mined.
+    pub fn send_and_mine_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+        timeout_secs: u64,
+    ) -> Result<String, String> {
+        let stacks_height_before = self.get_peer_stacks_tip_height();
+
+        let txid = self.send_contract_publish_to_node_2(sender_nonce, contract_name, contract_src);
 
         // wait for the new block to be mined
         wait_for(timeout_secs, || {
@@ -3235,8 +3277,11 @@ fn signer_set_rollover() {
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(signer_test_public_keys.contains(&pk.to_bytes_compressed()));
         assert!(!new_signer_public_keys.contains(&pk.to_bytes_compressed()));
     }
@@ -3378,8 +3423,11 @@ fn signer_set_rollover() {
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(!signer_test_public_keys.contains(&pk.to_bytes_compressed()));
         assert!(new_signer_public_keys.contains(&pk.to_bytes_compressed()));
     }
@@ -3587,7 +3635,7 @@ fn duplicate_signers() {
         .into_iter()
         .filter(|accepted| accepted.signer_signature_hash == selected_sighash)
         .map(|accepted| {
-            let pubkey = Secp256k1PublicKey::recover_to_pubkey(
+            let pubkey = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
                 accepted.signer_signature_hash.bits(),
                 &accepted.signature,
             )
@@ -3724,8 +3772,11 @@ fn signer_multinode_rollover() {
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(signer_test_pks.contains(&pk.to_bytes_compressed()));
         assert!(!new_signer_pks.contains(&pk.to_bytes_compressed()));
     }
@@ -3855,8 +3906,11 @@ fn signer_multinode_rollover() {
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(!signer_test_pks.contains(&pk.to_bytes_compressed()));
         assert!(new_signer_pks.contains(&pk.to_bytes_compressed()));
     }

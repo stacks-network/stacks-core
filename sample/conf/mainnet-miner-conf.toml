@@ -299,11 +299,10 @@ max_rbf = 150
 # Units: percentage of block budget
 # contract_cost_limit_percentage = 95
 
-# Maximum execution time allowed for a single transaction.
-# NOTE: When the [miner] section is present and this field is omitted,
-# the effective value is None (no timeout). The default of 30 only
-# applies when the entire [miner] section is absent.
-# Default: 30 (when [miner] section is absent)
+# Maximum execution time allowed for a single transaction during mining.
+# Always enforced; there is no way to disable the limit. To effectively "turn
+# it off," set this to a value larger than any tx is expected to take.
+# Default: 30
 # Units: seconds
 # max_execution_time_secs = 30
 

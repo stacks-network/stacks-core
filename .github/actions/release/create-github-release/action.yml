@@ -1,0 +1,77 @@
+name: Create Release
+description: |
+    Create GitHub Release and upload binary archives
+
+inputs:
+    tag:
+        description: "Release tag (bare version, no 'signer-' prefix for signer releases)"
+        required: true
+    release_type:
+        description: "Release type: stacks-core or stacks-signer"
+        required: true
+    digest_manifest:
+        description: "Path to docker digest manifest file (optional)"
+        required: false
+        default: ""
+
+runs:
+    using: "composite"
+    steps:
+        # Downloads the artifacts built in `create-source-binary`
+        - name: Download Artifacts
+          uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+          with:
+              pattern: "${{ github.sha }}-${{ inputs.release_type }}*"
+              path: release
+              merge-multiple: true
+
+        # Generate a checksums file to be added to the release page
+        - name: Generate Checksums
+          uses: ./.github/actions/release/generate-checksum
+          with:
+              artifact_download_pattern: "${{ github.sha }}-${{ inputs.release_type }}*"
+
+        # Generate the release body from the template and changelog
+        - name: Draft Release Body
+          id: draft
+          shell: bash
+          env:
+              RELEASE_TYPE: ${{ inputs.release_type }}
+              TEMPLATE: .github/actions/release/create-github-release/release.template
+              REPO: ${{ github.repository }}
+              DIGEST_MANIFEST: ${{ inputs.digest_manifest }}
+          run: |
+              # Strip "signer-" prefix from tag if present so VERSION is always bare
+              VERSION="${{ inputs.tag }}"
+              VERSION="${VERSION#signer-}"
+
+              if [[ "${RELEASE_TYPE}" == "stacks-signer" ]]; then
+                  CHANGELOG="stacks-signer/CHANGELOG.md"
+              else
+                  CHANGELOG="CHANGELOG.md"
+              fi
+
+              VERSION="${VERSION}" \
+              CHANGELOG="${CHANGELOG}" \
+              TEMPLATE="${TEMPLATE}" \
+              RELEASE_TYPE="${RELEASE_TYPE}" \
+              REPO="${REPO}" \
+              DIGEST_MANIFEST="${DIGEST_MANIFEST}" \
+              bash ./.github/scripts/draft_release.sh
+
+        # Upload the release archives with the checksums file
+        #   - pre-populate the release body text
+        - name: Upload Release
+          uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+          with:
+              name: "Release ${{ inputs.tag }}"
+              tag_name: ${{ inputs.tag }}
+              body: ${{ steps.draft.outputs.release_body }}
+              draft: true
+              prerelease: true
+              fail_on_unmatched_files: true
+              target_commitish: ${{ github.sha }}
+              generate_release_notes: false
+              files: |
+                  release/*.zip
+                  CHECKSUMS.txt

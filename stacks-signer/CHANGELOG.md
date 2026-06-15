@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.4.0.0.3.0]
+
+### Added
+
+* Added the `block_proposal_max_tx_execution_time_secs` connection option (defaulting to 30 seconds), which caps the time a single transaction is allowed to run during block proposal validation. A transaction that exceeds this per-transaction cap on its own is reported as a `ProblematicTransaction`. If the overall block proposal validation budget (`block_proposal_validation_timeout_secs`) is exhausted before a transaction is processed, the block is rejected with `InvalidBlock` and no specific transaction is flagged, so a transaction is no longer marked problematic just because earlier transactions consumed the validation budget.
+
+## [3.4.0.0.2.0]
+
+### Added
+
+* Signers now include a `failed_txid` field in block rejection messages, reporting which transaction caused block validation to fail. This allows miners to skip problematic transactions in subsequent proposals rather than repeatedly proposing blocks that will be rejected.
+
+### Fixed
+
+* Fix duplicated binary name when running `stacks-signer --version` cli command
+* Fixed an issue in the signer where it would return early if it detected a message from an unrecognized signer.
+* Fixed flakiness in `check_capitulate_miner_view` test.
+* When checking tenure change blocks, ensure there are no locally accepted blocks in the tenure, not just globally accepted blocks.
+
 ## [3.4.0.0.0.0]
 
 ### Fixed

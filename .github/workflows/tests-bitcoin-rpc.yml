@@ -1,0 +1,169 @@
+# Github workflow to run bitcoin RPC tests over multiple versions of Bitcoin Core
+
+name: "Tests: Bitcoin RPC"
+
+on:
+  workflow_call:
+    inputs:
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
+      btc-version:
+        description: "Bitcoin version"
+        required: true
+        type: string
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default env vars
+env:
+  RUST_BACKTRACE: full
+  TEST_TIMEOUT_MINS: 5
+  DISCOVER_TIMEOUT_MINS: 5
+  # Minimum Bitcoin Core major version to start discovering Docker tags from.
+  START_MAJOR: "25"
+
+# Configure concurrency
+concurrency:
+  group: bitcoin-rpc-tests-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  discover-bitcoin-majors:
+    name: Discover Bitcoin Majors
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.discover.outputs.versions }}
+    steps:
+      # Checkout the code
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Run script to get a list of docker bitcoin versions
+      - name: Discover available Bitcoin major tags on dockerhub
+        id: discover
+        timeout-minutes: ${{ fromJSON(env.DISCOVER_TIMEOUT_MINS) }}
+        run: bash ./.github/scripts/docker_bitcoin_majors.sh "${START_MAJOR}"
+
+  # Run tests against a matrix of bitcoin versions
+  test-rpc:
+    name: Test Bitcoin (${{ matrix.bitcoin_version }})
+    needs:
+      - discover-bitcoin-majors
+    if: always() && !cancelled() && needs.discover-bitcoin-majors.result != 'failure'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bitcoin_version: ${{ fromJSON(needs.discover-bitcoin-majors.outputs.versions) }}
+    steps:
+      ############################################################################
+      ### Setup test environment
+      ############################################################################
+      
+      # Checkout the code
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+     
+      # Setup rust toolchain with llvm-tools-preview
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          components: llvm-tools-preview
+     
+      # Install nextest
+      - name: Install Dependencies
+        id: install_dependencies
+        uses: ./.github/actions/install-tool
+        with:
+          tools: nextest
+        
+      # Restore bitcoin cache data
+      - name: Restore Bitcoin Binary Cache
+        uses: ./.github/actions/cache/bitcoin
+        with:
+          action: restore
+          btc-version: ${{ inputs.btc-version }}
+     
+      # Symlink bitoind to $PATH
+      - name: Link Bitcoin Binary
+        shell: bash
+        run: |
+          sudo ln -s ~/bitcoin/bin/bitcoind /bin/
+     
+      # Increase open file descriptors limit
+      - name: Increase Open File Descriptors
+        shell: bash
+        run: |
+          sudo prlimit --nofile=4096:4096
+        
+      # Restore nextest test archive cache data
+      - name: Restore Test Archive Cache
+        id: restore_test_cache
+        uses: ./.github/actions/cache/test-archive
+        with:
+          action: restore
+          archive-file: ${{ inputs.archive-file }}
+
+      # Pull bitcoin docker image
+      - name: Pull bitcoind image (${{ matrix.bitcoin_version }})
+        run: docker pull bitcoin/bitcoin:${{ matrix.bitcoin_version }}
+
+      ############################################################################
+      ### Run tests
+      ############################################################################
+
+      # Run tests on the pulled bitcoin docker image
+      - name: Run tests on bitcoind ${{ matrix.bitcoin_version }}
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT_MINS) }}
+        env:
+          BITCOIN_IMAGE_TAG: ${{ matrix.bitcoin_version }}
+          TEST_ARCHIVE_FILE: ${{ inputs.archive-file }}
+        run: |
+          # Safely replace a leading ~ with the actual absolute $HOME path
+          TEST_ARCHIVE_FILE="${TEST_ARCHIVE_FILE/#\~/$HOME}"
+        
+          # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
+          cargo nextest run \
+            --config-file ./.github/nextest/ci-nextest.toml \
+            --profile ci-parallel \
+            --run-ignored all \
+            --no-tests fail \
+            --archive-file "$TEST_ARCHIVE_FILE" \
+            -E 'package(stacks-node) & binary(stacks-node) & test(/^tests::bitcoin::rpc_integrations::/)'
+
+  # Check that all jobs in this workflow have succeeded.
+  #   - will not run if the job is cancelled
+  check-tests:
+    name: Check Tests
+    needs:
+      - test-rpc
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Check if all jobs succeeded
+      - name: Check Jobs Status
+        shell: bash
+        env:
+          JOBS: ${{ toJson(needs) }}
+          SUMMARY_PRINT: "true"
+        run: bash ./.github/scripts/check_jobs_status.sh

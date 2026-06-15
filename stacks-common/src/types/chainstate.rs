@@ -91,6 +91,65 @@ impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
 
+pub struct Txid(pub [u8; 32]);
+impl_array_newtype!(Txid, u8, 32);
+impl_array_hexstring_fmt!(Txid);
+impl_byte_array_newtype!(Txid, u8, 32);
+impl_byte_array_serde!(Txid);
+pub const TXID_ENCODED_SIZE: u32 = 32;
+
+impl Txid {
+    /// A Stacks transaction ID is a sha512/256 hash (not a double-sha256 hash)
+    pub fn from_stacks_tx(txdata: &[u8]) -> Txid {
+        let h = Sha512Trunc256Sum::from_data(txdata);
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(h.as_bytes());
+        Txid(bytes)
+    }
+
+    /// A sighash is calculated the same way as a txid
+    pub fn from_sighash_bytes(txdata: &[u8]) -> Txid {
+        Txid::from_stacks_tx(txdata)
+    }
+
+    /// Create a [`Txid`] from the tx hash bytes used in bitcoin.
+    /// This just reverses the inner bytes of the input.
+    pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
+        let mut txid_bytes = tx_hash.0;
+        txid_bytes.reverse();
+        Self(txid_bytes)
+    }
+
+    /// Create a [`Sha256dHash`] from a [`Txid`]
+    /// This assumes the inner bytes are stored in "big-endian" (following the hex bitcoin string),
+    /// so just reverse them to properly create a tx hash.
+    pub fn to_bitcoin_tx_hash(txid: &Txid) -> Sha256dHash {
+        let mut txid_bytes = txid.0;
+        txid_bytes.reverse();
+        Sha256dHash(txid_bytes)
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn from_test_data(
+        block_height: u64,
+        vtxindex: u32,
+        burn_header_hash: &BurnchainHeaderHash,
+        noise: u64,
+    ) -> Txid {
+        use crate::util::hash::DoubleSha256;
+        let mut bytes = vec![];
+        bytes.extend_from_slice(&block_height.to_be_bytes());
+        bytes.extend_from_slice(&vtxindex.to_be_bytes());
+        bytes.extend_from_slice(burn_header_hash.as_bytes());
+        bytes.extend_from_slice(&noise.to_be_bytes());
+        let h = DoubleSha256::from_data(&bytes[..]);
+        let mut hb = [0u8; 32];
+        hb.copy_from_slice(h.as_bytes());
+
+        Txid(hb)
+    }
+}
+
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
@@ -442,6 +501,7 @@ impl_byte_array_message_codec!(Hash160, 20);
 impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
 impl_byte_array_message_codec!(BlockHeaderHash, 32);
 impl_byte_array_message_codec!(StacksBlockId, 32);
+impl_byte_array_message_codec!(Txid, 32);
 impl_byte_array_message_codec!(MessageSignature, 65);
 
 impl BlockHeaderHash {
@@ -518,4 +578,4 @@ impl VRFSeed {
 }
 
 // The (ConsensusHash, BurnchainHeaderHash) codec impl is provided by the
-// generic (A, B) impl in stacks-codec.
+// generic (A, B) impl in `crate::codec`.

@@ -176,6 +176,7 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common",
+ "variant_count",
 ]
 
 [[package]]
@@ -1418,6 +1419,12 @@ dependencies = [
 [[package]]
 name = "stacks-codec"
 version = "0.1.0"
+dependencies = [
+ "clarity-types",
+ "serde",
+ "stacks-common",
+ "variant_count",
+]
 
 [[package]]
 name = "stacks-common"
@@ -1442,7 +1449,6 @@ dependencies = [
  "sha3",
  "slog",
  "slog-term",
- "stacks-codec",
  "thiserror",
  "toml",
  "winapi 0.3.9",
@@ -1472,6 +1478,7 @@ dependencies = [
  "sha2 0.10.9",
  "siphasher",
  "slog",
+ "stacks-codec",
  "stacks-common",
  "time",
  "toml",
@@ -1632,6 +1639,17 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "variant_count"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1935e10c6f04d22688d07c0790f2fc0e1b1c5c2c55bc0cc87ed67656e587dd8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "vcpkg"

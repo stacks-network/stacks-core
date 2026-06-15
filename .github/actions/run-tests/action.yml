@@ -1,0 +1,257 @@
+name: Run Tests
+description: |
+  1. Sets up the runner with grcov, nextest tooling, etc.
+  2. Runs tests using cargo nextest, either sequentially by name or in parallel via partitions.
+  3. Generates and uploads the code coverage artifact
+
+inputs:
+  btc-version:
+    description: "Bitcoin version"
+    required: false
+    default: "25.0"
+  test-names:
+    description: "Comma-separated list of literal test names to run (Required if not partitioning)"
+    required: false
+  partition:
+    description: "Partition to run (e.g., 1)"
+    required: false
+  total-partitions:
+    description: "Total number of partitions (e.g., 4)"
+    required: false
+  archive-file:
+    description: "Archive file to use for tests"
+    required: true
+  codecov-test-name:
+    description: "Code coverage test name"
+    required: true
+  codecov-binary-path:
+    description: "Code coverage binary path"
+    required: false
+    default: "./target/debug/"
+
+runs:
+  using: "composite"
+  steps:
+    ############################################################################
+    ### Setup test environment
+    ############################################################################
+    
+    # Checkout the code
+    - name: Checkout the latest code
+      id: git_checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+    # Setup rust toolchain with llvm-tools-preview
+    - name: Setup Rust Toolchain
+      uses: ./.github/actions/setup-rust-toolchain
+      with:
+        components: llvm-tools-preview
+
+    # Restore bitcoin cache data
+    - name: Restore Bitcoin Binary Cache
+      uses: ./.github/actions/cache/bitcoin
+      with:
+        action: restore
+        btc-version: ${{ inputs.btc-version }}
+
+    # Symlink bitoind to $PATH
+    - name: Link Bitcoin Binary
+      shell: bash
+      run: |
+        sudo ln -s ~/bitcoin/bin/bitcoind /bin/
+
+    # Increase open file descriptors limit
+    - name: Increase Open File Descriptors
+      shell: bash
+      run: |
+        sudo prlimit --nofile=4096:4096
+
+    # Restore nextest test archive cache data
+    - name: Restore Test Archive Cache
+      uses: ./.github/actions/cache/test-archive
+      with:
+        action: restore
+        archive-file: ${{ inputs.archive-file }}
+        codecov-binary-path: ${{ inputs.codecov-binary-path }}
+
+    # Install dependencies
+    #   grcov is used in the code coverage workflow in tests, so it's installed here
+    - name: Install Dependencies
+      uses: ./.github/actions/install-tool
+      with:
+        tools: nextest, grcov
+
+    ############################################################################
+    ### Run the tests
+    ############################################################################
+  
+    # Step 1: Validate Inputs
+    - name: Validate Inputs
+      shell: bash
+      run: |
+        TEST_NAMES="${{ inputs.test-names }}"
+        PARTITION="${{ inputs.partition }}"
+        TOTAL="${{ inputs.total-partitions }}"
+
+        # Case 1: Absolutely nothing provided
+        if [ -z "$TEST_NAMES" ] && [ -z "$PARTITION" ] && [ -z "$TOTAL" ]; then
+          echo "::error::Invalid inputs. You must provide either 'test-names' OR both 'partition' and 'total-partitions'."
+          exit 1
+        fi
+
+        # Case 2: Conflicting inputs (provided both styles)
+        if [ -n "$TEST_NAMES" ] && { [ -n "$PARTITION" ] || [ -n "$TOTAL" ]; }; then
+          echo "::error::Ambiguous inputs. Cannot provide 'test-names' alongside 'partition' or 'total-partitions'."
+          exit 1
+        fi
+
+        # Case 3: Partition logic validation
+        if [ -n "$PARTITION" ] || [ -n "$TOTAL" ]; then
+          # Ensure both partition inputs exist
+          if [ -z "$PARTITION" ] || [ -z "$TOTAL" ]; then
+            echo "::error::Both 'partition' and 'total-partitions' must be specified together."
+            exit 1
+          fi
+
+          # Ensure they are valid positive integers
+          if ! [[ "$PARTITION" =~ ^[0-9]+$ ]] || ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
+            echo "::error::'partition' and 'total-partitions' must be positive integers."
+            exit 1
+          fi
+
+          # Ensure total-partitions is greater than 0
+          if [ "$TOTAL" -le 0 ]; then
+            echo "::error::'total-partitions' must be greater than 0."
+            exit 1
+          fi
+
+          # Ensure partition index is greater than 0 (Nextest count partitioning is 1-indexed)
+          if [ "$PARTITION" -le 0 ]; then
+            echo "::error::'partition' must be 1 or greater."
+            exit 1
+          fi
+
+          # Ensure partition doesn't exceed total
+          if [ "$PARTITION" -gt "$TOTAL" ]; then
+            echo "::error::'partition' ($PARTITION) cannot be greater than 'total-partitions' ($TOTAL)."
+            exit 1
+          fi
+        fi
+        
+        echo "Inputs validated successfully!"
+
+    # Modify test-name input to be a valid filename, since we use it to name the junit test file and the code coverage file
+    - name: Generate Sanitized File Name
+      id: generate-sanitized-file-name
+      shell: bash
+      run: |
+        SANITIZED_FILE_NAME=$(echo "${{ inputs.codecov-test-name }}" | sed 's/[\\/:\*\?"<>|]/_/g')
+        echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
+
+    # Mode 1: Run specific test names sequentially (If partition is NOT specified)
+    - name: Run Tests Sequentially
+      if: inputs.partition == '' && inputs.total-partitions == ''
+      shell: bash
+      run: |
+        export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
+        
+        # Convert CSV string to Nextest exact-match Filterset format
+        # e.g., "a, b" becomes "test(=a)|test(=b)"
+        FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
+        FILTERSET="test(=${FILTERSET})"
+
+        # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
+        cargo nextest run \
+          --config-file ./.github/nextest/ci-nextest.toml \
+          --profile ci-sequential \
+          --run-ignored all \
+          --archive-file ${{ inputs.archive-file }} \
+          -E "$FILTERSET"
+          
+        # rename the resulting junit file from the toml config
+        mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+
+    # Mode 2: Run Partitioned Tests (If partition IS specified)
+    - name: Run Partitioned Tests
+      if: inputs.partition != '' && inputs.total-partitions != ''
+      shell: bash
+      run: |
+        export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
+        
+        # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
+        cargo nextest run \
+          --config-file ./.github/nextest/ci-nextest.toml \
+          --profile ci-parallel \
+          --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
+          --archive-file ${{ inputs.archive-file }}
+          
+        # rename the resulting junit file from the toml config
+        mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+          
+    ############################################################################
+    ### Upload the nextest JUnit XML
+    ############################################################################
+
+    # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
+    - name: Store JUnit Report as Artifact
+      if: always() # needed to be able to execute this step for test failures
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      with:
+        name: ${{ github.sha }}-nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        path: junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 9 # 0 (none) - 9 (most)
+        overwrite: true
+          
+    ############################################################################
+    ### Generate and upload code coverage artifact
+    ############################################################################
+
+    # Generate code coverage using grcov
+    #   - Resulting coverage filenames must be unique, so use test-name input to name the file
+    - name: Run grcov
+      if: github.event.repository.visibility == 'public'
+      shell: bash
+      run: |
+        grcov . \
+          -b ${{ inputs.codecov-binary-path }} \
+          -s . \
+          -t lcov \
+          --branch \
+          --ignore-not-existing \
+          --ignore "../*" \
+          --ignore "/*" \
+          --ignore ".github/**" \
+          --ignore ".vscode/**" \
+          --ignore "changelog.d/**" \
+          --ignore "contrib/**" \
+          --ignore "**/.cargo/**" \
+          --ignore "**/benches/**" \
+          --ignore "**/test{,s}/**" \
+          --ignore "**/test{,s}.rs" \
+          --ignore "**/*_test{,s}.rs" \
+          --ignore "**/*.clar" \
+          --ignore "**/*.json" \
+          --ignore "**/*.md" \
+          --ignore "**/*.sha256" \
+          --ignore "**/*.snap" \
+          --ignore "**/*.toml" \
+          --ignore "**/*.txt" \
+          --ignore "**/*.yml" \
+          -o lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
+        || exit 1
+
+    # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
+    - name: Store Code Coverage as Artifact
+      if: github.event.repository.visibility == 'public'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      with:
+        name: ${{ github.sha }}-codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 9 # 0 (none) - 9 (most)
+        overwrite: true

@@ -210,6 +210,12 @@ impl From<NetError> for CliError {
     }
 }
 
+impl From<stacks_codec::transaction::AuthError> for CliError {
+    fn from(value: stacks_codec::transaction::AuthError) -> Self {
+        CliError::Message(format!("Stacks AuthError: {value}"))
+    }
+}
+
 impl From<CodecError> for CliError {
     fn from(value: CodecError) -> Self {
         CliError::Message(format!("Stacks CodecError: {value}"))

@@ -573,5 +573,10 @@ mod test {
             c32_address_decode("S\u{1D7D8}2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE"),
             Err(Error::InvalidCrockford32)
         ));
+
+        assert!(matches!(
+            c32_address_decode("\u{cd}\u{85}\x6a\x6a\x6a\x19\x00"),
+            Err(Error::InvalidCrockford32)
+        ));
     }
 }

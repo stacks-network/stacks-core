@@ -30,13 +30,11 @@ use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::NakamotoBlockHeader;
-use crate::chainstate::stacks::test::{make_codec_test_block, make_codec_test_microblock};
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::*;
 use crate::chainstate::tests::TestChainstate;
-use crate::core::*;
 use crate::net::relay::{AcceptedNakamotoBlocks, ProcessedNetReceipts, Relayer};
-use crate::net::stackerdb::StackerDBs;
+use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
 use crate::net::test::*;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
 use crate::net::{Error as NetError, *};
@@ -372,62 +370,6 @@ fn test_buffer_data_message() {
         txs: vec![],
     };
 
-    let blocks_available = StacksMessage::new(
-        1,
-        1,
-        1,
-        &BurnchainHeaderHash([0x01; 32]),
-        7,
-        &BurnchainHeaderHash([0x07; 32]),
-        StacksMessageType::BlocksAvailable(BlocksAvailableData {
-            available: vec![
-                (ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])),
-                (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32])),
-            ],
-        }),
-    );
-
-    let microblocks_available = StacksMessage::new(
-        1,
-        1,
-        1,
-        &BurnchainHeaderHash([0x01; 32]),
-        7,
-        &BurnchainHeaderHash([0x07; 32]),
-        StacksMessageType::MicroblocksAvailable(BlocksAvailableData {
-            available: vec![
-                (ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])),
-                (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32])),
-            ],
-        }),
-    );
-
-    let block = StacksMessage::new(
-        1,
-        1,
-        1,
-        &BurnchainHeaderHash([0x01; 32]),
-        7,
-        &BurnchainHeaderHash([0x07; 32]),
-        StacksMessageType::Blocks(BlocksData {
-            blocks: vec![BlocksDatum(
-                ConsensusHash([0x11; 20]),
-                make_codec_test_block(10, StacksEpochId::Epoch25),
-            )],
-        }),
-    );
-    let microblocks = StacksMessage::new(
-        1,
-        1,
-        1,
-        &BurnchainHeaderHash([0x01; 32]),
-        7,
-        &BurnchainHeaderHash([0x07; 32]),
-        StacksMessageType::Microblocks(MicroblocksData {
-            index_anchor_block: StacksBlockId([0x55; 32]),
-            microblocks: vec![make_codec_test_microblock(10)],
-        }),
-    );
     let nakamoto_block = StacksMessage::new(
         1,
         1,
@@ -460,48 +402,6 @@ fn test_buffer_data_message() {
             },
         }),
     );
-
-    for _ in 0..peer.network.connection_opts.max_buffered_blocks_available {
-        assert!(peer
-            .network
-            .buffer_sortition_data_message(0, &peer_nk, blocks_available.clone()));
-    }
-    assert!(!peer
-        .network
-        .buffer_sortition_data_message(0, &peer_nk, blocks_available));
-
-    for _ in 0..peer
-        .network
-        .connection_opts
-        .max_buffered_microblocks_available
-    {
-        assert!(peer.network.buffer_sortition_data_message(
-            0,
-            &peer_nk,
-            microblocks_available.clone()
-        ));
-    }
-    assert!(!peer
-        .network
-        .buffer_sortition_data_message(0, &peer_nk, microblocks_available));
-
-    for _ in 0..peer.network.connection_opts.max_buffered_blocks {
-        assert!(peer
-            .network
-            .buffer_sortition_data_message(0, &peer_nk, block.clone()));
-    }
-    assert!(!peer
-        .network
-        .buffer_sortition_data_message(0, &peer_nk, block));
-
-    for _ in 0..peer.network.connection_opts.max_buffered_microblocks {
-        assert!(peer
-            .network
-            .buffer_sortition_data_message(0, &peer_nk, microblocks.clone()));
-    }
-    assert!(!peer
-        .network
-        .buffer_sortition_data_message(0, &peer_nk, microblocks));
 
     for _ in 0..peer.network.connection_opts.max_buffered_nakamoto_blocks {
         assert!(peer
@@ -912,7 +812,6 @@ fn test_buffer_nonready_nakamoto_blocks() {
                         &node.chainstate,
                         unsolicited_msgs,
                         true,
-                        true,
                     );
 
                     follower.chain.stacks_node = Some(node);
@@ -1142,4 +1041,151 @@ fn test_nakamoto_boot_node_from_block_push() {
 
         assert!(synced);
     });
+}
+
+/// Verify that the FutureView path in [`PeerNetwork::handle_unsolicited_StackerDBPushChunk`]
+/// validates chunks before buffering them.
+#[test]
+fn test_handle_unsolicited_stackerdb_push_chunk_future_view_validation() {
+    let observer = TestEventObserver::new();
+    let bitvecs = vec![vec![
+        true, true, true, true, true, true, true, true, true, true,
+    ]];
+
+    let (mut peer, _followers) =
+        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 5, bitvecs, 1);
+
+    // Register a conversation for event_id 1 so get_p2p_convo() succeeds
+    let convo = peer.make_client_convo();
+    peer.network.peers.insert(1, convo);
+
+    // Create a test StackerDB with known signers.
+    let signer_privk = StacksPrivateKey::from_seed(&[42]);
+    let signer_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_privk));
+    let contract_id =
+        QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.test-stackerdb").unwrap();
+
+    // Create the StackerDB in the database with slot 0 owned by our signer
+    let slots: Vec<(StacksAddress, u32)> = vec![(signer_addr.clone(), 1)];
+    {
+        let tx = peer
+            .network
+            .stackerdbs
+            .tx_begin(StackerDBConfig::noop())
+            .unwrap();
+        tx.create_stackerdb(&contract_id, &slots).unwrap();
+        tx.commit().unwrap();
+    }
+
+    peer.network.stacker_db_configs.insert(
+        contract_id.clone(),
+        StackerDBConfig {
+            chunk_size: 4096,
+            signers: slots.clone(),
+            write_freq: 0,
+            max_writes: u32::MAX,
+            hint_replicas: vec![],
+            max_neighbors: 8,
+        },
+    );
+
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
+
+    let preamble = Preamble {
+        peer_version: 1,
+        network_id: 1,
+        seq: 0,
+        burn_block_height: 1,
+        burn_block_hash: BurnchainHeaderHash([0x01; 32]),
+        burn_stable_block_height: 0,
+        burn_stable_block_hash: BurnchainHeaderHash([0x00; 32]),
+        additional_data: 0,
+        signature: MessageSignature::empty(),
+        payload_len: 0,
+    };
+
+    // Use a bogus rc_consensus_hash that doesn't match the network's view and isn't known
+    // in the chain state, which triggers the FutureView Nack path.
+    let future_consensus_hash = ConsensusHash([0xfe; 20]);
+
+    // --- Test 1: Properly signed chunk should be BUFFERED on the FutureView path ---
+    let mut good_chunk_data = StackerDBPushChunkData {
+        contract_id: contract_id.clone(),
+        rc_consensus_hash: future_consensus_hash.clone(),
+        chunk_data: StackerDBChunkData::new(0, 1, vec![1, 2, 3, 4, 5]),
+    };
+    good_chunk_data.chunk_data.sign(&signer_privk).unwrap();
+
+    let result = peer
+        .network
+        .handle_unsolicited_StackerDBPushChunk(
+            &mut stacks_node.chainstate,
+            1,
+            &preamble,
+            &good_chunk_data,
+            false,
+        )
+        .unwrap();
+
+    assert_eq!(
+        result,
+        (true, false),
+        "chunk with valid signature must be buffered on FutureView path"
+    );
+
+    // --- Test 2: Forged signature (empty) should be REJECTED ---
+    // An empty signature can't be recovered, so chunk validation fails with error.
+    let bad_chunk_data = StackerDBPushChunkData {
+        contract_id: contract_id.clone(),
+        rc_consensus_hash: future_consensus_hash.clone(),
+        chunk_data: StackerDBChunkData {
+            slot_id: 0,
+            slot_version: 1,
+            sig: MessageSignature::empty(),
+            data: vec![1, 2, 3, 4, 5],
+        },
+    };
+
+    let result = peer
+        .network
+        .handle_unsolicited_StackerDBPushChunk(
+            &mut stacks_node.chainstate,
+            1,
+            &preamble,
+            &bad_chunk_data,
+            false,
+        )
+        .unwrap_err();
+
+    assert!(
+        matches!(result, NetError::VerifyingError(_)),
+        "chunk with forged (empty) signature must be rejected"
+    );
+
+    // --- Test 3: Valid signature from the WRONG signer should be REJECTED ---
+    let wrong_privk = StacksPrivateKey::from_seed(&[99]);
+
+    let mut wrong_signer_chunk = StackerDBPushChunkData {
+        contract_id: contract_id.clone(),
+        rc_consensus_hash: future_consensus_hash,
+        chunk_data: StackerDBChunkData::new(0, 1, vec![1, 2, 3, 4, 5]),
+    };
+    wrong_signer_chunk.chunk_data.sign(&wrong_privk).unwrap();
+
+    let result = peer
+        .network
+        .handle_unsolicited_StackerDBPushChunk(
+            &mut stacks_node.chainstate,
+            1,
+            &preamble,
+            &wrong_signer_chunk,
+            false,
+        )
+        .unwrap();
+
+    assert_eq!(
+        result,
+        (false, false),
+        "chunk signed by wrong signer must be rejected on FutureView path"
+    );
 }

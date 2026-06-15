@@ -1,0 +1,50 @@
+name: "Checks: Nix"
+run-name: "Checks: Nix [${{ github.ref_name }}]"
+
+on:
+  merge_group:
+    types:
+      - checks_requested
+  push:
+    branches:
+      - master
+      - develop
+      - next
+    paths-ignore:
+      - "**.md"
+      - "**.yml"
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Configure concurrency
+concurrency:
+  group: nix-${{ github.head_ref || github.ref || github.run_id }}
+  # Always cancel duplicate jobs
+  cancel-in-progress: true
+
+jobs:
+  build-pkg:
+    name: Check Nix package
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: DeterminateSystems/determinate-nix-action@bafaa638b9d5ec0e7e3ac1a7fc80453ef1fd265f # v3.20.0
+
+      - uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39  # v13
+        with:
+          use-flakehub: false  # Remove error when trying to authenticate without credentials
+          use-gha-cache: false # Disable uploading cache to gha cache
+
+      - run: nix flake check ./contrib/nix

@@ -267,6 +267,19 @@ impl From<libstackerdb_error> for Error {
     }
 }
 
+impl From<stacks_codec::transaction::AuthError> for Error {
+    fn from(e: stacks_codec::transaction::AuthError) -> Self {
+        use stacks_codec::transaction::AuthError;
+        match e {
+            AuthError::SigningError(s) => Error::SigningError(s),
+            AuthError::VerifyingError(s) => Error::VerifyingError(s),
+            AuthError::IncompatibleSpendingConditionError => Error::SerializeError(
+                "Spending condition is incompatible with this operation".to_string(),
+            ),
+        }
+    }
+}
+
 impl From<codec_error> for Error {
     fn from(e: codec_error) -> Self {
         match e {

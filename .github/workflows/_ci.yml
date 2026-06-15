@@ -1,0 +1,620 @@
+############################################################################
+### The main GitHub Actions workflow for CI/CD
+############################################################################
+
+name: CI
+run-name: "CI: [${{ github.ref_name }}]"
+
+on:
+  merge_group:
+    types:
+      - checks_requested
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+# Set default permissions for all jobs
+permissions:
+  contents: read
+
+# Set default shell
+defaults:
+  run:
+    shell: bash
+
+# Configure concurrency
+concurrency:
+  group: ci-${{ github.head_ref || github.ref || github.run_id }}
+  # Always cancel duplicate jobs
+  cancel-in-progress: true
+
+# Env vars
+env:
+  TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
+  BTC_VERSION: "25.0"
+
+jobs:
+  ############################################################################
+  ### Global Variables Setup
+  ### 
+  ### Bridges global env variables to the jobs context so they are safely 
+  ### accessible by downstream reusable workflows.
+  ### Also defines default runs-on anchor.
+  ############################################################################
+  setup-env:
+    name: "Setup: Global Variables"
+    runs-on: &shared_config ubuntu-latest
+    outputs:
+      test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
+      btc-version: ${{ steps.set-env.outputs.btc_version }}
+      job-should-run: ${{ steps.set-env.outputs.job_should_run }}
+    steps:
+      - name: Export Env Variables
+        id: set-env
+        run: |
+          # Capture the archive file input, then expand the leading ~ to $HOME
+          INPUT_FILE="${{ env.TEST_ARCHIVE_FILE }}"
+          ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
+        
+          echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
+          echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
+          
+          # Check that evaluates if various jobs should run. Generally we care if it's a workflow dispatch, PR, or merge group.
+          echo "job_should_run=${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group' }}" >> $GITHUB_OUTPUT
+  
+  ############################################################################
+  ### Changelog Check
+  ### 
+  ### Checks for changelog updates (or the 'No Changelog' label) on a PR
+  ### Required to pass for all subsequent jobs
+  ############################################################################
+  check-changelog:
+    name: "Check: Changelog"
+    runs-on: *shared_config
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Run script to detect changelog entries
+      - name: Check for changelog fragments
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const changelog = require('./.github/scripts/changelog.js');
+            await changelog({ github, context, core });
+
+  ############################################################################
+  ### Rust Formatting Check
+  ### 
+  ### Checks for correct formatting
+  ### Required to pass for all subsequent jobs
+  ############################################################################
+  check-rustfmt:
+    name: "Check: Rust Formatting"
+    needs:
+      - check-changelog
+    runs-on: *shared_config
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Setup the rust toolchain with specified rustfmt
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          components: rustfmt
+
+      # Check Rust formatting
+      - name: Rustfmt
+        run: bash ./.github/scripts/rustfmt.sh
+
+  ############################################################################
+  ### Release Check
+  ### 
+  ### Checks if this is a release build
+  ### If true, will execute release jobs
+  ############################################################################
+  check-release:
+    name: "Check: Release"
+    needs:
+      - check-changelog
+      - check-rustfmt
+    if: >-
+      github.event.repository.visibility == 'public'
+    runs-on: *shared_config
+    outputs:
+      node_tag: ${{ steps.check-release.outputs.node_tag }}
+      signer_tag: ${{ steps.check-release.outputs.signer_tag }}
+      is_node_release: ${{ steps.check-release.outputs.is_node_release }}
+      is_signer_release: ${{ steps.check-release.outputs.is_signer_release }}
+      is_release: ${{ steps.check-release.outputs.is_node_release || steps.check-release.outputs.is_signer_release }}
+    steps:
+      # Checkout the code
+      #   - only .github and versions.toml are required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+            versions.toml
+
+      # Run script to check if this is a release and set outputs
+      - name: Check Release
+        id: check-release
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: bash ./.github/scripts/check_release.sh
+
+  ############################################################################
+  ### Cargo Hack Check
+  ############################################################################
+  check-cargo-hack:
+    name: "Check: Cargo Hack"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
+      - setup-env
+    if: >-
+      needs.setup-env.outputs.job-should-run == 'true'
+    uses: ./.github/workflows/check-cargo-hack.yml
+  
+  ############################################################################
+  ### Constant Check (stacks-inspect)
+  ############################################################################
+  check-constants:
+    name: "Check: Constants"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
+      - setup-env
+    if: >-
+      needs.setup-env.outputs.job-should-run == 'true'
+    uses: ./.github/workflows/check-constants.yml
+
+  ############################################################################
+  ### Setup Reusable Caches for Tests
+  ############################################################################
+  setup-test-caches:
+    name: "Setup: Test Caches"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
+      - setup-env
+    if: >-
+      needs.check-release.outputs.is_release == 'true' ||
+      needs.setup-env.outputs.job-should-run == 'true'
+    uses: ./.github/workflows/setup-test-caches.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+
+  ############################################################################
+  ### Run Stacks Core Tests
+  ############################################################################
+  tests-stacks-core:
+    name: "Tests: Stacks Core"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
+      - setup-test-caches
+      - setup-env
+    if: >-
+      needs.check-release.outputs.is_release == 'true' ||
+      needs.setup-env.outputs.job-should-run == 'true'
+    uses: ./.github/workflows/tests-stacks-core.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+
+  ############################################################################
+  ### Run Bitcoin Tests
+  ############################################################################
+  tests-bitcoin:
+    name: "Tests: Bitcoin"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
+      - setup-test-caches
+      - setup-env
+    if: >-
+      needs.check-release.outputs.is_release == 'true' ||
+      needs.setup-env.outputs.job-should-run == 'true'
+    uses: ./.github/workflows/tests-bitcoin.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+
+  ############################################################################
+  ### Run Bitcoin RPC Tests
+  ############################################################################
+  tests-bitcoin-rpc:
+    name: "Tests: Bitcoin RPC"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-release
+      - setup-test-caches
+      - setup-env
+    if: >-
+      needs.check-release.outputs.is_release == 'true' ||
+      needs.setup-env.outputs.job-should-run == 'true'
+    uses: ./.github/workflows/tests-bitcoin-rpc.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+
+  ############################################################################
+  ### Run P2P Tests
+  ############################################################################
+  tests-p2p:
+    name: "Tests: P2P"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-release
+      - setup-test-caches
+      - setup-env
+    if: >-
+      needs.check-release.outputs.is_release == 'true' ||
+      needs.setup-env.outputs.job-should-run == 'true'
+    uses: ./.github/workflows/tests-p2p.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      
+  ############################################################################
+  ### Run Epoch Tests (Release Only)
+  ############################################################################
+  tests-epoch:
+    name: "Tests: Epoch (Release Only)"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-release
+      - setup-test-caches
+      - setup-env
+    if: >-
+      needs.check-release.outputs.is_release == 'true'
+    uses: ./.github/workflows/tests-epoch.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+
+  ############################################################################
+  ### Create Release
+  ###
+  ### Creates binary archives for several architectures
+  ### Creates Docker images and pushes to ghcr registry
+  ### Creates a draft GitHub release
+  ############################################################################  
+  create-release:
+    name: "Create: Release"
+    needs:
+      - check-changelog
+      - check-release
+      - check-rustfmt
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      needs.check-release.outputs.is_release == 'true'
+    permissions:
+      contents: write      # required for github release
+      id-token: write      # required for attestation
+      attestations: write  # required for attestation
+      packages: write      # required for image push to ghcr
+    uses: ./.github/workflows/release-github.yml
+    with:
+      node_tag: ${{ needs.check-release.outputs.node_tag }} # 5 place version format like 3.3.0.0.3
+      signer_tag: ${{ needs.check-release.outputs.signer_tag }} # 6 place version format like 3.3.0.0.3.0
+      is_node_release: ${{ needs.check-release.outputs.is_node_release }} # boolean used in matrix conditional in .github/workflows/release-github.yml
+
+  ############################################################################
+  ### Create Job Summary: Slow & Failed Tests
+  ############################################################################
+  create-slow-failed-tests-summary:
+    if: >-
+      always()
+    name: "Create: Slow & Failed Tests Report"
+    runs-on: *shared_config
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-release
+      - tests-bitcoin
+      - tests-epoch
+      - tests-p2p
+      - tests-stacks-core
+    env:
+      NEXTEST_FILES_DIR: "nextest_files"
+      NEXTEST_FILES_EXT: "xml"
+      # Should be kept in sync with contents of ./.github/nextest/ci-nextest.toml
+      SLOW_THRESHOLD_SECS: "300.0"
+      # Unique string used internally to separate fields during processing
+      INTERNAL_DELIM: "@@@"
+    steps:
+      # Download the nextest JUnit .xml files generated by tests from artifacts (prefixed by commit SHA)
+      - name: Download nextest JUnit artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          pattern: ${{ github.sha }}-nextest-*
+          path: ${{ env.NEXTEST_FILES_DIR }}
+          merge-multiple: true
+      
+      # Check for at least 1 JUnit file
+      - name: Check for at least 1 JUnit file
+        shell: bash
+        run: |
+          EXT="${{ env.NEXTEST_FILES_EXT }}"
+          DIR="${{ env.NEXTEST_FILES_DIR }}"
+          
+          file_count=$(find "$DIR" -type f -name "*.$EXT" | wc -l)
+          if [ "$file_count" -eq 0 ]; then
+            echo "ERROR: no nextest JUnit files of type .$EXT found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
+            exit 1
+          fi
+      
+      # Parse the nextest JUnit files and generate the summary
+      - name: Parse JUnit Reports and Generate Summary
+        shell: bash
+        run: |
+          EXT="${{ env.NEXTEST_FILES_EXT }}"
+          DIR="${{ env.NEXTEST_FILES_DIR }}"
+          SLOW_SECS=${{ env.SLOW_THRESHOLD_SECS }}
+          DELIM="${{ env.INTERNAL_DELIM }}"
+        
+          # Feed all reports cleanly into a unified gawk processing loop
+          find "$DIR" -type f -name "*.$EXT" | sort | xargs gawk -v slow_thresh="$SLOW_SECS" -v d="$DELIM" '
+            BEGIN {
+                # Split the XML file by the testcase tag instead of newlines
+                RS = "<testcase "
+            }
+            
+            FNR == 1 {
+                # Skip the first record of every file (contains metadata before the first testcase)
+                next
+            }
+            
+            {
+                # Clear variables to prevent data bleeding between records
+                classname = ""
+                name = ""
+                time_val = 0
+                has_retry = 0
+                
+                # Extract attributes safely from the beginning of this specific testcase record
+                if (match($0, /classname="([^"]+)"/, c)) classname = c[1]
+                if (match($0, /name="([^"]+)"/, n)) name = n[1]
+                if (match($0, /time="([^"]+)"/, t)) time_val = t[1] + 0
+                
+                full_name = classname " :: " name
+                
+                # Scan for Nextest-specific retry elements within this testcase context
+                if ($0 ~ /flakyFailure|flakyError|rerunFailure|rerunError/) {
+                    has_retry = 1
+                }
+                
+                short_file = FILENAME
+                sub(/.*\//, "", short_file) # Strip path, preserve filename string
+                
+                if (has_retry) {
+                    retried_list = retried_list full_name d short_file "\n"
+                }
+                if (time_val > slow_thresh) {
+                    # Store in an array, using dynamic delimiter and zero-padded duration for descending sort
+                    slow_tests[++slow_cnt] = sprintf("%010.3f%s%s%s%s", time_val, d, full_name, d, short_file)
+                }
+            }
+            
+            END {
+                summary_file = ENVIRON["GITHUB_STEP_SUMMARY"]
+                if (!summary_file) summary_file = "/dev/stdout"
+
+                print "## `nextest` Summary\n" >> summary_file
+
+                if (retried_list == "" && slow_cnt == 0) {
+                    print "### ✅ Perfect!" >> summary_file
+                    print "All tests ran without a single retry or slow timeout alert." >> summary_file
+                    exit(0)
+                }
+
+                if (retried_list != "") {
+                    print "### ⚠️ Automatically Retried (Flaky/Rerun) Tests" >> summary_file
+                    print "| Test Name |" >> summary_file
+                    print "| --- |" >> summary_file
+                    
+                    # Split by newline (always safe as a single character)
+                    n_retried = split(retried_list, r_lines, "\n")
+                    for (i = 1; i < n_retried; i++) {
+                        # Literal string parsing instead of regex split
+                        pos = index(r_lines[i], d)
+                        test_name = substr(r_lines[i], 1, pos - 1)
+                        print "| `" test_name "` |" >> summary_file
+                    }
+                    print "" >> summary_file
+                }
+
+                if (slow_cnt > 0) {
+                    print "### ⏱️ Slow Tests (> " slow_thresh "s)" >> summary_file
+                    print "| Test Name | Duration |" >> summary_file
+                    print "| --- | --- |" >> summary_file
+
+                    # Sort the slow tests array descending (longest first)
+                    asort(slow_tests, slow_tests, "@val_str_desc")
+
+                    for (i = 1; i <= slow_cnt; i++) {
+                        # 1. The duration is always exactly the first 10 characters due to %010.3f
+                        duration = substr(slow_tests[i], 1, 10) + 0
+                        
+                        # 2. Slice off the duration and the first delimiter to get the rest of the string
+                        remainder = substr(slow_tests[i], 11 + length(d))
+                        
+                        # 3. Use literal index matching to find where the test name ends
+                        pos = index(remainder, d)
+                        test_name = substr(remainder, 1, pos - 1)
+                        
+                        mins = int(duration / 60)
+                        secs = int(duration % 60)
+                        printf("| `%s` | %dm %ds (`%.2fs`) |\n", test_name, mins, secs, duration) >> summary_file
+                    }
+                    print "" >> summary_file
+                }
+            }
+          '
+
+  ############################################################################
+  ### Create Code Coverage Report
+  ############################################################################
+  create-code-coverage-report:
+    if: >-
+      always() &&
+      github.event.repository.visibility == 'public'
+    name: "Create: Code Coverage Report"
+    runs-on: *shared_config
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-release
+      - tests-bitcoin
+      - tests-epoch
+      - tests-p2p
+      - tests-stacks-core
+    env:
+      REPORT_FILES_DIR: "code_coverage_files"
+      REPORT_FILES_EXT: "info"
+      REPORT_MERGE_NUM_THREADS: 4
+    steps:
+      # Fail this job explicitly if any upstream job fails
+      - name: Check for upstream failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        shell: bash
+        run: |
+          echo "ERROR: One or more required CI jobs failed or were cancelled. Failing coverage report."
+          exit 1
+    
+      # Checkout the code (Coveralls requires source code to be available when action is called)
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+        
+      # Download the code coverage .info files generated by tests from artifacts (prefixed by commit SHA)
+      - name: Download code coverage artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          pattern: ${{ github.sha }}-codecov-*
+          path: ${{ env.REPORT_FILES_DIR }}
+          merge-multiple: true
+      
+      # Check for at least 1 code coverage files
+      - name: Check for at least 1 code coverage file
+        shell: bash
+        run: |
+          EXT="${{ env.REPORT_FILES_EXT }}"
+          DIR="${{ env.REPORT_FILES_DIR }}"
+          
+          file_count=$(find "$DIR" -type f -name "*.$EXT" | wc -l)
+          if [ "$file_count" -eq 0 ]; then
+            echo "ERROR: no code coverage files of type .$EXT found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
+            exit 1
+          fi
+          
+      # Install lcov for merging the reports
+      - name: Install lcov
+        shell: bash
+        run: |
+          sudo apt-get install -y --no-install-recommends lcov
+          
+      # Merge n coverage report files into 1 file using lcov
+      - name: Merge code coverage files
+        shell: bash
+        run: |
+          EXT="${{ env.REPORT_FILES_EXT }}"
+          DIR="${{ env.REPORT_FILES_DIR }}"
+          INTERMEDIATE_FILES=()
+          PIDS=() # Array to track background process IDs
+    
+          cd "$DIR" || exit 1
+    
+          # 1. Collect all files into an array
+          mapfile -d '' ALL_FILES < <(find . -type f -name "*.$EXT" -print0)
+    
+          # 2. Process in chunks (Dynamically calculated for 4 threads)
+          TOTAL_FILES=${#ALL_FILES[@]}
+          CHUNK_SIZE=$(( (TOTAL_FILES + 3) / $REPORT_MERGE_NUM_THREADS ))
+
+          # Guardrail: Ensure CHUNK_SIZE is at least 1 to prevent infinite loops
+          if [ "$CHUNK_SIZE" -le 0 ]; then
+              CHUNK_SIZE=1
+          fi
+
+          echo "Total files to process: $TOTAL_FILES. Calculated chunk size for $REPORT_MERGE_NUM_THREADS threads: $CHUNK_SIZE"
+
+          for (( i=0; i<TOTAL_FILES; i+=CHUNK_SIZE )); do
+              # Slice the array for the current chunk
+              CHUNK=("${ALL_FILES[@]:i:CHUNK_SIZE}")
+              
+              # Build the lcov arguments for this specific chunk
+              CHUNK_ARGS=()
+              for file in "${CHUNK[@]}"; do
+                  CHUNK_ARGS+=(-a "$file")
+              done
+              
+              # Define a unique name for the intermediate report
+              PART_FILE="code_coverage_part_$((i / CHUNK_SIZE)).$EXT"
+              INTERMEDIATE_FILES+=("$PART_FILE")
+              
+              # Run lcov in the background
+              echo "Processing chunk $((i / CHUNK_SIZE + 1))..."
+              lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" & 
+              PIDS+=("$!") # Capture the PID of the process just put in the background
+          done
+    
+          # 3. Wait for all background processes to finish and catch errors
+          echo "Waiting for ${#PIDS[@]} background jobs to complete..."
+          FAILED=0
+          for pid in "${PIDS[@]}"; do
+              if ! wait "$pid"; then
+                  echo "ERROR: Background process with PID $pid failed."
+                  FAILED=1
+              fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+              echo "ERROR: One or more lcov chunk operations failed. Aborting final merge."
+              exit 1
+          fi
+    
+          # 4. Final Merge: Combine the intermediate files into the final report
+          FINAL_ARGS=()
+          for part in "${INTERMEDIATE_FILES[@]}"; do
+              FINAL_ARGS+=(-a "$part")
+          done
+    
+          echo "Performing final merge of ${#INTERMEDIATE_FILES[@]} intermediate files..."
+          lcov "${FINAL_ARGS[@]}" -o "code-coverage-report.$EXT"
+    
+          cd ..
+          
+      # Upload the merged code coverage file to Coveralls
+      - name: Upload code coverage to Coveralls
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+        with:
+          file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
+          compare-ref: ${{ github.base_ref }} # defaults to master if this isn't supplied
+          build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
+          fail-on-error: true
