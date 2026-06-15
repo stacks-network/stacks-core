@@ -7,6 +7,7 @@ import { AnnounceL1EarlyExitErrCannotAnnounce } from './commands/AnnounceL1Early
 import { AnnounceL1EarlyExitErrInPreparePhase } from './commands/AnnounceL1EarlyExitErrInPreparePhase';
 import { AnnounceL1EarlyExitErrNotBondParticipant } from './commands/AnnounceL1EarlyExitErrNotBondParticipant';
 import { AnnounceL1EarlyExitErrUnauthorized } from './commands/AnnounceL1EarlyExitErrUnauthorized';
+import { AllowContractCaller } from './commands/AllowContractCaller';
 import { AssertModelInvariants } from './commands/AssertModelInvariants';
 import { AssertSignerInvariants } from './commands/AssertSignerInvariants';
 import { AssertStakerInvariants } from './commands/AssertStakerInvariants';
@@ -20,6 +21,7 @@ import { ClaimRewardsErrNoClaimable } from './commands/ClaimRewardsErrNoClaimabl
 import { ClaimStakerRewards } from './commands/ClaimStakerRewards';
 import { ClaimStakerRewardsErrNoClaimable } from './commands/ClaimStakerRewardsErrNoClaimable';
 import { DeploySigner } from './commands/DeploySigner';
+import { DisallowContractCaller } from './commands/DisallowContractCaller';
 import { FundRewards } from './commands/FundRewards';
 import { MineBitcoinBlocks } from './commands/MineBlocks';
 import { RegisterForBond } from './commands/RegisterForBond';
@@ -31,6 +33,7 @@ import { RegisterForBondErrInsufficientStx } from './commands/RegisterForBondErr
 import { RegisterForBondErrInvalidBtcHeader } from './commands/RegisterForBondErrInvalidBtcHeader';
 import { RegisterForBondErrNotAllowlisted } from './commands/RegisterForBondErrNotAllowlisted';
 import { RegisterForBondErrTooMuchSats } from './commands/RegisterForBondErrTooMuchSats';
+import { RegisterForBondViaContractCaller } from './commands/RegisterForBondViaContractCaller';
 import { RegisterSigner } from './commands/RegisterSigner';
 import { RegisterSignerErrGrantUsed } from './commands/RegisterSignerErrGrantUsed';
 import { RevokeSignerGrant } from './commands/RevokeSignerGrant';
@@ -50,6 +53,8 @@ import { StakeErrInvalidNumCycles } from './commands/StakeErrInvalidNumCycles';
 import { StakeErrSignerNotFound } from './commands/StakeErrSignerNotFound';
 import { StakeExtend } from './commands/StakeExtend';
 import { StakeUpdate } from './commands/StakeUpdate';
+import { StakeViaContractCaller } from './commands/StakeViaContractCaller';
+import { StakeViaContractCallerErrUnauthorized } from './commands/StakeViaContractCallerErrUnauthorized';
 import { Unstake } from './commands/Unstake';
 import { UnstakeErrInPreparePhase } from './commands/UnstakeErrInPreparePhase';
 import { UnstakeSbtc } from './commands/UnstakeSbtc';
@@ -57,6 +62,7 @@ import { UnstakeSbtcErrInPreparePhase } from './commands/UnstakeSbtcErrInPrepare
 import { UnstakeSbtcErrInvalidAmount } from './commands/UnstakeSbtcErrInvalidAmount';
 import { UnstakeSbtcErrInvalidOldSignerManager } from './commands/UnstakeSbtcErrInvalidOldSignerManager';
 import { UnstakeSbtcErrNotBondParticipant } from './commands/UnstakeSbtcErrNotBondParticipant';
+import { UnstakeViaContractCaller } from './commands/UnstakeViaContractCaller';
 import { UpdateBondRegistration } from './commands/UpdateBondRegistration';
 import { UpdateBondRegistrationErrInPreparePhase } from './commands/UpdateBondRegistrationErrInPreparePhase';
 import { UpdateBondRegistrationErrInvalidOldSignerManager } from './commands/UpdateBondRegistrationErrInvalidOldSignerManager';
@@ -132,6 +138,7 @@ test(
       signers: new Map(),
       usedGrants: new Set(),
       activeGrants: new Set(),
+      contractCallerAllowances: new Map(),
       burnBlockHeight: BigInt(real.network.burnBlockHeight),
       rewardCycleLength: REWARD_CYCLE_LENGTH,
       firstBurnHeight: 0n,
@@ -167,10 +174,15 @@ test(
       RevokeSignerGrant(),
       RevokeSignerGrantNonexistent(),
       RevokeSignerGrantErrUnauthorized(accounts),
+      AllowContractCaller(accounts),
+      DisallowContractCaller(accounts),
       Stake(accounts),
+      StakeViaContractCaller(accounts),
+      StakeViaContractCallerErrUnauthorized(accounts),
       StakeUpdate(accounts),
       StakeExtend(accounts),
       Unstake(accounts),
+      UnstakeViaContractCaller(accounts),
       UpdateBondRegistration(accounts),
       UpdateBondRegistrationErrNotBondParticipant(accounts),
       UpdateBondRegistrationErrInPreparePhase(accounts),
@@ -189,6 +201,7 @@ test(
       UnstakeErrInPreparePhase(accounts),
       SetupBond(accounts),
       RegisterForBond(accounts),
+      RegisterForBondViaContractCaller(accounts),
       RegisterForBondErrBondNotFound(accounts),
       RegisterForBondErrNotAllowlisted(accounts),
       RegisterForBondErrInPreparePhase(accounts),

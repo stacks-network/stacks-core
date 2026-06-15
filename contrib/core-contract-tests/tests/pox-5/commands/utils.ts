@@ -1,6 +1,7 @@
 import type { Model, Real, StakerState } from './types';
 import { accounts } from '../../clarigen-types';
 import {
+  AUTH_PROXY_ID,
   BOND_GAP_CYCLES,
   BOND_LENGTH_CYCLES,
   MAX_SIGNERS,
@@ -308,6 +309,31 @@ function logAsTree(statistics: [string, number][]) {
 
 export const getWalletNameByAddress = (address: string): string | undefined =>
   Object.entries(accounts).find(([, v]) => v.address === address)?.[0];
+
+/** `model.contractCallerAllowances` key. */
+export function contractCallerAllowanceKey(
+  sender: string,
+  contractCaller: string,
+): string {
+  return `${sender}|${contractCaller}`;
+}
+
+/**
+ * Mirrors `check-caller-allowed` for proxy calls. Expired rows remain in the
+ * contract map, but they no longer authorize calls.
+ */
+export function isContractCallerAllowed(
+  model: Readonly<Model>,
+  sender: string,
+  contractCaller = AUTH_PROXY_ID,
+): boolean {
+  if (sender === contractCaller) return true;
+  const expiration = model.contractCallerAllowances.get(
+    contractCallerAllowanceKey(sender, contractCaller),
+  );
+  if (expiration === undefined) return false;
+  return expiration === null || model.burnBlockHeight < expiration;
+}
 
 /**
  * Every signer-manager identifier a run can produce: the default `testSigner`
@@ -1358,7 +1384,7 @@ export function assertSignerInfo(
 // must agree with the model.
 
 /** Read a principal's `stx-account` (locked / unlocked / unlock-height). */
-function stxAccount(
+export function stxAccount(
   real: Real,
   address: string,
 ): { locked: bigint; unlockHeight: bigint; unlocked: bigint } {

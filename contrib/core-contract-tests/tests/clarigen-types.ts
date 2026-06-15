@@ -8012,6 +8012,325 @@ export const contracts = {
     clarity_version: 'Clarity6',
     contractName: 'pox-5',
   },
+  pox5AuthProxy: {
+    functions: {
+      registerForBondForSender: {
+        name: 'register-for-bond-for-sender',
+        access: 'public',
+        args: [
+          { name: 'bond-index', type: 'uint128' },
+          { name: 'signer-manager', type: 'trait_reference' },
+          { name: 'amount-ustx', type: 'uint128' },
+          {
+            name: 'btc-lockup',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    {
+                      name: 'outputs',
+                      type: {
+                        list: {
+                          type: {
+                            tuple: [
+                              { name: 'amount', type: 'uint128' },
+                              {
+                                name: 'header',
+                                type: { buffer: { length: 80 } },
+                              },
+                              { name: 'height', type: 'uint128' },
+                              {
+                                name: 'leaf-hashes',
+                                type: {
+                                  list: {
+                                    type: { buffer: { length: 32 } },
+                                    length: 14,
+                                  },
+                                },
+                              },
+                              { name: 'output-index', type: 'uint128' },
+                              {
+                                name: 'tx',
+                                type: { buffer: { length: 100000 } },
+                              },
+                              { name: 'tx-count', type: 'uint128' },
+                              { name: 'tx-index', type: 'uint128' },
+                            ],
+                          },
+                          length: 10,
+                        },
+                      },
+                    },
+                    {
+                      name: 'staker-unlock-bytes',
+                      type: { buffer: { length: 683 } },
+                    },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+          {
+            name: 'signer-calldata',
+            type: { optional: { buffer: { length: 500 } } },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'bond-index', type: 'uint128' },
+                  {
+                    name: 'btc-lockup',
+                    type: {
+                      tuple: [
+                        {
+                          name: 'txs',
+                          type: {
+                            optional: {
+                              list: {
+                                type: {
+                                  tuple: [
+                                    { name: 'output-index', type: 'uint128' },
+                                    {
+                                      name: 'txid',
+                                      type: { buffer: { length: 32 } },
+                                    },
+                                  ],
+                                },
+                                length: 10,
+                              },
+                            },
+                          },
+                        },
+                        {
+                          name: 'type',
+                          type: { 'string-ascii': { length: 2 } },
+                        },
+                      ],
+                    },
+                  },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'is-l1-lock', type: 'bool' },
+                  { name: 'sats-total', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          bondIndex: TypedAbiArg<number | bigint, 'bondIndex'>,
+          signerManager: TypedAbiArg<string, 'signerManager'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          btcLockup: TypedAbiArg<
+            Response<
+              {
+                outputs: {
+                  amount: number | bigint;
+                  header: Uint8Array;
+                  height: number | bigint;
+                  leafHashes: Uint8Array[];
+                  outputIndex: number | bigint;
+                  tx: Uint8Array;
+                  txCount: number | bigint;
+                  txIndex: number | bigint;
+                }[];
+                stakerUnlockBytes: Uint8Array;
+              },
+              number | bigint
+            >,
+            'btcLockup'
+          >,
+          signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
+        ],
+        Response<
+          {
+            amountUstx: bigint;
+            bondIndex: bigint;
+            btcLockup: {
+              txs:
+                | {
+                    outputIndex: bigint;
+                    txid: Uint8Array;
+                  }[]
+                | null;
+              type: string;
+            };
+            firstRewardCycle: bigint;
+            isL1Lock: boolean;
+            satsTotal: bigint;
+            signer: string;
+            staker: string;
+            unlockBurnHeight: bigint;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      stakeForSender: {
+        name: 'stake-for-sender',
+        access: 'public',
+        args: [
+          { name: 'signer-manager', type: 'trait_reference' },
+          { name: 'amount-ustx', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'start-burn-ht', type: 'uint128' },
+          {
+            name: 'signer-calldata',
+            type: { optional: { buffer: { length: 500 } } },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'num-cycles', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          signerManager: TypedAbiArg<string, 'signerManager'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
+          startBurnHt: TypedAbiArg<number | bigint, 'startBurnHt'>,
+          signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
+        ],
+        Response<
+          {
+            amountUstx: bigint;
+            firstRewardCycle: bigint;
+            numCycles: bigint;
+            signer: string;
+            staker: string;
+            unlockBurnHeight: bigint;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      stakeUpdateForSender: {
+        name: 'stake-update-for-sender',
+        access: 'public',
+        args: [
+          { name: 'signer-manager', type: 'trait_reference' },
+          { name: 'old-signer-manager', type: 'trait_reference' },
+          { name: 'cycles-to-extend', type: 'uint128' },
+          { name: 'amount-increase', type: 'uint128' },
+          {
+            name: 'signer-calldata',
+            type: { optional: { buffer: { length: 500 } } },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-increase', type: 'uint128' },
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'cycles-to-extend', type: 'uint128' },
+                  { name: 'num-cycles', type: 'uint128' },
+                  { name: 'old-signer', type: 'principal' },
+                  { name: 'prev-unlock-height', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          signerManager: TypedAbiArg<string, 'signerManager'>,
+          oldSignerManager: TypedAbiArg<string, 'oldSignerManager'>,
+          cyclesToExtend: TypedAbiArg<number | bigint, 'cyclesToExtend'>,
+          amountIncrease: TypedAbiArg<number | bigint, 'amountIncrease'>,
+          signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
+        ],
+        Response<
+          {
+            amountIncrease: bigint;
+            amountUstx: bigint;
+            cyclesToExtend: bigint;
+            numCycles: bigint;
+            oldSigner: string;
+            prevUnlockHeight: bigint;
+            signer: string;
+            staker: string;
+            unlockBurnHeight: bigint;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      unstakeForSender: {
+        name: 'unstake-for-sender',
+        access: 'public',
+        args: [{ name: 'old-signer-manager', type: 'trait_reference' }],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                  { name: 'signer', type: 'principal' },
+                  { name: 'staker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [oldSignerManager: TypedAbiArg<string, 'oldSignerManager'>],
+        Response<
+          {
+            amountUstx: bigint;
+            firstRewardCycle: bigint;
+            signer: string;
+            staker: string;
+            unlockBurnHeight: bigint;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+    },
+    maps: {},
+    variables: {},
+    constants: {},
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
+    contractName: 'pox-5-auth-proxy',
+  },
   pox_4_test: {
     functions: {
       checkPoxAddrHashbytesIter: {
@@ -11700,6 +12019,7 @@ export const identifiers = {
   bns_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.bns_test',
   pox4: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-4',
   pox5: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
+  pox5AuthProxy: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5-auth-proxy',
   pox_4_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox_4_test',
   sbtcDeposit: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit',
   sbtcRegistry: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry',
@@ -11741,6 +12061,12 @@ export const deployments = {
   pox5: {
     devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
     simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
+    testnet: null,
+    mainnet: null,
+  },
+  pox5AuthProxy: {
+    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5-auth-proxy',
+    simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5-auth-proxy',
     testnet: null,
     mainnet: null,
   },

@@ -116,6 +116,12 @@ export interface Model {
    * grant live until it is explicitly revoked.
    */
   activeGrants: Set<string>;
+  /**
+   * Mirrors `allowance-contract-callers`, keyed `${sender}|${contractCaller}`.
+   * `null` means no expiration; a bigint means the caller is allowed while
+   * `burnBlockHeight < expiration`. Expired rows stay present until disallowed.
+   */
+  contractCallerAllowances: Map<string, bigint | null>;
   /** Current simulated burn block height. */
   burnBlockHeight: bigint;
   /** Burnchain parameters mirrored from `set-burnchain-parameters`. */

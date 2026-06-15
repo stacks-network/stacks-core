@@ -9,13 +9,14 @@ import {
 } from '@stacks/transactions';
 import { hex } from '@scure/base';
 import {
+  err,
   extractErrors,
   projectErrors,
   projectFactory,
   contractFactory,
 } from '@clarigen/core';
 import { accounts, project } from '../clarigen-types';
-import { rov, rovOk, txOk } from '@clarigen/test';
+import { rov, rovOk, tx, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { concatBytes } from '@noble/hashes/utils.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
@@ -65,6 +66,80 @@ export const PRECISION = pox5.constants.PRECISION;
 export const RESERVE_RATIO = pox5.constants.RESERVE_RATIO;
 
 export const deployer = accounts.deployer.address;
+export const AUTH_PROXY_NAME = 'pox-5-auth-proxy';
+export const AUTH_PROXY_ID = `${deployer}.${AUTH_PROXY_NAME}`;
+
+type ProxyStakeArgs = {
+  sender: string;
+  signerManager: string;
+  amountUstx: bigint;
+  numCycles: bigint;
+  startBurnHeight: bigint | number;
+};
+
+function proxyStakeCall(args: ProxyStakeArgs) {
+  const { signerManager, amountUstx, numCycles, startBurnHeight } = args;
+  return contracts.pox5AuthProxy.stakeForSender({
+    signerManager,
+    amountUstx,
+    numCycles,
+    startBurnHt: startBurnHeight,
+    signerCalldata: null,
+  });
+}
+
+export function proxyStake(args: ProxyStakeArgs) {
+  return tx(proxyStakeCall(args), args.sender);
+}
+
+export function proxyStakeOk(args: ProxyStakeArgs) {
+  return txOk(proxyStakeCall(args), args.sender);
+}
+
+type ProxyUnstakeArgs = {
+  sender: string;
+  oldSignerManager: string;
+};
+
+function proxyUnstakeCall(args: ProxyUnstakeArgs) {
+  const { oldSignerManager } = args;
+  return contracts.pox5AuthProxy.unstakeForSender(oldSignerManager);
+}
+
+export function proxyUnstake(args: ProxyUnstakeArgs) {
+  return tx(proxyUnstakeCall(args), args.sender);
+}
+
+export function proxyUnstakeOk(args: ProxyUnstakeArgs) {
+  return txOk(proxyUnstakeCall(args), args.sender);
+}
+
+type ProxyRegisterForBondArgs = {
+  sender: string;
+  bondIndex: bigint;
+  signerManager: string;
+  amountUstx: bigint;
+  sats: bigint;
+};
+
+function proxyRegisterForBondCall(args: ProxyRegisterForBondArgs) {
+  const { bondIndex, signerManager, amountUstx, sats } = args;
+  return contracts.pox5AuthProxy.registerForBondForSender({
+    bondIndex,
+    signerManager,
+    amountUstx,
+    btcLockup: err(sats),
+    signerCalldata: null,
+  });
+}
+
+export function proxyRegisterForBond(args: ProxyRegisterForBondArgs) {
+  return tx(proxyRegisterForBondCall(args), args.sender);
+}
+
+export function proxyRegisterForBondOk(args: ProxyRegisterForBondArgs) {
+  return txOk(proxyRegisterForBondCall(args), args.sender);
+}
 
 export function toWitnessOutput(script: Uint8Array) {
   return BTC.OutScript.encode(
