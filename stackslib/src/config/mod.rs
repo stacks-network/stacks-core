@@ -799,23 +799,6 @@ impl Config {
             None => default_burnchain_config,
         };
 
-        let supported_modes = [
-            "helium",
-            "neon",
-            "argon",
-            "krypton",
-            "xenon",
-            "mainnet",
-            "nakamoto-neon",
-        ];
-
-        if !supported_modes.contains(&burnchain.mode.as_str()) {
-            return Err(format!(
-                "Setting burnchain.network not supported (should be: {})",
-                supported_modes.join(", ")
-            ));
-        }
-
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
             return Err("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)".into());
         }
@@ -1720,6 +1703,27 @@ impl BurnchainConfigFile {
         }
 
         let mode = self.mode.unwrap_or(default_burnchain_config.mode);
+
+        // Validate the mode before anything else: get_bitcoin_network() (called
+        // further down) panics on an unknown mode, so an unsupported or removed
+        // mode (e.g. the old "mocknet") must be rejected here with a clean error
+        // rather than aborting the process.
+        const SUPPORTED_MODES: [&str; 7] = [
+            "helium",
+            "neon",
+            "argon",
+            "krypton",
+            "xenon",
+            "mainnet",
+            "nakamoto-neon",
+        ];
+        if !SUPPORTED_MODES.contains(&mode.as_str()) {
+            return Err(format!(
+                "Setting burnchain.mode not supported (should be: {})",
+                SUPPORTED_MODES.join(", ")
+            ));
+        }
+
         let is_mainnet = mode == "mainnet";
         if is_mainnet {
             // check magic bytes and set if not defined

@@ -1,0 +1,1 @@
+Default `burnchain.mode` is now `neon` (previously `mocknet`). A node started without an explicit `[burnchain] mode` now follows a regtest network instead of the removed in-process mocknet, and a config that still sets `mode = "mocknet"` is rejected with a clear "not supported" error at startup.
