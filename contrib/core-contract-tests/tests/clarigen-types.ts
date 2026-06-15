@@ -4072,6 +4072,7 @@ export const contracts = {
                 { name: 'tx', type: { buffer: { length: 100000 } } },
                 { name: 'tx-count', type: 'uint128' },
                 { name: 'tx-index', type: 'uint128' },
+                { name: 'unlock-burn-height', type: 'uint128' },
               ],
             },
           },
@@ -4096,6 +4097,7 @@ export const contracts = {
               tx: Uint8Array;
               txCount: number | bigint;
               txIndex: number | bigint;
+              unlockBurnHeight: number | bigint;
             },
             'lockup'
           >,
@@ -4746,6 +4748,7 @@ export const contracts = {
                 { name: 'tx', type: { buffer: { length: 100000 } } },
                 { name: 'tx-count', type: 'uint128' },
                 { name: 'tx-index', type: 'uint128' },
+                { name: 'unlock-burn-height', type: 'uint128' },
               ],
             },
           },
@@ -4756,9 +4759,10 @@ export const contracts = {
                 ok: {
                   tuple: [
                     {
-                      name: 'expected-script-hash',
-                      type: { buffer: { length: 34 } },
+                      name: 'early-unlock-bytes',
+                      type: { buffer: { length: 683 } },
                     },
+                    { name: 'minimum-unlock-height', type: 'uint128' },
                     {
                       name: 'seen-outpoints',
                       type: {
@@ -4776,6 +4780,11 @@ export const contracts = {
                         },
                       },
                     },
+                    { name: 'staker', type: 'principal' },
+                    {
+                      name: 'staker-unlock-bytes',
+                      type: { buffer: { length: 683 } },
+                    },
                     { name: 'sum', type: 'uint128' },
                   ],
                 },
@@ -4790,9 +4799,10 @@ export const contracts = {
               ok: {
                 tuple: [
                   {
-                    name: 'expected-script-hash',
-                    type: { buffer: { length: 34 } },
+                    name: 'early-unlock-bytes',
+                    type: { buffer: { length: 683 } },
                   },
+                  { name: 'minimum-unlock-height', type: 'uint128' },
                   {
                     name: 'seen-outpoints',
                     type: {
@@ -4806,6 +4816,11 @@ export const contracts = {
                         length: 10,
                       },
                     },
+                  },
+                  { name: 'staker', type: 'principal' },
+                  {
+                    name: 'staker-unlock-bytes',
+                    type: { buffer: { length: 683 } },
                   },
                   { name: 'sum', type: 'uint128' },
                 ],
@@ -4826,17 +4841,21 @@ export const contracts = {
               tx: Uint8Array;
               txCount: number | bigint;
               txIndex: number | bigint;
+              unlockBurnHeight: number | bigint;
             },
             'lockup'
           >,
           accumulatorRes: TypedAbiArg<
             Response<
               {
-                expectedScriptHash: Uint8Array;
+                earlyUnlockBytes: Uint8Array;
+                minimumUnlockHeight: number | bigint;
                 seenOutpoints: {
                   outputIndex: number | bigint;
                   txid: Uint8Array;
                 }[];
+                staker: string;
+                stakerUnlockBytes: Uint8Array;
                 sum: number | bigint;
               },
               number | bigint
@@ -4846,11 +4865,14 @@ export const contracts = {
         ],
         Response<
           {
-            expectedScriptHash: Uint8Array;
+            earlyUnlockBytes: Uint8Array;
+            minimumUnlockHeight: bigint;
             seenOutpoints: {
               outputIndex: bigint;
               txid: Uint8Array;
             }[];
+            staker: string;
+            stakerUnlockBytes: Uint8Array;
             sum: bigint;
           },
           bigint
@@ -4929,6 +4951,7 @@ export const contracts = {
                           { name: 'tx', type: { buffer: { length: 100000 } } },
                           { name: 'tx-count', type: 'uint128' },
                           { name: 'tx-index', type: 'uint128' },
+                          { name: 'unlock-burn-height', type: 'uint128' },
                         ],
                       },
                       length: 10,
@@ -4959,6 +4982,7 @@ export const contracts = {
                 tx: Uint8Array;
                 txCount: number | bigint;
                 txIndex: number | bigint;
+                unlockBurnHeight: number | bigint;
               }[];
               stakerUnlockBytes: Uint8Array;
             },
@@ -5247,6 +5271,7 @@ export const contracts = {
                               },
                               { name: 'tx-count', type: 'uint128' },
                               { name: 'tx-index', type: 'uint128' },
+                              { name: 'unlock-burn-height', type: 'uint128' },
                             ],
                           },
                           length: 10,
@@ -5335,6 +5360,7 @@ export const contracts = {
                   tx: Uint8Array;
                   txCount: number | bigint;
                   txIndex: number | bigint;
+                  unlockBurnHeight: number | bigint;
                 }[];
                 stakerUnlockBytes: Uint8Array;
               },

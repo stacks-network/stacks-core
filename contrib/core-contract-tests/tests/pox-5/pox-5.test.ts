@@ -1586,7 +1586,11 @@ test.skip('l1 early exit prevents future bond rewards but leaves stx delegated',
       amountUstx: aliceUstx,
       btcLockup: ok({
         outputs: [
-          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: rov(pox5.getBondL1UnlockHeight(0n)),
+          }),
         ],
         stakerUnlockBytes: new Uint8Array(),
       }),
@@ -1644,7 +1648,11 @@ test.skip('l1 early exit does not erase already accrued bond rewards', () => {
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: rov(pox5.getBondL1UnlockHeight(0n)),
+          }),
         ],
         stakerUnlockBytes: new Uint8Array(),
       }),
@@ -1701,7 +1709,11 @@ test.skip('l1 early exit does not erase already accrued staker rewards', () => {
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: rov(pox5.getBondL1UnlockHeight(0n)),
+          }),
         ],
         stakerUnlockBytes: new Uint8Array(),
       }),

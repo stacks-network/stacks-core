@@ -616,6 +616,7 @@
                     tx-count: uint,
                     tx-index: uint,
                     amount: uint,
+                    unlock-burn-height: uint,
                 }
             ),
             staker-unlock-bytes: (buff 683),
@@ -1943,6 +1944,7 @@
                     tx-count: uint,
                     tx-index: uint,
                     amount: uint,
+                    unlock-burn-height: uint,
                 }
             ),
             staker-unlock-bytes: (buff 683),
@@ -1950,15 +1952,13 @@
     )
     (let (
             (bond (unwrap! (get-protocol-bond bond-index) ERR_BOND_NOT_FOUND))
-            (expected-timelock-output (construct-lockup-output-script staker
-                (get-bond-l1-unlock-height bond-index)
-                (get staker-unlock-bytes lockups)
-                (get early-unlock-bytes bond)
-            ))
             (accumulation (try! (fold validate-l1-lockup (get outputs lockups)
                 (ok {
                     sum: u0,
-                    expected-script-hash: expected-timelock-output,
+                    staker: staker,
+                    minimum-unlock-height: (get-bond-l1-unlock-height bond-index),
+                    staker-unlock-bytes: (get staker-unlock-bytes lockups),
+                    early-unlock-bytes: (get early-unlock-bytes bond),
                     seen-outpoints: (list),
                 })
             )))
@@ -1969,7 +1969,6 @@
 
 ;; Fold function for validating l1 lockup info
 ;;
-;; - `expected-script-hash` is the timelock script that the lockup must match
 ;; - `sum` is the running total of sats from all valid lockups processed so far.
 ;; - `seen-outpoints` tracks every (txid, output-index) pair already credited
 ;;   in this call. Duplicate entries is rejected via
@@ -1984,9 +1983,13 @@
             tx-count: uint,
             tx-index: uint,
             amount: uint,
+            unlock-burn-height: uint,
         })
         (accumulator-res (response {
-            expected-script-hash: (buff 34),
+            staker: principal,
+            minimum-unlock-height: uint,
+            staker-unlock-bytes: (buff 683),
+            early-unlock-bytes: (buff 683),
             sum: uint,
             seen-outpoints: (list 10 {
                 txid: (buff 32),
@@ -1999,7 +2002,13 @@
     (let (
             (accumulator (try! accumulator-res))
             (block (try! (parse-block-header (get header lockup))))
-            (expected-script-hash (get expected-script-hash accumulator))
+            (unlock-burn-height (get unlock-burn-height lockup))
+            (expected-script-hash (construct-lockup-output-script
+                (get staker accumulator)
+                unlock-burn-height
+                (get staker-unlock-bytes accumulator)
+                (get early-unlock-bytes accumulator)
+            ))
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
@@ -2011,6 +2020,9 @@
         )
         (asserts! (verify-block-header (get header lockup) (get height lockup))
             ERR_INVALID_BTC_HEADER
+        )
+        (asserts! (>= unlock-burn-height (get minimum-unlock-height accumulator))
+            ERR_INVALID_LOCKUP_SCRIPT
         )
         (asserts! (is-eq (get script output) expected-script-hash)
             ERR_INVALID_LOCKUP_SCRIPT
@@ -2034,7 +2046,10 @@
             ERR_INVALID_MERKLE_PROOF
         )
         (ok {
-            expected-script-hash: (get expected-script-hash accumulator),
+            staker: (get staker accumulator),
+            minimum-unlock-height: (get minimum-unlock-height accumulator),
+            staker-unlock-bytes: (get staker-unlock-bytes accumulator),
+            early-unlock-bytes: (get early-unlock-bytes accumulator),
             sum: (+ (get sum accumulator) (get amount output)),
             seen-outpoints: (unwrap-panic (as-max-len? (append seen-outpoints outpoint) u10)),
         })
@@ -2050,6 +2065,7 @@
     tx-count: uint,
     tx-index: uint,
     amount: uint,
+    unlock-burn-height: uint,
 }))
     {
         txid: (get-reversed-txid (get tx lockup)),
