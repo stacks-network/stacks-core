@@ -2003,10 +2003,8 @@
             (accumulator (try! accumulator-res))
             (block (try! (parse-block-header (get header lockup))))
             (unlock-burn-height (get unlock-burn-height lockup))
-            (expected-script-hash (construct-lockup-output-script
-                (get staker accumulator)
-                unlock-burn-height
-                (get staker-unlock-bytes accumulator)
+            (expected-script-hash (construct-lockup-output-script (get staker accumulator)
+                unlock-burn-height (get staker-unlock-bytes accumulator)
                 (get early-unlock-bytes accumulator)
             ))
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
@@ -2017,9 +2015,6 @@
                 output-index: (get output-index lockup),
             })
             (seen-outpoints (get seen-outpoints accumulator))
-        )
-        (asserts! (verify-block-header (get header lockup) (get height lockup))
-            ERR_INVALID_BTC_HEADER
         )
         (asserts! (>= unlock-burn-height (get minimum-unlock-height accumulator))
             ERR_INVALID_LOCKUP_SCRIPT
@@ -2032,6 +2027,9 @@
         )
         (asserts! (is-none (index-of? seen-outpoints outpoint))
             ERR_DUPLICATE_LOCKUP_OUTPOINT
+        )
+        (asserts! (verify-block-header (get header lockup) (get height lockup))
+            ERR_INVALID_BTC_HEADER
         )
         ;; verify merkle proof
         (asserts!
