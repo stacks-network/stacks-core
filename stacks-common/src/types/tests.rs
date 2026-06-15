@@ -143,9 +143,18 @@ fn test_epoch_coinbase_reward() {
         assert_eq!(epoch.coinbase_reward(true, 666050, 945_001), 500_000_000);
 
         assert_eq!(epoch.coinbase_reward(true, 666050, 1_012_859), 500_000_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_012_860), 1_000_000_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_012_861), 1_000_000_000);
-        assert_eq!(epoch.coinbase_reward(true, 666050, 2_000_000), 1_000_000_000);
+        assert_eq!(
+            epoch.coinbase_reward(true, 666050, 1_012_860),
+            1_000_000_000
+        );
+        assert_eq!(
+            epoch.coinbase_reward(true, 666050, 1_012_861),
+            1_000_000_000
+        );
+        assert_eq!(
+            epoch.coinbase_reward(true, 666050, 2_000_000),
+            1_000_000_000
+        );
     }
 
     // old coinbase schedule
