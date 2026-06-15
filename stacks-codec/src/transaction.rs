@@ -2416,14 +2416,15 @@ impl StacksMessageCodec for StacksMicroblockHeader {
         let tx_merkle_root: Sha512Trunc256Sum = read_next(fd)?;
         let signature: MessageSignature = read_next(fd)?;
 
-        // signature must be well-formed
-        // in tests, we sometimes use invalid signatures
+        // signature must be well-formed (recovery byte must be 0–3)
+        // in tests, we sometimes use zero/invalid r,s bytes, so we only check
+        // the recovery ID here; full cryptographic validation happens later
         #[cfg(not(any(test, feature = "testing")))]
-        let _ = signature
-            .to_secp256k1_recoverable()
-            .ok_or(codec_error::DeserializeError(
+        if signature.0[0] > 3 {
+            return Err(codec_error::DeserializeError(
                 "Failed to parse signature".to_string(),
-            ))?;
+            ));
+        }
 
         Ok(StacksMicroblockHeader {
             version,

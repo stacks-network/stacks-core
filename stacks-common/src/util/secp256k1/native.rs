@@ -381,6 +381,9 @@ impl PrivateKey for Secp256k1PrivateKey {
 
     #[cfg(not(feature = "wasm-deterministic"))]
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
+        if data_hash.len() != 32 {
+            return Err("Invalid message: failed to decode data hash: must be a 32-byte hash");
+        }
         use k256::ecdsa::signature::hazmat::PrehashSigner;
         let (sig, recid) = self
             .signing_key()
