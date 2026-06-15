@@ -402,7 +402,7 @@ export function expectAllSignersHaveKeys() {
 }
 
 export function initPox5() {
-  const INITIAL_BOND_ADMIN = 'SP000000000000000000002Q6VF78';
+  const INITIAL_PAUSE_ADMIN = 'SP000000000000000000002Q6VF78';
 
   txOk(
     pox5.setBurnchainParameters({
@@ -413,7 +413,8 @@ export function initPox5() {
     }),
     deployer,
   );
-  txOk(pox5.setBondAdmin(deployer), INITIAL_BOND_ADMIN);
+  txOk(pox5.setBondAdmin(deployer), INITIAL_PAUSE_ADMIN);
+  txOk(pox5.setPauseAdmin(deployer), INITIAL_PAUSE_ADMIN);
 }
 
 export function sbtcTransfer(

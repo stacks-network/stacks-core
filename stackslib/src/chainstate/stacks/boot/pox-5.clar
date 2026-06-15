@@ -66,6 +66,7 @@
 (define-constant ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED (err u50))
 ;; A reserve withdrawal was attempted with insufficient reserve balance
 (define-constant ERR_INSUFFICIENT_RESERVE_BALANCE (err u51))
+(define-constant ERR_REWARDS_PAUSED (err u52))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -352,6 +353,12 @@
 ;; TODO: this should be set to some predefined multisig for mainnet.
 (define-data-var bond-admin principal 'SP000000000000000000002Q6VF78)
 
+;; The role that can permanently pause signer reward claims.
+;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
+;; configured admin before deploy.
+(define-data-var pause-admin principal 'SP000000000000000000002Q6VF78)
+(define-data-var rewards-paused bool false)
+
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
@@ -461,6 +468,40 @@
         (try! (validate-no-reentrancy))
         (var-set bond-admin new-admin)
         (print (merge { topic: "set-bond-admin" } result))
+        (ok result)
+    )
+)
+
+;; Transfer the role that can permanently pause signer reward claims.
+(define-public (set-pause-admin (new-admin principal))
+    (let (
+            (old-admin (var-get pause-admin))
+            (result {
+                old-admin: old-admin,
+                new-admin: new-admin,
+            })
+        )
+        (asserts! (is-eq contract-caller old-admin) ERR_UNAUTHORIZED)
+        (try! (validate-no-reentrancy))
+        (var-set pause-admin new-admin)
+        (print (merge { topic: "set-pause-admin" } result))
+        (ok result)
+    )
+)
+
+;; Permanently prevent signers from claiming rewards from this contract.
+(define-public (pause-rewards)
+    (let (
+            (old-admin (var-get pause-admin))
+            (result {
+                old-admin: old-admin,
+                new-admin: old-admin,
+            })
+        )
+        (asserts! (is-eq contract-caller old-admin) ERR_UNAUTHORIZED)
+        (try! (validate-no-reentrancy))
+        (var-set rewards-paused true)
+        (print (merge { topic: "pause-rewards" } result))
         (ok result)
     )
 )
@@ -2357,6 +2398,7 @@
             (total-rewards (+ (get earned stx-rewards) bond-totals))
             (prev-accrued-rewards (var-get last-accounted-rewards-only))
         )
+        (asserts! (not (var-get rewards-paused)) ERR_REWARDS_PAUSED)
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
 
