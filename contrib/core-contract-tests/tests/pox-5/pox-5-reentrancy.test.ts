@@ -118,13 +118,6 @@ test('reentrancy via validate-stake! is blocked with ERR_REENTRANT_CALL', () => 
     alice,
   );
 
-  // Alice pre-authorizes maliciousId so check-caller-allowed passes inside
-  // unstake-sbtc, letting execution reach the reentrancy guard.
-  txOk(
-    pox5.allowContractCaller(maliciousId, BigInt(simnet.burnBlockHeight + 10)),
-    alice,
-  );
-
   const aliceBalanceLocked = sbtcBalance(alice);
 
   const result = txErr(

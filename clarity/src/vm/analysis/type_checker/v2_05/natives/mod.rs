@@ -838,6 +838,8 @@ impl TypedNativeFunction {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
+            | AllowanceWithStaking
+            | AllowanceWithPox
             | AllowanceAll
             | Secp256r1Verify
             | VerifyMerkleProof
