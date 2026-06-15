@@ -103,6 +103,7 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
           );
 
           // Update model
+
           // Replay the contract's remove-then-re-add over the touched cycles.
           // remove reads the stored membership, so it subtracts from the OLD
           // signer; re-add joins the NEW signer (bond => isStxStaking false).
@@ -112,6 +113,7 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
             r.sender,
             firstRewardCycle,
             numCycles,
+            false,
           );
           modelAddStakerToCycles(
             model,

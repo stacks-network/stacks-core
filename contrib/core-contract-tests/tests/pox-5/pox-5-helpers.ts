@@ -35,6 +35,9 @@ export const pox5 = contractFactory(
   POX5_BOOT_ID,
 ) as typeof contracts.pox5;
 export const errorCodes = projectErrors(project).pox5;
+// The signer-manager wrapper has its own error constants;
+// `claim-staker-rewards` asserts with these, not pox-5's.
+export const signerErrorCodes = projectErrors(project).testPox5Signer;
 export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
 export const signerManager = contracts.signerManager;
@@ -52,6 +55,12 @@ export const MAX_SIGNERS = 10;
 export const BOND_GAP_CYCLES = 2n;
 /** Length of a bond period in cycles (contract `BOND_LENGTH_CYCLES`). */
 export const BOND_LENGTH_CYCLES = 12n;
+/** Min uSTX delegation for a signer to enter the reward set. */
+export const SIGNER_SET_MIN_USTX = pox5.constants.SIGNER_SET_MIN_USTX;
+/** Fixed-point scale for the rewards-per-token accumulators (1e18). */
+export const PRECISION = pox5.constants.PRECISION;
+/** Basis-point share of rewards skimmed into the reserve (1500 = 15%). */
+export const RESERVE_RATIO = pox5.constants.RESERVE_RATIO;
 
 export const deployer = accounts.deployer.address;
 

@@ -111,6 +111,7 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
           // Update model
           model.sbtcBalances.set(r.sender, balance - sats);
           model.totalSbtcStaked += sats;
+          model.contractSbtcBalance += sats;
           model.bondTotalStaked.set(
             bondIndex,
             (model.bondTotalStaked.get(bondIndex) ?? 0n) + sats,

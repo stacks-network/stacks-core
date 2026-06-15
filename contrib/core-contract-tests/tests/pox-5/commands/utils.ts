@@ -4,6 +4,9 @@ import {
   BOND_GAP_CYCLES,
   BOND_LENGTH_CYCLES,
   MAX_SIGNERS,
+  PRECISION,
+  RESERVE_RATIO,
+  SIGNER_SET_MIN_USTX,
   testSigner,
 } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
@@ -154,6 +157,46 @@ export function isActiveBondMember(
   const membership = model.bondMemberships.get(staker);
   if (membership === undefined) return false;
   return currentRewardCycle(model) < bondEndCycle(model, membership.bondIndex);
+}
+
+/** Stakers whose `get-bond-membership` still resolves (active term). */
+export function activeBondMembers(model: Readonly<Model>): string[] {
+  return [...model.bondMemberships.keys()].filter((s) =>
+    isActiveBondMember(model, s),
+  );
+}
+
+/**
+ * Guards a contract bug. unstake-sbtc removes the staker's sats across
+ * [current, bond-end) under the membership signer, but update-bond-registration
+ * re-signs only [current+1, bond-end), so an update this cycle leaves the
+ * current cycle under the old signer. Removing it under the new signer
+ * underflows (pox-5.clar:1824). Safe only while the staker's shares at the
+ * first affected cycle still sit under the membership signer.
+ *
+ * TODO: drop this guard once unstake-sbtc reads the per-cycle signer map (the
+ * pox-5 authors' fix, keeping its current range). UnstakeSbtc then removes bond
+ * shares under the per-cycle signer, not the membership signer.
+ */
+export function isUnstakeSbtcSafe(
+  model: Readonly<Model>,
+  staker: string,
+): boolean {
+  const membership = model.bondMemberships.get(staker);
+  if (membership === undefined) return false;
+  const start = bondStartCycle(model, membership.bondIndex);
+  const current = currentRewardCycle(model);
+  const firstChanged = current < start ? start : current;
+  return (
+    model.bondStakerSharesForCycle.get(
+      bondStakerCycleKey(
+        firstChanged,
+        membership.bondIndex,
+        membership.signer,
+        staker,
+      ),
+    ) === membership.amountSats
+  );
 }
 
 /**
@@ -430,6 +473,13 @@ export function modelAddStakerToCycles(
       sdKey,
       (model.signerDelegatedPerCycle.get(sdKey) ?? 0n) + amountUstx,
     );
+    // Pending stx stake accrues unconditionally; the none-variant shares mirror
+    // it only while the signer's delegation is over SIGNER_SET_MIN_USTX.
+    model.signerPendingStakedPerCycle.set(
+      sdKey,
+      (model.signerPendingStakedPerCycle.get(sdKey) ?? 0n) +
+        (isStxStaking ? amountUstx : 0n),
+    );
     model.stakerSharesStakedForCycle.set(
       stakerSignerCycleKey(staker, signer, cycle),
       isStxStaking ? amountUstx : 0n,
@@ -447,13 +497,15 @@ export function modelAddStakerToCycles(
  * signer subtracted come from the stored per-cycle membership (what was live
  * when that cycle was written), not from the staker's current record. That's
  * why a StakeUpdate that changes the amount still decrements each cycle by
- * what was actually added there.
+ * what was actually added there. Bonds pass `isStxStaking` false, so the
+ * pending stx stake is left untouched.
  */
 export function modelRemoveStakerFromCycles(
   model: Model,
   staker: string,
   firstCycle: bigint,
   numCycles: bigint,
+  isStxStaking = true,
 ): void {
   for (let i = 0n; i < numCycles; i++) {
     const cycle = firstCycle + i;
@@ -468,6 +520,11 @@ export function modelRemoveStakerFromCycles(
     model.signerDelegatedPerCycle.set(
       sdKey,
       (model.signerDelegatedPerCycle.get(sdKey) ?? 0n) - amountUstx,
+    );
+    model.signerPendingStakedPerCycle.set(
+      sdKey,
+      (model.signerPendingStakedPerCycle.get(sdKey) ?? 0n) -
+        (isStxStaking ? amountUstx : 0n),
     );
     model.stakerSharesStakedForCycle.delete(
       stakerSignerCycleKey(staker, signer, cycle),
@@ -695,6 +752,409 @@ export function assertTotalDelegatedForCycle(
   expect(rov(real.contracts.pox5.getUstxDelegatedForCycle(cycle))).toBe(
     model.ustxDelegatedPerCycle.get(cycle) ?? 0n,
   );
+}
+
+// None-variant (stx-only) share reads, which are threshold-gated. The contract
+// writes a signer's shares only while its delegation is over
+// SIGNER_SET_MIN_USTX, but `signerPendingStakedPerCycle` accrues regardless,
+// so the live value is "pending if over the threshold, else 0".
+
+/** The signer's pending stx stake, the unconditional running sum. */
+export function modelSignerPending(
+  model: Readonly<Model>,
+  signer: string,
+  cycle: bigint,
+): bigint {
+  return (
+    model.signerPendingStakedPerCycle.get(signerCycleKey(signer, cycle)) ?? 0n
+  );
+}
+
+/**
+ * Contract's none-variant `signer-shares-staked-for-cycle`: the signer's
+ * pending stake while its delegation is over the threshold, else 0.
+ */
+export function modelSignerSharesNone(
+  model: Readonly<Model>,
+  signer: string,
+  cycle: bigint,
+): bigint {
+  const delegated =
+    model.signerDelegatedPerCycle.get(signerCycleKey(signer, cycle)) ?? 0n;
+  return delegated >= SIGNER_SET_MIN_USTX
+    ? modelSignerPending(model, signer, cycle)
+    : 0n;
+}
+
+/**
+ * Contract's none-variant `total-shares-staked-for-cycle`: the summed pending
+ * stake of every signer over the threshold this cycle.
+ */
+export function modelTotalSharesNone(
+  model: Readonly<Model>,
+  cycle: bigint,
+): bigint {
+  let total = 0n;
+  for (const [key, delegated] of model.signerDelegatedPerCycle) {
+    if (delegated < SIGNER_SET_MIN_USTX) continue;
+    if (BigInt(key.slice(key.lastIndexOf('|') + 1)) === cycle) {
+      total += model.signerPendingStakedPerCycle.get(key) ?? 0n;
+    }
+  }
+  return total;
+}
+
+export function assertSignerPendingForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  signer: string,
+): void {
+  expect(
+    rov(real.contracts.pox5.getSignerPendingStakedUstxPerCycle(signer, cycle)),
+  ).toBe(modelSignerPending(model, signer, cycle));
+}
+
+export function assertSignerSharesNoneForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  signer: string,
+): void {
+  expect(
+    rov(real.contracts.pox5.getSignerSharesStakedForCycle(signer, cycle, null)),
+  ).toBe(modelSignerSharesNone(model, signer, cycle));
+}
+
+export function assertTotalSharesNoneForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+): void {
+  expect(
+    rov(real.contracts.pox5.getTotalSharesStakedForCycle(cycle, null)),
+  ).toBe(modelTotalSharesNone(model, cycle));
+}
+
+/**
+ * Contract `get-rewards`: the contract's sBTC balance net of staked sats and
+ * the reserve, i.e. the sBTC available to distribute as rewards.
+ */
+export function modelGetRewards(model: Readonly<Model>): bigint {
+  return (
+    model.contractSbtcBalance - model.totalSbtcStaked - model.reserveBalance
+  );
+}
+
+/** Contract `get-new-rewards`: rewards arrived since the last computation. */
+export function modelGetNewRewards(model: Readonly<Model>): bigint {
+  return modelGetRewards(model) - model.lastAccountedRewardsOnly;
+}
+
+/** `rewardsPerTokenForCycle` key: the none pool uses `n`, bonds their index. */
+export function rptKey(cycle: bigint, bondIndex: bigint | null): string {
+  return `${cycle}|${bondIndex ?? 'n'}`;
+}
+
+/**
+ * `calculate-rewards` snapshot height: the last burn height of the prior
+ * distribution (half) cycle. Reruns within one half-cycle find this unmoved
+ * and abort, so it gates how often a distribution can run.
+ */
+export function rewardsCalculationHeight(model: Readonly<Model>): bigint {
+  const halfCycle = model.rewardCycleLength / 2n;
+  const distributionCycle =
+    (model.burnBlockHeight - model.firstBurnHeight) / halfCycle;
+  return model.firstBurnHeight + distributionCycle * halfCycle - 1n;
+}
+
+/** Bond indices active at `height`: set up, and `height` in (start, end]. */
+export function activeBondsAtHeight(
+  model: Readonly<Model>,
+  height: bigint,
+): bigint[] {
+  const result: bigint[] = [];
+  for (const [bondIndex] of model.bonds) {
+    const startHeight = rewardCycleToBurnHeight(
+      model,
+      bondStartCycle(model, bondIndex),
+    );
+    const endHeight = rewardCycleToBurnHeight(
+      model,
+      bondEndCycle(model, bondIndex),
+    );
+    if (height > startHeight && height <= endHeight) result.push(bondIndex);
+  }
+  return result;
+}
+
+/**
+ * Sort bonds the way the reward fold demands: stx-value-ratio descending, bond
+ * index ascending as the tie-breaker. Used both for the correct order and to
+ * place a deliberately-wrong bond in the error-path commands.
+ */
+export function sortBondsForRewards(
+  model: Readonly<Model>,
+  bonds: bigint[],
+): bigint[] {
+  return [...bonds].sort((a, b) => {
+    const ra = model.bonds.get(a)!.stxValueRatio;
+    const rb = model.bonds.get(b)!.stxValueRatio;
+    if (ra !== rb) return ra > rb ? -1 : 1;
+    return a < b ? -1 : 1;
+  });
+}
+
+/** Active bonds in the order `calculate-rewards` demands. */
+export function sortedActiveBonds(
+  model: Readonly<Model>,
+  height: bigint,
+): bigint[] {
+  return sortBondsForRewards(model, activeBondsAtHeight(model, height));
+}
+
+/** Reward cycle whose stakers a `calculate-rewards` distribution credits. */
+export function rewardsStxCycle(model: Readonly<Model>): bigint {
+  return (
+    (rewardsCalculationHeight(model) - model.firstBurnHeight) /
+    model.rewardCycleLength
+  );
+}
+
+/** One bond's slice of a `calculate-rewards` distribution. */
+export interface BondDistribution {
+  bondIndex: bigint;
+  accruedRewardsPerSat: bigint;
+  cumulativeRewardsPerSat: bigint;
+}
+
+/** The full predicted outcome of one `calculate-rewards` call. */
+export interface CalcRewardsResult {
+  calculationHeight: bigint;
+  stxCycle: bigint;
+  bondPeriods: bigint[];
+  grossAccruedRewards: bigint;
+  bondDistributions: BondDistribution[];
+  totalBondRewards: bigint;
+  reserveDeposit: bigint;
+  newReserveBalance: bigint;
+  stxStakerRewards: bigint;
+  cycleStakedUstx: bigint;
+  accruedRewardsPerUstx: bigint;
+  cumulativeRewardsPerUstx: bigint;
+  newLastAccounted: bigint;
+}
+
+/**
+ * Predict a `calculate-rewards` call from current model state, without
+ * mutating. Each active bond earns its target yield (capped by what is left)
+ * in (ratio desc, index asc) order. The reserve skims its cut from the
+ * remainder, and the rest spreads across stx stakers through the none-pool
+ * accumulator. With no stx staked this cycle, the whole staker cut folds into
+ * the reserve instead.
+ */
+export function modelCalculateRewards(
+  model: Readonly<Model>,
+): CalcRewardsResult {
+  const calculationHeight = rewardsCalculationHeight(model);
+  const stxCycle = rewardsStxCycle(model);
+  const grossAccruedRewards = modelGetNewRewards(model);
+  const bondPeriods = sortedActiveBonds(model, calculationHeight);
+
+  let available = grossAccruedRewards;
+  const bondDistributions: BondDistribution[] = [];
+  for (const bondIndex of bondPeriods) {
+    const { targetRate } = model.bonds.get(bondIndex)!;
+    const totalSats =
+      model.bondTotalSharesForCycle.get(
+        bondTotalCycleKey(stxCycle, bondIndex),
+      ) ?? 0n;
+    const targetYield = (totalSats * targetRate) / 10000n / 50n;
+    const earned = available >= targetYield ? targetYield : available;
+    const accruedRewardsPerSat =
+      totalSats === 0n ? 0n : (earned * PRECISION) / totalSats;
+    const current =
+      model.rewardsPerTokenForCycle.get(rptKey(stxCycle, bondIndex)) ?? 0n;
+    bondDistributions.push({
+      bondIndex,
+      accruedRewardsPerSat,
+      cumulativeRewardsPerSat: current + accruedRewardsPerSat,
+    });
+    available -= earned;
+  }
+  const totalBondRewards = grossAccruedRewards - available;
+
+  const reserveCut = (available * RESERVE_RATIO) / 10000n;
+  const stxStakerRewards = available - reserveCut;
+  const cycleStakedUstx = modelTotalSharesNone(model, stxCycle);
+  const noStxStakers = cycleStakedUstx === 0n;
+  const accruedRewardsPerUstx = noStxStakers
+    ? 0n
+    : (stxStakerRewards * PRECISION) / cycleStakedUstx;
+  const currentNone =
+    model.rewardsPerTokenForCycle.get(rptKey(stxCycle, null)) ?? 0n;
+  const cumulativeRewardsPerUstx = currentNone + accruedRewardsPerUstx;
+  const unallocatedStakerCut = noStxStakers ? stxStakerRewards : 0n;
+  const reserveDeposit = reserveCut + unallocatedStakerCut;
+
+  return {
+    calculationHeight,
+    stxCycle,
+    bondPeriods,
+    grossAccruedRewards,
+    bondDistributions,
+    totalBondRewards,
+    reserveDeposit,
+    newReserveBalance: model.reserveBalance + reserveDeposit,
+    stxStakerRewards,
+    cycleStakedUstx,
+    accruedRewardsPerUstx,
+    cumulativeRewardsPerUstx,
+    newLastAccounted:
+      model.lastAccountedRewardsOnly + (grossAccruedRewards - reserveDeposit),
+  };
+}
+
+export function assertRewardsPerTokenForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint | null,
+): void {
+  expect(
+    rov(real.contracts.pox5.getRewardsPerTokenForCycle(cycle, bondIndex)),
+  ).toBe(model.rewardsPerTokenForCycle.get(rptKey(cycle, bondIndex)) ?? 0n);
+}
+
+/** `signerRewards*` map key: cycle, bond (none is `n`), and the signer. */
+export function signerRewardKey(
+  cycle: bigint,
+  bondIndex: bigint | null,
+  signer: string,
+): string {
+  return `${cycle}|${bondIndex ?? 'n'}|${signer}`;
+}
+
+/** A signer's shares feeding the reward pool at `cycle`: none pool or one bond. */
+export function modelSignerSharesForRewards(
+  model: Readonly<Model>,
+  signer: string,
+  cycle: bigint,
+  bondIndex: bigint | null,
+): bigint {
+  return bondIndex === null
+    ? modelSignerSharesNone(model, signer, cycle)
+    : (model.bondSignerSharesForCycle.get(
+        bondSignerCycleKey(cycle, bondIndex, signer),
+      ) ?? 0n);
+}
+
+/**
+ * Contract `get-earned`: the signer's rewards owed since its last settle,
+ * `unclaimed + shares*(rpt - rptSettled)/PRECISION`. The accumulator only
+ * grows, so the difference never goes negative.
+ */
+export function modelEarnedSigner(
+  model: Readonly<Model>,
+  signer: string,
+  cycle: bigint,
+  bondIndex: bigint | null,
+): bigint {
+  const key = signerRewardKey(cycle, bondIndex, signer);
+  const shares = modelSignerSharesForRewards(model, signer, cycle, bondIndex);
+  const rpt = model.rewardsPerTokenForCycle.get(rptKey(cycle, bondIndex)) ?? 0n;
+  const rptSettled = model.signerRewardsPerTokenSettled.get(key) ?? 0n;
+  const unclaimed = model.signerUnclaimedRewards.get(key) ?? 0n;
+  return unclaimed + (shares * (rpt - rptSettled)) / PRECISION;
+}
+
+/**
+ * Every (signer, cycle) with a positive none-pool balance to claim, bounded by
+ * the deployed signers times the cycles a distribution has credited.
+ */
+export function claimableNonePool(
+  model: Readonly<Model>,
+): { signer: string; cycle: bigint; earned: bigint }[] {
+  const cycles = new Set<bigint>();
+  for (const mapKey of model.rewardsPerTokenForCycle.keys()) {
+    const [cycleStr, bond] = mapKey.split('|');
+    if (bond === 'n') cycles.add(BigInt(cycleStr));
+  }
+  const result: { signer: string; cycle: bigint; earned: bigint }[] = [];
+  for (const signer of model.deployedSigners) {
+    for (const cycle of cycles) {
+      const earned = modelEarnedSigner(model, signer, cycle, null);
+      if (earned > 0n) result.push({ signer, cycle, earned });
+    }
+  }
+  return result;
+}
+
+/** `stakerRewards*` map key: cycle, bond (none is `n`), signer, and staker. */
+export function stakerRewardKey(
+  cycle: bigint,
+  bondIndex: bigint | null,
+  signer: string,
+  staker: string,
+): string {
+  return `${cycle}|${bondIndex ?? 'n'}|${signer}|${staker}`;
+}
+
+/**
+ * Contract `get-earned-staker-rewards`: a staker's owed rewards since its last
+ * settle, earned against the signer's frozen snapshot,
+ * `unclaimed + shares*(signerRpt - settled)/PRECISION`.
+ */
+export function modelEarnedStaker(
+  model: Readonly<Model>,
+  signer: string,
+  cycle: bigint,
+  bondIndex: bigint | null,
+  staker: string,
+): bigint {
+  const key = stakerRewardKey(cycle, bondIndex, signer, staker);
+  const shares =
+    bondIndex === null
+      ? (model.stakerSharesStakedForCycle.get(
+          stakerSignerCycleKey(staker, signer, cycle),
+        ) ?? 0n)
+      : (model.bondStakerSharesForCycle.get(
+          bondStakerCycleKey(cycle, bondIndex, signer, staker),
+        ) ?? 0n);
+  const signerRpt =
+    model.signerRewardsPerTokenForCycle.get(
+      signerRewardKey(cycle, bondIndex, signer),
+    ) ?? 0n;
+  const settled = model.stakerRewardsPerTokenSettled.get(key) ?? 0n;
+  const unclaimed = model.stakerUnclaimedRewards.get(key) ?? 0n;
+  return unclaimed + (shares * (signerRpt - settled)) / PRECISION;
+}
+
+/**
+ * Every (signer, cycle, staker) with a positive none-pool balance to claim:
+ * the signer has settled the cycle and still holds the sBTC to pay the staker.
+ */
+export function claimableStakerNone(
+  model: Readonly<Model>,
+): { signer: string; cycle: bigint; staker: string; earned: bigint }[] {
+  const result: {
+    signer: string;
+    cycle: bigint;
+    staker: string;
+    earned: bigint;
+  }[] = [];
+  for (const mapKey of model.signerRewardsPerTokenForCycle.keys()) {
+    const [cycleStr, bond, signer] = mapKey.split('|');
+    if (bond !== 'n') continue;
+    const cycle = BigInt(cycleStr);
+    for (const [staker] of model.stakers) {
+      const earned = modelEarnedStaker(model, signer, cycle, null, staker);
+      if (earned > 0n && (model.sbtcBalances.get(signer) ?? 0n) >= earned) {
+        result.push({ signer, cycle, staker, earned });
+      }
+    }
+  }
+  return result;
 }
 
 // Per-principal identity invariants (not cycle-scoped): the contract's staker

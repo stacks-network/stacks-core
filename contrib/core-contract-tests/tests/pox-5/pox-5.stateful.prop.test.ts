@@ -3,10 +3,24 @@ import { accounts, project } from '../clarigen-types';
 import { projectFactory } from '@clarigen/core';
 import { test } from 'vitest';
 
+import { AnnounceL1EarlyExitErrCannotAnnounce } from './commands/AnnounceL1EarlyExitErrCannotAnnounce';
+import { AnnounceL1EarlyExitErrInPreparePhase } from './commands/AnnounceL1EarlyExitErrInPreparePhase';
+import { AnnounceL1EarlyExitErrNotBondParticipant } from './commands/AnnounceL1EarlyExitErrNotBondParticipant';
+import { AnnounceL1EarlyExitErrUnauthorized } from './commands/AnnounceL1EarlyExitErrUnauthorized';
 import { AssertModelInvariants } from './commands/AssertModelInvariants';
 import { AssertSignerInvariants } from './commands/AssertSignerInvariants';
 import { AssertStakerInvariants } from './commands/AssertStakerInvariants';
+import { CalculateRewards } from './commands/CalculateRewards';
+import { CalculateRewardsErrActiveBondNotIncluded } from './commands/CalculateRewardsErrActiveBondNotIncluded';
+import { CalculateRewardsErrAlreadyComputed } from './commands/CalculateRewardsErrAlreadyComputed';
+import { CalculateRewardsErrBondNotActive } from './commands/CalculateRewardsErrBondNotActive';
+import { CalculateRewardsErrInvalidOrdering } from './commands/CalculateRewardsErrInvalidOrdering';
+import { ClaimRewards } from './commands/ClaimRewards';
+import { ClaimRewardsErrNoClaimable } from './commands/ClaimRewardsErrNoClaimable';
+import { ClaimStakerRewards } from './commands/ClaimStakerRewards';
+import { ClaimStakerRewardsErrNoClaimable } from './commands/ClaimStakerRewardsErrNoClaimable';
 import { DeploySigner } from './commands/DeploySigner';
+import { FundRewards } from './commands/FundRewards';
 import { MineBitcoinBlocks } from './commands/MineBlocks';
 import { RegisterForBond } from './commands/RegisterForBond';
 import { RegisterForBondErrAlreadyStaked } from './commands/RegisterForBondErrAlreadyStaked';
@@ -14,6 +28,7 @@ import { RegisterForBondErrBondAlreadyStarted } from './commands/RegisterForBond
 import { RegisterForBondErrBondNotFound } from './commands/RegisterForBondErrBondNotFound';
 import { RegisterForBondErrInPreparePhase } from './commands/RegisterForBondErrInPreparePhase';
 import { RegisterForBondErrInsufficientStx } from './commands/RegisterForBondErrInsufficientStx';
+import { RegisterForBondErrInvalidBtcHeader } from './commands/RegisterForBondErrInvalidBtcHeader';
 import { RegisterForBondErrNotAllowlisted } from './commands/RegisterForBondErrNotAllowlisted';
 import { RegisterForBondErrTooMuchSats } from './commands/RegisterForBondErrTooMuchSats';
 import { RegisterSigner } from './commands/RegisterSigner';
@@ -37,6 +52,11 @@ import { StakeExtend } from './commands/StakeExtend';
 import { StakeUpdate } from './commands/StakeUpdate';
 import { Unstake } from './commands/Unstake';
 import { UnstakeErrInPreparePhase } from './commands/UnstakeErrInPreparePhase';
+import { UnstakeSbtc } from './commands/UnstakeSbtc';
+import { UnstakeSbtcErrInPreparePhase } from './commands/UnstakeSbtcErrInPreparePhase';
+import { UnstakeSbtcErrInvalidAmount } from './commands/UnstakeSbtcErrInvalidAmount';
+import { UnstakeSbtcErrInvalidOldSignerManager } from './commands/UnstakeSbtcErrInvalidOldSignerManager';
+import { UnstakeSbtcErrNotBondParticipant } from './commands/UnstakeSbtcErrNotBondParticipant';
 import { UpdateBondRegistration } from './commands/UpdateBondRegistration';
 import { UpdateBondRegistrationErrInPreparePhase } from './commands/UpdateBondRegistrationErrInPreparePhase';
 import { UpdateBondRegistrationErrInvalidOldSignerManager } from './commands/UpdateBondRegistrationErrInvalidOldSignerManager';
@@ -46,6 +66,7 @@ import { Model, Real } from './commands/types';
 import { reportCommandRuns } from './commands/utils';
 import { initSimnet } from '@stacks/clarinet-sdk';
 import {
+  POX5_BOOT_ID,
   REWARD_CYCLE_LENGTH,
   initBootPox5,
   pox5,
@@ -95,6 +116,7 @@ test(
       stakers: new Map(),
       ustxDelegatedPerCycle: new Map(),
       signerDelegatedPerCycle: new Map(),
+      signerPendingStakedPerCycle: new Map(),
       stakerSignerCycleMemberships: new Map(),
       stakerSharesStakedForCycle: new Map(),
       bondTotalSharesForCycle: new Map(),
@@ -115,6 +137,18 @@ test(
       firstBondPeriodCycle: 1n,
       sbtcBalances,
       totalSbtcStaked: 0n,
+      // The reward pool lives in the contract's sBTC balance; seed from the
+      // live ledger so `get-rewards` derivations match from the first command.
+      contractSbtcBalance: sbtcBalance(POX5_BOOT_ID),
+      reserveBalance: 0n,
+      lastAccountedRewardsOnly: 0n,
+      lastRewardComputeHeight: 0n,
+      rewardsPerTokenForCycle: new Map(),
+      signerRewardsPerTokenSettled: new Map(),
+      signerUnclaimedRewards: new Map(),
+      signerRewardsPerTokenForCycle: new Map(),
+      stakerRewardsPerTokenSettled: new Map(),
+      stakerUnclaimedRewards: new Map(),
       bondMemberships: new Map(),
       bondTotalStaked: new Map(),
       statistics: new Map(),
@@ -137,6 +171,11 @@ test(
       UpdateBondRegistrationErrInPreparePhase(accounts),
       UpdateBondRegistrationErrInvalidOldSignerManager(accounts),
       UpdateBondRegistrationErrUpdateBondSameSigner(accounts),
+      UnstakeSbtc(accounts),
+      UnstakeSbtcErrNotBondParticipant(accounts),
+      UnstakeSbtcErrInvalidAmount(accounts),
+      UnstakeSbtcErrInPreparePhase(accounts),
+      UnstakeSbtcErrInvalidOldSignerManager(accounts),
       StakeErrAlreadyStaked(accounts),
       StakeErrSignerNotFound(accounts),
       StakeErrInvalidNumCycles(accounts),
@@ -152,10 +191,25 @@ test(
       RegisterForBondErrBondAlreadyStarted(accounts),
       RegisterForBondErrAlreadyStaked(accounts),
       RegisterForBondErrTooMuchSats(accounts),
+      RegisterForBondErrInvalidBtcHeader(accounts),
+      AnnounceL1EarlyExitErrCannotAnnounce(accounts),
+      AnnounceL1EarlyExitErrInPreparePhase(accounts),
+      AnnounceL1EarlyExitErrNotBondParticipant(accounts),
+      AnnounceL1EarlyExitErrUnauthorized(accounts),
       SetupBondErrUnauthorized(accounts),
       SetupBondErrAlreadySetup(accounts),
       SetupBondErrTooLate(accounts),
       SetupBondErrTooSoon(accounts),
+      FundRewards(accounts),
+      CalculateRewards(accounts),
+      CalculateRewardsErrAlreadyComputed(accounts),
+      CalculateRewardsErrActiveBondNotIncluded(accounts),
+      CalculateRewardsErrInvalidOrdering(accounts),
+      CalculateRewardsErrBondNotActive(accounts),
+      ClaimRewards(accounts),
+      ClaimRewardsErrNoClaimable(accounts),
+      ClaimStakerRewards(),
+      ClaimStakerRewardsErrNoClaimable(accounts),
       MineBitcoinBlocks(),
       AssertSignerInvariants(),
       AssertStakerInvariants(accounts),

@@ -45,6 +45,12 @@ export interface Model {
   ustxDelegatedPerCycle: Map<bigint, bigint>;
   /** Mirrors `signer-delegated-per-cycle`, keyed `${signer}|${cycle}`. */
   signerDelegatedPerCycle: Map<string, bigint>;
+  /**
+   * Mirrors `signer-pending-staked-ustx-per-cycle`, keyed `${signer}|${cycle}`.
+   * The unconditional running sum of stx-only stake. The none-variant
+   * `signer-shares` equals it while delegation is over `SIGNER_SET_MIN_USTX`.
+   */
+  signerPendingStakedPerCycle: Map<string, bigint>;
   /** Mirrors `staker-signer-cycle-memberships`, keyed `${staker}|${cycle}`. */
   stakerSignerCycleMemberships: Map<
     string,
@@ -120,6 +126,46 @@ export interface Model {
   sbtcBalances: Map<string, bigint>;
   /** Mirrors the contract's `total-sbtc-staked` var. */
   totalSbtcStaked: bigint;
+  /**
+   * The contract principal's sBTC balance, mirroring `get-balance`. Staked
+   * sats, the reserve, and the reward pool all live here, so `get-rewards`
+   * derives as this minus the staked total and the reserve.
+   */
+  contractSbtcBalance: bigint;
+  /** Mirrors `reserve-balance`: sBTC set aside as the protocol reserve. */
+  reserveBalance: bigint;
+  /** Mirrors `last-accounted-rewards-only`: rewards counted in prior calcs. */
+  lastAccountedRewardsOnly: bigint;
+  /** Mirrors `last-reward-compute-height`: burn height of the last calc. */
+  lastRewardComputeHeight: bigint;
+  /**
+   * Mirrors `rewards-per-token-for-cycle`, keyed `${cycle}|${bondIndex ?? 'n'}`.
+   * The Synthetix accumulator: sBTC earned per staked unit, per cycle, for the
+   * stx pool (none) and each bond.
+   */
+  rewardsPerTokenForCycle: Map<string, bigint>;
+  /**
+   * Mirrors `signer-rewards-per-token-settled-for-cycle`, keyed
+   * `${cycle}|${bondIndex ?? 'n'}|${signer}`. The accumulator value a signer was
+   * last paid at; earnings since are `shares*(rpt - this)/PRECISION`.
+   */
+  signerRewardsPerTokenSettled: Map<string, bigint>;
+  /** Mirrors `signer-unclaimed-rewards-for-cycle`, same key. Pending payout. */
+  signerUnclaimedRewards: Map<string, bigint>;
+  /**
+   * Mirrors `signer-rewards-per-token-for-cycle`, same key. The staker-facing
+   * snapshot, frozen at the signer's accumulator on each settle while it holds
+   * shares; the staker tier earns against it.
+   */
+  signerRewardsPerTokenForCycle: Map<string, bigint>;
+  /**
+   * Mirrors `staker-rewards-per-token-settled-for-cycle`, keyed
+   * `${cycle}|${bondIndex ?? 'n'}|${signer}|${staker}`. The signer-snapshot
+   * value a staker was last paid at.
+   */
+  stakerRewardsPerTokenSettled: Map<string, bigint>;
+  /** Mirrors `staker-unclaimed-rewards-for-cycle`, same key. Pending payout. */
+  stakerUnclaimedRewards: Map<string, bigint>;
   /** Mirrors `protocol-bond-memberships`: staker to bond membership. */
   bondMemberships: Map<string, BondMembership>;
   /** Mirrors `protocol-bonds-total-staked`: bond-index to total sats. */

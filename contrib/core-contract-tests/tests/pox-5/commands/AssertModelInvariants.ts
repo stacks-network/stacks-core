@@ -2,9 +2,12 @@ import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
   assertSignerCycleMembership,
+  assertSignerPendingForCycle,
+  assertSignerSharesNoneForCycle,
   assertStakerInfo,
   assertStakerSharesForCycle,
   assertTotalDelegatedForCycle,
+  assertTotalSharesNoneForCycle,
   candidateSignerIds,
   currentRewardCycle,
   getWalletNameByAddress,
@@ -51,6 +54,12 @@ export const AssertModelInvariants = (accounts: Real['accounts']) => {
           r.staker,
           r.signer,
         );
+        // None-variant (stx-only) threshold-gated reads at the current cycle:
+        // the signer's unconditional pending sum, plus the signer/total shares
+        // the contract writes only while delegation is over the threshold.
+        assertSignerPendingForCycle(model, real, checkedCycle, r.signer);
+        assertSignerSharesNoneForCycle(model, real, checkedCycle, r.signer);
+        assertTotalSharesNoneForCycle(model, real, checkedCycle);
 
         logCommand({
           action: 'assert-model-invariants',
