@@ -292,11 +292,7 @@ pub fn use_test_genesis_chainstate(config: &Config) -> bool {
 impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx)>) -> Self {
-        let use_test_genesis_data = if config.burnchain.mode == "helium" {
-            use_test_genesis_chainstate(&config)
-        } else {
-            USE_TEST_GENESIS_CHAINSTATE
-        };
+        let use_test_genesis_data = use_test_genesis_chainstate(&config);
 
         let keychain = Keychain::default(config.node.seed.clone());
 
