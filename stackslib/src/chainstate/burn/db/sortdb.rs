@@ -52,6 +52,7 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use crate::chainstate::stacks::index::file::TrieFile;
 use crate::chainstate::stacks::index::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
 };
@@ -2706,20 +2707,22 @@ impl SortitionDB {
         self.marf.sqlite_conn()
     }
 
-    /// Open or create the sortition MARF index database with internal blobs.
+    /// Open or create the sortition MARF index database.
     ///
     /// This function opens the SQLite-based MARF index at `marf_path`.
     /// If the index database does not exist, it will be created.
-    /// This index stores all blobs internally within the SQLite database
-    /// (i.e., no separate `.blobs` file).
+    /// Archival sortition DBs store blobs internally. Squashed sortition DBs
+    /// are expected to store blobs externally in `marf.sqlite.blobs`.
     ///
     /// # Arguments
     /// * `marf_path` - Path to the MARF SQLite index database.
     /// * `marf_opts` - Configuration options for opening the MARF.
     ///
     /// # Behavior
-    /// Given a `marf_path` such as `burnchain/sortition/marf.sqlite`,
-    /// the MARF blobs are stored internally within the SQLite database.
+    /// The blob layout is detected from disk (external iff `marf.sqlite.blobs`
+    /// exists), not from `marf_opts.external_blobs`, which is ignored.
+    /// Creating a new DB via this function always forces internal blobs,
+    /// since the blobs file cannot exist yet.
     /// This function also enables SQLite foreign key enforcement.
     fn open_index(
         marf_path: &str,
@@ -2727,7 +2730,7 @@ impl SortitionDB {
     ) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
-        open_opts.external_blobs = false;
+        open_opts.external_blobs = TrieFile::exists(marf_path)?;
         test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(marf_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
