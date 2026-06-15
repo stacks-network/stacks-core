@@ -325,35 +325,23 @@ pub struct SIP031EmissionInterval {
     pub start_height: u64,
 }
 
-// From SIP-031:
-//
-// | Bitcoin Height | STX Emission |
-// |----------------|------------  |
-// |   907,740      |     475      |
-// |   960,300      |   1,140      |
-// | 1,012,860      |   1,705      |
-// | 1,065,420      |   1,305      |
-// | 1,117,980      |   1,155      |
-// | 1,170,540      |       0      |
+// | Bitcoin Height | STX Emission | Notes                                    |
+// |----------------|--------------|------------------------------------------|
+// |   907,740      |     475      |                                          |
+// |   960,300      |   1,140      |                                          |
+// | 1,012,860      |   1,500      | ~6 months at 144 blocks/day              |
+// | 1,039,140      |   1,000      | forever (1,012,860 + 26,280)             |
 
 /// Mainnet sip-031 emission intervals
-pub static SIP031_EMISSION_INTERVALS_MAINNET: LazyLock<[SIP031EmissionInterval; 6]> =
+pub static SIP031_EMISSION_INTERVALS_MAINNET: LazyLock<[SIP031EmissionInterval; 4]> =
     LazyLock::new(|| {
         let emissions_schedule = [
             SIP031EmissionInterval {
-                amount: 0,
-                start_height: 1_170_540,
+                amount: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+                start_height: 1_039_140,
             },
             SIP031EmissionInterval {
-                amount: 1_155 * u128::from(MICROSTACKS_PER_STACKS),
-                start_height: 1_117_980,
-            },
-            SIP031EmissionInterval {
-                amount: 1_305 * u128::from(MICROSTACKS_PER_STACKS),
-                start_height: 1_065_420,
-            },
-            SIP031EmissionInterval {
-                amount: 1_705 * u128::from(MICROSTACKS_PER_STACKS),
+                amount: 1_500 * u128::from(MICROSTACKS_PER_STACKS),
                 start_height: 1_012_860,
             },
             SIP031EmissionInterval {
