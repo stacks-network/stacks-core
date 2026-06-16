@@ -390,6 +390,69 @@ test('bond rewards remain claimable from old signer after staker changes signers
   });
 });
 
+test('staker reward claim before signer reward pull returns no claimable rewards', () => {
+  const bondIndex = 0n;
+  const aliceSats = 480000n;
+  const rewards = 1200n;
+
+  txOk(
+    pox5.setupBond({
+      bondIndex,
+      targetRate: 1500n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSats, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex,
+      signerManager: signerManager.identifier,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSats),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: rewards,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([bondIndex]), deployer);
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signerManager.identifier,
+      amountToWithdrawalSats: aliceSats,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: signerManager.identifier,
+      amount: 1n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  expect(
+    txErr(signerManager.claimStakerRewards(alice, 1n, bondIndex), bob).value,
+  ).toBe(signerManagerErrors.ERR_NO_CLAIMABLE_REWARDS);
+
+  txOk(signerManager.claimRewards([bondIndex], 1n), deployer);
+  txOk(signerManager.claimStakerRewards(alice, 1n, bondIndex), bob);
+});
+
 test('claiming staker rewards with pox-addr initiates a withdrawal request', () => {
   const rewards = 2000n;
   const grossPerStaker = stxRewards(rewards) / 2n;

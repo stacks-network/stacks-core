@@ -236,8 +236,10 @@
                 MAX_BIPS
             ))
             (earned (- gross fees))
+            (unclaimed-rewards (var-get unclaimed-staker-rewards))
         )
         (asserts! (> earned u0) ERR_NO_CLAIMABLE_REWARDS)
+        (asserts! (>= unclaimed-rewards gross) ERR_NO_CLAIMABLE_REWARDS)
         (asserts!
             (>
                 (unwrap-panic (contract-call?
@@ -252,7 +254,7 @@
         ;; This staker's share is being distributed now so release it from
         ;; the unclaimed count recorded when `claim-rewards` pulled it in.
         (var-set unclaimed-staker-rewards
-            (- (var-get unclaimed-staker-rewards) gross)
+            (- unclaimed-rewards gross)
         )
         (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
