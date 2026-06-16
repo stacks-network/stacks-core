@@ -112,12 +112,19 @@ const contracts = {
   pox5,
 };
 
-// Local sweeps override via env, e.g.:
+// Local sweeps/replays override via env, e.g.:
 //   FAST_CHECK_NUM_RUNS=1000 FAST_CHECK_SIZE=large FAST_CHECK_TIMEOUT_MS=600000 npx vitest run ...
+//   FAST_CHECK_SEED=12345678 FAST_CHECK_REPLAY_PATH='...' npx vitest run ...
 const NUM_RUNS = Number(process.env.FAST_CHECK_NUM_RUNS ?? 100);
 const TEST_TIMEOUT_MS = Number(process.env.FAST_CHECK_TIMEOUT_MS ?? 120_000);
 // Command-sequence length scale. CI default `medium`; sweeps crank to `large`.
 const SIZE = (process.env.FAST_CHECK_SIZE ?? 'medium') as fc.Size;
+const SEED =
+  process.env.FAST_CHECK_SEED === undefined
+    ? undefined
+    : Number(process.env.FAST_CHECK_SEED);
+const PATH = process.env.FAST_CHECK_PATH;
+const REPLAY_PATH = process.env.FAST_CHECK_REPLAY_PATH;
 // Shrinking can collapse any failure onto a non-idempotent command (one whose
 // `check` lets it re-run against already-consumed state), masking the real
 // divergence; noShrink shows what actually failed first.
@@ -280,11 +287,23 @@ test(
     ];
 
     fc.assert(
-      fc.property(fc.commands(invariants, { size: SIZE }), (cmds) => {
-        const state = () => ({ model: model, real: real });
-        fc.modelRun(state, cmds);
-      }),
-      { numRuns: NUM_RUNS, verbose: 2, endOnFailure: NO_SHRINK },
+      fc.property(
+        fc.commands(invariants, {
+          size: SIZE,
+          ...(REPLAY_PATH === undefined ? {} : { replayPath: REPLAY_PATH }),
+        }),
+        (cmds) => {
+          const state = () => ({ model: model, real: real });
+          fc.modelRun(state, cmds);
+        },
+      ),
+      {
+        numRuns: NUM_RUNS,
+        verbose: 2,
+        endOnFailure: NO_SHRINK,
+        ...(SEED === undefined ? {} : { seed: SEED }),
+        ...(PATH === undefined ? {} : { path: PATH }),
+      },
     );
 
     reportCommandRuns(model);

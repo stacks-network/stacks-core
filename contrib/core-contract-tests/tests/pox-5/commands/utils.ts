@@ -744,6 +744,51 @@ export function modelRemoveStakerFromBondCycles(
 }
 
 /**
+ * Mirror of `unstake-sats-from-bond-cycles`: for each affected cycle, derive
+ * the signer from the staker's per-cycle membership, subtract only the
+ * withdrawal from aggregate shares, and set the staker's bond shares to the new
+ * remaining sats.
+ */
+export function modelUnstakeSatsFromBondCycles(
+  model: Model,
+  staker: string,
+  bondIndex: bigint,
+  firstCycle: bigint,
+  numCycles: bigint,
+  amountToWithdrawalSats: bigint,
+  newAmountSats: bigint,
+): void {
+  for (let i = 0n; i < numCycles; i++) {
+    const cycle = firstCycle + i;
+    const signer = modelStakerSignerForCycle(model, staker, cycle);
+    if (signer === undefined) {
+      throw new Error(
+        `Missing signer-cycle membership for ${staker} at cycle ${cycle}`,
+      );
+    }
+
+    const totalKey = bondTotalCycleKey(cycle, bondIndex);
+    model.bondTotalSharesForCycle.set(
+      totalKey,
+      (model.bondTotalSharesForCycle.get(totalKey) ?? 0n) -
+        amountToWithdrawalSats,
+    );
+
+    const signerKey = bondSignerCycleKey(cycle, bondIndex, signer);
+    model.bondSignerSharesForCycle.set(
+      signerKey,
+      (model.bondSignerSharesForCycle.get(signerKey) ?? 0n) -
+        amountToWithdrawalSats,
+    );
+
+    model.bondStakerSharesForCycle.set(
+      bondStakerCycleKey(cycle, bondIndex, signer, staker),
+      newAmountSats,
+    );
+  }
+}
+
+/**
  * The signer the model recorded for `staker` at `cycle` (its per-cycle
  * membership signer, which a mid-lock signer change can make differ from the
  * staker's latest `signer`). Undefined when the staker has no membership that

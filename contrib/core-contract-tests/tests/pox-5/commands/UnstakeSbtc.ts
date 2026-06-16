@@ -11,8 +11,8 @@ import {
   isActiveBondMember,
   isInPreparePhase,
   logCommand,
-  modelAddStakerToBondCycles,
-  modelRemoveStakerFromBondCycles,
+  modelStakerSignerForCycle,
+  modelUnstakeSatsFromBondCycles,
   refreshModel,
   trackCommandRun,
 } from './utils';
@@ -80,6 +80,26 @@ export const UnstakeSbtc = (accounts: Real['accounts']) =>
             ...membership,
             amountSats: newAmountSats,
           };
+          const firstChangedSigner = modelStakerSignerForCycle(
+            model,
+            r.sender,
+            firstChanged,
+          );
+          const lastCycleSigner = modelStakerSignerForCycle(
+            model,
+            r.sender,
+            lastCycle,
+          );
+          if (firstChangedSigner === undefined) {
+            throw new Error(
+              `Missing signer-cycle membership for ${r.sender} at cycle ${firstChanged}`,
+            );
+          }
+          if (lastCycleSigner === undefined) {
+            throw new Error(
+              `Missing signer-cycle membership for ${r.sender} at cycle ${lastCycle}`,
+            );
+          }
 
           // Act
 
@@ -93,25 +113,16 @@ export const UnstakeSbtc = (accounts: Real['accounts']) =>
 
           // Update model
 
-          // The contract re-bases the affected cycles: remove the old amount,
-          // add the reduced one. Only the bond-variant shares move; the STX
-          // delegation is unchanged.
-          modelRemoveStakerFromBondCycles(
+          // The contract re-bases each affected cycle under that cycle's
+          // signer, not necessarily the membership's latest signer. Only the
+          // bond-variant shares move; the STX delegation is unchanged.
+          modelUnstakeSatsFromBondCycles(
             model,
             r.sender,
-            signer,
             bondIndex,
             firstChanged,
             numCycles,
-            amountSats,
-          );
-          modelAddStakerToBondCycles(
-            model,
-            r.sender,
-            signer,
-            bondIndex,
-            firstChanged,
-            numCycles,
+            withdrawal,
             newAmountSats,
           );
           model.bondMemberships.set(r.sender, newMembership);
@@ -153,14 +164,14 @@ export const UnstakeSbtc = (accounts: Real['accounts']) =>
             real,
             firstChanged,
             bondIndex,
-            signer,
+            firstChangedSigner,
           );
           assertBondStakerSharesForCycle(
             model,
             real,
             firstChanged,
             bondIndex,
-            signer,
+            firstChangedSigner,
             r.sender,
           );
           assertBondTotalSharesForCycle(model, real, lastCycle, bondIndex);
@@ -169,14 +180,14 @@ export const UnstakeSbtc = (accounts: Real['accounts']) =>
             real,
             lastCycle,
             bondIndex,
-            signer,
+            lastCycleSigner,
           );
           assertBondStakerSharesForCycle(
             model,
             real,
             lastCycle,
             bondIndex,
-            signer,
+            lastCycleSigner,
             r.sender,
           );
 
