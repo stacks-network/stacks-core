@@ -143,6 +143,7 @@
                     )
                     ERR_INVALID_CALLDATA
                 )))
+                (try! (check-pox-addr (get pox-addr pox-addr)))
                 (map-set pox-addrs staker pox-addr)
                 true
             )
