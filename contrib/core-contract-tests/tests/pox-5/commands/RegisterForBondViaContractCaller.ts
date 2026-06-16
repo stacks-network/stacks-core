@@ -13,7 +13,6 @@ import {
   candidateSignerIds,
   getWalletNameByAddress,
   grantedSigners,
-  isContractCallerAllowed,
   isInPreparePhase,
   logCommand,
   minUstxForSats,
@@ -31,7 +30,7 @@ import {
 import { rov } from '@clarigen/test';
 import { expect } from 'vitest';
 
-/** Fresh sBTC bond registration through an authorized proxy contract. */
+/** Fresh sBTC bond registration through a forwarding proxy contract. */
 export const RegisterForBondViaContractCaller = (accounts: Real['accounts']) =>
   fc
     .record({
@@ -45,7 +44,6 @@ export const RegisterForBondViaContractCaller = (accounts: Real['accounts']) =>
       let pickedBond: bigint | undefined;
       return {
         check: (model: Readonly<Model>) =>
-          isContractCallerAllowed(model, r.sender) &&
           !isInPreparePhase(model) &&
           grantedSigners(model).includes(r.signer) &&
           (model.sbtcBalances.get(r.sender) ?? 0n) > 0n &&

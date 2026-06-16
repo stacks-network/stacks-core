@@ -10,7 +10,6 @@ import {
   currentRewardCycle,
   getWalletNameByAddress,
   grantedSigners,
-  isContractCallerAllowed,
   isInPreparePhase,
   isStakerActive,
   logCommand,
@@ -25,7 +24,8 @@ import { expect } from 'vitest';
 
 /**
  * The same state transition as Stake, but the call enters pox-5 through the
- * proxy contract. This proves a live allowance authorizes `contract-caller`.
+ * proxy contract. pox-5 keys the position by `tx-sender`, so forwarding
+ * through a contract still stakes for the original transaction sender.
  */
 export const StakeViaContractCaller = (accounts: Real['accounts']) =>
   fc
@@ -37,7 +37,6 @@ export const StakeViaContractCaller = (accounts: Real['accounts']) =>
     })
     .map((r) => ({
       check: (model: Readonly<Model>) =>
-        isContractCallerAllowed(model, r.sender) &&
         grantedSigners(model).includes(r.signer) &&
         !isStakerActive(model, r.sender) &&
         !model.bondMemberships.has(r.sender) &&

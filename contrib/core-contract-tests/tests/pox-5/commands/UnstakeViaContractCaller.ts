@@ -8,7 +8,6 @@ import {
   assertTotalDelegatedForCycle,
   currentRewardCycle,
   getWalletNameByAddress,
-  isContractCallerAllowed,
   isInPreparePhase,
   isStakerActive,
   logCommand,
@@ -21,7 +20,7 @@ import { proxyUnstakeOk } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
 import { expect } from 'vitest';
 
-/** Unstake through an authorized proxy contract. */
+/** Unstake through a forwarding proxy contract. */
 export const UnstakeViaContractCaller = (accounts: Real['accounts']) =>
   fc
     .record({
@@ -29,9 +28,7 @@ export const UnstakeViaContractCaller = (accounts: Real['accounts']) =>
     })
     .map((r) => ({
       check: (model: Readonly<Model>) =>
-        isContractCallerAllowed(model, r.sender) &&
-        isStakerActive(model, r.sender) &&
-        !isInPreparePhase(model),
+        isStakerActive(model, r.sender) && !isInPreparePhase(model),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
         trackCommandRun(model, 'unstake_proxy');

@@ -7,7 +7,6 @@ import { AnnounceL1EarlyExitErrCannotAnnounce } from './commands/AnnounceL1Early
 import { AnnounceL1EarlyExitErrInPreparePhase } from './commands/AnnounceL1EarlyExitErrInPreparePhase';
 import { AnnounceL1EarlyExitErrNotBondParticipant } from './commands/AnnounceL1EarlyExitErrNotBondParticipant';
 import { AnnounceL1EarlyExitErrUnauthorized } from './commands/AnnounceL1EarlyExitErrUnauthorized';
-import { AllowContractCaller } from './commands/AllowContractCaller';
 import { AssertModelInvariants } from './commands/AssertModelInvariants';
 import { AssertSignerInvariants } from './commands/AssertSignerInvariants';
 import { AssertStakerInvariants } from './commands/AssertStakerInvariants';
@@ -21,7 +20,6 @@ import { ClaimRewardsErrNoClaimable } from './commands/ClaimRewardsErrNoClaimabl
 import { ClaimStakerRewards } from './commands/ClaimStakerRewards';
 import { ClaimStakerRewardsErrNoClaimable } from './commands/ClaimStakerRewardsErrNoClaimable';
 import { DeploySigner } from './commands/DeploySigner';
-import { DisallowContractCaller } from './commands/DisallowContractCaller';
 import { FundRewards } from './commands/FundRewards';
 import { GrantSignerKeyErrInvalidSignaturePubkey } from './commands/GrantSignerKeyErrInvalidSignaturePubkey';
 import { GrantSignerKeyErrInvalidSignatureRecover } from './commands/GrantSignerKeyErrInvalidSignatureRecover';
@@ -76,7 +74,6 @@ import { StakeUpdateErrInvalidOldSignerManager } from './commands/StakeUpdateErr
 import { StakeUpdateErrNotStaking } from './commands/StakeUpdateErrNotStaking';
 import { StakeUpdateErrSignerNotFound } from './commands/StakeUpdateErrSignerNotFound';
 import { StakeViaContractCaller } from './commands/StakeViaContractCaller';
-import { StakeViaContractCallerErrUnauthorized } from './commands/StakeViaContractCallerErrUnauthorized';
 import { Unstake } from './commands/Unstake';
 import { UnstakeErrInPreparePhase } from './commands/UnstakeErrInPreparePhase';
 import { UnstakeErrInvalidOldSignerManager } from './commands/UnstakeErrInvalidOldSignerManager';
@@ -164,7 +161,6 @@ test(
       signers: new Map(),
       usedGrants: new Set(),
       activeGrants: new Set(),
-      contractCallerAllowances: new Map(),
       burnBlockHeight: BigInt(real.network.burnBlockHeight),
       rewardCycleLength: REWARD_CYCLE_LENGTH,
       firstBurnHeight: 0n,
@@ -205,12 +201,9 @@ test(
       RevokeSignerGrant(),
       RevokeSignerGrantNonexistent(),
       RevokeSignerGrantErrUnauthorized(accounts),
-      AllowContractCaller(accounts),
-      DisallowContractCaller(accounts),
       Stake(accounts),
       StakeRolloverFromBond(accounts),
       StakeViaContractCaller(accounts),
-      StakeViaContractCallerErrUnauthorized(accounts),
       StakeUpdate(accounts),
       StakeExtend(accounts),
       Unstake(accounts),

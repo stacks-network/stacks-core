@@ -1,7 +1,6 @@
 import type { Model, Real, StakerState } from './types';
 import { accounts } from '../../clarigen-types';
 import {
-  AUTH_PROXY_ID,
   BOND_GAP_CYCLES,
   BOND_LENGTH_CYCLES,
   MAX_SIGNERS,
@@ -204,7 +203,10 @@ export function stxRolloverBondTargetsForStaker(
     if (allowance === undefined || allowance === 0n) continue;
     const startCycle = bondStartCycle(model, bondIndex);
     const startHeight = rewardCycleToBurnHeight(model, startCycle);
-    if (model.burnBlockHeight < startHeight && stake.unlockCycle <= startCycle) {
+    if (
+      model.burnBlockHeight < startHeight &&
+      stake.unlockCycle <= startCycle
+    ) {
       result.push(bondIndex);
     }
   }
@@ -260,39 +262,6 @@ export function isActiveBondMember(
 export function activeBondMembers(model: Readonly<Model>): string[] {
   return [...model.bondMemberships.keys()].filter((s) =>
     isActiveBondMember(model, s),
-  );
-}
-
-/**
- * Guards a contract bug. unstake-sbtc removes the staker's sats across
- * [current, bond-end) under the membership signer, but update-bond-registration
- * re-signs only [current+1, bond-end), so an update this cycle leaves the
- * current cycle under the old signer. Removing it under the new signer
- * underflows (pox-5.clar:1824). Safe only while the staker's shares at the
- * first affected cycle still sit under the membership signer.
- *
- * TODO: drop this guard once unstake-sbtc reads the per-cycle signer map (the
- * pox-5 authors' fix, keeping its current range). UnstakeSbtc then removes bond
- * shares under the per-cycle signer, not the membership signer.
- */
-export function isUnstakeSbtcSafe(
-  model: Readonly<Model>,
-  staker: string,
-): boolean {
-  const membership = model.bondMemberships.get(staker);
-  if (membership === undefined) return false;
-  const start = bondStartCycle(model, membership.bondIndex);
-  const current = currentRewardCycle(model);
-  const firstChanged = current < start ? start : current;
-  return (
-    model.bondStakerSharesForCycle.get(
-      bondStakerCycleKey(
-        firstChanged,
-        membership.bondIndex,
-        membership.signer,
-        staker,
-      ),
-    ) === membership.amountSats
   );
 }
 
@@ -403,31 +372,6 @@ function logAsTree(statistics: [string, number][]) {
 
 export const getWalletNameByAddress = (address: string): string | undefined =>
   Object.entries(accounts).find(([, v]) => v.address === address)?.[0];
-
-/** `model.contractCallerAllowances` key. */
-export function contractCallerAllowanceKey(
-  sender: string,
-  contractCaller: string,
-): string {
-  return `${sender}|${contractCaller}`;
-}
-
-/**
- * Mirrors `check-caller-allowed` for proxy calls. Expired rows remain in the
- * contract map, but they no longer authorize calls.
- */
-export function isContractCallerAllowed(
-  model: Readonly<Model>,
-  sender: string,
-  contractCaller = AUTH_PROXY_ID,
-): boolean {
-  if (sender === contractCaller) return true;
-  const expiration = model.contractCallerAllowances.get(
-    contractCallerAllowanceKey(sender, contractCaller),
-  );
-  if (expiration === undefined) return false;
-  return expiration === null || model.burnBlockHeight < expiration;
-}
 
 /**
  * Every signer-manager identifier a run can produce: the default `testSigner`

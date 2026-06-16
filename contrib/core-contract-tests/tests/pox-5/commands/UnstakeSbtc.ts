@@ -10,7 +10,6 @@ import {
   getWalletNameByAddress,
   isActiveBondMember,
   isInPreparePhase,
-  isUnstakeSbtcSafe,
   logCommand,
   modelAddStakerToBondCycles,
   modelRemoveStakerFromBondCycles,
@@ -49,8 +48,7 @@ export const UnstakeSbtc = (accounts: Real['accounts']) =>
             membership !== undefined &&
             !membership.isL1Lock &&
             membership.amountSats > 0n &&
-            !isInPreparePhase(model) &&
-            isUnstakeSbtcSafe(model, r.sender)
+            !isInPreparePhase(model)
           );
         },
         run: (model: Model, real: Real) => {
