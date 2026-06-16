@@ -185,7 +185,9 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AllowanceWithStx("with-stx", ClarityVersion::Clarity4, None),
     AllowanceWithFt("with-ft", ClarityVersion::Clarity4, None),
     AllowanceWithNft("with-nft", ClarityVersion::Clarity4, None),
-    AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, None),
+    AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, Some(ClarityVersion::Clarity5)),
+    AllowanceWithStaking("with-staking", ClarityVersion::Clarity6, None),
+    AllowanceWithPox("with-pox", ClarityVersion::Clarity6, None),
     AllowanceAll("with-all-assets-unsafe", ClarityVersion::Clarity4, None),
     Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
     VerifyMerkleProof("verify-merkle-proof", ClarityVersion::Clarity6, None),
@@ -575,6 +577,8 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
+            | AllowanceWithStaking
+            | AllowanceWithPox
             | AllowanceAll => {
                 SpecialFunction("special_allowance", &post_conditions::special_allowance)
             }

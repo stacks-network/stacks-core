@@ -14,7 +14,6 @@
 (define-constant ERR_SIGNER_KEY_GRANT_NOT_FOUND (err u17))
 (define-constant ERR_ALREADY_STAKED (err u19))
 (define-constant ERR_INVALID_NUM_CYCLES (err u20))
-(define-constant ERR_UNAUTHORIZED_CALLER (err u22))
 (define-constant ERR_SIGNER_NOT_FOUND (err u23))
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u24))
 (define-constant ERR_UNAUTHORIZED_SIGNER_REGISTRATION (err u26))
@@ -237,16 +236,6 @@
 (define-map ustx-delegated-per-cycle
     uint
     uint
-)
-
-;; allowed contract-callers
-(define-map allowance-contract-callers
-    {
-        sender: principal,
-        contract-caller: principal,
-    }
-    ;; Optional expiration burn height
-    (optional uint)
 )
 
 ;; State to track the per-share rewards earned for bond periods
@@ -602,9 +591,9 @@
     )
 )
 
-;; Register for a protocol bond. In order the call this function,
-;; the bond must already have been created, and `contract-caller`
-;; must be in the allowlist.
+;; Register for a protocol bond. In order to call this function,
+;; the bond must already have been created, and `tx-sender` must
+;; be in the allowlist.
 ;;
 ;; The caller must either provide sBTC that they want to lockup,
 ;; or they must provide proof of their L1 BTC lockup.
@@ -729,9 +718,6 @@
             (unwrap! (get-signer-info signer) ERR_SIGNER_NOT_FOUND)
         ))
 
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
-
         ;; Reject if an existing membership *overlaps* this bond. An existing
         ;; bond whose staking term ends no later than this bond's first cycle
         ;; (e.g. rolling from bond N into bond N+6) is allowed.
@@ -764,6 +750,9 @@
         (map-set protocol-bonds-total-staked bond-index
             (+ current-total-staked sats-total)
         )
+        ;; A roll-over from an ending bond ADDS the new bond's shares but does
+        ;; NOT tear down the old bond's per-cycle shares/delegation (unlike
+        ;; `update-bond-registration`, which removes then re-adds).
         (try! (add-staker-to-bond-cycles tx-sender signer bond-index first-reward-cycle
             BOND_LENGTH_CYCLES sats-total
         ))
@@ -859,9 +848,6 @@
         (try! (verify-signer-key-grant signer
             (unwrap! (get-signer-info signer) ERR_SIGNER_NOT_FOUND)
         ))
-
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
 
         ;; Settle rewards before mutating related state
         (settle-rewards current-signer current-cycle (some bond-index))
@@ -993,9 +979,6 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
-
         ;; Cannot already be STX-only staking. Re-extending an existing stake
         ;; goes through `stake-update`, not a second `stake` call.
         (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
@@ -1040,8 +1023,8 @@
 
         ;; If this was a roll-over from a bond, clear the bond membership so
         ;; `unstake-sbtc` / `update-bond-registration` can no longer reach
-        ;; the old bond. The old bond's reward shares stay through its term;
-        ;; only the management pointer is gone.
+        ;; the old bond. The old bond's reward shares and signer delegation
+        ;; stay through its term; only the management pointer is gone.
         (map-delete protocol-bond-memberships tx-sender)
 
         (let ((result {
@@ -1106,9 +1089,6 @@
 
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
-
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
 
         ;; Must have enough unlocked STX
         (asserts! (>= (get unlocked (stx-account tx-sender)) amount-increase)
@@ -1204,13 +1184,9 @@
             ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED
         )
 
-        ;; Settle rewards before updating state
-        (settle-rewards signer current-cycle (some bond-index))
-        (settle-staker-rewards signer current-cycle (some bond-index) staker)
-
-        (try! (remove-staker-from-bond-cycles staker signer bond-index
+        (try! (unstake-sats-from-bond-cycles staker bond-index
             first-changed-reward-cycle
-            (- bond-end-cycle first-changed-reward-cycle) amount-sats
+            (- bond-end-cycle first-changed-reward-cycle) amount-sats u0
         ))
 
         (map-set protocol-bond-memberships staker
@@ -1274,23 +1250,17 @@
         ;; Must be an sBTC lock
         (asserts! (not (get is-l1-lock membership)) ERR_CANNOT_UNSTAKE_SBTC)
 
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
-
         ;; ensure no reentrancy through signer-manager trait calls
         (try! (validate-no-reentrancy))
 
-        ;; Take a snapshot of the staker's and signer's current rewards
-        (settle-rewards signer current-cycle (some bond-index))
-        (settle-staker-rewards signer current-cycle (some bond-index) tx-sender)
-
-        ;; We need to update each affected cycle with this staker's new amount. Instead of
-        ;; mutating each cycle, we instead re-use existing "remove" and "add" helpers.
-        (try! (remove-staker-from-bond-cycles staker signer bond-index
-            first-changed-reward-cycle num-cycles current-amount-sats
-        ))
-        (try! (add-staker-to-bond-cycles staker signer bond-index
-            first-changed-reward-cycle num-cycles new-amount-sats
+        ;; Unstake this staker's sBTC from the current and future cycles.
+        ;; N.B. Because the staker might use a different signer for the current
+        ;; cycle vs future cycles (through `update-bond-registration`), we must
+        ;; derive the signer from each cycle individually (instead of using
+        ;; `remove-staker-from-bond-cycles`).
+        (try! (unstake-sats-from-bond-cycles staker bond-index
+            first-changed-reward-cycle num-cycles amount-to-withdrawal-sats
+            new-amount-sats
         ))
 
         (map-set protocol-bond-memberships staker
@@ -1328,6 +1298,85 @@
     )
 )
 
+(define-private (unstake-sats-from-bond-cycles
+        (staker principal)
+        (bond-index uint)
+        (first-reward-cycle uint)
+        (num-cycles uint)
+        (amount-to-withdrawal-sats uint)
+        (new-amount-sats uint)
+    )
+    (ok (try! (fold unstake-sats-from-bond-cycle
+        (unwrap-panic (slice? (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11) u0 num-cycles))
+        (ok {
+            staker: staker,
+            bond-index: bond-index,
+            first-reward-cycle: first-reward-cycle,
+            amount-to-withdrawal-sats: amount-to-withdrawal-sats,
+            new-amount-sats: new-amount-sats,
+        })
+    )))
+)
+
+;; Reduce (or remove) a staker's bond shares for a given cycle.
+;; For the provided cycle, the signer is derived from `staker-signer-cycle-memberships`.
+;; Rewards are settled for this cycle before mutating state.
+;; Finally, cycle stake state is updated.
+(define-private (unstake-sats-from-bond-cycle
+        (cycle-index uint)
+        (accumulator-res (response {
+            staker: principal,
+            bond-index: uint,
+            first-reward-cycle: uint,
+            amount-to-withdrawal-sats: uint,
+            new-amount-sats: uint,
+        }
+            uint
+        ))
+    )
+    (let (
+            (accumulator (try! accumulator-res))
+            (reward-cycle (+ cycle-index (get first-reward-cycle accumulator)))
+            (staker (get staker accumulator))
+            (bond-index (get bond-index accumulator))
+            (amount-to-withdrawal-sats (get amount-to-withdrawal-sats accumulator))
+            (new-amount-sats (get new-amount-sats accumulator))
+            (signer (get signer
+                (unwrap! (get-signer-cycle-membership staker reward-cycle)
+                    ERR_NOT_STAKING
+                )))
+            (current-total-staked (get-total-shares-staked-for-cycle reward-cycle (some bond-index)))
+            (current-signer-staked (get-signer-shares-staked-for-cycle signer reward-cycle
+                (some bond-index)
+            ))
+        )
+        (settle-rewards signer reward-cycle (some bond-index))
+        (settle-staker-rewards signer reward-cycle (some bond-index) staker)
+        (map-set total-shares-staked-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: (some bond-index),
+        }
+            (- current-total-staked amount-to-withdrawal-sats)
+        )
+        (map-set signer-shares-staked-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: (some bond-index),
+            signer: signer,
+        }
+            (- current-signer-staked amount-to-withdrawal-sats)
+        )
+        (map-set staker-shares-staked-for-cycle {
+            reward-cycle: reward-cycle,
+            bond-index: (some bond-index),
+            signer: signer,
+            staker: staker,
+        }
+            new-amount-sats
+        )
+        (ok accumulator)
+    )
+)
+
 ;; Unstake - set your STX to unlock at the end of the current cycle
 (define-public (unstake (old-signer-manager <signer-manager-trait>))
     (let (
@@ -1342,8 +1391,6 @@
         (asserts! (is-eq old-signer (get signer current-info))
             ERR_INVALID_OLD_SIGNER_MANAGER
         )
-        ;;  must be called directly by the tx-sender or by an allowed contract-caller
-        (try! (check-caller-allowed))
 
         ;; do not allow during a prepare phase
         (asserts! (not (is-in-prepare-phase current-cycle))
@@ -2720,13 +2767,13 @@
         (auth-id uint)
     )
     (sha256 (concat SIP018_MSG_PREFIX
-        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
-            (sha256 (unwrap-panic (to-consensus-buff? {
-                topic: "grant-authorization",
-                signer-manager: signer-manager,
-                auth-id: auth-id,
-            })))
-        )))
+        (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+        (sha256 (unwrap-panic (to-consensus-buff? {
+            topic: "grant-authorization",
+            signer-manager: signer-manager,
+            auth-id: auth-id,
+        })))
+    ))
 )
 
 (define-read-only (verify-signer-key-grant
@@ -3217,74 +3264,6 @@
     )
 )
 
-;;; Contract caller allowances
-
-(define-read-only (check-caller-allowed)
-    (ok (asserts!
-        (or
-            (is-eq tx-sender contract-caller)
-            (match (unwrap!
-                (map-get? allowance-contract-callers {
-                    sender: tx-sender,
-                    contract-caller: contract-caller,
-                })
-                ERR_UNAUTHORIZED_CALLER
-            )
-                expiration (< burn-block-height expiration)
-                true
-            )
-        )
-        ERR_UNAUTHORIZED_CALLER
-    ))
-)
-
-;; Revoke contract-caller authorization to call stacking methods
-(define-public (disallow-contract-caller (caller principal))
-    (begin
-        ;; ensure no reentrancy through signer-manager trait calls
-        (try! (validate-no-reentrancy))
-
-        (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
-        (print {
-            topic: "disallow-contract-caller",
-            sender: tx-sender,
-            contract-caller: caller,
-        })
-        (ok (map-delete allowance-contract-callers {
-            sender: tx-sender,
-            contract-caller: caller,
-        }))
-    )
-)
-
-;; Give a contract-caller authorization to call stacking methods
-;;  normally, stacking methods may only be invoked by _direct_ transactions
-;;   (i.e., the tx-sender issues a direct contract-call to the stacking methods)
-;;  by issuing an allowance, the tx-sender may call through the allowed contract
-(define-public (allow-contract-caller
-        (caller principal)
-        (until-burn-ht (optional uint))
-    )
-    (begin
-        ;; ensure no reentrancy through signer-manager trait calls
-        (try! (validate-no-reentrancy))
-
-        (asserts! (is-eq tx-sender contract-caller) ERR_UNAUTHORIZED_CALLER)
-        (print {
-            topic: "allow-contract-caller",
-            sender: tx-sender,
-            contract-caller: caller,
-            until-burn-ht: until-burn-ht,
-        })
-        (ok (map-set allowance-contract-callers {
-            sender: tx-sender,
-            contract-caller: caller,
-        }
-            until-burn-ht
-        ))
-    )
-)
-
 ;;; Cycle-based Linked List functions
 
 ;; First item in the linked list of stakers
@@ -3635,21 +3614,18 @@
         (staker-unlock-bytes (buff 683))
         (early-unlock-bytes (buff 683))
     )
-    (concat 0x63 ;; OP_IF
-        (concat (push-c-script-num unlock-burn-height)
-            (concat 0xb167 ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
-                (concat 0x82012088a820
-                    ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
-                    (concat
-                        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
-                        (concat 0x88 ;; OP_EQUALVERIFY
-                            (concat early-unlock-bytes
-                                (concat 0x6869 ;; OP_ENDIF, OP_VERIFY
-                                    staker-unlock-bytes
-                                ))
-                        ))
-                ))
-        ))
+    ;; @format-ignore
+    (concat
+        0x63           ;; OP_IF
+        (push-c-script-num unlock-burn-height)
+        0xb167         ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
+        0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
+        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
+        0x88           ;; OP_EQUALVERIFY
+        early-unlock-bytes
+        0x6869         ;; OP_ENDIF, OP_VERIFY
+        staker-unlock-bytes
+    )
 )
 
 ;; Construct the p2wsh output script for a L1 lockup address
@@ -3724,8 +3700,8 @@
                         (if (< n u32768)
                             (concat b0 b1)
                             (if (< n u65536)
-                                (concat b0 (concat b1 0x00))
-                                (concat b0 (concat b1 b2))
+                                (concat b0 b1 0x00)
+                                (concat b0 b1 b2)
                             )
                         )
                     )

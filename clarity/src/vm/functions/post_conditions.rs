@@ -58,10 +58,24 @@ pub struct StackingAllowance {
 
 #[derive(Debug)]
 pub enum Allowance {
+    /// Permits the asset owner to move or burn up to the specified amount of
+    /// STX within the protected scope.
     Stx(StxAllowance),
+    /// Permits the asset owner to move or burn up to the specified amount of a
+    /// fungible token within the protected scope.
     Ft(FtAllowance),
+    /// Permits the asset owner to transfer or burn specific non-fungible
+    /// tokens within the protected scope.
     Nft(NftAllowance),
+    /// Permits the asset owner to stake up to the specified amount of STX
+    /// within the protected scope.
     Stacking(StackingAllowance),
+    /// Permits the asset owner to perform a position-altering PoX action
+    /// (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+    /// `announce-l1-early-exit`) within the protected scope.
+    Pox,
+    /// Permits the asset owner to access all assets within the protected
+    /// scope.
     All,
 }
 
@@ -92,6 +106,7 @@ impl Allowance {
                 Ok(total_size)
             }
             Allowance::Stacking(_) => Ok(std::mem::size_of::<StackingAllowance>()),
+            Allowance::Pox => Ok(0),
             Allowance::All => Ok(0),
         }
     }
@@ -233,7 +248,10 @@ fn eval_allowance(
 
             Ok(Allowance::Nft(NftAllowance { asset, asset_ids }))
         }
-        NativeFunctions::AllowanceWithStacking => {
+        // `with-stacking` (Clarity 4-5) and `with-staking` (Clarity 6+) are the
+        // same allowance under two spellings; the version gating is handled by
+        // `lookup_by_name_at_version`.
+        NativeFunctions::AllowanceWithStacking | NativeFunctions::AllowanceWithStaking => {
             if rest.len() != 1 {
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
@@ -243,6 +261,12 @@ fn eval_allowance(
                 .expect_u128()
                 .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
             Ok(Allowance::Stacking(StackingAllowance { amount }))
+        }
+        NativeFunctions::AllowanceWithPox => {
+            if !rest.is_empty() {
+                return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(0, rest.len()).into());
+            }
+            Ok(Allowance::Pox)
         }
         NativeFunctions::AllowanceAll => {
             if !rest.is_empty() {
@@ -495,6 +519,8 @@ fn check_allowances(
     let mut nft_allowances: HashMap<AssetIdentifier, (usize, Vec<Value>)> = HashMap::new();
     // Elements are (index in allowances, amount)
     let mut stacking_allowances: Vec<(usize, u128)> = Vec::new();
+    // Index of the first `with-pox` allowance, if any.
+    let mut pox_allowance: Option<usize> = None;
 
     for (i, allowance) in allowances.into_iter().enumerate() {
         match allowance {
@@ -519,6 +545,11 @@ fn check_allowances(
             }
             Allowance::Stacking(stacking) => {
                 stacking_allowances.push((i, stacking.amount));
+            }
+            Allowance::Pox => {
+                if pox_allowance.is_none() {
+                    pox_allowance = Some(i);
+                }
             }
         }
     }
@@ -631,6 +662,11 @@ fn check_allowances(
                 }
             }
         }
+    }
+
+    // Check position-altering PoX actions.
+    if assets.did_pox_action(owner) && pox_allowance.is_none() {
+        record_violation(&mut earliest_violation, MAX_ALLOWANCES as u128);
     }
 
     // Check combined STX movements and burns. In epochs that don't support the combined check,
