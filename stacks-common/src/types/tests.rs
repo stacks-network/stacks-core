@@ -17,8 +17,9 @@
 use std::str::FromStr;
 
 use super::{
-    set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId, BITCOIN_MAINNET_GENESIS_BURN_HEIGHT,
-    BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT, COINBASE_INTERVALS_MAINNET, COINBASE_INTERVALS_TESTNET,
+    set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId,
+    BITCOIN_MAINNET_GENESIS_BURN_HEIGHT, BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
+    COINBASE_INTERVALS_MAINNET, COINBASE_INTERVALS_TESTNET,
 };
 
 #[test]
@@ -154,7 +155,10 @@ fn test_epoch_coinbase_reward() {
             epoch.coinbase_reward(true, 666050, BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT + 1),
             1_000_000_000
         );
-        assert_eq!(epoch.coinbase_reward(true, 666050, 2_000_000), 1_000_000_000);
+        assert_eq!(
+            epoch.coinbase_reward(true, 666050, 2_000_000),
+            1_000_000_000
+        );
     }
 
     // old coinbase schedule
