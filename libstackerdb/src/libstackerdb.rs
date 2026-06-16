@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -182,8 +182,11 @@ impl SlotMetadata {
     /// Note that the address version is ignored.
     pub fn verify(&self, principal: &StacksAddress) -> Result<bool, Error> {
         let sigh = self.auth_digest();
-        let pubk = StacksPublicKey::recover_to_pubkey(sigh.as_bytes(), &self.signature)
-            .map_err(|ve| Error::VerifyingError(ve.to_string()))?;
+        let pubk = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            sigh.as_bytes(),
+            &self.signature,
+        )
+        .map_err(|ve| Error::VerifyingError(ve.to_string()))?;
 
         let pubkh = Hash160::from_node_public_key(&pubk);
         Ok(pubkh == *principal.bytes())
@@ -229,7 +232,7 @@ impl StackerDBChunkData {
 
     pub fn recover_pk(&self) -> Result<StacksPublicKey, Error> {
         let digest = self.get_slot_metadata().auth_digest();
-        StacksPublicKey::recover_to_pubkey(digest.as_bytes(), &self.sig)
+        StacksPublicKey::recover_to_pubkey_without_validating_low_s(digest.as_bytes(), &self.sig)
             .map_err(|ve| Error::VerifyingError(ve.to_string()))
     }
 

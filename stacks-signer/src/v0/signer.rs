@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -2005,8 +2005,10 @@ impl Signer {
         );
 
         // recover public key
-        let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
-        else {
+        let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_hash.bits(),
+            signature,
+        ) else {
             debug!("{self}: Received unrecovarable signature. Will not store.";
                    "signature" => %signature,
                    "signer_signature_hash" => %block_hash);
@@ -2090,8 +2092,10 @@ impl Signer {
         let addrs_to_sigs: HashMap<_, _> = signatures
             .into_iter()
             .filter_map(|sig| {
-                let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), &sig)
-                else {
+                let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+                    block_hash.bits(),
+                    &sig,
+                ) else {
                     return None;
                 };
                 let addr = StacksAddress::p2pkh(self.mainnet, &public_key);
