@@ -65,6 +65,8 @@
 (define-constant ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED (err u50))
 ;; A reserve withdrawal was attempted with insufficient reserve balance
 (define-constant ERR_INSUFFICIENT_RESERVE_BALANCE (err u51))
+;; The L1 lockup unlock height is lower than this bond's minimum unlock height
+(define-constant ERR_INVALID_UNLOCK_HEIGHT (err u52))
 
 ;; The length, in terms of staking cycles, of a given
 ;; bond period
@@ -1969,6 +1971,10 @@
 
 ;; Fold function for validating l1 lockup info
 ;;
+;; - `staker` is the lockup owner committed to the timelock script.
+;; - `minimum-unlock-height` is the earliest allowed L1 unlock height.
+;; - `staker-unlock-bytes` is the subscript that must unlock every output.
+;; - `early-unlock-bytes` is the bond's early-exit subscript.
 ;; - `sum` is the running total of sats from all valid lockups processed so far.
 ;; - `seen-outpoints` tracks every (txid, output-index) pair already credited
 ;;   in this call. Duplicate entries is rejected via
@@ -2017,7 +2023,7 @@
             (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (>= unlock-burn-height (get minimum-unlock-height accumulator))
-            ERR_INVALID_LOCKUP_SCRIPT
+            ERR_INVALID_UNLOCK_HEIGHT
         )
         (asserts! (is-eq (get script output) expected-script-hash)
             ERR_INVALID_LOCKUP_SCRIPT

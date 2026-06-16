@@ -1587,7 +1587,38 @@ test('l1 lockup rejects an unlock height below the bond minimum', () => {
     alice,
   );
 
-  expect(result.value).toBe(errorCodes.ERR_INVALID_LOCKUP_SCRIPT);
+  expect(result.value).toBe(errorCodes.ERR_INVALID_UNLOCK_HEIGHT);
+});
+
+test('l1 lockup accepts an unlock height above the bond minimum', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 480000n;
+  const minimumUnlockHeight = rov(pox5.getBondL1UnlockHeight(0n));
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSats, staker: alice }]);
+
+  const result = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: ok({
+        outputs: [
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: minimumUnlockHeight + 1n,
+          }),
+        ],
+        stakerUnlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(result.value).toBe(errorCodes.ERR_INVALID_BTC_HEADER);
 });
 
 // Skipped: Simnet's burn header hashes aren't real, so most of the L1 paths

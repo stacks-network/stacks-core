@@ -7555,6 +7555,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_UNLOCK_HEIGHT: {
+        name: 'ERR_INVALID_UNLOCK_HEIGHT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
         name: 'ERR_INVALID_UNSTAKE_SBTC_AMOUNT',
         type: {
@@ -7987,6 +7997,10 @@ export const contracts = {
       ERR_INVALID_START_BURN_HEIGHT: {
         isOk: false,
         value: 24n,
+      },
+      ERR_INVALID_UNLOCK_HEIGHT: {
+        isOk: false,
+        value: 52n,
       },
       ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
         isOk: false,
