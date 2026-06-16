@@ -166,14 +166,17 @@ test('signers have pox-addr saved from calldata when provided', () => {
   expect(rov(signerManager.getPoxAddr(alice))?.maxFee).toEqual(maxFee);
 });
 
-test('only admins can update fees and fees cannot exceed max bips', () => {
+test('only admins can update fees and fees must be less than max bips', () => {
   expect(txErr(signerManager.updateFees(1000n), alice).value).toBe(
     signerManagerErrors.ERR_UNAUTHORIZED_ADMIN,
+  );
+  expect(txErr(signerManager.updateFees(10000n), deployer).value).toBe(
+    signerManagerErrors.ERR_INVALID_FEES_BIPS,
   );
   expect(txErr(signerManager.updateFees(10001n), deployer).value).toBe(
     signerManagerErrors.ERR_INVALID_FEES_BIPS,
   );
-  txOk(signerManager.updateFees(10000n), deployer);
+  txOk(signerManager.updateFees(9999n), deployer);
 });
 
 test('fees are deducted from newly earned staker rewards', () => {

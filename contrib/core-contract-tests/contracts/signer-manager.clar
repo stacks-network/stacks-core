@@ -438,7 +438,7 @@
 (define-public (update-fees (new-fees uint))
     (begin
         (try! (authorize-admin))
-        (asserts! (<= new-fees MAX_BIPS) ERR_INVALID_FEES_BIPS)
+        (asserts! (< new-fees MAX_BIPS) ERR_INVALID_FEES_BIPS)
         (print {
             topic: "update-fees",
             old-fees: (var-get fees-bips),
