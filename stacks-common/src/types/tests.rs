@@ -17,8 +17,8 @@
 use std::str::FromStr;
 
 use super::{
-    set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId, COINBASE_INTERVALS_MAINNET,
-    COINBASE_INTERVALS_TESTNET,
+    set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId, BITCOIN_MAINNET_GENESIS_BURN_HEIGHT,
+    BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT, COINBASE_INTERVALS_MAINNET, COINBASE_INTERVALS_TESTNET,
 };
 
 #[test]
@@ -56,7 +56,7 @@ fn test_mainnet_coinbase_emissions() {
     );
     assert_eq!(
         COINBASE_INTERVALS_MAINNET[2].effective_start_height,
-        1_012_860 - 666_050
+        BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT - BITCOIN_MAINNET_GENESIS_BURN_HEIGHT
     );
 }
 
@@ -104,28 +104,28 @@ fn test_get_coinbase_at_effective_height() {
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            1_012_859 - 666_050
+            BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT - BITCOIN_MAINNET_GENESIS_BURN_HEIGHT - 1
         ),
         500_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            1_012_860 - 666_050
+            BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT - BITCOIN_MAINNET_GENESIS_BURN_HEIGHT
         ),
         1_000_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            1_012_861 - 666_050
+            BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT - BITCOIN_MAINNET_GENESIS_BURN_HEIGHT + 1
         ),
         1_000_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
             &*COINBASE_INTERVALS_MAINNET,
-            2_000_000 - 666_050
+            2_000_000 - BITCOIN_MAINNET_GENESIS_BURN_HEIGHT
         ),
         1_000_000_000
     );
@@ -142,19 +142,19 @@ fn test_epoch_coinbase_reward() {
         assert_eq!(epoch.coinbase_reward(true, 666050, 945_000), 500_000_000);
         assert_eq!(epoch.coinbase_reward(true, 666050, 945_001), 500_000_000);
 
-        assert_eq!(epoch.coinbase_reward(true, 666050, 1_012_859), 500_000_000);
         assert_eq!(
-            epoch.coinbase_reward(true, 666050, 1_012_860),
+            epoch.coinbase_reward(true, 666050, BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT - 1),
+            500_000_000
+        );
+        assert_eq!(
+            epoch.coinbase_reward(true, 666050, BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT),
             1_000_000_000
         );
         assert_eq!(
-            epoch.coinbase_reward(true, 666050, 1_012_861),
+            epoch.coinbase_reward(true, 666050, BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT + 1),
             1_000_000_000
         );
-        assert_eq!(
-            epoch.coinbase_reward(true, 666050, 2_000_000),
-            1_000_000_000
-        );
+        assert_eq!(epoch.coinbase_reward(true, 666050, 2_000_000), 1_000_000_000);
     }
 
     // old coinbase schedule
