@@ -4,11 +4,11 @@
   "description": "Run unit tests on this project.",
   "private": true,
   "type": "module",
-  "packageManager": "npm@11",
+  "packageManager": "npm@>=11.7 <12",
   "devEngines": {
     "packageManager": {
       "name": "npm",
-      "version": ">=11 <12",
+      "version": ">=11.7 <12",
       "onFail": "error"
     }
   },
