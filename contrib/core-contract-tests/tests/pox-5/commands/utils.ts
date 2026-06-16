@@ -129,6 +129,100 @@ export function registrableBondsForStaker(
 }
 
 /**
+ * Active bond registrations that would overlap a new bond registration for
+ * `staker`. These target `register-for-bond`'s ERR_ALREADY_REGISTERED branch:
+ * the new bond is set up and allowlisted, but its first cycle is before the
+ * existing bond's end.
+ */
+export function overlappingBondTargetsForStaker(
+  model: Readonly<Model>,
+  staker: string,
+): bigint[] {
+  const membership = model.bondMemberships.get(staker);
+  if (membership === undefined) return [];
+  const existingEnd = bondEndCycle(model, membership.bondIndex);
+  const result: bigint[] = [];
+  for (const [bondIndex] of model.bonds) {
+    const allowance = model.bondAllowances.get(
+      bondAllowanceKey(bondIndex, staker),
+    );
+    if (allowance === undefined || allowance === 0n) continue;
+    const startCycle = bondStartCycle(model, bondIndex);
+    const startHeight = rewardCycleToBurnHeight(model, startCycle);
+    if (model.burnBlockHeight < startHeight && startCycle < existingEnd) {
+      result.push(bondIndex);
+    }
+  }
+  return result;
+}
+
+/**
+ * Set-up, allowlisted future bonds whose first cycle does not overlap the
+ * staker's current bond membership. A call before the current bond's L1 unlock
+ * height targets ERR_ROLLOVER_TOO_EARLY; after it, this is the bond-to-bond
+ * rollover success surface.
+ */
+export function bondRolloverTargetsForStaker(
+  model: Readonly<Model>,
+  staker: string,
+): bigint[] {
+  const membership = model.bondMemberships.get(staker);
+  if (membership === undefined) return [];
+  const existingEnd = bondEndCycle(model, membership.bondIndex);
+  const result: bigint[] = [];
+  for (const [bondIndex] of model.bonds) {
+    const allowance = model.bondAllowances.get(
+      bondAllowanceKey(bondIndex, staker),
+    );
+    if (allowance === undefined || allowance === 0n) continue;
+    const startCycle = bondStartCycle(model, bondIndex);
+    const startHeight = rewardCycleToBurnHeight(model, startCycle);
+    if (model.burnBlockHeight < startHeight && startCycle >= existingEnd) {
+      result.push(bondIndex);
+    }
+  }
+  return result;
+}
+
+/**
+ * Set-up, allowlisted future bonds whose first cycle does not overlap the
+ * staker's current STX-only lock. A successful register-for-bond call deletes
+ * the staker-info row after adding the bond membership.
+ */
+export function stxRolloverBondTargetsForStaker(
+  model: Readonly<Model>,
+  staker: string,
+): bigint[] {
+  const stake = model.stakers.get(staker);
+  if (stake === undefined) return [];
+  if (model.bondMemberships.has(staker)) return [];
+  const result: bigint[] = [];
+  for (const [bondIndex] of model.bonds) {
+    const allowance = model.bondAllowances.get(
+      bondAllowanceKey(bondIndex, staker),
+    );
+    if (allowance === undefined || allowance === 0n) continue;
+    const startCycle = bondStartCycle(model, bondIndex);
+    const startHeight = rewardCycleToBurnHeight(model, startCycle);
+    if (model.burnBlockHeight < startHeight && stake.unlockCycle <= startCycle) {
+      result.push(bondIndex);
+    }
+  }
+  return result;
+}
+
+/** First burn height when an existing bond can be rolled over. */
+export function bondRolloverUnlockHeight(
+  model: Readonly<Model>,
+  bondIndex: bigint,
+): bigint {
+  return (
+    rewardCycleToBurnHeight(model, bondEndCycle(model, bondIndex)) -
+    model.rewardCycleLength / 2n
+  );
+}
+
+/**
  * Contract's `min-ustx-for-sats-amount`: the floor uSTX a staker must lock for
  * `sats`. Integer division at each step, matching the contract's truncation.
  */

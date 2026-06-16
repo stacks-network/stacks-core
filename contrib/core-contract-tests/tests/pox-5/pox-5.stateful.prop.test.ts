@@ -23,25 +23,36 @@ import { ClaimStakerRewardsErrNoClaimable } from './commands/ClaimStakerRewardsE
 import { DeploySigner } from './commands/DeploySigner';
 import { DisallowContractCaller } from './commands/DisallowContractCaller';
 import { FundRewards } from './commands/FundRewards';
+import { GrantSignerKeyErrInvalidSignaturePubkey } from './commands/GrantSignerKeyErrInvalidSignaturePubkey';
+import { GrantSignerKeyErrInvalidSignatureRecover } from './commands/GrantSignerKeyErrInvalidSignatureRecover';
+import { GrantSignerKeyErrUnauthorizedRegistration } from './commands/GrantSignerKeyErrUnauthorizedRegistration';
 import { MineBitcoinBlocks } from './commands/MineBlocks';
 import { RegisterForBond } from './commands/RegisterForBond';
+import { RegisterForBondErrAlreadyRegistered } from './commands/RegisterForBondErrAlreadyRegistered';
 import { RegisterForBondErrAlreadyStaked } from './commands/RegisterForBondErrAlreadyStaked';
 import { RegisterForBondErrBondAlreadyStarted } from './commands/RegisterForBondErrBondAlreadyStarted';
 import { RegisterForBondErrBondNotFound } from './commands/RegisterForBondErrBondNotFound';
+import { RegisterForBondErrGrantRevoked } from './commands/RegisterForBondErrGrantRevoked';
 import { RegisterForBondErrInPreparePhase } from './commands/RegisterForBondErrInPreparePhase';
 import { RegisterForBondErrInsufficientStx } from './commands/RegisterForBondErrInsufficientStx';
 import { RegisterForBondErrInvalidBtcHeader } from './commands/RegisterForBondErrInvalidBtcHeader';
 import { RegisterForBondErrNotAllowlisted } from './commands/RegisterForBondErrNotAllowlisted';
+import { RegisterForBondErrRolloverTooEarly } from './commands/RegisterForBondErrRolloverTooEarly';
+import { RegisterForBondErrSignerNotFound } from './commands/RegisterForBondErrSignerNotFound';
 import { RegisterForBondErrTooMuchSats } from './commands/RegisterForBondErrTooMuchSats';
+import { RegisterForBondRolloverFromStake } from './commands/RegisterForBondRolloverFromStake';
 import { RegisterForBondViaContractCaller } from './commands/RegisterForBondViaContractCaller';
 import { RegisterSigner } from './commands/RegisterSigner';
 import { RegisterSignerErrGrantUsed } from './commands/RegisterSignerErrGrantUsed';
+import { RegisterSignerErrGrantNotFound } from './commands/RegisterSignerErrGrantNotFound';
+import { RegisterSignerErrUnauthorizedRegistration } from './commands/RegisterSignerErrUnauthorizedRegistration';
 import { RevokeSignerGrant } from './commands/RevokeSignerGrant';
 import { RevokeSignerGrantErrUnauthorized } from './commands/RevokeSignerGrantErrUnauthorized';
 import { RevokeSignerGrantNonexistent } from './commands/RevokeSignerGrantNonexistent';
 import { RotateSignerKey } from './commands/RotateSignerKey';
 import { SetupBond } from './commands/SetupBond';
 import { SetupBondErrAlreadySetup } from './commands/SetupBondErrAlreadySetup';
+import { SetupBondErrStakerAlreadyAdded } from './commands/SetupBondErrStakerAlreadyAdded';
 import { SetupBondErrTooLate } from './commands/SetupBondErrTooLate';
 import { SetupBondErrTooSoon } from './commands/SetupBondErrTooSoon';
 import { SetupBondErrUnauthorized } from './commands/SetupBondErrUnauthorized';
@@ -49,14 +60,27 @@ import { Stake } from './commands/Stake';
 import { StakeErrAlreadyStaked } from './commands/StakeErrAlreadyStaked';
 import { StakeErrGrantRevoked } from './commands/StakeErrGrantRevoked';
 import { StakeErrInPreparePhase } from './commands/StakeErrInPreparePhase';
+import { StakeErrInsufficientStx } from './commands/StakeErrInsufficientStx';
 import { StakeErrInvalidNumCycles } from './commands/StakeErrInvalidNumCycles';
+import { StakeErrInvalidStartBurnHeight } from './commands/StakeErrInvalidStartBurnHeight';
+import { StakeErrRolloverTooEarly } from './commands/StakeErrRolloverTooEarly';
 import { StakeErrSignerNotFound } from './commands/StakeErrSignerNotFound';
 import { StakeExtend } from './commands/StakeExtend';
+import { StakeRolloverFromBond } from './commands/StakeRolloverFromBond';
 import { StakeUpdate } from './commands/StakeUpdate';
+import { StakeUpdateErrGrantRevoked } from './commands/StakeUpdateErrGrantRevoked';
+import { StakeUpdateErrInPreparePhase } from './commands/StakeUpdateErrInPreparePhase';
+import { StakeUpdateErrInsufficientStx } from './commands/StakeUpdateErrInsufficientStx';
+import { StakeUpdateErrInvalidNumCycles } from './commands/StakeUpdateErrInvalidNumCycles';
+import { StakeUpdateErrInvalidOldSignerManager } from './commands/StakeUpdateErrInvalidOldSignerManager';
+import { StakeUpdateErrNotStaking } from './commands/StakeUpdateErrNotStaking';
+import { StakeUpdateErrSignerNotFound } from './commands/StakeUpdateErrSignerNotFound';
 import { StakeViaContractCaller } from './commands/StakeViaContractCaller';
 import { StakeViaContractCallerErrUnauthorized } from './commands/StakeViaContractCallerErrUnauthorized';
 import { Unstake } from './commands/Unstake';
 import { UnstakeErrInPreparePhase } from './commands/UnstakeErrInPreparePhase';
+import { UnstakeErrInvalidOldSignerManager } from './commands/UnstakeErrInvalidOldSignerManager';
+import { UnstakeErrNotStaking } from './commands/UnstakeErrNotStaking';
 import { UnstakeSbtc } from './commands/UnstakeSbtc';
 import { UnstakeSbtcErrInPreparePhase } from './commands/UnstakeSbtcErrInPreparePhase';
 import { UnstakeSbtcErrInvalidAmount } from './commands/UnstakeSbtcErrInvalidAmount';
@@ -64,9 +88,11 @@ import { UnstakeSbtcErrInvalidOldSignerManager } from './commands/UnstakeSbtcErr
 import { UnstakeSbtcErrNotBondParticipant } from './commands/UnstakeSbtcErrNotBondParticipant';
 import { UnstakeViaContractCaller } from './commands/UnstakeViaContractCaller';
 import { UpdateBondRegistration } from './commands/UpdateBondRegistration';
+import { UpdateBondRegistrationErrGrantRevoked } from './commands/UpdateBondRegistrationErrGrantRevoked';
 import { UpdateBondRegistrationErrInPreparePhase } from './commands/UpdateBondRegistrationErrInPreparePhase';
 import { UpdateBondRegistrationErrInvalidOldSignerManager } from './commands/UpdateBondRegistrationErrInvalidOldSignerManager';
 import { UpdateBondRegistrationErrNotBondParticipant } from './commands/UpdateBondRegistrationErrNotBondParticipant';
+import { UpdateBondRegistrationErrSignerNotFound } from './commands/UpdateBondRegistrationErrSignerNotFound';
 import { UpdateBondRegistrationErrUpdateBondSameSigner } from './commands/UpdateBondRegistrationErrUpdateBondSameSigner';
 import { Model, Real } from './commands/types';
 import { reportCommandRuns } from './commands/utils';
@@ -168,8 +194,13 @@ test(
 
     const invariants = [
       DeploySigner(),
+      GrantSignerKeyErrUnauthorizedRegistration(),
+      GrantSignerKeyErrInvalidSignatureRecover(),
+      GrantSignerKeyErrInvalidSignaturePubkey(),
       RegisterSigner(accounts),
       RegisterSignerErrGrantUsed(accounts),
+      RegisterSignerErrUnauthorizedRegistration(),
+      RegisterSignerErrGrantNotFound(),
       RotateSignerKey(),
       RevokeSignerGrant(),
       RevokeSignerGrantNonexistent(),
@@ -177,6 +208,7 @@ test(
       AllowContractCaller(accounts),
       DisallowContractCaller(accounts),
       Stake(accounts),
+      StakeRolloverFromBond(accounts),
       StakeViaContractCaller(accounts),
       StakeViaContractCallerErrUnauthorized(accounts),
       StakeUpdate(accounts),
@@ -188,6 +220,8 @@ test(
       UpdateBondRegistrationErrInPreparePhase(accounts),
       UpdateBondRegistrationErrInvalidOldSignerManager(accounts),
       UpdateBondRegistrationErrUpdateBondSameSigner(accounts),
+      UpdateBondRegistrationErrSignerNotFound(accounts),
+      UpdateBondRegistrationErrGrantRevoked(accounts),
       UnstakeSbtc(accounts),
       UnstakeSbtcErrNotBondParticipant(accounts),
       UnstakeSbtcErrInvalidAmount(accounts),
@@ -196,11 +230,24 @@ test(
       StakeErrAlreadyStaked(accounts),
       StakeErrSignerNotFound(accounts),
       StakeErrInvalidNumCycles(accounts),
+      StakeErrInvalidStartBurnHeight(accounts),
+      StakeErrInsufficientStx(accounts),
       StakeErrInPreparePhase(accounts),
       StakeErrGrantRevoked(accounts),
+      StakeErrRolloverTooEarly(accounts),
+      StakeUpdateErrNotStaking(accounts),
+      StakeUpdateErrInPreparePhase(accounts),
+      StakeUpdateErrInvalidOldSignerManager(accounts),
+      StakeUpdateErrSignerNotFound(accounts),
+      StakeUpdateErrGrantRevoked(accounts),
+      StakeUpdateErrInvalidNumCycles(accounts),
+      StakeUpdateErrInsufficientStx(accounts),
+      UnstakeErrNotStaking(accounts),
       UnstakeErrInPreparePhase(accounts),
+      UnstakeErrInvalidOldSignerManager(accounts),
       SetupBond(accounts),
       RegisterForBond(accounts),
+      RegisterForBondRolloverFromStake(accounts),
       RegisterForBondViaContractCaller(accounts),
       RegisterForBondErrBondNotFound(accounts),
       RegisterForBondErrNotAllowlisted(accounts),
@@ -208,6 +255,10 @@ test(
       RegisterForBondErrInsufficientStx(accounts),
       RegisterForBondErrBondAlreadyStarted(accounts),
       RegisterForBondErrAlreadyStaked(accounts),
+      RegisterForBondErrAlreadyRegistered(accounts),
+      RegisterForBondErrRolloverTooEarly(accounts),
+      RegisterForBondErrSignerNotFound(accounts),
+      RegisterForBondErrGrantRevoked(accounts),
       RegisterForBondErrTooMuchSats(accounts),
       RegisterForBondErrInvalidBtcHeader(accounts),
       AnnounceL1EarlyExitErrCannotAnnounce(accounts),
@@ -216,6 +267,7 @@ test(
       AnnounceL1EarlyExitErrUnauthorized(accounts),
       SetupBondErrUnauthorized(accounts),
       SetupBondErrAlreadySetup(accounts),
+      SetupBondErrStakerAlreadyAdded(accounts),
       SetupBondErrTooLate(accounts),
       SetupBondErrTooSoon(accounts),
       FundRewards(accounts),
