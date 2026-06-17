@@ -31,30 +31,30 @@ use stacks::chainstate::stacks::{
     FungibleConditionCode, PostConditionPrincipal, PoxConditionCode, TransactionPostCondition,
     TransactionPostConditionMode,
 };
-use stacks::core::StacksEpochId;
 use stacks::core::test_util::{make_contract_call, make_contract_call_with_post_conditions};
+use stacks::core::StacksEpochId;
 use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::burnchains::BurnchainController;
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
+use crate::burnchains::BurnchainController;
 use crate::neon::Counters;
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    POX_DEFAULT_STACKER_STX_AMT, boot_to_epoch_4_0, enable_epoch_4_0, get_tx_result_by_id,
-    get_tx_status_by_id, naka_neon_integration_conf, next_block_and_mine_commit,
-    next_block_and_process_new_stacks_block, setup_stacker, wait_for,
+    boot_to_epoch_4_0, enable_epoch_4_0, get_tx_result_by_id, get_tx_status_by_id,
+    naka_neon_integration_conf, next_block_and_mine_commit,
+    next_block_and_process_new_stacks_block, setup_stacker, wait_for, POX_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     call_read_only, get_account, get_chain_info_result, submit_tx, test_observer, wait_for_runloop,
 };
 use crate::tests::signer::v0::pox5_signer_manager_source;
 use crate::tests::{make_contract_publish, to_addr};
-use crate::{BitcoinRegtestController, Config, Keychain, tests};
+use crate::{tests, BitcoinRegtestController, Config, Keychain};
 
 #[test]
 #[ignore]
@@ -1872,9 +1872,10 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
             ),
             (
                 ClarityName::try_from("leaf-hashes").unwrap(),
-                Value::cons_list_unsanitized(vec![
-                    Value::buff_from(coinbase_txid_internal.to_vec()).unwrap(),
-                ])
+                Value::cons_list_unsanitized(vec![Value::buff_from(
+                    coinbase_txid_internal.to_vec(),
+                )
+                .unwrap()])
                 .unwrap(),
             ),
             (ClarityName::try_from("tx-count").unwrap(), Value::UInt(2)),
@@ -2858,9 +2859,10 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
             ),
             (
                 ClarityName::try_from("leaf-hashes").unwrap(),
-                Value::cons_list_unsanitized(vec![
-                    Value::buff_from(coinbase_txid_internal.to_vec()).unwrap(),
-                ])
+                Value::cons_list_unsanitized(vec![Value::buff_from(
+                    coinbase_txid_internal.to_vec(),
+                )
+                .unwrap()])
                 .unwrap(),
             ),
             (ClarityName::try_from("tx-count").unwrap(), Value::UInt(2)),
