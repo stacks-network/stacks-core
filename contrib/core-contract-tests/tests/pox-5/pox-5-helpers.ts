@@ -105,17 +105,16 @@ export function serializeLockupScript({
 export function buildL1Lockup({
   staker,
   sats,
-  bondIndex,
+  unlockBurnHeight,
   stakerUnlockBytes = new Uint8Array(),
   earlyUnlockBytes = new Uint8Array(),
 }: {
   staker: string;
   sats: bigint;
-  bondIndex: bigint;
+  unlockBurnHeight: bigint;
   stakerUnlockBytes?: Uint8Array;
   earlyUnlockBytes?: Uint8Array;
 }) {
-  const unlockBurnHeight = rov(pox5.getBondL1UnlockHeight(bondIndex));
   const lockupScript = serializeLockupScript({
     stacker: staker,
     unlockBurnHeight,
@@ -156,6 +155,7 @@ export function buildL1Lockup({
     txIndex: 0n,
     height: 0n,
     tx: txBytes,
+    unlockBurnHeight,
   };
 }
 
