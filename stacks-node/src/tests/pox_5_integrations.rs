@@ -1702,7 +1702,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     //     output must pay to. We hand the same arguments the contract will
     //     reconstruct internally during `verify-l1-lockups`.
     let bond_index = 0u128;
-    let unlock_burn_height = call_read_only(
+    let minimum_unlock_burn_height = call_read_only(
         &naka_conf,
         &pox_5_addr,
         "pox-5",
@@ -1713,6 +1713,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     .expect("get-bond-l1-unlock-height failed")
     .expect_u128()
     .expect("get-bond-l1-unlock-height should return a uint");
+    let unlock_burn_height = minimum_unlock_burn_height + 1;
     let expected_script_buff = call_read_only(
         &naka_conf,
         &pox_5_addr,
@@ -1883,6 +1884,10 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
                 ClarityName::try_from("amount").unwrap(),
                 Value::UInt(u128::from(lockup_output_amount)),
             ),
+            (
+                ClarityName::try_from("unlock-burn-height").unwrap(),
+                Value::UInt(unlock_burn_height),
+            ),
         ])
         .unwrap(),
     );
@@ -1901,7 +1906,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     );
     let l1_lockup_arg = Value::okay(lockup_tuple).expect("failed to wrap lockup tuple in (ok ...)");
 
-    let register_fee = 2000u64;
+    let register_fee = 3000u64;
     let bond_amount = POX_DEFAULT_STACKER_STX_AMT;
     let staker_balance_before = get_account(&http_origin, &staker_addr).balance;
     // 3 register attempts: dup-outpoint rejection, happy path, ERR_ALREADY_REGISTERED.
@@ -2866,6 +2871,10 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
                 ClarityName::try_from("amount").unwrap(),
                 Value::UInt(u128::from(lockup_output_amount)),
             ),
+            (
+                ClarityName::try_from("unlock-burn-height").unwrap(),
+                Value::UInt(unlock_burn_height),
+            ),
         ])
         .unwrap(),
     );
@@ -2888,7 +2897,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     // required for the Bitcoin-script assertions below — the early-exit
     // branch is a property of the witness script alone — but it
     // documents the realistic end-to-end flow.
-    let register_fee = 2000u64;
+    let register_fee = 3000u64;
     let bond_amount = POX_DEFAULT_STACKER_STX_AMT;
     let register_tx = make_contract_call(
         &staker_sk,

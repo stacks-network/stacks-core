@@ -1559,6 +1559,68 @@ test('update-bond-registration in the final bond cycle leaves no future shares',
   expect(rov(pox5.getSignerSharesStakedForCycle(signer2, 13n, 0n))).toBe(0n);
 });
 
+test('l1 lockup rejects an unlock height below the bond minimum', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 480000n;
+  const minimumUnlockHeight = rov(pox5.getBondL1UnlockHeight(0n));
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSats, staker: alice }]);
+
+  const result = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: ok({
+        outputs: [
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: minimumUnlockHeight - 1n,
+          }),
+        ],
+        stakerUnlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(result.value).toBe(errorCodes.ERR_INVALID_UNLOCK_HEIGHT);
+});
+
+test('l1 lockup accepts an unlock height above the bond minimum', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 480000n;
+  const minimumUnlockHeight = rov(pox5.getBondL1UnlockHeight(0n));
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSats, staker: alice }]);
+
+  const result = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: ok({
+        outputs: [
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: minimumUnlockHeight + 1n,
+          }),
+        ],
+        stakerUnlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(result.value).toBe(errorCodes.ERR_INVALID_BTC_HEADER);
+});
+
 // Skipped: Simnet's burn header hashes aren't real, so most of the L1 paths
 // can't be covered in unit tests. These will be tested in integration tests.
 test.skip('l1 early exit prevents future bond rewards but leaves stx delegated', () => {
@@ -1586,7 +1648,11 @@ test.skip('l1 early exit prevents future bond rewards but leaves stx delegated',
       amountUstx: aliceUstx,
       btcLockup: ok({
         outputs: [
-          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: rov(pox5.getBondL1UnlockHeight(0n)),
+          }),
         ],
         stakerUnlockBytes: new Uint8Array(),
       }),
@@ -1644,7 +1710,11 @@ test.skip('l1 early exit does not erase already accrued bond rewards', () => {
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: rov(pox5.getBondL1UnlockHeight(0n)),
+          }),
         ],
         stakerUnlockBytes: new Uint8Array(),
       }),
@@ -1701,7 +1771,11 @@ test.skip('l1 early exit does not erase already accrued staker rewards', () => {
       amountUstx: stxToUStx(50_000),
       btcLockup: ok({
         outputs: [
-          buildL1Lockup({ staker: alice, sats: aliceSats, bondIndex: 0n }),
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: rov(pox5.getBondL1UnlockHeight(0n)),
+          }),
         ],
         stakerUnlockBytes: new Uint8Array(),
       }),
