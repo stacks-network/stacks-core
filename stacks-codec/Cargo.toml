@@ -27,4 +27,4 @@ clarity-types = { path = "../clarity-types", default-features = false, features 
 [features]
 default = []
 testing = ["stacks-common/testing", "clarity-types/testing"]
-
+wasm-web = ["stacks-common/wasm-web", "clarity-types/wasm-web"]
