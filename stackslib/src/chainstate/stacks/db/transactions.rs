@@ -1881,7 +1881,7 @@ impl StacksChainState {
         // Static precheck (size, version, anchor mode, multisig encoding,
         // Clarity version...). A problematic marker only skips payload
         // execution; the transaction must still be otherwise valid.
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
 
