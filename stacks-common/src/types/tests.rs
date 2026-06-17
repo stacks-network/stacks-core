@@ -47,6 +47,8 @@ fn test_mainnet_coinbase_emissions() {
     assert_eq!(COINBASE_INTERVALS_MAINNET[1].coinbase, 500_000_000);
     assert_eq!(COINBASE_INTERVALS_MAINNET[2].coinbase, 1_000_000_000);
 
+    // heights from SIP-029 and SIP-045
+
     assert_eq!(
         COINBASE_INTERVALS_MAINNET[0].effective_start_height,
         666_050 - 666_050
