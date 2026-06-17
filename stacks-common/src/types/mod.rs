@@ -189,17 +189,16 @@ pub const BITCOIN_MAINNET_GENESIS_BURN_HEIGHT: u64 = 666_050;
 /// Burnchain height at which the Stacks 4.0 epoch activates (mainnet).
 pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 1_012_860;
 
-// From SIP-029 + SIP-todo:
+/// Mainnet coinbase intervals, as defined in SIP-029 + SIP-045
 //
 // | Coinbase Interval  | Bitcoin Height                        | Offset Height       | Approx. Supply   | STX Reward | Annual Inflation |
 // |--------------------|---------------------------------------|---------------------|------------------|------------|------------------|
 // | Current            | -                                     | -                   | 1,552,452,847    | 1000       | -                |
 // | 1st (SIP-029)      | 945,000                               | 278,950             | 1,627,352,847    | 500 (50%)  | 3.23%            |
-// | 2nd (SIP-todo)     | BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT | 346,810             | TBD              | 1000       | TBD              |
+// | 2nd (SIP-045)      | BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT | -                   | TBD              | 1000       | Variable         |
 //
 // The above is for mainnet, which has a burnchain year of 52596 blocks and starts at burnchain height 666050.
 
-/// Mainnet coinbase intervals, as defined in SIP-029 + SIP-todo
 pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 3]> = LazyLock::new(|| {
     let emissions_schedule = [
         CoinbaseInterval {
