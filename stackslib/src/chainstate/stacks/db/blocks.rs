@@ -6583,7 +6583,7 @@ impl StacksChainState {
         // Enforce low-S on the transaction signatures. While consensus allows high-S
         // signatures at the time of writing, they are a concern because the ambiguity
         // makes transaction ids malleable. That's why we don't admit them to the mempol,
-        // and signers reject blocks with them. In a future hard fork, they will also
+        // and signers reject blocks with them. Once Epoch 4.0 begins, they will also
         // not be allowed by consensus anymore.
         StacksChainState::process_transaction_precheck(
             chainstate_config,

@@ -139,6 +139,7 @@ fn test_path(name: &str) -> String {
 
 pub mod node;
 pub mod signer_set;
+pub mod transactions;
 
 #[test]
 fn codec_nakamoto_header() {
