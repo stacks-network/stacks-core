@@ -786,34 +786,13 @@ impl StacksEpochId {
     }
 
     /// Whether transaction signatures are allowed to have high-S, meaning
-    /// an ambiguity in transaction IDs. At the consensus level this is
-    /// currently allowed, but in a future hard fork we should change that.
+    /// an ambiguity in transaction IDs. At the consensus level this  was allowed
+    /// before Epoch 3.4, even though SIP 005 disallowed it from the beginning.
     ///
-    /// As of the time when this function was added, signers will reject
-    /// blocks with such transactions, and they also won't be accepted into
-    /// the mempool anymore.
+    /// This was finally fixed for Epoch 4.0 (and slightly ealier for non-conensus-
+    /// breaking checks in signers and miners).
     pub fn allows_tx_signatures_with_high_s(&self) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34
-            | StacksEpochId::Epoch40 /* FIXME this is temporary during merge */
-            => true,
-            // Hello there, you who is creating Epoch 3.5, feel free to make this
-            // false from that epoch on. I could've written `self <= Epoch34` here,
-            // but I wanted to make sure we remember to document this change for
-            // the new epoch.
-        }
+        self < &StacksEpochId::Epoch40
     }
 
     /// Return the network epoch associated with the StacksEpochId
