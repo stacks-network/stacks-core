@@ -189,7 +189,7 @@ pub const BITCOIN_MAINNET_GENESIS_BURN_HEIGHT: u64 = 666_050;
 /// Burnchain height at which the Stacks 4.0 epoch activates (mainnet).
 pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 1_012_860;
 
-/// Mainnet coinbase intervals, as defined in SIP-029 + SIP-045
+// Mainnet coinbase intervals, as defined in SIP-029 + SIP-045
 //
 // | Coinbase Interval  | Bitcoin Height                        | Offset Height       | Approx. Supply   | STX Reward | Annual Inflation |
 // |--------------------|---------------------------------------|---------------------|------------------|------------|------------------|
