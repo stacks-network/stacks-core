@@ -305,14 +305,14 @@ export function logCommand({
   if (value !== undefined) items.push(String(value));
   if (error !== undefined) items.push(`error ${error}`);
 
-  const columnWidth = 30;
-  const halfColumns = Math.floor(columnWidth / 2);
+  const columnWidth = 65;
+  const thinColumns = Math.floor(columnWidth / 5);
   // padEnd is a no-op once content >= width, which lets long actions (e.g.
   // `stake-err-invalid-num-cycles`) and uint128-range numbers run into the
   // next column. Reserve at least one trailing space so columns stay visually
   // distinct even when content overflows the nominal width.
   const prettyPrint = items.map((content, index) => {
-    const width = index < 3 ? halfColumns : columnWidth;
+    const width = index < 3 ? thinColumns : columnWidth;
     return content.padEnd(Math.max(width, content.length + 1));
   });
   prettyPrint.push('\n');
