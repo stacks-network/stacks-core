@@ -317,6 +317,30 @@ fn mempool_setup_chainstate() {
                 );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+
+                // First, submit this transaction with a high-S signature. Even though that is technically
+                // a valid signature, the mempool should reject it.
+                let high_s_tx = tx.with_negated_s_in_signature();
+                let mut high_s_tx_bytes = vec![];
+                high_s_tx.consensus_serialize(&mut high_s_tx_bytes).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &high_s_tx,
+                        high_s_tx_bytes.len() as u64,
+                    )
+                    .unwrap_err();
+                eprintln!("Err: {e:?}");
+                match e {
+                    MemPoolRejection::FailedToValidate(ChainstateError::NetError(
+                        NetError::VerifyingError(msg)
+                    )) => assert_eq!(msg, "Invalid signature: high-S"),
+                    _ => panic!("unexpected error {e:?} from mempool admittance check of high-s signature transaction")
+                }
+
+                // Now, submit it with the original, low-S signature. This should be successful.
                 chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
