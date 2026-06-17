@@ -37,14 +37,8 @@ test('pause admin can transfer authority', () => {
   expect(txErr(pox5.pauseRewards(), deployer).value).toBe(
     errorCodes.ERR_UNAUTHORIZED,
   );
-  expect(txOk(pox5.pauseRewards(), alice).value).toEqual({
-    oldAdmin: alice,
-    newAdmin: alice,
-  });
-  expect(txOk(pox5.pauseRewards(), alice).value).toEqual({
-    oldAdmin: alice,
-    newAdmin: alice,
-  });
+  expect(txOk(pox5.pauseRewards(), alice).value).toBe(true);
+  expect(txOk(pox5.pauseRewards(), alice).value).toBe(true);
 });
 
 test('paused rewards cannot be claimed', () => {

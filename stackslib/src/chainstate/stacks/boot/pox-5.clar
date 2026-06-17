@@ -479,19 +479,15 @@
 )
 
 ;; Permanently prevent signers from claiming rewards from this contract.
+;; This is one-way: there is no unpause function. Once paused, rewards can
+;; keep accumulating here, and recovery requires a hard fork.
 (define-public (pause-rewards)
-    (let (
-            (old-admin (var-get pause-admin))
-            (result {
-                old-admin: old-admin,
-                new-admin: old-admin,
-            })
-        )
-        (asserts! (is-eq contract-caller old-admin) ERR_UNAUTHORIZED)
+    (begin
+        (asserts! (is-eq contract-caller (var-get pause-admin)) ERR_UNAUTHORIZED)
         (try! (validate-no-reentrancy))
         (var-set rewards-paused true)
-        (print (merge { topic: "pause-rewards" } result))
-        (ok result)
+        (print { topic: "pause-rewards" })
+        (ok true)
     )
 )
 
@@ -2668,6 +2664,32 @@
     (let ((cur-reserve (var-get reserve-balance)))
         (asserts! (>= cur-reserve amount) ERR_INSUFFICIENT_RESERVE_BALANCE)
         (var-set reserve-balance (- cur-reserve amount))
+        (try! (as-contract?
+            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                "sbtc-token" amount
+            ))
+            (try! (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                transfer amount current-contract recipient none
+            ))
+        ))
+        (ok true)
+    )
+)
+
+;; Transfer funds stranded by a rewards pause. This is private and not called
+;; anywhere in the contract, so it can only be called by the node as part of
+;; consensus (via the SIP process).
+;;
+;; Unlike `transfer-from-reserve`, which updates internal state and requires
+;; that the amount is less than the reserve, this function
+;; can act as a "catch-all" for transferring sBTC from this contract (via a
+;; hard fork).
+;; #[allow(unused_private_fn)]
+(define-private (transfer-stranded-rewards
+        (amount uint)
+        (recipient principal)
+    )
+    (begin
         (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 "sbtc-token" amount

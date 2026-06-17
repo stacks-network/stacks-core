@@ -4498,6 +4498,21 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      transferStrandedRewards: {
+        name: 'transfer-stranded-rewards',
+        access: 'private',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+        ],
+        Response<boolean, bigint>
+      >,
       unstakeSatsFromBondCycle: {
         name: 'unstake-sats-from-bond-cycle',
         access: 'private',
@@ -5210,29 +5225,8 @@ export const contracts = {
         name: 'pause-rewards',
         access: 'public',
         args: [],
-        outputs: {
-          type: {
-            response: {
-              ok: {
-                tuple: [
-                  { name: 'new-admin', type: 'principal' },
-                  { name: 'old-admin', type: 'principal' },
-                ],
-              },
-              error: 'uint128',
-            },
-          },
-        },
-      } as TypedAbiFunction<
-        [],
-        Response<
-          {
-            newAdmin: string;
-            oldAdmin: string;
-          },
-          bigint
-        >
-      >,
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
       registerForBond: {
         name: 'register-for-bond',
         access: 'public',

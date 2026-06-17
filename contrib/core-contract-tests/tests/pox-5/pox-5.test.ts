@@ -5383,6 +5383,30 @@ test('transfer-from-reserve fails when amount exceeds the reserve balance', () =
   expect(rov(pox5.getReserveBalance())).toBe(0n);
 });
 
+test('transfer-stranded-rewards pays the recipient without debiting reserve', () => {
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: 1000n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  const charlieBalanceBefore = sbtcBalance(charlie);
+  const contractBalanceBefore = sbtcBalance(pox5.identifier);
+
+  const transfer = txOk(
+    pox5.transferStrandedRewards({ amount: 1000n, recipient: charlie }),
+    deployer,
+  );
+  expect(transfer.value).toBe(true);
+  expect(rov(pox5.getReserveBalance())).toBe(0n);
+  expect(sbtcBalance(charlie)).toBe(charlieBalanceBefore + 1000n);
+  expect(sbtcBalance(pox5.identifier)).toBe(contractBalanceBefore - 1000n);
+});
+
 test('stake locks STX in simnet', () => {
   registerSignerManager();
 
