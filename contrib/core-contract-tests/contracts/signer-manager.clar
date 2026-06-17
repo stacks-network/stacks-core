@@ -143,6 +143,7 @@
                     )
                     ERR_INVALID_CALLDATA
                 )))
+                (try! (check-pox-addr (get pox-addr pox-addr)))
                 (map-set pox-addrs staker pox-addr)
                 true
             )
@@ -285,8 +286,8 @@
                     ;; `amount + max-fee` == `earned` left the balance into the
                     ;; sBTC withdrawal system; record it as staker liability.
                     (var-set withdrawal-liability
-                        (+ (var-get withdrawal-liability)
-                            (+ amount (get max-fee l1-info))
+                        (+ (var-get withdrawal-liability) amount
+                            (get max-fee l1-info)
                         ))
                     true
                 )
@@ -497,10 +498,9 @@
             (balance (unwrap-panic (contract-call? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 get-balance current-contract
             )))
-            (reserved (+ (var-get earned-fees)
-                (+ (var-get withdrawal-liability)
-                    (var-get unclaimed-staker-rewards)
-                )))
+            (reserved (+ (var-get earned-fees) (var-get withdrawal-liability)
+                (var-get unclaimed-staker-rewards)
+            ))
             (sweepable (if (>= balance reserved)
                 (- balance reserved)
                 u0
