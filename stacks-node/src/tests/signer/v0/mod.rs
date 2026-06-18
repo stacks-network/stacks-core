@@ -124,6 +124,7 @@ pub mod epoch_4_0_waterfall;
 pub mod failed_txs;
 pub mod late_block_proposal;
 pub mod missing_burn_block_proposal;
+pub mod problematic_txs;
 pub mod reorg;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
