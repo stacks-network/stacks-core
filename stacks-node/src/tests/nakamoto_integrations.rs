@@ -3584,14 +3584,14 @@ fn block_proposal_api_endpoint() {
             "High-S signature",
             {
                 let mut p = proposal.clone();
-                p.block.txs[0] = p.block.txs[0].with_negated_s_in_signature();
+                p.block.executed_and_skipped_txs_mut()[0] =
+                    p.block.executed_and_skipped_txs()[0].with_negated_s_in_signature();
                 // tweaking the signature changes the transaction id (which is
                 // the main problem with high-S signatures), so we need to update
                 // the transaction merkle root
                 let txid_vecs: Vec<_> = p
                     .block
-                    .txs
-                    .iter()
+                    .txs()
                     .map(|tx| tx.txid().as_bytes().to_vec())
                     .collect();
 
@@ -7311,10 +7311,7 @@ fn signer_chainstate() {
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
-    let sibling_block = NakamotoBlock {
-        header: sibling_block_header,
-        txs: vec![],
-    };
+    let sibling_block = NakamotoBlock::new(sibling_block_header, vec![]);
 
     // this config disallows any reorg due to poorly timed block commits
     let proposal_conf = ProposalEvalConfig {
@@ -7357,9 +7354,9 @@ fn signer_chainstate() {
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
-    let sibling_block = NakamotoBlock {
-        header: sibling_block_header,
-        txs: vec![
+    let sibling_block = NakamotoBlock::new(
+        sibling_block_header,
+        vec![
             StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 1,
@@ -7380,9 +7377,9 @@ fn signer_chainstate() {
                     last_tenure.get_tenure_change_tx_payload().unwrap().clone(),
                 ),
             },
-            last_tenure.txs[1].clone(),
+            last_tenure.executed_and_skipped_txs()[1].clone(),
         ],
-    };
+    );
 
     sortitions_view
         .check_proposal(
@@ -7412,9 +7409,9 @@ fn signer_chainstate() {
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
-    let sibling_block = NakamotoBlock {
-        header: sibling_block_header.clone(),
-        txs: vec![
+    let sibling_block = NakamotoBlock::new(
+        sibling_block_header.clone(),
+        vec![
             StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 1,
@@ -7441,9 +7438,9 @@ fn signer_chainstate() {
                     pubkey_hash: Hash160::from_node_public_key(&miner_pk),
                 }),
             },
-            last_tenure.txs[1].clone(),
+            last_tenure.executed_and_skipped_txs()[1].clone(),
         ],
-    };
+    );
 
     sortitions_view
         .check_proposal(
@@ -7476,9 +7473,9 @@ fn signer_chainstate() {
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
-    let sibling_block = NakamotoBlock {
-        header: sibling_block_header.clone(),
-        txs: vec![
+    let sibling_block = NakamotoBlock::new(
+        sibling_block_header.clone(),
+        vec![
             StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 1,
@@ -7505,9 +7502,9 @@ fn signer_chainstate() {
                     pubkey_hash: Hash160::from_node_public_key(&miner_pk),
                 }),
             },
-            last_tenure.txs[1].clone(),
+            last_tenure.executed_and_skipped_txs()[1].clone(),
         ],
-    };
+    );
 
     sortitions_view
         .check_proposal(

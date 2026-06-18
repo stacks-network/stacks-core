@@ -252,10 +252,7 @@ fn test_block_processed_event_nakamoto() {
         MessageSignature::from_bytes(&[1; 65]).unwrap(),
     ];
     block_header.signer_signature = signer_signature.clone();
-    let block = NakamotoBlock {
-        header: block_header.clone(),
-        txs: vec![],
-    };
+    let block = NakamotoBlock::new(block_header.clone(), vec![]);
     let mut metadata = StacksHeaderInfo::regtest_genesis();
     metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header);
     let receipts = vec![];
@@ -896,10 +893,7 @@ fn block_event_with_disable_retries_observer() {
     };
     event_dispatcher.register_observer(&config);
 
-    let nakamoto_block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
 
     // this will block forever in non "disable_retries" mode
     event_dispatcher.process_mined_nakamoto_block_event(
@@ -1160,10 +1154,7 @@ fn test_http_delivery_non_blocking() {
         disable_retries: false,
     });
 
-    let nakamoto_block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
 
     let start = Instant::now();
 
@@ -1234,10 +1225,7 @@ fn test_http_delivery_blocks_once_queue_is_full() {
         disable_retries: false,
     });
 
-    let nakamoto_block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
 
     let start = Instant::now();
 
@@ -1346,10 +1334,7 @@ fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
         disable_retries: false,
     });
 
-    let nakamoto_block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
 
     let start = Instant::now();
 

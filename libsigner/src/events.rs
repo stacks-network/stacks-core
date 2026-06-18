@@ -763,10 +763,7 @@ mod tests {
     /// version without crashing.
     fn test_old_deserialization_works() {
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let new_block_proposal = BlockProposal {
             block: block.clone(),
             burn_height: 1,
@@ -793,10 +790,7 @@ mod tests {
     /// and then deserialized into the new version.
     fn test_old_proposal_can_deserialize() {
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let old_block_proposal = BlockProposalOld {
             block: block.clone(),
             burn_height: 1,

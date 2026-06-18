@@ -15,7 +15,6 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::StacksEpochId;
 

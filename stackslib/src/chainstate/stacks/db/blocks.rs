@@ -46,7 +46,7 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
-use crate::chainstate::nakamoto::{NakamotoChainState, ProblematicTxMarker};
+use crate::chainstate::nakamoto::{NakamotoChainState, TxToProcess};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
@@ -4501,33 +4501,31 @@ impl StacksChainState {
     /// Process a single anchored block.
     /// Return the fees and burns.
     ///
-    /// `problematic_txs` is the (consensus-validated) marker list from the
-    /// containing [`NakamotoBlockHeader`]. For pre-Nakamoto blocks pass an
-    /// empty slice.
-    pub fn process_block_transactions(
+    /// `block_txs` pairs each transaction with its replay disposition (execute
+    /// vs. skip-as-problematic). Build it from a Nakamoto block with
+    /// [`NakamotoBlock::txs_to_process`]; for pre-Nakamoto blocks, wrap the
+    /// transaction list with [`TxToProcess::all_execute`]. Carrying the
+    /// disposition alongside each transaction makes it impossible for this loop
+    /// to execute a problematic transaction by overlooking a separate marker
+    /// list.
+    pub fn process_block_transactions<'a>(
         clarity_tx: &mut ClarityTx,
-        block_txs: &[StacksTransaction],
+        block_txs: impl IntoIterator<Item = TxToProcess<'a>>,
         mut tx_index: u32,
-        problematic_txs: &[ProblematicTxMarker],
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         let mut total_size = 0u64;
-        let problematic_categories: HashMap<u32, u8> = problematic_txs
-            .iter()
-            .map(|m| (m.tx_index, m.category))
-            .collect();
-        for (block_tx_index, tx) in block_txs.iter().enumerate() {
-            let block_tx_index_u32 = u32::try_from(block_tx_index).map_err(|_| {
-                Error::InvalidStacksBlock("Block has too many transactions to index".into())
-            })?;
-            let (tx_fee, mut tx_receipt) =
-                if let Some(&category) = problematic_categories.get(&block_tx_index_u32) {
+        for tx_to_process in block_txs {
+            let (tx_fee, mut tx_receipt) = match tx_to_process {
+                TxToProcess::Skip { tx, category } => {
                     StacksChainState::process_skipped_transaction(clarity_tx, tx, category, false)?
-                } else {
+                }
+                TxToProcess::Execute(tx) => {
                     StacksChainState::process_transaction(clarity_tx, tx, false, None)?
-                };
+                }
+            };
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
@@ -5579,10 +5577,9 @@ impl StacksChainState {
             let (block_fees, block_burns, txs_receipts) =
                 match StacksChainState::process_block_transactions(
                     &mut clarity_tx,
-                    &block.txs,
+                    TxToProcess::all_execute(&block.txs),
                     u32::try_from(microblock_txs_receipts.len())
                         .expect("more than 2^32 tx receipts"),
-                    &[],
                 ) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {e:?}", block.block_hash());

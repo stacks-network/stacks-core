@@ -2213,13 +2213,10 @@ mod test {
         assert_eq!(signer_message, deserialized_signer_message);
 
         let header = NakamotoBlockHeader::empty();
-        let mut block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let mut block = NakamotoBlock::new(header, vec![]);
         let tx_merkle_root = {
             let txid_vecs: Vec<_> = block
-                .txs
+                .executed_and_skipped_txs()
                 .iter()
                 .map(|tx| tx.txid().as_bytes().to_vec())
                 .collect();

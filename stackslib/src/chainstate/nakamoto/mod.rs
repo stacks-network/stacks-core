@@ -679,6 +679,69 @@ impl StacksMessageCodec for ProblematicTxMarker {
 /// block header. This bounds the header serialization.
 pub const MAX_PROBLEMATIC_TX_MARKERS: usize = (MAX_BLOCK_LEN / MIN_TRANSACTION_LEN) as usize;
 
+/// A transaction paired with its problematic marker.
+///
+/// Block replay consumes a list of these rather than a bare
+/// `&[StacksTransaction]` plus a separate `problematic_txs` marker list. Fusing
+/// the two up front (see [`NakamotoBlock::txs_to_process`]) means the replay
+/// loop cannot execute a problematic transaction by forgetting to cross-
+/// reference the markers: the disposition travels with the transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxToProcess<'a> {
+    /// Execute the transaction's payload normally.
+    Execute(&'a StacksTransaction),
+    /// Skip executing the transaction's payload because it was marked
+    /// problematic; the fee is still charged and nonces still bumped. Carries
+    /// the `category` byte from the marker.
+    Skip {
+        tx: &'a StacksTransaction,
+        category: u8,
+    },
+}
+
+impl<'a> TxToProcess<'a> {
+    /// Wrap a plain transaction list as all-to-execute, for blocks that carry
+    /// no problematic markers (every pre-Nakamoto block, and any Nakamoto block
+    /// with an empty marker list).
+    pub fn all_execute(txs: &'a [StacksTransaction]) -> impl Iterator<Item = TxToProcess<'a>> + 'a {
+        txs.iter().map(TxToProcess::Execute)
+    }
+
+    /// Get the transaction ID of this transaction, regardless of whether it's
+    /// marked problematic or not.
+    pub fn txid(&self) -> Txid {
+        match self {
+            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => tx.txid(),
+        }
+    }
+
+    /// Get the raw transaction, regardless of whether it's marked problematic
+    /// and should not be executed.
+    pub fn payload(&self) -> &'a TransactionPayload {
+        match self {
+            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => &tx.payload,
+        }
+    }
+
+    /// Is this transaction marked problematic?
+    pub fn is_problematic(&self) -> bool {
+        matches!(self, TxToProcess::Skip { .. })
+    }
+
+    /// Extract the underlying transaction, **deliberately ignoring** its
+    /// problematic state (whether it should be executed or skipped as
+    /// problematic).
+    ///
+    /// This is the one escape hatch out of [`TxToProcess`]. Call it only when
+    /// the raw transaction is genuinely all that is needed, never on the
+    /// replay execution path, where the problematic state must be honored.
+    pub fn tx_ignoring_problematic_state(&self) -> &'a StacksTransaction {
+        match self {
+            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => tx,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockHeader {
     pub version: u8,
@@ -770,7 +833,67 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
-    pub txs: Vec<StacksTransaction>,
+    pub(crate) txs: Vec<StacksTransaction>,
+}
+
+impl NakamotoBlock {
+    /// Construct a block from a header and its final transaction list.
+    pub fn new(header: NakamotoBlockHeader, txs: Vec<StacksTransaction>) -> Self {
+        Self { header, txs }
+    }
+
+    /// Get the number of transactions in this block, including those marked
+    /// problematic.
+    pub fn tx_count(&self) -> usize {
+        self.txs.len()
+    }
+
+    /// The block's transactions, including all transactions in the problematic
+    /// list (that should not be executed). Use
+    /// [`NakamotoBlock::txs_to_process`] instead when replaying, so the
+    /// `problematic_txs` markers are considered.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn executed_and_skipped_txs(&self) -> &[StacksTransaction] {
+        &self.txs
+    }
+
+    /// Consume the block, yielding its transaction list, including all
+    /// transactions in the problematic list (that should not be executed).
+    #[cfg(any(test, feature = "testing"))]
+    pub fn into_executed_and_skipped_txs(self) -> Vec<StacksTransaction> {
+        self.txs
+    }
+
+    /// Mutable access to the block's transactions, including all transactions
+    /// in the problematic list (that should not be executed), for tests that
+    /// build or tamper with blocks. Not available outside test builds:
+    /// production code must construct a block with its final transaction list.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn executed_and_skipped_txs_mut(&mut self) -> &mut Vec<StacksTransaction> {
+        &mut self.txs
+    }
+
+    /// Get an iterator over the block's transactions, considering the
+    /// `problematic_txs` markers.
+    pub fn txs(&self) -> impl Iterator<Item = TxToProcess<'_>> {
+        // Index -> category. Empty (the common case) means every lookup misses,
+        // so every transaction is yielded as `Execute`.
+        let categories: HashMap<u32, u8> = self
+            .header
+            .problematic_txs
+            .iter()
+            .map(|m| (m.tx_index, m.category))
+            .collect();
+        self.txs.iter().enumerate().map(move |(i, tx)| {
+            match u32::try_from(i)
+                .ok()
+                .and_then(|i| categories.get(&i).copied())
+            {
+                Some(category) => TxToProcess::Skip { tx, category },
+                None => TxToProcess::Execute(tx),
+            }
+        })
+    }
 }
 
 pub struct NakamotoChainState;
@@ -5099,21 +5222,17 @@ impl NakamotoChainState {
         );
 
         // process anchored block
-        let (block_fees, txs_receipts) = match StacksChainState::process_block_transactions(
-            &mut clarity_tx,
-            &block.txs,
-            0,
-            &block.header.problematic_txs,
-        ) {
-            Err(e) => {
-                let msg = format!("Invalid Stacks block {block_hash}: {e:?}");
-                warn!("{msg}");
+        let (block_fees, txs_receipts) =
+            match StacksChainState::process_block_transactions(&mut clarity_tx, block.txs(), 0) {
+                Err(e) => {
+                    let msg = format!("Invalid Stacks block {block_hash}: {e:?}");
+                    warn!("{msg}");
 
-                clarity_tx.rollback_block();
-                return Err(ChainstateError::InvalidStacksBlock(msg));
-            }
-            Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
-        };
+                    clarity_tx.rollback_block();
+                    return Err(ChainstateError::InvalidStacksBlock(msg));
+                }
+                Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
+            };
 
         tx_receipts.extend(txs_receipts);
 

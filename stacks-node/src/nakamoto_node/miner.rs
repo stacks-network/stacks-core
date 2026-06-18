@@ -1704,7 +1704,7 @@ impl BlockMinerThread {
             e
         })?;
 
-        if block_metadata.block.txs.is_empty() {
+        if block_metadata.block.tx_count() == 0 {
             return Err(ChainstateError::NoTransactionsToMine.into());
         }
         let mining_key = self.keychain.get_nakamoto_sk();
@@ -1723,7 +1723,7 @@ impl BlockMinerThread {
             "Miner: Assembled block #{} for signer set proposal: {}, with {} txs",
             block_metadata.block.header.chain_length,
             block_metadata.block.header.block_hash(),
-            block_metadata.block.txs.len();
+            block_metadata.block.tx_count();
             "signer_signature_hash" => %block_metadata.block.header.signer_signature_hash(),
             "consensus_hash" => %block_metadata.block.header.consensus_hash,
             "parent_block_id" => %block_metadata.block.header.parent_block_id,

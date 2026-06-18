@@ -594,7 +594,7 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
                  }| {
                     (
                         block.header.block_hash(),
-                        block.txs,
+                        block.into_executed_and_skipped_txs(),
                         tenure_consumed,
                         tenure_size,
                     )

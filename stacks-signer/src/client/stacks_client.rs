@@ -1022,10 +1022,7 @@ mod tests {
     fn submit_block_for_validation_should_succeed() {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let h = spawn(move || mock.client.submit_block_for_validation(block, None));
         write_response(mock.server, b"HTTP/1.1 200 OK\n\n");
         assert!(h.join().unwrap().is_ok());
@@ -1035,10 +1032,7 @@ mod tests {
     fn submit_block_for_validation_should_fail() {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let h = spawn(move || mock.client.submit_block_for_validation(block, None));
         write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         assert!(h.join().unwrap().is_err());
