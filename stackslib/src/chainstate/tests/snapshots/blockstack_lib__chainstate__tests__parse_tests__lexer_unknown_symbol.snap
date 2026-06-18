@@ -1,6 +1,8 @@
 ---
 source: stackslib/src/chainstate/tests/parse_tests.rs
-expression: result
+assertion_line: 477
+expression: result.get_expected_results()
+snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
@@ -9,7 +11,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(:0:0: identifier \'_\' starts with \'_\', which requires Clarity 6 or later) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -39,7 +41,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(:0:0: identifier \'_\' starts with \'_\', which requires Clarity 6 or later) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -69,7 +71,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(:0:0: identifier \'_\' starts with \'_\', which requires Clarity 6 or later) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -99,7 +101,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(:0:0: identifier \'_\' starts with \'_\', which requires Clarity 6 or later) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -129,7 +131,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(unknown symbol, \'_\') [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(:0:0: identifier \'_\' starts with \'_\', which requires Clarity 6 or later) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
