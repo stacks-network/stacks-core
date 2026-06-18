@@ -176,6 +176,10 @@ pub enum ParseErrorKind {
     /// Contract name contains invalid characters or violates naming rules.
     /// The `String` represents the invalid contract name.
     IllegalContractName(String),
+    /// Identifier starts with an underscore in a Clarity version that predates
+    /// `ClarityVersion::Clarity6`, where leading-`_` names are not yet
+    /// permitted. The `String` is the offending name.
+    UnderscoreIdentifierNotAllowed(String),
 
     // Notes
     /// Indicates a token mismatch for internal parser diagnostics.
@@ -403,6 +407,9 @@ impl DiagnosableError for ParseErrorKind {
             }
             ParseErrorKind::TupleValueExpected => "expected value expression for tuple".into(),
             ParseErrorKind::IllegalClarityName(name) => format!("illegal clarity name, '{name}'"),
+            ParseErrorKind::UnderscoreIdentifierNotAllowed(name) => {
+                format!("identifier '{name}' starts with '_', which requires Clarity 6 or later")
+            }
             ParseErrorKind::IllegalASCIIString(s) => format!("illegal ascii string \"{s}\""),
             ParseErrorKind::ExpectedWhitespace => "expected whitespace before expression".into(),
             ParseErrorKind::NoteToMatchThis(token) => format!("to match this '{token}'"),

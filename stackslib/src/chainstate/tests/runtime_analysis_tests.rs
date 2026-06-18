@@ -144,6 +144,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         },
+        BareUnderscoreReserved => Ignored("Reachable only in Clarity 6+ when `_` appears as a name in a non-discard position. Covered by `clarity::vm::tests::simple_apply_eval` rather than consensus-snapshot tests."),
     };
 }
 

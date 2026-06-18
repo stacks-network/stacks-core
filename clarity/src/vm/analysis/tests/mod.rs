@@ -362,6 +362,21 @@ fn test_unbound_variable() {
     assert!(format!("{}", err.diagnostic).contains("use of unresolved variable 'unicorn'"));
 }
 
+/// Clarity 6: referencing `_` (the discard pattern) gets a specific
+/// diagnostic instead of the generic "unresolved variable" message,
+/// because the user's mistake is conceptually different — they tried to
+/// read back a value that the language has explicitly discarded.
+#[test]
+fn test_unbound_variable_discard_pattern_has_specific_message() {
+    let snippet = "(let ((_ 1)) _)";
+    let err = mem_type_check(snippet).unwrap_err();
+    let formatted = format!("{}", err.diagnostic);
+    assert!(
+        formatted.contains("'_' is reserved as a discard pattern"),
+        "expected discard-specific diagnostic, got: {formatted}"
+    );
+}
+
 #[test]
 fn test_variadic_needs_one_argument() {
     let snippet = "(begin)";

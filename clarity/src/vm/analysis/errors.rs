@@ -17,7 +17,7 @@
 use std::{error, fmt};
 
 use clarity_types::errors::ClarityTypeError;
-use clarity_types::representations::SymbolicExpression;
+use clarity_types::representations::{DISCARD_IDENTIFIER, SymbolicExpression};
 use clarity_types::types::{TraitIdentifier, TupleTypeSignature, TypeSignature};
 use stacks_common::types::StacksEpochId;
 
@@ -215,6 +215,11 @@ pub enum CommonCheckErrorKind {
     /// Too many trait methods specified.
     /// The first `usize` represents the number of methods found, the second the maximum allowed.
     TraitTooManyMethods(usize, usize),
+    /// Clarity 6: bare `_` is reserved as the discard pattern in `let`/`match`
+    /// bindings and cannot be used to name a top-level definition, function
+    /// argument, trait method, tuple key, tuple-type field, or `use-trait`
+    /// alias.
+    BareUnderscoreReserved,
 }
 
 /// An error detected during the static analysis of a smart contract at deployment time.
@@ -405,6 +410,11 @@ pub enum StaticCheckErrorKind {
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
+    /// Clarity 6: bare `_` is reserved as the discard pattern in `let`/`match`
+    /// bindings and cannot be used to name a top-level definition, function
+    /// argument, trait method, tuple key, tuple-type field, or `use-trait`
+    /// alias.
+    BareUnderscoreReserved,
     /// Name is a reserved word in Clarity and cannot be used.
     /// The `String` wraps the reserved name.
     ReservedWord(String),
@@ -619,6 +629,11 @@ pub enum RuntimeCheckErrorKind {
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
+    /// Clarity 6: bare `_` is reserved as the discard pattern in `let`/`match`
+    /// bindings and cannot be used to name a top-level definition, function
+    /// argument, trait method, tuple key, tuple-type field, or `use-trait`
+    /// alias.
+    BareUnderscoreReserved,
 
     /// Referenced function is not defined in the current scope.
     /// The `String` wraps the non-existent function name.
@@ -1030,6 +1045,9 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
             CommonCheckErrorKind::UnknownTypeName(name) => {
                 RuntimeCheckErrorKind::Unreachable(format!("Unknown type name: {name}"))
             }
+            CommonCheckErrorKind::BareUnderscoreReserved => {
+                RuntimeCheckErrorKind::BareUnderscoreReserved
+            }
         }
     }
 }
@@ -1070,6 +1088,9 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::BadSyntaxBinding(e) => StaticCheckErrorKind::BadSyntaxBinding(e),
             CommonCheckErrorKind::UnknownTypeName(name) => {
                 StaticCheckErrorKind::UnknownTypeName(name)
+            }
+            CommonCheckErrorKind::BareUnderscoreReserved => {
+                StaticCheckErrorKind::BareUnderscoreReserved
             }
         }
     }
@@ -1213,6 +1234,9 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName => "missing property name for stacks block info introspection".into(),
             StaticCheckErrorKind::GetTenureInfoExpectPropertyName => "missing property name for tenure info introspection".into(),
             StaticCheckErrorKind::NameAlreadyUsed(name) => format!("defining '{name}' conflicts with previous value"),
+            StaticCheckErrorKind::BareUnderscoreReserved => {
+                "'_' is reserved as a discard pattern and cannot be used as a name".into()
+            }
             StaticCheckErrorKind::ReservedWord(name) => format!("{name} is a reserved word"),
             StaticCheckErrorKind::NonFunctionApplication => "expecting expression of type function".into(),
             StaticCheckErrorKind::ExpectedListApplication => "expecting expression of type list".into(),
@@ -1221,6 +1245,9 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::BadLetSyntax => "invalid syntax of 'let'".into(),
             StaticCheckErrorKind::BadSyntaxBinding(binding_error) => format!("invalid syntax binding: {}", &binding_error.message()),
             StaticCheckErrorKind::MaxContextDepthReached => "reached depth limit".into(),
+            StaticCheckErrorKind::UndefinedVariable(var_name) if var_name == DISCARD_IDENTIFIER => {
+                format!("'{DISCARD_IDENTIFIER}' is reserved as a discard pattern; it cannot be referenced as a variable")
+            }
             StaticCheckErrorKind::UndefinedVariable(var_name) => format!("use of unresolved variable '{var_name}'"),
             StaticCheckErrorKind::RequiresAtLeastArguments(expected, found) => format!("expecting >= {expected} arguments, got {found}"),
             StaticCheckErrorKind::RequiresAtMostArguments(expected, found) => format!("expecting < {expected} arguments, got {found}"),

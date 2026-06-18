@@ -28,6 +28,7 @@ use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime
 use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::bitcoin::VERIFY_MERKLE_PROOF_MAX_DEPTH;
 use crate::vm::functions::{NativeFunctions, handle_binding_list};
+use crate::vm::representations::DISCARD_IDENTIFIER;
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
 };
@@ -253,6 +254,11 @@ pub fn check_special_tuple_cons(
         args,
         SyntaxBindingErrorType::TupleCons,
         |var_name, var_sexp| {
+            // Clarity 6: bare `_` cannot name a tuple key — it would be
+            // referenceable via `get`, contradicting the discard semantics.
+            if var_name.as_str() == DISCARD_IDENTIFIER {
+                return Err(StaticCheckErrorKind::BareUnderscoreReserved.into());
+            }
             checker.type_check(var_sexp, context).and_then(|var_type| {
                 runtime_cost(
                     ClarityCostFunction::AnalysisTupleItemsCheck,
@@ -305,11 +311,17 @@ fn check_special_let(
         binding_list,
         SyntaxBindingErrorType::Let,
         |var_name, var_sexp| {
-            checker.contract_context.check_name_used(var_name)?;
-            if out_context.lookup_variable_type(var_name).is_some() {
-                return Err(StaticCheckError::new(
-                    StaticCheckErrorKind::NameAlreadyUsed(var_name.to_string()),
-                ));
+            // Clarity 6: bare `_` is a discard binding — still type-check
+            // the value (so type errors surface) but don't add to scope.
+            let is_discard = var_name.as_str() == DISCARD_IDENTIFIER
+                && checker.clarity_version.allows_underscore_prefix();
+            if !is_discard {
+                checker.contract_context.check_name_used(var_name)?;
+                if out_context.lookup_variable_type(var_name).is_some() {
+                    return Err(StaticCheckError::new(
+                        StaticCheckErrorKind::NameAlreadyUsed(var_name.to_string()),
+                    ));
+                }
             }
 
             let typed_result = checker.type_check(var_sexp, &out_context)?;
@@ -328,7 +340,13 @@ fn check_special_let(
                     .ok_or_else(|| CostErrors::CostOverflow)?;
                 checker.add_memory(memory_use)?;
             }
-            out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);
+            if !is_discard {
+                out_context.add_variable_type(
+                    var_name.clone(),
+                    typed_result,
+                    checker.clarity_version,
+                );
+            }
             Ok(())
         },
     )?;

@@ -64,6 +64,350 @@ fn test_doubly_defined_persisted_vars() {
     }
 }
 
+/// Clarity 6: bare `_` is a discard binding in `let`. The value is evaluated
+/// (so early-exit forms like `unwrap-panic` still fire) but the name is not
+/// added to scope, and multiple `_` bindings do not conflict.
+#[test]
+fn test_let_discard_bare_underscore() {
+    let program = "(let ((_ 1) (_ 2) (x 3)) (+ x 4))";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(7));
+}
+
+/// Clarity 6: a bare `_` binding in `let` does not place `_` in scope. The body
+/// referring to `_` should fail with an unbound-variable error rather than
+/// returning the discarded value.
+#[test]
+fn test_let_discard_underscore_not_referenceable() {
+    let program = "(let ((_ 7)) _)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("Undefined variable: _"),
+        "expected an unbound-variable error for `_`, got: {msg}"
+    );
+}
+
+/// Clarity 6: a bare-`_` `let` binding must short-circuit on `try!` just
+/// like a regular binding would — the SIP's worked example uses this.
+#[test]
+fn test_let_discard_with_try_short_circuits() {
+    let program = "(define-public (foo)
+                       (let ((_ (try! (err u7))))
+                         (ok u0)))
+                    (foo)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    // `try!` should propagate `(err u7)` out of `foo` instead of returning `(ok u0)`.
+    let msg = format!("{result:?}");
+    assert!(
+        msg.contains("Response(ResponseData") && msg.contains("UInt(7)"),
+        "expected `(err u7)` propagated by `try!`, got: {msg}"
+    );
+}
+
+/// Nested `let`s where both outer and inner bind bare `_`. Each scope's
+/// discard is independent — neither should leak the other's `_` nor raise
+/// `NameAlreadyUsed` on the inner binding.
+#[test]
+fn test_nested_let_with_bare_underscore_discards() {
+    let program = "(let ((_ 1) (x 10))
+                     (let ((_ 2) (y 20))
+                       (+ x y)))";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(30));
+}
+
+/// Symmetry with `test_let_underscore_prefix_is_regular_binding`:
+/// underscore-prefixed match-arm names are regular bindings (not discards)
+/// and can be referenced in the branch body.
+#[test]
+fn test_match_underscore_prefix_is_regular_binding() {
+    let program = "(match (some 42) _val _val 0)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+/// Clarity 6: underscore-prefixed names (e.g. `_admin`) are *regular* bindings
+/// — the leading `_` is just a convention. They can be read back.
+#[test]
+fn test_let_underscore_prefix_is_regular_binding() {
+    let program = "(let ((_admin 42)) _admin)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+/// Clarity 6: bare `_` in `match` (optional form) discards the matched value
+/// without binding the name.
+#[test]
+fn test_match_opt_discard_bare_underscore() {
+    let program = "(match (some 5) _ 1 0)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+/// Clarity 6: bare `_` in `match` (response form) discards on both arms.
+#[test]
+fn test_match_resp_discard_bare_underscore() {
+    let program_ok = "(match (ok 7) _ 1 _ 2)";
+    let result = execute_with_parameters(
+        program_ok,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(1));
+
+    // Force the err-arm with a `response int int` whose err side is taken.
+    let program_err = "(match (err 7) _ 1 _ 2)";
+    let result = execute_with_parameters(
+        program_err,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(2));
+}
+
+/// A bare-`_` `let` binding must still evaluate its bound expression.
+/// A guaranteed runtime fault in the expression proves evaluation
+/// happened: were it skipped, the let would return `0` instead.
+#[test]
+fn test_let_discard_still_evaluates_value() {
+    let program = "(let ((_ (/ 1 0))) 0)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("DivisionByZero"),
+        "expected a division-by-zero error, got: {msg}"
+    );
+}
+
+/// Some-arm taken with a bare-`_` bind: discards `99`, returns `11`.
+#[test]
+fn test_match_opt_none_arm_with_discard_some() {
+    let program = "(match (some 99) _ 11 22)";
+    let result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result, Value::Int(11));
+}
+
+/// Rejected by the analyzer's `check_name_used`.
+#[test]
+fn test_bare_underscore_as_define_name_rejected_in_clarity6() {
+    let program = "(define-constant _ 1)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// Clarity 6: bare `_` cannot name a `use-trait` alias — would create a
+/// referenceable `<_>` trait alias otherwise.
+#[test]
+fn test_bare_underscore_as_use_trait_alias_rejected_in_clarity6() {
+    let err = execute_with_parameters(
+        "(use-trait _ 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7.foo.bar)",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// Clarity 6: bare `_` cannot name a `define-trait` method — implementing
+/// contracts would have a referenceable `_` function.
+#[test]
+fn test_bare_underscore_as_trait_method_rejected_in_clarity6() {
+    let err = execute_with_parameters(
+        "(define-trait t ((_ (uint) (response uint uint))))",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// Clarity 6: bare `_` cannot be a tuple key — `(get _ tup)` would resolve
+/// the value, making `_` referenceable.
+#[test]
+fn test_bare_underscore_as_tuple_key_rejected_in_clarity6() {
+    let err = execute_with_parameters(
+        "(define-constant x { _: u1 })",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// Clarity 6: bare `_` is rejected in tuple TYPE positions too, not just
+/// tuple-literal values. `(define-map foo { _: uint } …)` would otherwise
+/// register a referenceable `_` field.
+#[test]
+fn test_bare_underscore_as_tuple_type_key_rejected_in_clarity6() {
+    let err = execute_with_parameters(
+        "(define-map foo { _: uint } { val: uint })",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+#[test]
+fn test_bare_underscore_as_function_arg_rejected_in_clarity6() {
+    let program = "(define-public (foo (_ uint)) (ok true)) (foo u1)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("BareUnderscoreReserved"),
+        "expected BareUnderscoreReserved error, got: {msg}"
+    );
+}
+
+/// The SIP requires that referencing `_` after a discard is an
+/// *analysis* error (not just a runtime failure). The analyzer's
+/// type-check sees `_` as unbound and emits `UndefinedVariable("_")`.
+#[test]
+fn test_let_discard_underscore_reference_is_analysis_error() {
+    let err = crate::vm::analysis::type_checker::v2_1::tests::mem_type_check("(let ((_ 7)) _)")
+        .expect_err("expected analysis error");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("UndefinedVariable") && msg.contains("\"_\""),
+        "expected `UndefinedVariable(\"_\")` analysis error, got: {msg}"
+    );
+}
+
+/// Same SIP requirement for `match` arms.
+#[test]
+fn test_match_discard_underscore_reference_is_analysis_error() {
+    let err =
+        crate::vm::analysis::type_checker::v2_1::tests::mem_type_check("(match (some 5) _ _ 0)")
+            .expect_err("expected analysis error");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("UndefinedVariable") && msg.contains("\"_\""),
+        "expected `UndefinedVariable(\"_\")` analysis error, got: {msg}"
+    );
+}
+
+/// Clarity 6: a bare-`_` `match` branch must not be referenceable in its body.
+#[test]
+fn test_match_opt_discard_underscore_not_referenceable() {
+    let program = "(match (some 5) _ _ 0)";
+    let err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("Undefined variable: _"),
+        "expected an unbound-variable error for `_`, got: {msg}"
+    );
+}
+
 #[apply(test_clarity_versions)]
 fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     /*

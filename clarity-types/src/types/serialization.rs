@@ -539,8 +539,14 @@ impl Value {
         } else {
             BOUND_VALUE_SERIALIZATION_BYTES as u64
         };
+        let max_depth = if sanitize {
+            MAX_TYPE_DEPTH as usize
+        } else {
+            UNSANITIZED_DEPTH_CHECK
+        };
         let mut bound_reader = BoundReader::from_reader(r, bound_value_serialization_bytes);
-        let value = Value::inner_deserialize_read(&mut bound_reader, expected_type, sanitize)?;
+        let value =
+            Value::inner_deserialize_read(&mut bound_reader, expected_type, sanitize, max_depth)?;
         let bytes_read = bound_reader.num_read();
         if let Some(expected_type) = expected_type {
             let expect_size = match expected_type.max_serialized_size() {
@@ -569,6 +575,7 @@ impl Value {
         r: &mut R,
         top_expected_type: Option<&TypeSignature>,
         sanitize: bool,
+        max_depth: usize,
     ) -> Result<Value, SerializationError> {
         use super::Value::*;
 
@@ -577,12 +584,7 @@ impl Value {
         }];
 
         while !stack.is_empty() {
-            let depth_check = if sanitize {
-                MAX_TYPE_DEPTH as usize
-            } else {
-                UNSANITIZED_DEPTH_CHECK
-            };
-            if stack.len() > depth_check {
+            if stack.len() > max_depth {
                 return Err(ClarityTypeError::TypeSignatureTooDeep.into());
             }
 
@@ -1164,11 +1166,21 @@ impl Value {
 
     /// Try to deserialize a value without type information. This *does not* perform sanitization
     ///  so it should not be used when decoding clarity database values.
-    /// Public for testing purposes only.
-    pub(crate) fn try_deserialize_bytes_untyped(
-        bytes: &Vec<u8>,
-    ) -> Result<Value, SerializationError> {
+    pub fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, SerializationError> {
         Value::deserialize_read(&mut bytes.as_slice(), None, false)
+    }
+
+    /// Untyped deserialize using the full `MAX_TYPE_DEPTH` cap rather than the
+    /// legacy pre-2.4 depth. Pair with a typed sanitizing pass to inspect keys
+    /// the typed pass would otherwise elide — the depths must match, or values
+    /// nested beyond the legacy cap escape pre-checks.
+    pub fn try_deserialize_bytes_untyped_full_depth(
+        bytes: &[u8],
+    ) -> Result<Value, SerializationError> {
+        let mut reader = bytes;
+        let mut bound_reader =
+            BoundReader::from_reader(&mut reader, BOUND_VALUE_SERIALIZATION_BYTES as u64);
+        Value::inner_deserialize_read(&mut bound_reader, None, false, MAX_TYPE_DEPTH as usize)
     }
 
     /// Try to deserialize a value from a hex string without type information. This *does not*

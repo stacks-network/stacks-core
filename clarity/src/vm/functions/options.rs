@@ -22,6 +22,7 @@ use crate::vm::errors::{
     EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
     check_arguments_at_least,
 };
+use crate::vm::representations::DISCARD_IDENTIFIER;
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::{self, ClarityName, ClarityVersion, SymbolicExpression};
 
@@ -128,14 +129,22 @@ fn eval_with_new_binding(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let mut inner_context = context.extend()?;
-    if vm::is_reserved(
-        &bind_name,
-        invoke_ctx.contract_context.get_clarity_version(),
-    ) || invoke_ctx
-        .contract_context
-        .lookup_function(&bind_name)
-        .is_some()
-        || inner_context.lookup_variable(&bind_name).is_some()
+    // Clarity 6: bare `_` discards the matched value — execute the branch
+    // without binding the name.
+    let is_discard = bind_name.as_str() == DISCARD_IDENTIFIER
+        && invoke_ctx
+            .contract_context
+            .get_clarity_version()
+            .allows_underscore_prefix();
+    if !is_discard
+        && (vm::is_reserved(
+            &bind_name,
+            invoke_ctx.contract_context.get_clarity_version(),
+        ) || invoke_ctx
+            .contract_context
+            .lookup_function(&bind_name)
+            .is_some()
+            || inner_context.lookup_variable(&bind_name).is_some())
     {
         return Err(RuntimeCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
     }
@@ -143,18 +152,20 @@ fn eval_with_new_binding(
     let memory_use = bind_value.get_memory_use()?;
     exec_state.add_memory(memory_use)?;
 
-    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2
-        && let CallableContract(trait_data) = &bind_value
-    {
-        inner_context.callable_contracts.insert(
-            bind_name.clone(),
-            CallableData {
-                contract_identifier: trait_data.contract_identifier.clone(),
-                trait_identifier: trait_data.trait_identifier.clone(),
-            },
-        );
+    if !is_discard {
+        if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2
+            && let CallableContract(trait_data) = &bind_value
+        {
+            inner_context.callable_contracts.insert(
+                bind_name.clone(),
+                CallableData {
+                    contract_identifier: trait_data.contract_identifier.clone(),
+                    trait_identifier: trait_data.trait_identifier.clone(),
+                },
+            );
+        }
+        inner_context.variables.insert(bind_name, bind_value);
     }
-    inner_context.variables.insert(bind_name, bind_value);
     let result = vm::eval(body, exec_state, invoke_ctx, &inner_context)
         .and_then(|v| v.clone_with_cost(exec_state));
 

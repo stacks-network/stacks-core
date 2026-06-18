@@ -15,8 +15,9 @@
 
 use std::sync::Arc;
 
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity::vm::{ClarityVersion, ContractName, Value};
 use madhouse::{Command, CommandWrapper};
 use proptest::array::uniform4;
 use proptest::prelude::{any, Just, Strategy};

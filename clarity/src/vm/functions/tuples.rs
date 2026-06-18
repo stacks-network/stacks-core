@@ -20,7 +20,7 @@ use crate::vm::errors::{
     RuntimeCheckErrorKind, SyntaxBindingErrorType, VmExecutionError, VmInternalError,
     check_argument_count, check_arguments_at_least,
 };
-use crate::vm::representations::SymbolicExpression;
+use crate::vm::representations::{DISCARD_IDENTIFIER, SymbolicExpression};
 use crate::vm::types::{TupleData, TypeSignature, Value};
 use crate::vm::{LocalContext, eval};
 
@@ -35,6 +35,18 @@ pub fn tuple_cons(
     use super::parse_eval_bindings;
 
     check_arguments_at_least(1, args)?;
+
+    // Clarity 6: reject bare `_` keys before evaluating any values — matches
+    // the analyzer's ordering and avoids paying for evaluations that will be
+    // discarded. A `_` key would create a referenceable binding via `get`.
+    for arg in args {
+        if let Some(pair) = arg.match_list()
+            && let Some(name) = pair.first().and_then(|e| e.match_atom())
+            && name.as_str() == DISCARD_IDENTIFIER
+        {
+            return Err(RuntimeCheckErrorKind::BareUnderscoreReserved.into());
+        }
+    }
 
     let bindings = parse_eval_bindings(
         args,

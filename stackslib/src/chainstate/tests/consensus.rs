@@ -23,8 +23,9 @@ use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
 use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{PrincipalData, ResponseData};
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value as ClarityValue};
+use clarity::vm::{ClarityVersion, ContractName, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 

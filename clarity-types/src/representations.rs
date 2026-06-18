@@ -30,6 +30,10 @@ pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 pub const MAX_STRING_LEN: u8 = 128;
 
+/// The bare `_` identifier — a discard pattern in `let`/`match` bindings
+/// from Clarity 6 onwards, rejected as a name in every other position.
+pub const DISCARD_IDENTIFIER: &str = "_";
+
 lazy_static! {
     pub static ref STANDARD_PRINCIPAL_REGEX_STRING: String =
         "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();
@@ -48,8 +52,13 @@ lazy_static! {
         "({})|({})",
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
     );
+    // `ClarityName` permits identifiers to begin with `_`, including the
+    // bare `_` discard binding (Clarity 6). Wire-level rejection of
+    // `_`-prefixed names for pre-Clarity-6 transactions happens at
+    // `StacksBlock::validate_transaction_static_epoch`, not at this codec
+    // layer — see that function for the consensus reasoning.
     pub static ref CLARITY_NAME_REGEX_STRING: String =
-        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
+        "^[a-zA-Z_]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
     {
         Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()

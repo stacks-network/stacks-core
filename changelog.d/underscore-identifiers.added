@@ -1,0 +1,1 @@
+Clarity 6: Allow identifiers to begin with `_`, and allow bare `_` identifier in `let` and `match` bindings to discard value

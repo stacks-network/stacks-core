@@ -349,6 +349,20 @@ pub fn from_consensus_buff(
     };
     runtime_cost(ClarityCostFunction::FromConsensusBuff, exec_state, input)?;
 
+    // Reject epoch-invalid tuple keys before the typed pass: typed
+    // deserialization sanitizes (elides) keys not in the expected type,
+    // which would strip the evidence before any post-deserialize walker
+    // could see it. Must use the full-depth untyped path: the typed pass
+    // reaches `MAX_TYPE_DEPTH`, so a shallower pre-scan would let bad keys
+    // nested past the legacy cap slip through.
+    if let Ok(unsanitized) = Value::try_deserialize_bytes_untyped_full_depth(input_bytes)
+        && unsanitized
+            .find_invalid_tuple_key(*exec_state.epoch())
+            .is_some()
+    {
+        return Ok(Value::none());
+    }
+
     // Perform the deserialization and check that it deserialized to the expected
     // type. A type mismatch at this point is an error that should be surfaced in
     // Clarity (as a none return).
