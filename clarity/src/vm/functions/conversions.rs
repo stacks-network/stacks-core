@@ -352,8 +352,10 @@ pub fn from_consensus_buff(
     // Reject epoch-invalid tuple keys before the typed pass: typed
     // deserialization sanitizes (elides) keys not in the expected type,
     // which would strip the evidence before any post-deserialize walker
-    // could see it.
-    if let Ok(unsanitized) = Value::try_deserialize_bytes_untyped(input_bytes)
+    // could see it. Must use the full-depth untyped path: the typed pass
+    // reaches `MAX_TYPE_DEPTH`, so a shallower pre-scan would let bad keys
+    // nested past the legacy cap slip through.
+    if let Ok(unsanitized) = Value::try_deserialize_bytes_untyped_full_depth(input_bytes)
         && unsanitized
             .find_invalid_tuple_key(*exec_state.epoch())
             .is_some()

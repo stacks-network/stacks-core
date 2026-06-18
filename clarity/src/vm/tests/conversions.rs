@@ -706,6 +706,57 @@ fn test_from_consensus_buff_rejects_bare_underscore_tuple_key(
     );
 }
 
+/// A `from-consensus-buff?` buffer whose offending `_`-prefixed tuple key sits
+/// deeper than the legacy untyped depth cap must still deserialize to `none`
+/// pre-Clarity-6; the typed pass reaches `MAX_TYPE_DEPTH`, so the pre-check
+/// must reach it too or the bad key escapes detection.
+#[apply(test_clarity_versions)]
+fn test_from_consensus_buff_deeply_nested_underscore_tuple_key_pre_clarity6(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) {
+    // `from-consensus-buff?` is only available in Clarity 2+; the divergence is
+    // confined to the pre-Clarity-6 (pre-Epoch40) upgrade window.
+    if version < ClarityVersion::Clarity2 || epoch >= StacksEpochId::Epoch40 {
+        return;
+    }
+
+    // Bury the offending tuple under enough `optional` layers that the
+    // leading-`_` key sits deeper than the untyped pre-check's depth-16 cap
+    // but within the typed pass's depth-32 cap.
+    const DEPTH: usize = 20;
+
+    let mut value = Value::Tuple(
+        TupleData::from_data(vec![
+            (ClarityName::from_literal("a"), Value::Int(456)),
+            (ClarityName::from_literal("_x"), Value::Int(123)),
+        ])
+        .expect("construction of `_x` tuple should succeed with the relaxed regex"),
+    );
+    for _ in 0..DEPTH {
+        value = Value::some(value).expect("nest value in optional");
+    }
+    let hex = value.serialize_to_hex().expect("serialize value to hex");
+
+    let type_repr = format!(
+        "{}{{a: int}}{}",
+        "(optional ".repeat(DEPTH),
+        ")".repeat(DEPTH)
+    );
+    let program = format!("(from-consensus-buff? {type_repr} 0x{hex})");
+    let result = execute_with_parameters(&program, version, epoch, false)
+        .expect("from-consensus-buff? must not crash")
+        .expect("from-consensus-buff? must produce a value");
+
+    assert_eq!(
+        result,
+        Value::none(),
+        "pre-Clarity-6 epochs must reject a `_`-prefixed tuple key at ANY nesting \
+         depth to match unpatched-node behavior, but a key below depth 16 escaped \
+         the pre-check (got {result:?})"
+    );
+}
+
 fn evaluate_to_ascii(snippet: &str) -> Value {
     execute_versioned(snippet, ClarityVersion::latest())
         .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
