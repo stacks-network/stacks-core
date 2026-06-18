@@ -1672,8 +1672,15 @@ mod pox_5_body_tests {
 
         // With no override, non-mainnet falls back to the testnet default.
         let body_non_mainnet_default = make_pox_5_body(false);
-        assert!(body_non_mainnet_default.contains(POX_5_BOND_ADMIN_TESTNET));
-        assert!(!body_non_mainnet_default.contains(POX_5_BOND_ADMIN_MAINNET));
+        assert!(body_non_mainnet_default.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_TESTNET})"
+        )));
+        assert!(body_non_mainnet_default.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_TESTNET})"
+        )));
+        assert!(!body_non_mainnet_default.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_MAINNET})"
+        )));
 
         // With an override, the placeholder is replaced on non-mainnet but
         // ignored on mainnet.
@@ -1681,13 +1688,26 @@ mod pox_5_body_tests {
         set_pox_5_bond_admin(Some(admin.clone()));
 
         let body_override = make_pox_5_body(false);
-        assert!(body_override.contains(&admin.to_string()));
-        assert!(!body_override.contains(POX_5_BOND_ADMIN_MAINNET));
-        assert!(!body_override.contains(POX_5_BOND_ADMIN_TESTNET));
+        assert!(body_override.contains(&format!("(define-data-var bond-admin principal '{admin})")));
+        assert!(body_override.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_TESTNET})"
+        )));
+        assert!(!body_override.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_MAINNET})"
+        )));
+        assert!(!body_override.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_TESTNET})"
+        )));
 
         let body_mainnet_with_override = make_pox_5_body(true);
-        assert!(body_mainnet_with_override.contains(POX_5_BOND_ADMIN_MAINNET));
-        assert!(!body_mainnet_with_override.contains(&admin.to_string()));
+        assert!(body_mainnet_with_override.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_MAINNET})"
+        )));
+        assert!(body_mainnet_with_override.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_MAINNET})"
+        )));
+        assert!(!body_mainnet_with_override
+            .contains(&format!("(define-data-var bond-admin principal '{admin})")));
 
         // Clean up so we don't leak into other tests in this binary.
         set_pox_5_bond_admin(None);
