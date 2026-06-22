@@ -269,9 +269,7 @@ mod test {
     use crate::vm::costs::{LimitedCostTracker, *};
     use crate::vm::representations::depth_traverse;
     use crate::vm::types::QualifiedContractIdentifier;
-    use crate::vm::{
-        ClarityCostFunction, ClarityName, ClarityVersion, max_call_stack_depth_for_epoch,
-    };
+    use crate::vm::{ClarityCostFunction, ClarityVersion, max_call_stack_depth_for_epoch};
 
     #[derive(PartialEq, Debug)]
     struct UnitTestTracker {
@@ -309,14 +307,6 @@ mod test {
             Ok(())
         }
         fn reset_memory(&mut self) {}
-        fn short_circuit_contract_call(
-            &mut self,
-            _contract: &QualifiedContractIdentifier,
-            _function: &ClarityName,
-            _input: &[u64],
-        ) -> Result<bool, CostErrors> {
-            Ok(false)
-        }
     }
 
     #[test]
