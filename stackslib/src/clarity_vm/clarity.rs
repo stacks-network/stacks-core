@@ -1037,6 +1037,77 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         Ok(boot_code_account)
     }
 
+    /// Prepares a [`StacksTransaction`] with a [`SmartContract`](TransactionPayload::SmartContract)
+    /// payload for instantiating a boot contract, but does not execute it.
+    ///
+    /// Sets the transaction's auth to be the boot code account and the transaction version based on
+    /// this instance's `mainnet` field.
+    fn make_boot_code_smart_contract_tx(
+        &mut self,
+        contract_name: &str,
+        code_body: &str,
+        clarity_version: Option<ClarityVersion>,
+    ) -> Result<(StacksAccount, StacksTransaction), ClarityError> {
+        let boot_code_account = self.get_boot_code_account()?;
+        let tx_version = if self.mainnet {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
+
+        let boot_code_auth = boot_code_tx_auth(boot_code_addr(self.mainnet));
+        let payload = TransactionPayload::SmartContract(
+            TransactionSmartContract {
+                name: ContractName::try_from(contract_name.to_string())
+                    .expect("FATAL: invalid boot-code contract name"),
+                code_body: StacksString::from_str(code_body)
+                    .expect("FATAL: invalid boot code body"),
+            },
+            clarity_version,
+        );
+
+        Ok((
+            boot_code_account,
+            StacksTransaction::new(tx_version, boot_code_auth, payload),
+        ))
+    }
+
+    /// Instantiates a boot contract by:
+    ///
+    /// 1. Preparing a [`StacksTransaction`] with the appropriate version, payload and auth,
+    /// 2. Executing it using the boot account within a cost-free transaction, and
+    /// 3. Asserting the receipt for success.
+    ///
+    /// Panics if any of the above steps fail.
+    fn instantiate_boot_contract(
+        &mut self,
+        contract_name: &str,
+        code_body: &str,
+        clarity_version: Option<ClarityVersion>,
+    ) -> Result<StacksTransactionReceipt, ClarityError> {
+        let contract_id = boot_code_id(contract_name, self.mainnet);
+
+        let (boot_code_account, contract_tx) =
+            self.make_boot_code_smart_contract_tx(contract_name, code_body, clarity_version)?;
+
+        let receipt = self.as_free_transaction(|tx_conn| {
+            info!("Instantiate {} contract", &contract_id);
+            StacksChainState::process_transaction_payload(
+                tx_conn,
+                &contract_tx,
+                &boot_code_account,
+                None,
+            )
+            .expect("FATAL: Failed to process boot contract initialization")
+        });
+
+        if receipt.result != Value::okay_true() || receipt.post_condition_aborted {
+            panic!("FATAL: Failure processing {contract_id} contract initialization: {receipt:#?}");
+        }
+
+        Ok(receipt)
+    }
+
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, ClarityError> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -2002,6 +2073,27 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
+    /// Instantiates epoch 4.0's `costs-5` cost contract using the [`COSTS_5_NAME`] and
+    /// [`BOOT_CODE_COSTS_5`] constants.
+    ///
+    /// Returns an error if this instance's epoch is not already set to
+    /// [`Epoch40`](StacksEpochId::Epoch40).
+    ///
+    /// Used both by epoch 4.0 initialization and by tests which need to instantiate the costs-5
+    /// contract without full epoch 4.0 initialization.
+    pub(super) fn instantiate_epoch_4_0_cost_contract(
+        &mut self,
+    ) -> Result<StacksTransactionReceipt, ClarityError> {
+        if self.epoch != StacksEpochId::Epoch40 {
+            return Err(ClarityError::BadTransaction(format!(
+                "Epoch 4.0 cost contract initialization requires Epoch 4.0 rules; current epoch is {}",
+                self.epoch
+            )));
+        }
+
+        self.instantiate_boot_contract(COSTS_5_NAME, BOOT_CODE_COSTS_5, None)
+    }
+
     pub fn initialize_epoch_4_0(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -2036,70 +2128,21 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             .expect("PANIC: PoX-5 first reward cycle begins *before* first burn block height")
                 + 1;
 
-            let boot_code_account = self
-                .get_boot_code_account()
-                .expect("FATAL: did not get boot account");
-
-            let mainnet = self.mainnet;
-            let tx_version = if mainnet {
-                TransactionVersion::Mainnet
-            } else {
-                TransactionVersion::Testnet
-            };
-
-            let boot_code_address = boot_code_addr(mainnet);
-            let boot_code_auth = boot_code_tx_auth(boot_code_address);
-
             /////////////////// .costs-5 ////////////////////////
-            let costs_5_contract_id = boot_code_id(COSTS_5_NAME, mainnet);
-            let payload = TransactionPayload::SmartContract(
-                TransactionSmartContract {
-                    name: ContractName::try_from(COSTS_5_NAME)
-                        .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(BOOT_CODE_COSTS_5)
-                        .expect("FATAL: invalid boot code body"),
-                },
-                None,
-            );
-
-            let costs_5_contract_tx =
-                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
-
-            let costs_5_initialization_receipt = self.as_transaction(|tx_conn| {
-                debug!("Instantiate {} contract", &costs_5_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &costs_5_contract_tx,
-                    &boot_code_account,
-                    None,
-                )
-                .expect("FATAL: Failed to process .costs-5 contract initialization");
-                receipt
-            });
-
-            if costs_5_initialization_receipt.result != Value::okay_true()
-                || costs_5_initialization_receipt.post_condition_aborted
-            {
-                panic!(
-                    "FATAL: Failure processing .costs-5 contract initialization: {:#?}",
-                    &costs_5_initialization_receipt
-                );
-            }
+            let costs_5_initialization_receipt = self
+                .instantiate_epoch_4_0_cost_contract()
+                .expect("FATAL: Failed to initialize Epoch 4.0 cost contract");
 
             /////////////////// .pox-5 ////////////////////////
-            let pox_5_contract_id = boot_code_id(POX_5_NAME, mainnet);
-            let pox_5_code = make_pox_5_body(mainnet);
-            let payload = TransactionPayload::SmartContract(
-                TransactionSmartContract {
-                    name: ContractName::try_from(POX_5_NAME)
-                        .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(&pox_5_code)
-                        .expect("FATAL: invalid boot code body"),
-                },
-                Some(ClarityVersion::Clarity6),
-            );
-
-            let pox_5_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
+            let pox_5_contract_id = boot_code_id(POX_5_NAME, self.mainnet);
+            let pox_5_code = make_pox_5_body(self.mainnet);
+            let (boot_code_account, pox_5_contract_tx) = self
+                .make_boot_code_smart_contract_tx(
+                    POX_5_NAME,
+                    &pox_5_code,
+                    Some(ClarityVersion::Clarity6),
+                )
+                .expect("FATAL: Failed to construct .pox-5 contract initialization");
 
             let pox_5_initialization_receipt = self.as_transaction(|tx_conn| {
                 debug!("Instantiate {} contract", &pox_5_contract_id);

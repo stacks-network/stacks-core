@@ -953,18 +953,29 @@ impl TrackerData {
             ))
         })?;
 
+        // TODO(cost-voting): Remove after epoch 4.0 activation (when cost-voting deactivates), and
+        // use `CostStateSummary::empty()` directly instead.
+        let state_summary = if epoch_id.supports_cost_voting_contract() {
+            // If cost-voting is active, load and apply the current cost function configuration from
+            // the chain tip, applying any changes that have been voted on but not yet applied.
+            load_cost_functions(self.mainnet, clarity_db, apply_updates).map_err(|e| {
+                let result = clarity_db
+                    .roll_back()
+                    .map_err(|e| CostErrors::Expect(e.to_string()));
+                match result {
+                    Ok(_) => e,
+                    Err(rollback_err) => rollback_err,
+                }
+            })?
+        } else {
+            // Cost-voting is retired at Epoch 4.0: every cost function uses boot defaults.
+            CostStateSummary::empty()
+        };
+
         let CostStateSummary {
             contract_call_circuits,
             mut cost_function_references,
-        } = load_cost_functions(self.mainnet, clarity_db, apply_updates).map_err(|e| {
-            let result = clarity_db
-                .roll_back()
-                .map_err(|e| CostErrors::Expect(e.to_string()));
-            match result {
-                Ok(_) => e,
-                Err(rollback_err) => rollback_err,
-            }
-        })?;
+        } = state_summary;
 
         self.contract_call_circuits = contract_call_circuits;
 

@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use clarity::types::StacksEpochId;
+use clarity::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 #[allow(unused_imports)]
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
@@ -613,7 +613,7 @@ fn runtime_check_error_kind_type_error_ccall() {
         (get-shares u999 .pool))",
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
+        deploy_epochs: (StacksEpochId::Epoch20..=StacksEpochId::Epoch33).as_slice(),
         call_epochs: &[StacksEpochId::Epoch33],
         setup_contracts: &[contract_1, contract_2],
     );
