@@ -260,10 +260,10 @@ where
 }
 
 /// The user tables in `conn`'s `main` schema not in `known`. Each squash copy
-/// module lists the tables it handles and a guard test asserts this is empty, so
-/// a new migration can't silently drop a table from the copy.
-#[cfg(test)]
-pub(crate) fn unclassified_tables(conn: &Connection, known: &[&str]) -> Vec<String> {
+/// module lists the tables it handles; both the runtime source-schema check and
+/// the drift-guard tests assert this is empty, so a new migration can't silently
+/// drop a table from the copy.
+pub(super) fn unclassified_tables(conn: &Connection, known: &[&str]) -> Vec<String> {
     let known: std::collections::HashSet<&str> = known.iter().copied().collect();
     let mut stmt = conn
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
@@ -279,12 +279,35 @@ pub(crate) fn unclassified_tables(conn: &Connection, known: &[&str]) -> Vec<Stri
         .collect()
 }
 
+/// Reject snapshotting a source DB whose schema has tables `known` doesn't
+/// cover: the snapshot would omit them and a node booting from it would recreate
+/// them empty. Runs on the real source DB, so it also catches tables that reached
+/// disk outside the tool's migration path (a newer node, an ad-hoc `CREATE
+/// TABLE`) that a compile-time list check would miss. `db_label` names the DB in
+/// the error; `classify_hint` says where to classify a newly added table.
+pub(super) fn assert_source_schema(
+    src_conn: &Connection,
+    known: &[&str],
+    db_label: &str,
+    classify_hint: &str,
+) -> Result<(), Error> {
+    let unknown = unclassified_tables(src_conn, known);
+    if !unknown.is_empty() {
+        return Err(Error::CorruptionError(format!(
+            "source {db_label} has unrecognized table(s) {unknown:?}: the snapshot would omit them \
+             and a node booting from it would recreate them empty. The tool may be older than the \
+             DB's schema (upgrade it to match the node); if this is a newly added table, classify \
+             each in {classify_hint}"
+        )));
+    }
+    Ok(())
+}
+
 /// MARF / Clarity-store infrastructure tables. They live in every MARF-backed
 /// source DB and are created by the squash engine (`MARF::squash_to_path`) or
 /// store init — not by a side-table copy — so the drift guards treat them as
 /// already handled.
-#[cfg(test)]
-pub(crate) const MARF_INFRA_TABLES: &[&str] = &[
+pub(super) const MARF_INFRA_TABLES: &[&str] = &[
     "marf_data",
     "__fork_storage",
     "marf_squash_info",
