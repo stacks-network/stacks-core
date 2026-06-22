@@ -42,7 +42,8 @@ use stacks_common::util::tests::TestFlag;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::signer_set::{
-    pox_5_bond_admin, pox_5_sbtc_contract, POX_5_BOND_ADMIN_MAINNET, SBTC_TOKEN_MAINNET_CONTRACT,
+    pox_5_bond_admin, pox_5_pause_admin, pox_5_sbtc_contract, POX_5_BOND_ADMIN_MAINNET,
+    POX_5_PAUSE_ADMIN_MAINNET, SBTC_TOKEN_MAINNET_CONTRACT,
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::{StacksChainState, StacksDBConn};
@@ -227,9 +228,19 @@ pub fn make_pox_5_body(is_mainnet: bool) -> String {
     }
     let sbtc_contract = pox_5_sbtc_contract(is_mainnet);
     let bond_admin = pox_5_bond_admin(is_mainnet);
+    let pause_admin = pox_5_pause_admin(is_mainnet);
     POX_5_BODY
         .replace(SBTC_TOKEN_MAINNET_CONTRACT, &sbtc_contract.to_string())
-        .replace(POX_5_BOND_ADMIN_MAINNET, &bond_admin.to_string())
+        .replacen(
+            &format!("(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_MAINNET})"),
+            &format!("(define-data-var bond-admin principal '{bond_admin})"),
+            1,
+        )
+        .replacen(
+            &format!("(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_MAINNET})"),
+            &format!("(define-data-var pause-admin principal '{pause_admin})"),
+            1,
+        )
 }
 
 pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
@@ -1602,8 +1613,8 @@ pub mod signers_tests;
 mod pox_5_body_tests {
     use super::*;
     use crate::chainstate::nakamoto::signer_set::{
-        set_pox_5_bond_admin, set_pox_5_sbtc_contract, POX_5_BOND_ADMIN_TESTNET,
-        SBTC_TOKEN_TESTNET_CONTRACT,
+        set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
+        POX_5_BOND_ADMIN_TESTNET, POX_5_PAUSE_ADMIN_TESTNET, SBTC_TOKEN_TESTNET_CONTRACT,
     };
 
     #[test]
@@ -1612,6 +1623,7 @@ mod pox_5_body_tests {
         // behind.
         set_pox_5_sbtc_contract(None);
         set_pox_5_bond_admin(None);
+        set_pox_5_pause_admin(None);
 
         // Mainnet body preserves the canonical literal verbatim regardless of
         // any override.
@@ -1648,6 +1660,7 @@ mod pox_5_body_tests {
         // Reset globals to a known state.
         set_pox_5_sbtc_contract(None);
         set_pox_5_bond_admin(None);
+        set_pox_5_pause_admin(None);
 
         // The mainnet placeholder must be present in the unsubstituted source
         // — otherwise the substitution below would silently no-op.
@@ -1659,8 +1672,15 @@ mod pox_5_body_tests {
 
         // With no override, non-mainnet falls back to the testnet default.
         let body_non_mainnet_default = make_pox_5_body(false);
-        assert!(body_non_mainnet_default.contains(POX_5_BOND_ADMIN_TESTNET));
-        assert!(!body_non_mainnet_default.contains(POX_5_BOND_ADMIN_MAINNET));
+        assert!(body_non_mainnet_default.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_TESTNET})"
+        )));
+        assert!(body_non_mainnet_default.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_TESTNET})"
+        )));
+        assert!(!body_non_mainnet_default.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_MAINNET})"
+        )));
 
         // With an override, the placeholder is replaced on non-mainnet but
         // ignored on mainnet.
@@ -1668,16 +1688,61 @@ mod pox_5_body_tests {
         set_pox_5_bond_admin(Some(admin.clone()));
 
         let body_override = make_pox_5_body(false);
-        assert!(body_override.contains(&admin.to_string()));
-        assert!(!body_override.contains(POX_5_BOND_ADMIN_MAINNET));
-        assert!(!body_override.contains(POX_5_BOND_ADMIN_TESTNET));
+        assert!(body_override.contains(&format!("(define-data-var bond-admin principal '{admin})")));
+        assert!(body_override.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_TESTNET})"
+        )));
+        assert!(!body_override.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_MAINNET})"
+        )));
+        assert!(!body_override.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_TESTNET})"
+        )));
 
         let body_mainnet_with_override = make_pox_5_body(true);
-        assert!(body_mainnet_with_override.contains(POX_5_BOND_ADMIN_MAINNET));
-        assert!(!body_mainnet_with_override.contains(&admin.to_string()));
+        assert!(body_mainnet_with_override.contains(&format!(
+            "(define-data-var bond-admin principal '{POX_5_BOND_ADMIN_MAINNET})"
+        )));
+        assert!(body_mainnet_with_override.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_MAINNET})"
+        )));
+        assert!(!body_mainnet_with_override
+            .contains(&format!("(define-data-var bond-admin principal '{admin})")));
 
         // Clean up so we don't leak into other tests in this binary.
         set_pox_5_bond_admin(None);
+    }
+
+    #[test]
+    fn make_pox_5_body_pause_admin_substitution() {
+        set_pox_5_sbtc_contract(None);
+        set_pox_5_bond_admin(None);
+        set_pox_5_pause_admin(None);
+
+        let body_mainnet = make_pox_5_body(true);
+        assert!(body_mainnet.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_MAINNET})"
+        )));
+
+        let body_non_mainnet_default = make_pox_5_body(false);
+        assert!(body_non_mainnet_default.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_TESTNET})"
+        )));
+
+        let admin = PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        set_pox_5_pause_admin(Some(admin.clone()));
+
+        let body_override = make_pox_5_body(false);
+        assert!(
+            body_override.contains(&format!("(define-data-var pause-admin principal '{admin})"))
+        );
+
+        let body_mainnet_with_override = make_pox_5_body(true);
+        assert!(body_mainnet_with_override.contains(&format!(
+            "(define-data-var pause-admin principal '{POX_5_PAUSE_ADMIN_MAINNET})"
+        )));
+
+        set_pox_5_pause_admin(None);
     }
 }
 
