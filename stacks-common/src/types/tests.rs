@@ -49,7 +49,7 @@ fn test_epoch_range_ext_iter() {
         StacksEpochId::index_of(epoch)
     }
 
-    // Full range is effectively equalent to the ALL constant.
+    // Full range is effectively equivalent to the ALL constant.
     assert_eq!((..).as_slice(), StacksEpochId::ALL);
 
     // Start = inclusive, end = unbounded
