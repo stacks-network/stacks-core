@@ -23,6 +23,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, TrieHash,
 };
+use stacks_common::types::StacksEpochId;
 use tempfile::tempdir;
 
 use super::super::sortition::{
@@ -56,7 +57,7 @@ fn create_sortition_source_db(dir: &Path) -> (Connection, PathBuf) {
         0,
         &BurnchainHeaderHash([0u8; 32]),
         0,
-        &StacksEpoch::unit_test_3_4(0),
+        &StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch34),
         PoxConstants::test_default(),
         None,
         true,
@@ -606,7 +607,7 @@ fn test_sortition_copy_with_production_seeded_source() {
         0,
         &BurnchainHeaderHash([0u8; 32]),
         0,
-        &StacksEpoch::unit_test_3_4(0),
+        &StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch34),
         PoxConstants::test_default(),
         None,
         true,
