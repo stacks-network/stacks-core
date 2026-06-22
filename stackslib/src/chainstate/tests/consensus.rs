@@ -19,7 +19,7 @@ use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash};
-use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
+use clarity::types::{EpochList, StacksEpoch, StacksEpochId, StacksEpochRangeTestExt as _};
 use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
@@ -1881,27 +1881,30 @@ macro_rules! contract_call_consensus_unit_test {
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {{
         // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-        let deploy_epochs = clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
-        $(let deploy_epochs = $deploy_epochs;)?
+        let __contract_call_deploy_epochs = clarity::types::StacksEpochRangeTestExt::as_slice(
+            &(clarity::types::StacksEpochId::Epoch20..),
+        );
+        $(let __contract_call_deploy_epochs = $deploy_epochs;)?
 
         // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-        let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
-        $(let call_epochs = $call_epochs;)?
-        let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
-        $(let setup_contracts = $setup_contracts;)?
-        let clarity_versions: &[clarity::vm::ClarityVersion] = clarity::vm::ClarityVersion::ALL;
-        $(let clarity_versions = $clarity_versions;)?
+        let __contract_call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
+        $(let __contract_call_epochs = $call_epochs;)?
+        let __contract_call_setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
+        $(let __contract_call_setup_contracts = $setup_contracts;)?
+        let __contract_call_clarity_versions: &[clarity::vm::ClarityVersion] =
+            clarity::vm::ClarityVersion::ALL;
+        $(let __contract_call_clarity_versions = $clarity_versions;)?
         let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
             function_name!(),
             vec![],
-            deploy_epochs,
-            call_epochs,
+            __contract_call_deploy_epochs,
+            __contract_call_epochs,
             $contract_name,
             $contract_code,
             $function_name,
             $function_args,
-            clarity_versions,
-            setup_contracts,
+            __contract_call_clarity_versions,
+            __contract_call_setup_contracts,
         );
         let result = contract_test.run();
         $crate::chainstate::tests::consensus::ConsensusMacroUnitReport::new(result)
@@ -1972,14 +1975,14 @@ macro_rules! contract_deploy_consensus_unit_test {
         $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {{
-        let deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
-        $(let deploy_epochs = $deploy_epochs;)?
+        let __contract_deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
+        $(let __contract_deploy_epochs = $deploy_epochs;)?
         $crate::chainstate::tests::consensus::contract_call_consensus_unit_test!(
             contract_name: $contract_name,
             contract_code: $contract_code,
             function_name: "",   // No function calls, just deploys
             function_args: &[],  // No function calls, just deploys
-            deploy_epochs: deploy_epochs,
+            deploy_epochs: __contract_deploy_epochs,
             call_epochs: &[],    // No function calls, just deploys
             $(clarity_versions: $clarity_versions,)?
             $(setup_contracts: $setup_contracts,)?
@@ -2265,7 +2268,7 @@ fn problematic_supertype_list() {
     (err  1)))
     (print (var-get my-list))
     ",
-    deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch20),
+    deploy_epochs: (StacksEpochId::Epoch20..).as_slice(),
     );
 }
 

@@ -14,10 +14,109 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::ops::Bound;
+
 use super::{
     set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId, COINBASE_INTERVALS_MAINNET,
     COINBASE_INTERVALS_TESTNET,
 };
+use crate::types::StacksEpochRangeTestExt as _;
+
+#[test]
+fn test_epoch_range_ext_iter() {
+    // Alias to keep the below cleaner
+    fn epoch_index(epoch: StacksEpochId) -> usize {
+        StacksEpochId::index_of(epoch)
+    }
+
+    // Full range is effectively equivalent to the ALL constant.
+    assert_eq!((..).as_slice(), StacksEpochId::ALL);
+
+    // Start = inclusive, end = unbounded
+    assert_eq!(
+        (StacksEpochId::Epoch32..).as_slice(),
+        &StacksEpochId::ALL[epoch_index(StacksEpochId::Epoch32)..]
+    );
+
+    // Start = unbounded, end = exclusive
+    assert_eq!(
+        (..StacksEpochId::Epoch21).as_slice(),
+        &[
+            StacksEpochId::Epoch10,
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05
+        ]
+    );
+
+    // Start = unbounded, end = inclusive
+    assert_eq!(
+        (..=StacksEpochId::Epoch21).as_slice(),
+        &[
+            StacksEpochId::Epoch10,
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21
+        ]
+    );
+
+    // Start = inclusive, end = exclusive
+    assert_eq!(
+        (StacksEpochId::Epoch20..StacksEpochId::Epoch22).as_slice(),
+        &[
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21
+        ]
+    );
+
+    // Start = inclusive, end = inclusive
+    assert_eq!(
+        (StacksEpochId::Epoch20..=StacksEpochId::Epoch22).as_slice(),
+        &[
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch22
+        ]
+    );
+
+    // Start = exclusive, end = unbounded (a'la `all_after`).
+    let expected = &StacksEpochId::ALL[epoch_index(StacksEpochId::Epoch32) + 1..];
+    assert_eq!(
+        (Bound::Excluded(StacksEpochId::Epoch32), Bound::Unbounded).as_slice(),
+        expected
+    );
+    assert_eq!(StacksEpochId::all_after(StacksEpochId::Epoch32), expected);
+
+    // Single element range with exclusive end bound should yield empty.
+    assert_eq!(
+        (StacksEpochId::Epoch23..StacksEpochId::Epoch23).as_slice(),
+        &[]
+    );
+
+    // Single element range with inclusive end bound should yield that item.
+    assert_eq!(
+        (StacksEpochId::Epoch23..=StacksEpochId::Epoch23).as_slice(),
+        &[StacksEpochId::Epoch23]
+    );
+
+    // Reversed range should yield empty.
+    assert_eq!(
+        (StacksEpochId::Epoch22..StacksEpochId::Epoch20).as_slice(),
+        &[]
+    );
+}
+
+#[test]
+fn test_epoch_id_first_last_helpers() {
+    assert_eq!(StacksEpochId::first(), StacksEpochId::ALL[0]);
+    assert_eq!(
+        StacksEpochId::last(),
+        StacksEpochId::ALL[StacksEpochId::ALL.len() - 1]
+    );
+    assert_eq!(StacksEpochId::ALL.first(), Some(&StacksEpochId::first()));
+    assert_eq!(StacksEpochId::ALL.last(), Some(&StacksEpochId::last()));
+}
 
 #[test]
 fn test_mainnet_coinbase_emissions() {
