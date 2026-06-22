@@ -175,6 +175,28 @@ pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
     }
 }
 
+pub const POX_5_PAUSE_ADMIN_MAINNET: &str = "SP000000000000000000002Q6VF78";
+pub const POX_5_PAUSE_ADMIN_TESTNET: &str = "ST000000000000000000002AMW42H";
+
+static POX_5_PAUSE_ADMIN: RwLock<Option<PrincipalData>> = RwLock::new(None);
+
+pub fn set_pox_5_pause_admin(principal: Option<PrincipalData>) {
+    *POX_5_PAUSE_ADMIN.write().unwrap() = principal;
+}
+
+pub fn pox_5_pause_admin(is_mainnet: bool) -> PrincipalData {
+    let principal = POX_5_PAUSE_ADMIN.read().unwrap().clone();
+    if let Some(principal) = principal {
+        principal
+    } else if is_mainnet {
+        PrincipalData::parse(POX_5_PAUSE_ADMIN_MAINNET)
+            .expect("Invalid default mainnet pause admin principal")
+    } else {
+        PrincipalData::parse(POX_5_PAUSE_ADMIN_TESTNET)
+            .expect("Invalid default testnet pause admin principal")
+    }
+}
+
 pub struct NakamotoSigners();
 
 pub struct SignerCalculation {
