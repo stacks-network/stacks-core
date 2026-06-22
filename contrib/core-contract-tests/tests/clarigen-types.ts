@@ -5972,7 +5972,11 @@ export const contracts = {
           { name: 'staker-unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
-        outputs: { type: { buffer: { length: 34 } } },
+        outputs: {
+          type: {
+            response: { ok: { buffer: { length: 34 } }, error: 'uint128' },
+          },
+        },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
@@ -5980,7 +5984,7 @@ export const contracts = {
           stakerUnlockBytes: TypedAbiArg<Uint8Array, 'stakerUnlockBytes'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
         ],
-        Uint8Array
+        Response<Uint8Array, bigint>
       >,
       constructLockupScript: {
         name: 'construct-lockup-script',
@@ -5991,7 +5995,11 @@ export const contracts = {
           { name: 'staker-unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'early-unlock-bytes', type: { buffer: { length: 683 } } },
         ],
-        outputs: { type: { buffer: { length: 2437 } } },
+        outputs: {
+          type: {
+            response: { ok: { buffer: { length: 2437 } }, error: 'uint128' },
+          },
+        },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
@@ -5999,7 +6007,7 @@ export const contracts = {
           stakerUnlockBytes: TypedAbiArg<Uint8Array, 'stakerUnlockBytes'>,
           earlyUnlockBytes: TypedAbiArg<Uint8Array, 'earlyUnlockBytes'>,
         ],
-        Uint8Array
+        Response<Uint8Array, bigint>
       >,
       currentDistributionCycle: {
         name: 'current-distribution-cycle',
@@ -6693,8 +6701,15 @@ export const contracts = {
         name: 'push-c-script-num',
         access: 'read_only',
         args: [{ name: 'n', type: 'uint128' }],
-        outputs: { type: { buffer: { length: 1027 } } },
-      } as TypedAbiFunction<[n: TypedAbiArg<number | bigint, 'n'>], Uint8Array>,
+        outputs: {
+          type: {
+            response: { ok: { buffer: { length: 1027 } }, error: 'uint128' },
+          },
+        },
+      } as TypedAbiFunction<
+        [n: TypedAbiArg<number | bigint, 'n'>],
+        Response<Uint8Array, bigint>
+      >,
       pushScriptBytes: {
         name: 'push-script-bytes',
         access: 'read_only',
@@ -6838,8 +6853,15 @@ export const contracts = {
         name: 'serialize-c-script-num',
         access: 'read_only',
         args: [{ name: 'n', type: 'uint128' }],
-        outputs: { type: { buffer: { length: 5 } } },
-      } as TypedAbiFunction<[n: TypedAbiArg<number | bigint, 'n'>], Uint8Array>,
+        outputs: {
+          type: {
+            response: { ok: { buffer: { length: 5 } }, error: 'uint128' },
+          },
+        },
+      } as TypedAbiFunction<
+        [n: TypedAbiArg<number | bigint, 'n'>],
+        Response<Uint8Array, bigint>
+      >,
       signerSetContainsForCycle: {
         name: 'signer-set-contains-for-cycle',
         access: 'read_only',

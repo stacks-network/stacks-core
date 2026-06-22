@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { expect, it } from 'vitest';
 import { pox5, serializeLockupScript } from './pox-5-helpers';
-import { rov } from '@clarigen/test';
+import { rov, rovOk } from '@clarigen/test';
 import * as BTC from '@scure/btc-signer';
 import { hex } from '@scure/base';
 import { randomPrincipalGen } from '../test-helpers';
@@ -55,7 +55,7 @@ it('should construct the unlock script', () => {
           stakerUnlockBytes,
           earlyUnlockBytes,
         });
-        const actual = rov(
+        const actual = rovOk(
           pox5.constructLockupScript(
             stacker,
             unlockBurnHeight,
