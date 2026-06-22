@@ -36,16 +36,22 @@ it('should correctly prefix a script based on length', () => {
 });
 
 it('should construct the unlock script', () => {
+  const minimumUnlockHeight = rov(pox5.getBondL1UnlockHeight(0n));
+
   fc.assert(
     fc.property(
       randomPrincipalGen,
-      fc.integer({ min: 1, max: 0x7fffff }),
+      fc.integer({
+        min: 0,
+        max: 0x7fffff - Number(minimumUnlockHeight),
+      }),
       fc.uint8Array({ minLength: 1, maxLength: 255 }),
       fc.uint8Array({ minLength: 1, maxLength: 255 }),
-      (stacker, unlockBurnHeight, stakerUnlockBytes, earlyUnlockBytes) => {
+      (stacker, offset, stakerUnlockBytes, earlyUnlockBytes) => {
+        const unlockBurnHeight = minimumUnlockHeight + BigInt(offset);
         const expected = serializeLockupScript({
           stacker,
-          unlockBurnHeight: BigInt(unlockBurnHeight),
+          unlockBurnHeight,
           stakerUnlockBytes,
           earlyUnlockBytes,
         });

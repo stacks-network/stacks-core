@@ -4072,6 +4072,7 @@ export const contracts = {
                 { name: 'tx', type: { buffer: { length: 100000 } } },
                 { name: 'tx-count', type: 'uint128' },
                 { name: 'tx-index', type: 'uint128' },
+                { name: 'unlock-burn-height', type: 'uint128' },
               ],
             },
           },
@@ -4096,6 +4097,7 @@ export const contracts = {
               tx: Uint8Array;
               txCount: number | bigint;
               txIndex: number | bigint;
+              unlockBurnHeight: number | bigint;
             },
             'lockup'
           >,
@@ -4498,6 +4500,21 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      transferStrandedRewards: {
+        name: 'transfer-stranded-rewards',
+        access: 'private',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+        ],
+        Response<boolean, bigint>
+      >,
       unstakeSatsFromBondCycle: {
         name: 'unstake-sats-from-bond-cycle',
         access: 'private',
@@ -4746,6 +4763,7 @@ export const contracts = {
                 { name: 'tx', type: { buffer: { length: 100000 } } },
                 { name: 'tx-count', type: 'uint128' },
                 { name: 'tx-index', type: 'uint128' },
+                { name: 'unlock-burn-height', type: 'uint128' },
               ],
             },
           },
@@ -4756,9 +4774,10 @@ export const contracts = {
                 ok: {
                   tuple: [
                     {
-                      name: 'expected-script-hash',
-                      type: { buffer: { length: 34 } },
+                      name: 'early-unlock-bytes',
+                      type: { buffer: { length: 683 } },
                     },
+                    { name: 'minimum-unlock-height', type: 'uint128' },
                     {
                       name: 'seen-outpoints',
                       type: {
@@ -4776,6 +4795,11 @@ export const contracts = {
                         },
                       },
                     },
+                    { name: 'staker', type: 'principal' },
+                    {
+                      name: 'staker-unlock-bytes',
+                      type: { buffer: { length: 683 } },
+                    },
                     { name: 'sum', type: 'uint128' },
                   ],
                 },
@@ -4790,9 +4814,10 @@ export const contracts = {
               ok: {
                 tuple: [
                   {
-                    name: 'expected-script-hash',
-                    type: { buffer: { length: 34 } },
+                    name: 'early-unlock-bytes',
+                    type: { buffer: { length: 683 } },
                   },
+                  { name: 'minimum-unlock-height', type: 'uint128' },
                   {
                     name: 'seen-outpoints',
                     type: {
@@ -4806,6 +4831,11 @@ export const contracts = {
                         length: 10,
                       },
                     },
+                  },
+                  { name: 'staker', type: 'principal' },
+                  {
+                    name: 'staker-unlock-bytes',
+                    type: { buffer: { length: 683 } },
                   },
                   { name: 'sum', type: 'uint128' },
                 ],
@@ -4826,17 +4856,21 @@ export const contracts = {
               tx: Uint8Array;
               txCount: number | bigint;
               txIndex: number | bigint;
+              unlockBurnHeight: number | bigint;
             },
             'lockup'
           >,
           accumulatorRes: TypedAbiArg<
             Response<
               {
-                expectedScriptHash: Uint8Array;
+                earlyUnlockBytes: Uint8Array;
+                minimumUnlockHeight: number | bigint;
                 seenOutpoints: {
                   outputIndex: number | bigint;
                   txid: Uint8Array;
                 }[];
+                staker: string;
+                stakerUnlockBytes: Uint8Array;
                 sum: number | bigint;
               },
               number | bigint
@@ -4846,11 +4880,14 @@ export const contracts = {
         ],
         Response<
           {
-            expectedScriptHash: Uint8Array;
+            earlyUnlockBytes: Uint8Array;
+            minimumUnlockHeight: bigint;
             seenOutpoints: {
               outputIndex: bigint;
               txid: Uint8Array;
             }[];
+            staker: string;
+            stakerUnlockBytes: Uint8Array;
             sum: bigint;
           },
           bigint
@@ -4929,6 +4966,7 @@ export const contracts = {
                           { name: 'tx', type: { buffer: { length: 100000 } } },
                           { name: 'tx-count', type: 'uint128' },
                           { name: 'tx-index', type: 'uint128' },
+                          { name: 'unlock-burn-height', type: 'uint128' },
                         ],
                       },
                       length: 10,
@@ -4959,6 +4997,7 @@ export const contracts = {
                 tx: Uint8Array;
                 txCount: number | bigint;
                 txIndex: number | bigint;
+                unlockBurnHeight: number | bigint;
               }[];
               stakerUnlockBytes: Uint8Array;
             },
@@ -5206,6 +5245,12 @@ export const contracts = {
           bigint
         >
       >,
+      pauseRewards: {
+        name: 'pause-rewards',
+        access: 'public',
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
       registerForBond: {
         name: 'register-for-bond',
         access: 'public',
@@ -5247,6 +5292,7 @@ export const contracts = {
                               },
                               { name: 'tx-count', type: 'uint128' },
                               { name: 'tx-index', type: 'uint128' },
+                              { name: 'unlock-burn-height', type: 'uint128' },
                             ],
                           },
                           length: 10,
@@ -5335,6 +5381,7 @@ export const contracts = {
                   tx: Uint8Array;
                   txCount: number | bigint;
                   txIndex: number | bigint;
+                  unlockBurnHeight: number | bigint;
                 }[];
                 stakerUnlockBytes: Uint8Array;
               },
@@ -5487,6 +5534,33 @@ export const contracts = {
           >,
         ],
         Response<boolean, null>
+      >,
+      setPauseAdmin: {
+        name: 'set-pause-admin',
+        access: 'public',
+        args: [{ name: 'new-admin', type: 'principal' }],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'new-admin', type: 'principal' },
+                  { name: 'old-admin', type: 'principal' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [newAdmin: TypedAbiArg<string, 'newAdmin'>],
+        Response<
+          {
+            newAdmin: string;
+            oldAdmin: string;
+          },
+          bigint
+        >
       >,
       setupBond: {
         name: 'setup-bond',
@@ -7529,6 +7603,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_UNLOCK_HEIGHT: {
+        name: 'ERR_INVALID_UNLOCK_HEIGHT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
         name: 'ERR_INVALID_UNSTAKE_SBTC_AMOUNT',
         type: {
@@ -7601,6 +7685,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_REENTRANT_CALL: {
         name: 'ERR_REENTRANT_CALL',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_REWARDS_PAUSED: {
+        name: 'ERR_REWARDS_PAUSED',
         type: {
           response: {
             ok: 'none',
@@ -7833,6 +7927,11 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      pauseAdmin: {
+        name: 'pause-admin',
+        type: 'principal',
+        access: 'variable',
+      } as TypedAbiVariable<string>,
       poxPrepareCycleLength: {
         name: 'pox-prepare-cycle-length',
         type: 'uint128',
@@ -7848,6 +7947,11 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      rewardsPaused: {
+        name: 'rewards-paused',
+        type: 'bool',
+        access: 'variable',
+      } as TypedAbiVariable<boolean>,
       signerManagerCallActive: {
         name: 'signer-manager-call-active',
         type: 'bool',
@@ -7962,6 +8066,10 @@ export const contracts = {
         isOk: false,
         value: 24n,
       },
+      ERR_INVALID_UNLOCK_HEIGHT: {
+        isOk: false,
+        value: 52n,
+      },
       ERR_INVALID_UNSTAKE_SBTC_AMOUNT: {
         isOk: false,
         value: 37n,
@@ -7993,6 +8101,10 @@ export const contracts = {
       ERR_REENTRANT_CALL: {
         isOk: false,
         value: 49n,
+      },
+      ERR_REWARDS_PAUSED: {
+        isOk: false,
+        value: 53n,
       },
       ERR_ROLLOVER_TOO_EARLY: {
         isOk: false,
@@ -8057,9 +8169,11 @@ export const contracts = {
       firstPox5RewardCycle: 0n,
       lastAccountedRewardsOnly: 0n,
       lastRewardComputeHeight: 0n,
+      pauseAdmin: 'SP000000000000000000002Q6VF78',
       poxPrepareCycleLength: 50n,
       poxRewardCycleLength: 1_050n,
       reserveBalance: 0n,
+      rewardsPaused: false,
       signerManagerCallActive: false,
       totalSbtcStaked: 0n,
     },
@@ -8112,6 +8226,7 @@ export const contracts = {
                               },
                               { name: 'tx-count', type: 'uint128' },
                               { name: 'tx-index', type: 'uint128' },
+                              { name: 'unlock-burn-height', type: 'uint128' },
                             ],
                           },
                           length: 10,
@@ -8200,6 +8315,7 @@ export const contracts = {
                   tx: Uint8Array;
                   txCount: number | bigint;
                   txIndex: number | bigint;
+                  unlockBurnHeight: number | bigint;
                 }[];
                 stakerUnlockBytes: Uint8Array;
               },

@@ -218,6 +218,14 @@ export function bondRolloverUnlockHeight(
   model: Readonly<Model>,
   bondIndex: bigint,
 ): bigint {
+  return bondL1UnlockHeight(model, bondIndex);
+}
+
+/** Minimum L1 lockup unlock height accepted for a bond registration. */
+export function bondL1UnlockHeight(
+  model: Readonly<Model>,
+  bondIndex: bigint,
+): bigint {
   return (
     rewardCycleToBurnHeight(model, bondEndCycle(model, bondIndex)) -
     model.rewardCycleLength / 2n

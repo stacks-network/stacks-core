@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -30,6 +30,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
 use rand::Rng;
+use stacks_codec::transaction::TransactionPayload::SmartContract;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
@@ -71,7 +72,7 @@ use crate::net::{
     BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
     PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType, StacksNodeState,
 };
-use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_tx_auth};
 
 /// One step of a simulated Nakamoto node's bootup procedure.
 #[derive(Debug, Clone)]
@@ -102,6 +103,7 @@ pub struct NakamotoBootPlan {
     pub malleablized_blocks: bool,
     pub network_id: u32,
     pub txindex: bool,
+    pub epoch: StacksEpochId,
     pub epochs: Option<EpochList<ExecutionCost>>,
     /// Additional transactions to include in the tip block
     pub tip_transactions: Vec<StacksTransaction>,
@@ -129,6 +131,7 @@ impl NakamotoBootPlan {
             network_id: default_config.network_id,
             txindex: false,
             extra_tenures: vec![],
+            epoch: StacksEpochId::Epoch30,
             epochs: None,
             tip_transactions: vec![],
             ignore_transaction_errors: false,
@@ -154,7 +157,7 @@ impl NakamotoBootPlan {
                 + self.pox_constants.reward_cycle_length
                 + 1)
             .into(),
-            StacksEpochId::Epoch30,
+            self.epoch,
         );
         chainstate_config.epochs = Some(self.epochs.clone().unwrap_or(default_epoch));
         chainstate_config.initial_balances = vec![];
@@ -233,6 +236,11 @@ impl NakamotoBootPlan {
 
     pub fn with_epochs(mut self, epochs: EpochList<ExecutionCost>) -> Self {
         self.epochs = Some(epochs);
+        self
+    }
+
+    pub fn with_epoch(mut self, epoch: StacksEpochId) -> Self {
+        self.epoch = epoch;
         self
     }
 
@@ -489,11 +497,11 @@ impl NakamotoBootPlan {
 
         // Advance primary peer and other peers to Nakamoto epoch
         peer.chain
-            .advance_to_epoch_boundary(&self.private_key, StacksEpochId::Epoch30);
+            .advance_to_epoch_boundary(&self.private_key, self.epoch);
         for other_peer in &mut other_peers {
             other_peer
                 .chain
-                .advance_to_epoch_boundary(&self.private_key, StacksEpochId::Epoch30);
+                .advance_to_epoch_boundary(&self.private_key, self.epoch);
         }
 
         (peer, other_peers)
@@ -846,8 +854,11 @@ impl NakamotoBootPlan {
                     let mut stacks_receipts = vec![];
                     for receipt in observed_block.receipts.iter() {
                         match &receipt.transaction {
-                            TransactionOrigin::Stacks(..) => {
-                                stacks_receipts.push(receipt);
+                            TransactionOrigin::Stacks(tx) => {
+                                // ignore receipts from boot contracts deployed at the epoch boundary
+                                if !Self::is_boot_contract_deploy(tx) {
+                                    stacks_receipts.push(receipt);
+                                }
                             }
                             TransactionOrigin::Burn(..) => {}
                         }
@@ -912,6 +923,23 @@ impl NakamotoBootPlan {
         observer: Option<&TestEventObserver>,
     ) -> TestPeer<'_> {
         self.boot_into_nakamoto_peers(boot_plan, observer).0
+    }
+
+    fn is_boot_contract_deploy(tx: &StacksTransaction) -> bool {
+        if let StacksTransaction {
+            payload: SmartContract(..),
+            auth,
+            ..
+        } = tx
+        {
+            let boot_code_address = boot_code_addr(false);
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
+            if *auth == boot_code_auth {
+                return true;
+            }
+        }
+
+        false
     }
 }
 

@@ -66,6 +66,9 @@ export const PRECISION = pox5.constants.PRECISION;
 export const RESERVE_RATIO = pox5.constants.RESERVE_RATIO;
 
 export const deployer = accounts.deployer.address;
+// With `override_boot_contracts_source`, pox-5 starts with the placeholder
+// mainnet admin principal baked into pox-5.clar for both admin roles.
+const POX5_BOOTSTRAP_ADMIN = 'SP000000000000000000002Q6VF78';
 export const AUTH_PROXY_NAME = 'pox-5-auth-proxy';
 export const AUTH_PROXY_ID = `${deployer}.${AUTH_PROXY_NAME}`;
 
@@ -142,12 +145,7 @@ export function proxyRegisterForBondOk(args: ProxyRegisterForBondArgs) {
 }
 
 export function toWitnessOutput(script: Uint8Array) {
-  return BTC.OutScript.encode(
-    BTC.p2wsh({
-      type: 'wsh',
-      script,
-    }),
-  );
+  return concatBytes(new Uint8Array([0x00, 0x20]), sha256(script));
 }
 
 export function serializeLockupScript({
@@ -204,17 +202,16 @@ export function serializeLockupScript({
 export function buildL1Lockup({
   staker,
   sats,
-  bondIndex,
+  unlockBurnHeight,
   stakerUnlockBytes = new Uint8Array(),
   earlyUnlockBytes = new Uint8Array(),
 }: {
   staker: string;
   sats: bigint;
-  bondIndex: bigint;
+  unlockBurnHeight: bigint;
   stakerUnlockBytes?: Uint8Array;
   earlyUnlockBytes?: Uint8Array;
 }) {
-  const unlockBurnHeight = rov(pox5.getBondL1UnlockHeight(bondIndex));
   const lockupScript = serializeLockupScript({
     stacker: staker,
     unlockBurnHeight,
@@ -255,6 +252,7 @@ export function buildL1Lockup({
     txIndex: 0n,
     height: 0n,
     tx: txBytes,
+    unlockBurnHeight,
   };
 }
 
@@ -546,11 +544,6 @@ export function expectAllSignersHaveKeys() {
 }
 
 export function initPox5() {
-  // With `override_boot_contracts_source`, the boot pox-5 is our raw
-  // pox-5.clar, so its initial bond-admin is the mainnet placeholder it ships
-  // with.
-  const INITIAL_BOND_ADMIN = 'SP000000000000000000002Q6VF78';
-
   txOk(
     pox5.setBurnchainParameters({
       firstBurnHeight: 0n,
@@ -560,7 +553,8 @@ export function initPox5() {
     }),
     deployer,
   );
-  txOk(pox5.setBondAdmin(deployer), INITIAL_BOND_ADMIN);
+  txOk(pox5.setBondAdmin(deployer), POX5_BOOTSTRAP_ADMIN);
+  txOk(pox5.setPauseAdmin(deployer), POX5_BOOTSTRAP_ADMIN);
 }
 
 //  The boot-deployed pox-5 (`ST0…AMW42H.pox-5`) that clarinet-sdk recognizes
@@ -569,7 +563,7 @@ export function initPox5() {
 //  `[contracts.pox-5]` is not lock-aware in simnet. Typed via the local ABI
 //  re-pointed at the boot id.
 
-/** `initPox5` for the boot instance: burnchain params only (no bond-admin). */
+/** `initPox5` for the boot instance used by the stateful suite. */
 export function initBootPox5() {
   txOk(
     pox5.setBurnchainParameters({
@@ -582,7 +576,8 @@ export function initBootPox5() {
   );
   // Hand bond-admin from the shipped mainnet placeholder to the deployer so
   // the stateful test can drive `setup-bond`.
-  txOk(pox5.setBondAdmin(deployer), 'SP000000000000000000002Q6VF78');
+  txOk(pox5.setBondAdmin(deployer), POX5_BOOTSTRAP_ADMIN);
+  txOk(pox5.setPauseAdmin(deployer), POX5_BOOTSTRAP_ADMIN);
 }
 
 export function sbtcTransfer(

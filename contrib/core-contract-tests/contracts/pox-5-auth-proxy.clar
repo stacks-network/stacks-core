@@ -44,6 +44,7 @@
           tx-count: uint,
           tx-index: uint,
           amount: uint,
+          unlock-burn-height: uint,
         }
       ),
       staker-unlock-bytes: (buff 683),

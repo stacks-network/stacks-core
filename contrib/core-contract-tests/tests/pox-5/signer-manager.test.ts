@@ -13,7 +13,7 @@ import {
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { hex } from '@scure/base';
 import { accounts, project } from '../clarigen-types';
-import { mineUntil, randomPoxAddress, stxToUStx } from '../test-helpers';
+import { mineUntil, stxToUStx } from '../test-helpers';
 import { Cl, serializeCV } from '@stacks/transactions';
 import {
   CoreNodeEventType,
@@ -32,9 +32,6 @@ const BASIS_POINTS = 10000n;
 const deployer = accounts.deployer.address;
 const alice = accounts.wallet_1.address;
 const bob = accounts.wallet_2.address;
-const charlie = accounts.wallet_3.address;
-const dave = accounts.wallet_4.address;
-const emily = accounts.wallet_5.address;
 
 beforeEach(() => {
   initPox5();
@@ -166,6 +163,19 @@ test('signers have pox-addr saved from calldata when provided', () => {
   expect(rov(signerManager.getPoxAddr(alice))?.maxFee).toEqual(maxFee);
 });
 
+test('only admins can update fees and fees must be less than max bips', () => {
+  expect(txErr(signerManager.updateFees(1000n), alice).value).toBe(
+    signerManagerErrors.ERR_UNAUTHORIZED_ADMIN,
+  );
+  expect(txErr(signerManager.updateFees(10000n), deployer).value).toBe(
+    signerManagerErrors.ERR_INVALID_FEES_BIPS,
+  );
+  expect(txErr(signerManager.updateFees(10001n), deployer).value).toBe(
+    signerManagerErrors.ERR_INVALID_FEES_BIPS,
+  );
+  txOk(signerManager.updateFees(9999n), deployer);
+});
+
 test('staking rejects malformed pox-addr calldata', () => {
   const calldata = hex.decode(
     serializeCV(
@@ -192,16 +202,6 @@ test('staking rejects malformed pox-addr calldata', () => {
     ).value,
   ).toBe(signerManagerErrors.ERR_INVALID_POX_ADDR);
   expect(rov(signerManager.getPoxAddr(alice))).toBeNull();
-});
-
-test('only admins can update fees and fees cannot exceed max bips', () => {
-  expect(txErr(signerManager.updateFees(1000n), alice).value).toBe(
-    signerManagerErrors.ERR_UNAUTHORIZED_ADMIN,
-  );
-  expect(txErr(signerManager.updateFees(10001n), deployer).value).toBe(
-    signerManagerErrors.ERR_INVALID_FEES_BIPS,
-  );
-  txOk(signerManager.updateFees(10000n), deployer);
 });
 
 test('fees are deducted from newly earned staker rewards', () => {

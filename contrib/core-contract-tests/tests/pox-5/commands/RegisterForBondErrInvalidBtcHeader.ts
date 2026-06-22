@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
 import {
+  bondL1UnlockHeight,
   getWalletNameByAddress,
   logCommand,
   refreshModel,
@@ -46,10 +47,12 @@ export const RegisterForBondErrInvalidBtcHeader = (
           const bonds = [...model.bonds.keys()];
           const bondIndex = bonds[r.bondPick % bonds.length];
           pickedBond = bondIndex;
+          const config = model.bonds.get(bondIndex)!;
           const lockup = buildL1Lockup({
             staker: r.staker,
             sats: r.sats,
-            bondIndex,
+            unlockBurnHeight: bondL1UnlockHeight(model, bondIndex),
+            earlyUnlockBytes: config.earlyUnlockBytes,
           });
           const membershipBefore = rov(
             real.contracts.pox5.getBondMembership(r.staker),
