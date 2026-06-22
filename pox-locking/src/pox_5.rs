@@ -571,7 +571,9 @@ pub fn handle_contract_call(
 
     // Record a position-altering PoX action for the affected staker (always
     // `tx-sender`, i.e. `sender_opt`), so that transaction-level `Pox`
-    // post-conditions and `with-pox` allowances can constrain them.
+    // post-conditions and `with-pox` allowances can constrain them. Recorded
+    // whether or not the call succeeded, so an allowance can gate even a failed
+    // attempt.
     if matches!(
         function_name,
         "unstake" | "unstake-sbtc" | "update-bond-registration" | "announce-l1-early-exit"
@@ -2022,6 +2024,70 @@ mod tests {
                 "{function_name} must record a PoX action for the tx-sender",
             );
         }
+    }
+
+    /// A position-altering call records a PoX action even when it returned
+    /// `(err ...)`: a `Pox` post-condition / `with-pox` allowance must be able
+    /// to gate a failed attempt, so the action is logged regardless of outcome.
+    #[test]
+    fn handle_contract_call_logs_pox_action_even_on_error() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+
+        for function_name in [
+            "unstake-sbtc",
+            "update-bond-registration",
+            "announce-l1-early-exit",
+        ] {
+            let mut store = MemoryBackingStore::new();
+            let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+            let contract_id = boot_code_id(POX_5_NAME, global_context.mainnet);
+
+            let response = Value::error(Value::UInt(1)).unwrap();
+            handle_contract_call(
+                &mut global_context,
+                Some(&staker),
+                &contract_id,
+                function_name,
+                &[],
+                &response,
+            )
+            .unwrap_or_else(|e| panic!("dispatch of {function_name} should succeed: {e:?}"));
+
+            assert!(
+                global_context
+                    .get_readonly_asset_map()
+                    .expect("asset map should exist")
+                    .did_pox_action(&staker),
+                "errored {function_name} must still record a PoX action for the tx-sender",
+            );
+        }
+    }
+
+    /// In Epoch 4.0+, two stacking logs for the same principal within one
+    /// asset-map frame accumulate (the within-frame analogue of the
+    /// `commit_other` summing). This is the path hit when a single caller frame
+    /// drives more than one PoX-5 lock for the same staker.
+    #[test]
+    fn log_stacking_sums_within_frame_in_epoch_4() {
+        let staker: PrincipalData = StandardPrincipalData::transient().into();
+        let mut store = MemoryBackingStore::new();
+        let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
+
+        global_context
+            .log_stacking(&staker, 100_000)
+            .expect("first log should succeed");
+        global_context
+            .log_stacking(&staker, 50_000)
+            .expect("second log should succeed");
+
+        assert_eq!(
+            global_context
+                .get_readonly_asset_map()
+                .expect("asset map should exist")
+                .get_stacking(&staker),
+            Some(150_000),
+            "stacking amounts must accumulate within a frame in Epoch 4.0+",
+        );
     }
 
     /// `unstake` must also record a PoX action but it requires some setup.
