@@ -166,14 +166,45 @@ test('signers have pox-addr saved from calldata when provided', () => {
   expect(rov(signerManager.getPoxAddr(alice))?.maxFee).toEqual(maxFee);
 });
 
-test('only admins can update fees and fees cannot exceed max bips', () => {
+test('only admins can update fees and fees must be less than max bips', () => {
   expect(txErr(signerManager.updateFees(1000n), alice).value).toBe(
     signerManagerErrors.ERR_UNAUTHORIZED_ADMIN,
+  );
+  expect(txErr(signerManager.updateFees(10000n), deployer).value).toBe(
+    signerManagerErrors.ERR_INVALID_FEES_BIPS,
   );
   expect(txErr(signerManager.updateFees(10001n), deployer).value).toBe(
     signerManagerErrors.ERR_INVALID_FEES_BIPS,
   );
-  txOk(signerManager.updateFees(10000n), deployer);
+  txOk(signerManager.updateFees(9999n), deployer);
+});
+
+test('staking rejects malformed pox-addr calldata', () => {
+  const calldata = hex.decode(
+    serializeCV(
+      Cl.tuple({
+        'pox-addr': Cl.tuple({
+          version: Cl.buffer(new Uint8Array([0])),
+          hashbytes: Cl.buffer(new Uint8Array(32)),
+        }),
+        'max-fee': Cl.uint(100n),
+      }),
+    ),
+  );
+
+  expect(
+    txErr(
+      pox5.stake({
+        signerManager: signerManager.identifier,
+        amountUstx: 100000000n,
+        numCycles: 1n,
+        startBurnHt: simnet.burnBlockHeight,
+        signerCalldata: calldata,
+      }),
+      alice,
+    ).value,
+  ).toBe(signerManagerErrors.ERR_INVALID_POX_ADDR);
+  expect(rov(signerManager.getPoxAddr(alice))).toBeNull();
 });
 
 test('fees are deducted from newly earned staker rewards', () => {

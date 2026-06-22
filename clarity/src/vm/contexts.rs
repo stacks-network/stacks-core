@@ -164,6 +164,12 @@ pub struct AssetMap {
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>,
     /// Amount of STX stacked or delegated for stacking by principal
     stacking_map: HashMap<PrincipalData, u128>,
+    /// Principals that attempted a position-altering PoX action (`unstake`,
+    /// `unstake-sbtc`, `update-bond-registration`, `announce-l1-early-exit`)
+    /// during the transaction — recorded whether or not the call succeeded, so
+    /// a `Pox` post-condition / `with-pox` allowance can gate even a failed
+    /// attempt.
+    pox_action_set: HashSet<PrincipalData>,
 }
 
 impl AssetMap {
@@ -250,12 +256,19 @@ impl AssetMap {
             })
             .collect();
 
+        let pox: Vec<serde_json::value::Value> = self
+            .pox_action_set
+            .iter()
+            .map(|principal| serde_json::value::Value::String(format!("{principal}")))
+            .collect();
+
         json!({
             "stx": stx,
             "burns": burns,
             "tokens": tokens,
             "assets": assets,
             "stacking": stacking,
+            "pox": pox,
         })
     }
 }
@@ -418,6 +431,7 @@ impl AssetMap {
             token_map: HashMap::new(),
             asset_map: HashMap::new(),
             stacking_map: HashMap::new(),
+            pox_action_set: HashSet::new(),
         }
     }
 
@@ -535,6 +549,14 @@ impl AssetMap {
         self.stacking_map.insert(principal.clone(), amount);
     }
 
+    /// Record that a principal attempted a position-altering PoX action
+    /// (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+    /// `announce-l1-early-exit`) during the transaction. Recorded whether or
+    /// not the call succeeded.
+    pub fn add_pox_action(&mut self, principal: &PrincipalData) {
+        self.pox_action_set.insert(principal.clone());
+    }
+
     // This will add any asset transfer data from other to self,
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<(), VmExecutionError> {
@@ -586,6 +608,10 @@ impl AssetMap {
 
         for (principal, stacking_amount) in other.stacking_map.drain() {
             self.stacking_map.insert(principal, stacking_amount);
+        }
+
+        for principal in other.pox_action_set.drain() {
+            self.pox_action_set.insert(principal);
         }
 
         Ok(())
@@ -678,6 +704,26 @@ impl AssetMap {
 
     pub fn get_stacking(&self, principal: &PrincipalData) -> Option<u128> {
         self.stacking_map.get(principal).copied()
+    }
+
+    /// Returns the full map of STX stacked (locked for PoX) by each principal
+    /// during the transaction. Used to enforce transaction-level `Staking`
+    /// post-conditions, since the stacking map is intentionally excluded from
+    /// `to_table`.
+    pub fn get_all_stacking(&self) -> &HashMap<PrincipalData, u128> {
+        &self.stacking_map
+    }
+
+    pub fn did_pox_action(&self, principal: &PrincipalData) -> bool {
+        self.pox_action_set.contains(principal)
+    }
+
+    /// Returns the set of principals that performed a position-altering PoX
+    /// action during the transaction. Used to enforce transaction-level `Pox`
+    /// post-conditions; like the stacking map it is intentionally excluded from
+    /// `to_table`.
+    pub fn get_all_pox_actions(&self) -> &HashSet<PrincipalData> {
+        &self.pox_action_set
     }
 }
 
@@ -1849,6 +1895,11 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         amount: u128,
     ) -> Result<(), VmExecutionError> {
         self.get_asset_map()?.add_stacking(sender, amount);
+        Ok(())
+    }
+
+    pub fn log_pox_action(&mut self, sender: &PrincipalData) -> Result<(), VmExecutionError> {
+        self.get_asset_map()?.add_pox_action(sender);
         Ok(())
     }
 

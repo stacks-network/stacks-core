@@ -198,6 +198,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
         | AllowanceWithFt
         | AllowanceWithNft
         | AllowanceWithStacking
+        | AllowanceWithStaking
+        | AllowanceWithPox
         | AllowanceAll => return None,
     };
     Some(s)

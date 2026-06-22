@@ -39,8 +39,8 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use crate::chainstate::nakamoto::signer_set::{
-    set_pox_5_bond_admin, set_pox_5_sbtc_contract, set_pox_5_sbtc_registry_contract,
-    NakamotoSigners,
+    set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
+    set_pox_5_sbtc_registry_contract, NakamotoSigners,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
@@ -937,6 +937,14 @@ impl Config {
             );
         }
 
+        if is_mainnet && node.pox_5_pause_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_pause_admin` set. \
+                 The pox-5 contract always uses its default pause-admin initializer on mainnet."
+                    .into(),
+            );
+        }
+
         if node.stacker || node.miner {
             node.add_miner_stackerdb(is_mainnet);
             node.add_signers_stackerdbs(is_mainnet);
@@ -1165,6 +1173,7 @@ impl Config {
         set_pox_5_sbtc_contract(self.node.pox_5_sbtc_contract.clone());
         set_pox_5_sbtc_registry_contract(self.node.pox_5_sbtc_registry_contract.clone());
         set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
+        set_pox_5_pause_admin(self.node.pox_5_pause_admin.clone());
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -2279,6 +2288,8 @@ pub struct NodeConfig {
     /// ---
     /// @default: `None`
     pub pox_5_bond_admin: Option<PrincipalData>,
+    /// Principal that can permanently pause PoX-5 signer reward claims.
+    pub pox_5_pause_admin: Option<PrincipalData>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2546,6 +2557,7 @@ impl Default for NodeConfig {
             pox_5_sbtc_contract: None,
             pox_5_sbtc_registry_contract: None,
             pox_5_bond_admin: None,
+            pox_5_pause_admin: None,
         }
     }
 }
@@ -4025,6 +4037,8 @@ pub struct NodeConfigFile {
     /// default initializer (`tx-sender`, the unsignable boot principal) so
     /// `setup-bond` is callable from a key controlled by the operator.
     pub pox_5_bond_admin: Option<String>,
+    /// Principal that can permanently pause PoX-5 signer reward claims.
+    pub pox_5_pause_admin: Option<String>,
 }
 
 impl NodeConfigFile {
@@ -4142,6 +4156,12 @@ impl NodeConfigFile {
                 .map(PrincipalData::parse)
                 .transpose()
                 .map_err(|e| format!("Invalid pox_5_bond_admin: {e}"))?,
+            pox_5_pause_admin: self
+                .pox_5_pause_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_pause_admin: {e}"))?,
         };
         Ok(node_config)
     }
@@ -4969,8 +4989,8 @@ mod tests {
 
     #[test]
     fn test_example_confs() {
-        // For each config file in the ../conf/ directory, we should be able to parse it
-        let conf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("conf");
+        // For each config file in the sample/conf/ directory, we should be able to parse it
+        let conf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../sample/conf");
         println!("Reading config files from: {conf_dir:?}");
         let conf_files = fs::read_dir(conf_dir).unwrap();
 

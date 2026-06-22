@@ -1357,6 +1357,8 @@ impl TypedNativeFunction {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
+            | AllowanceWithStaking
+            | AllowanceWithPox
             | AllowanceAll => Special(SpecialNativeFunction(&post_conditions::check_allowance_err)),
             Secp256r1Verify => Special(SpecialNativeFunction(&check_secp256r1_verify)),
             VerifyMerkleProof => Special(SpecialNativeFunction(&check_verify_merkle_proof)),

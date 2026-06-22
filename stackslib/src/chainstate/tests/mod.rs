@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod consensus;
+mod consensus_unit_tests;
 mod early_return_tests;
 mod madhouse;
 mod parse_tests;
@@ -64,6 +65,7 @@ use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker}
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBIndexed};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::make_pox_4_lockup_chain_id;
+use crate::chainstate::stacks::boot::{POX_5_NAME, POX_5_SIGNER_SET_MIN_USTX};
 use crate::chainstate::stacks::db::{StacksChainState, *};
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
@@ -73,7 +75,7 @@ use crate::core::{
 use crate::net::relay::Relayer;
 use crate::net::test::TestEventObserver;
 use crate::net::tests::NakamotoBootPlan;
-use crate::util_lib::boot::{boot_code_test_addr, boot_code_tx_auth};
+use crate::util_lib::boot::{boot_code_id, boot_code_test_addr, boot_code_tx_auth};
 use crate::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
@@ -2047,6 +2049,67 @@ fn advance_through_all_epochs() {
                 .epoch_id;
         assert_eq!(next_epoch, target_epoch);
     }
+}
+
+#[test]
+/// Guard against drift between the Rust mirror constant
+/// `POX_5_SIGNER_SET_MIN_USTX` and the Clarity `SIGNER_SET_MIN_USTX` baked
+/// into `pox-5.clar`. Boot a chainstate into Epoch 4.0 (which deploys the
+/// pox-5 boot contract), call its `get-pox-info` read-only function at the
+/// chain tip, and assert the reported `min-amount-ustx` matches the Rust
+/// constant.
+fn pox_5_get_pox_info_min_amount_matches_rust_constant() {
+    let privk = StacksPrivateKey::random();
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(7, 3)
+        .with_private_key(privk.clone());
+    let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
+        + boot_plan.pox_constants.reward_cycle_length
+        + 1) as u64;
+    let epochs = TestChainstate::all_epochs(first_burnchain_height);
+    boot_plan = boot_plan.with_epochs(epochs);
+    let mut chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
+
+    // Advance into Epoch 4.0, which deploys the pox-5 boot contract.
+    chainstate.advance_into_epoch(&privk, StacksEpochId::Epoch40);
+    let burn_block_height = chainstate.get_burn_block_height();
+    let current_epoch =
+        SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(current_epoch, StacksEpochId::Epoch40);
+
+    // Call pox-5's `get-pox-info` read-only function at the chain tip.
+    let sortdb = chainstate.sortdb.take().unwrap();
+    let (consensus_hash, block_bhh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+    let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
+    let iconn = sortdb.index_handle_at_tip();
+    let pox_info = chainstate.chainstate().clarity_eval_read_only(
+        &iconn,
+        &stacks_block_id,
+        &boot_code_id(POX_5_NAME, false),
+        "(get-pox-info)",
+    );
+    chainstate.sortdb = Some(sortdb);
+
+    let min_amount_ustx = pox_info
+        .expect_result_ok()
+        .expect("pox-5 get-pox-info returned an (err ..) response")
+        .expect_tuple()
+        .unwrap()
+        .get("min-amount-ustx")
+        .unwrap()
+        .to_owned()
+        .expect_u128()
+        .unwrap();
+
+    assert_eq!(
+        min_amount_ustx,
+        u128::from(POX_5_SIGNER_SET_MIN_USTX),
+        "pox-5 get-pox-info min-amount-ustx must match the POX_5_SIGNER_SET_MIN_USTX Rust constant",
+    );
 }
 
 #[test]

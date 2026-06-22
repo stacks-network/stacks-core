@@ -1,0 +1,1 @@
+Require that `revoke-signer-grant` is called directly only, not indirectly through any contract.

@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2024-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::StacksEpochId;
 

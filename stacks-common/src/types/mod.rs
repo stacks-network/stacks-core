@@ -769,6 +769,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch34
     }
 
+    /// Does this epoch support transaction-level `Staking` post-conditions,
+    /// which constrain how much STX a principal may stake (lock for PoX)
+    /// during a transaction?
+    pub fn supports_staking_post_conditions(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
@@ -776,6 +783,16 @@ impl StacksEpochId {
     /// Whether `at-block` is available in this epoch.
     pub fn supports_at_block(&self) -> bool {
         self < &StacksEpochId::Epoch34
+    }
+
+    /// Whether transaction signatures are allowed to have high-S, meaning
+    /// an ambiguity in transaction IDs. At the consensus level this  was allowed
+    /// before Epoch 3.4, even though SIP 005 disallowed it from the beginning.
+    ///
+    /// This was finally fixed for Epoch 4.0 (and slightly ealier for non-conensus-
+    /// breaking checks in signers and miners).
+    pub fn allows_tx_signatures_with_high_s(&self) -> bool {
+        self < &StacksEpochId::Epoch40
     }
 
     /// Return the network epoch associated with the StacksEpochId

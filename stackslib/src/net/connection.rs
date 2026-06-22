@@ -403,14 +403,6 @@ pub struct ConnectionOptions {
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
     pub antientropy_public: bool,
-    /// maximum number of Stacks 2.x BlocksAvailable messages that can be buffered before processing
-    pub max_buffered_blocks_available: u64,
-    /// maximum number of Stacks 2.x MicroblocksAvailable that can be buffered before processing
-    pub max_buffered_microblocks_available: u64,
-    /// maximum number of Stacks 2.x pushed Block messages we can buffer before processing
-    pub max_buffered_blocks: u64,
-    /// maximum number of Stacks 2.x pushed Microblock messages we can buffer before processing
-    pub max_buffered_microblocks: u64,
     /// maximum number of pushed Nakamoto Block messages we can buffer before processing
     pub max_buffered_nakamoto_blocks: u64,
     /// maximum number of pushed StackerDB chunk messages we can buffer before processing
@@ -576,10 +568,6 @@ impl std::default::Default for ConnectionOptions {
             max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
             antientropy_retry: 3600, // retry pushing data once every hour
             antientropy_public: true, // run antientropy even if we're NOT NAT'ed
-            max_buffered_blocks_available: 5,
-            max_buffered_microblocks_available: 5,
-            max_buffered_blocks: 5,
-            max_buffered_microblocks: 1024,
             max_buffered_nakamoto_blocks: 1024,
             max_buffered_stackerdb_chunks: 4096,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync

@@ -23,7 +23,12 @@ import { expect } from 'vitest';
 import { randomPoxAddress } from '../test-helpers';
 
 const contracts = projectFactory(project, 'simnet');
-export const pox5 = contracts.pox5;
+// clarinet-sdk applies STX locking only to the boot pox-5 (ST0…AMW42H.pox-5),
+// which signer-manager.clar / test-pox-5-signer.clar target. The whole suite's
+// `pox5` handle points there. The local [contracts.pox-5] still deploys but is
+// unused.
+export const POX5_BOOT_ID: string = 'ST000000000000000000002AMW42H.pox-5';
+export const pox5 = contractFactory(project.contracts.pox5, POX5_BOOT_ID);
 export const errorCodes = projectErrors(project).pox5;
 export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
@@ -100,17 +105,16 @@ export function serializeLockupScript({
 export function buildL1Lockup({
   staker,
   sats,
-  bondIndex,
+  unlockBurnHeight,
   stakerUnlockBytes = new Uint8Array(),
   earlyUnlockBytes = new Uint8Array(),
 }: {
   staker: string;
   sats: bigint;
-  bondIndex: bigint;
+  unlockBurnHeight: bigint;
   stakerUnlockBytes?: Uint8Array;
   earlyUnlockBytes?: Uint8Array;
 }) {
-  const unlockBurnHeight = rov(pox5.getBondL1UnlockHeight(bondIndex));
   const lockupScript = serializeLockupScript({
     stacker: staker,
     unlockBurnHeight,
@@ -151,6 +155,7 @@ export function buildL1Lockup({
     txIndex: 0n,
     height: 0n,
     tx: txBytes,
+    unlockBurnHeight,
   };
 }
 
@@ -397,7 +402,7 @@ export function expectAllSignersHaveKeys() {
 }
 
 export function initPox5() {
-  const INITIAL_BOND_ADMIN = 'SP000000000000000000002Q6VF78';
+  const INITIAL_PAUSE_ADMIN = 'SP000000000000000000002Q6VF78';
 
   txOk(
     pox5.setBurnchainParameters({
@@ -408,7 +413,8 @@ export function initPox5() {
     }),
     deployer,
   );
-  txOk(pox5.setBondAdmin(deployer), INITIAL_BOND_ADMIN);
+  txOk(pox5.setBondAdmin(deployer), INITIAL_PAUSE_ADMIN);
+  txOk(pox5.setPauseAdmin(deployer), INITIAL_PAUSE_ADMIN);
 }
 
 export function sbtcTransfer(

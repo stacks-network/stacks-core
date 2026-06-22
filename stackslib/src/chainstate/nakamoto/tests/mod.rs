@@ -139,6 +139,7 @@ fn test_path(name: &str) -> String {
 
 pub mod node;
 pub mod signer_set;
+pub mod transactions;
 
 #[test]
 fn codec_nakamoto_header() {
@@ -3522,6 +3523,25 @@ pub mod nakamoto_block_signatures {
             }
             _ => panic!("Expected InvalidStacksBlock error"),
         }
+    }
+
+    #[test]
+    /// Test a secp256k1 signature with high S. Whether intentional or not,
+    /// this has always been allowed. We no longer allow it for transaction
+    /// signatures, but it's okay for signer signatures.
+    fn test_high_s_single_signature() {
+        let signers = [(Secp256k1PrivateKey::random(), 100)];
+        let reward_set = make_reward_set(&signers);
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        header.signer_signature = vec![signers[0].0.sign(&message).unwrap().with_negated_s()];
+
+        header
+            .verify_signer_signatures(&reward_set)
+            .expect("Failed to verify signature");
     }
 
     #[test]
